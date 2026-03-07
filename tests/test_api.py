@@ -149,6 +149,8 @@ class TestAuthenticationEndpoints:
                 "password": "NewSchoolPass123!",
                 "termsAccepted": True,
                 "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
             },
         )
 
@@ -168,6 +170,8 @@ class TestAuthenticationEndpoints:
                 "password": "DuplicatePass123!",
                 "termsAccepted": True,
                 "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
             },
         )
 
@@ -187,6 +191,8 @@ class TestAuthenticationEndpoints:
                 "password": "weak",  # Too weak
                 "termsAccepted": True,
                 "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
             },
         )
 

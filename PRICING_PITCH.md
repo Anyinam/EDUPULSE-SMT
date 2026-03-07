@@ -39,9 +39,25 @@ Premium ($500/mo)
 ---
 
 ## 💼 Basic Plan
-**Price**: GH₵ 200/month  
+**Price**: GH₵ 360/term (Base fee covers 30 students) + GH₵ 12/student/term for additional students  
+**Annual Cost (30 students)**: ~GH₵ 1,080/year  
+**Annual Cost (100 students)**: ~GH₵ 3,600/year  
 **Student Cap**: 200 students  
 **Best For**: Growing schools, full core usage
+
+### Pricing Examples
+```
+School with 30 students:
+  GH₵360/term × 3 terms = GH₵1,080/year
+
+School with 80 students (50 over base):
+  (GH₵360 × 3 terms) + (50 students × GH₵12/term × 3) 
+  = GH₵1,080 + GH₵1,800 = GH₵2,880/year
+
+School with 100 students (70 over base):
+  (GH₵360 × 3 terms) + (70 students × GH₵12/term × 3)
+  = GH₵1,080 + GH₵2,520 = GH₵3,600/year
+```
 
 ### Features ✅
 Everything in Free Tier, plus:
@@ -67,9 +83,25 @@ Everything in Free Tier, plus:
 ---
 
 ## 🚀 Premium Plan
-**Price**: GH₵ 500/month  
+**Price**: GH₵ 510/term (Base fee covers 30 students) + GH₵ 17/student/term for additional students  
+**Annual Cost (30 students)**: ~GH₵ 1,530/year  
+**Annual Cost (100 students)**: ~GH₵ 5,100/year  
 **Student Cap**: Unlimited  
 **Best For**: Large schools, advanced governance, full AI capabilities
+
+### Pricing Examples
+```
+School with 30 students:
+  GH₵510/term × 3 terms = GH₵1,530/year
+
+School with 100 students (70 over base):
+  (GH₵510 × 3 terms) + (70 students × GH₵17/term × 3) 
+  = GH₵1,530 + GH₵3,570 = GH₵5,100/year
+
+School with 200 students (170 over base):
+  (GH₵510 × 3 terms) + (170 students × GH₵17/term × 3)
+  = GH₵1,530 + GH₵8,670 = GH₵10,200/year
+```
 
 ### Features ✅
 Everything in Basic, plus:
@@ -116,9 +148,64 @@ Everything in Basic, plus:
 - ✅ Priority Support
 
 **🔐 Premium Security & Compliance**
-- ✅ Advanced audit logging
+- ✅ Advanced audit logging with enhanced retention
 - ✅ Transaction verification workflows
 - ✅ Payment reconciliation tools
+- ✅ Enhanced DSAR workflow support
+- ✅ Webhook signature verification
+
+---
+
+## 🔒 Security & Compliance (All Tiers)
+
+EduPulse is built with **production-grade security** and **Ghana Data Protection Act 2012 (Act 843) compliance** across all subscription tiers.
+
+### 🛡️ Data Protection
+- **Encryption at Rest**: Field-level encryption for sensitive data (bank accounts, PII) using Fernet symmetric encryption
+- **Encryption in Transit**: All data transmitted over HTTPS/TLS with security headers (CSP, HSTS, X-Frame-Options)
+- **Multi-Tenant Isolation**: Complete data separation between schools—your data never mixes with other institutions
+- **Tamper-Evident Ledger**: Financial transactions use HMAC-SHA256 chain integrity for audit trail protection
+
+### 🔐 Access Control & Authentication
+- **Role-Based Access Control (RBAC)**: 10+ role types (Proprietor, Headmaster, Finance, Teacher, etc.) with granular permissions
+- **JWT Authentication**: Industry-standard token-based authentication with secure session management
+- **Password Protection**: Werkzeug hashing with strong password requirements
+- **Rate Limiting**: Login lockout protection prevents brute-force attacks
+- **Production Secret Validation**: Blocks deployment with weak or missing security keys
+
+### 📋 Compliance & Governance
+- **Ghana Data Protection Act 2012 Compliance**: Data Controller-ready with documented policies and technical controls
+- **Mandatory Policy Acceptance**: Schools must explicitly accept Terms of Service, Privacy Policy, and Data Retention Policy at signup
+- **DSAR Workflow Support**: 
+  - Free/Basic: 30-day response SLA
+  - Premium: Enhanced workflow with 3-day acknowledgement and dedicated support
+- **Audit Logging**: Comprehensive event tracking with:
+  - Registration policy acceptance with version and client IP
+  - User actions (login, data changes, financial transactions)
+  - Evidence retention for regulatory compliance
+- **Data Retention Policy**: Clear retention periods and deletion procedures aligned with legal requirements
+
+### 🔍 Transparency & User Rights
+- **Policy Visibility**: Terms, Privacy, and Data Retention policies accessible on all public pages (login, signup, pricing, password reset)
+- **Acceptance Audit Trail**: Every school registration records policy version, acceptance timestamp, and client IP
+- **DSAR Support**: Students/guardians can request access, correction, or deletion of personal data through documented channels
+
+### 🎯 Why Security Matters for Schools
+```
+❌ Without EduPulse:
+- Student data in plain Excel files
+- No audit trail for financial transactions
+- Manual payment tracking (fraud risk)
+- No compliance documentation for regulators
+
+✅ With EduPulse (All Tiers):
+- Encrypted student data (bank info, grades)
+- Tamper-proof financial ledger
+- Automated compliance documentation
+- Ready for Data Protection Commission audits
+```
+
+**Key Benefit**: Schools using EduPulse can demonstrate **Ghana Data Protection Act compliance** with minimal effort—our platform handles the technical requirements automatically.
 
 ---
 
@@ -174,13 +261,15 @@ else:
 - **Conversion Path**: Start small, hit 50-student limit, upgrade
 - **Churn Risk**: High (feature limits force upgrade or switch)
 
-**Basic Plan** (GH₵200/month = ~GH₵2,400/year)
+**Basic Plan** (GH₵360/term base + GH₵12/student/term = ~GH₵1,080-3,600/year)
 - **Pitch**: "Full operational suite for growing schools"
 - **ROI**: ~GH₵10-20 per student/month in efficiency gains
 - **Upsell**: "AI features unlock at Premium"
 - **Target**: 50-200 student schools, 5-10 staff
+- **30 students:** GH₵1,080/year (base only)
+- **100 students:** GH₵3,600/year (base + 70 × GH₵12 × 3)
 
-**Premium Plan** (GH₵500/month = ~GH₵6,000/year)
+**Premium Plan** (GH₵510/term base + GH₵17/student/term = ~GH₵1,530-10,200/year)
 - **Pitch**: "Intelligence-driven governance for large schools"
 - **ROI**: Predictive AI prevents dropout losses (estimated GH₵2,000+/student saved)
 - **Unlimited scaling**: No cap on student growth
@@ -201,20 +290,24 @@ Conversion: Offer Basic upgrade
 
 **Scenario 2: Mid-Size JHS (150 students)**
 ```
-Plan: Basic (GH₵200/month)
-Annual Revenue: GH₵2,400
+Plan: Basic (GH₵360 base + 120 students × GH₵12/term)
+Per Term Cost: GH₵360 + GH₵1,440 = GH₵1,800
+Annual Revenue: GH₵5,400 (3 terms)
 Staff: 8-10 people
 Use Case: Full attendance, grades, basic finance tracking
-Upgrade Trigger: Hit 200-student limit, want AI features
+Upgrade Trigger: Want AI features (hit Premium for GH₵2,550/term with same enrollment)
 ```
 
 **Scenario 3: Large Secondary School (400+ students)**
 ```
-Plan: Premium (GH₵500/month)
-Annual Revenue: GH₵6,000
+Plan: Premium
+Base Fee: GH₵510/term × 3 terms = GH₵1,530/year
+Overage: (400 - 30 students) × GH₵17/term × 3 terms = GH₵18,870/year
+Total Annual: GH₵1,530 + GH₵18,870 = GH₵20,400/year
 Staff: 20+ people
 Use Case: AI risk prediction, automated payments, unlimited growth
 Business Impact: Predict & prevent student dropouts
+Cost Per Student: GH₵51/student/year
 ```
 
 ### Tax Assumptions
@@ -228,16 +321,22 @@ Average ARR per school: ~GH₵3,480
 
 ---
 
-## 🎯 Pitch Key Messages
+### Pitch Key Messages
 
 ### For Free Tier Schools
-> *"Start free, no credit card. Use all core features to manage your 50 students. When you grow, Premium unlocks AI-powered governance."*
+> *"Start free, no credit card. Use all core features to manage your 50 students. **Built-in Ghana Data Protection Act compliance** means you're audit-ready from day one."*
 
 ### For Basic Tier Schools
-> *"GH₵200/month to run your entire school platform. Managing 150+ students? Every student's at-risk status predicted before they drop out."*
+> *"GH₵200/month to run your entire school platform with **production-grade security and compliance**. Managing 150+ students? Every feature you need, encrypted and audit-ready."*
 
 ### For Premium Tier Schools
-> *"GH₵500/month for unlimited students + AI that stops dropouts. Save more than you spend in retained tuition revenue."*
+> *"Premium starts at just GH₵510/term (includes 30 students), then GH₵17 per additional student per term. **Scales affordably** from GH₵1,530/year (30 students) to GH₵5,100/year (100 students). **Enhanced DSAR support** means faster regulatory response times."*
+
+### For Schools Growing Faster
+> *"With Premium, each new student adds just GH₵51/year (GH₵17/term × 3 terms). **Scale for less**—no per-seat licenses, no hidden fees."*
+
+### For Compliance-Conscious Schools
+> *"Most schools store data in plain Excel files—**no encryption, no audit trail, no compliance**. EduPulse gives you **Ghana Data Protection Act compliance out of the box**: encrypted data, tamper-proof ledgers, and documented DSAR workflows. **Pass regulatory audits without hiring a compliance team.**"*
 
 ---
 
@@ -250,12 +349,20 @@ Average ARR per school: ~GH₵3,480
 ### Basic → Premium
 - Show locked AI features in dashboard
 - "Premium: See which students are at risk of dropping out"
-- A/B test: Cost savings from dropout prevention vs. GH₵300/month uplift
+- A/B test: Cost savings from dropout prevention (GH₵2,000+/student saved) vs. GH₵17/student/term cost
+- **Growth Advantage**: "Your school just hit 150 students. Premium costs only GH₵17/extra student/term (vs. GH₵12/student/year in Basic)—plus AI features worth 10x the cost."
+
+### Premium Scaling Advantage
+- Schools **naturally grow into** Premium pricing
+- 30 students: GH₵1,530/year (base fee only)
+- 75 students: GH₵2,655/year (base + 45 students)
+- 150 students: GH₵4,785/year (base + 120 students)
+- **Per-student cost drops as school grows** (better than competing per-seat licensing)
 
 ### Bottlenecks for Upgrades
 1. **Free Tier**: Student capacity (hard limit at 50)
-2. **Basic Tier**: Missing AI & webhooks (soft limit, feature-gated)
-3. **Premium**: None (unlimited growth + all features)
+2. **Basic Tier**: Missing AI & webhooks (soft limit, feature-gated); student limit at 200
+3. **Premium**: None (unlimited growth + all features, scalable pricing)
 
 ---
 
@@ -268,6 +375,11 @@ Average ARR per school: ~GH₵3,480
 | **Multi-Tenant (Schools)** | ✅ All Tiers | Not available |
 | **Pricing Entry Point** | ✅ FREE | GH₵200+ immediately |
 | **Scalability** | ✅ Unlimited (Premium) | Per-seat license |
+| **Data Protection Compliance** | ✅ All Tiers | Not documented |
+| **Field-Level Encryption** | ✅ All Tiers | Plain text storage |
+| **Tamper-Evident Ledger** | ✅ All Tiers | Manual Excel records |
+| **DSAR Workflow Support** | ✅ All Tiers | Manual/ad-hoc |
+| **Mandatory Policy Acceptance** | ✅ All Tiers | Not enforced |
 
 ---
 
@@ -281,31 +393,43 @@ Average ARR per school: ~GH₵3,480
 EduPulse helps Ghana's schools run on data, not guesswork.
 - Free tier gets you started (50 students)
 - Basic (GH₵200/mo) runs full operations for 150-200 schools
-- Premium (GH₵500/mo) adds AI to predict student risk & automate payments
+- Premium: GH₵510/term (base) + GH₵17/student/term for students beyond 30
+  → Scales from GH₵1,530/year (30 students) to GH₵10,200/year (200 students)
+  → Adds AI to predict student risk & automate payments
 → Save GH₵2,000+ per at-risk student before they drop out
+
+✨ Built-in Ghana Data Protection Act compliance across all tiers:
+   Encrypted data, tamper-proof ledgers, audit-ready from day one.
 ```
 
 ### Key Metrics for Investors
 - TAM: 20,000+ schools in Ghana
 - Feature-driven STM (Tier bottlenecks → conversion)
 - Blended ARPU: GH₵3,480 (70/30 Basic/Premium mix)
-- Churn Incentive: AI outcomes prevent switching
+- Churn Incentive: AI outcomes + compliance features prevent switching
+- **Compliance Moat**: Built-in Data Protection Act compliance creates switching costs
 
 ---
 
 ## 💡 Notes for Pitch Meeting
 
-✅ **What's Working**
-- Tiered model aligns features with school size
-- Hard student limits create natural upgrade pressure
-- AI features are High-Value & Premium-only (maximize upsell)
+- **Security & compliance built into all tiers** (no add-on fees for critical features)
+- **Compliance moat**: Ghana Data Protection Act readiness creates switching costs
 
 ⚠️ **Consider Adding**
 - Annual discount (e.g., 20% off 12-month commitment)
 - Enterprise/Bulk pricing for school districts
 - Per-SMS costs for parent notifications (add-on revenue)
+- **Compliance certification service** (optional audit support for schools seeking Data Controller certification)
 
 🎯 **Message to Investors**
+- **TAM**: 20,000+ schools × GH₵3,210 avg = GH₵64.2M potential ARR
+- **GTM**: Free tier as acquisition funnel (freemium play)
+- **Retention**: AI features + compliance create stickiness (hard to replicate)
+- **Expansion**: Unlimited Premium tier allows full capture
+- **Regulatory Advantage**: Ghana Data Protection Commission enforcement increasing → compliance becomes mandatory buyer criterion
+- **Switching Costs**: Encrypted data + audit trails + policy documentation = high migration friction
+- **Scalable Pricing Model**: Premium revenue grows 2-3x as schools grow naturally (no forced upsells at tier limits)
 - **TAM**: 20,000+ schools × GH₵3,480 avg = GH₵69.6M potential ARR
 - **GTM**: Free tier as acquisition funnel (freemium play)
 - **Retention**: AI features create stickiness (hard to replicate)

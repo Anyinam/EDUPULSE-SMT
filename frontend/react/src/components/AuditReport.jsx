@@ -4,10 +4,12 @@ import axios from 'axios';
 export default function AuditReport() {
   const [summary, setSummary] = useState(null);
   const [ledger, setLedger] = useState([]);
+  const [events, setEvents] = useState([]);
   const [verification, setVerification] = useState(null);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [period, setPeriod] = useState('current_term');
+  const [eventFilter, setEventFilter] = useState('ALL');
   const [page, setPage] = useState(0);
   const pageSize = 50;
 
@@ -44,6 +46,18 @@ export default function AuditReport() {
     }
   };
 
+  const fetchEvents = async () => {
+    try {
+      const offset = page * pageSize;
+      const actionQuery = eventFilter !== 'ALL' ? `&action=${encodeURIComponent(eventFilter)}` : '';
+      const res = await axios.get(`/api/finance/audit/events?limit=${pageSize}&offset=${offset}${actionQuery}`, getAuthHeaders());
+      setEvents(res.data.events || []);
+    } catch (err) {
+      console.error('Failed to fetch audit events:', err);
+      setEvents([]);
+    }
+  };
+
   const runVerification = async () => {
     setVerifying(true);
     try {
@@ -56,10 +70,43 @@ export default function AuditReport() {
     }
   };
 
+  const exportEventsCsv = async () => {
+    try {
+      const actionQuery = eventFilter !== 'ALL' ? `?action=${encodeURIComponent(eventFilter)}` : '';
+      const response = await axios.get(
+        `/api/finance/audit/events/export${actionQuery}`,
+        {
+          ...getAuthHeaders(),
+          responseType: 'blob'
+        }
+      );
+
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      const headerName = response.headers['content-disposition'];
+      const fallbackName = `audit_events_${eventFilter.toLowerCase()}_${new Date().toISOString().slice(0,10)}.csv`;
+      const fileNameMatch = headerName && headerName.match(/filename=([^;]+)/i);
+      const fileName = fileNameMatch ? fileNameMatch[1].replace(/"/g, '') : fallbackName;
+
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export audit events CSV:', err);
+      alert('Failed to export CSV. Please try again.');
+    }
+  };
+
   useEffect(() => {
     fetchSummary();
     fetchLedger();
-  }, [period, page]);
+    fetchEvents();
+  }, [period, page, eventFilter]);
 
   if (loading && !summary) {
     return <div className="p-8">Loading audit report...</div>;
@@ -132,6 +179,67 @@ export default function AuditReport() {
         )}
       </div>
 
+      {/* Compliance Event Shortcuts */}
+      <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+        <div className="flex flex-wrap items-center gap-2 justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-bold text-slate-700 mr-2">Compliance Event Filter:</span>
+          <button
+            onClick={() => {
+              setEventFilter('ALL');
+              setPage(0);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
+          >
+            All Events
+          </button>
+          <button
+            onClick={() => {
+              setEventFilter('PAYMENT_CODES_GENERATED');
+              setPage(0);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'PAYMENT_CODES_GENERATED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
+          >
+            Payment Instructions Access
+          </button>
+          <button
+            onClick={() => {
+              setEventFilter('REGISTRATION_POLICY_ACCEPTED');
+              setPage(0);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'REGISTRATION_POLICY_ACCEPTED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
+          >
+            Policy Acceptance
+          </button>
+          <button
+            onClick={() => {
+              setEventFilter('SETTINGS_VIEWED');
+              setPage(0);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'SETTINGS_VIEWED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
+          >
+            Settings Access
+          </button>
+          <button
+            onClick={() => {
+              setEventFilter('BANK_DETAILS_UPDATED');
+              setPage(0);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'BANK_DETAILS_UPDATED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
+          >
+            Bank Details Updates
+          </button>
+          </div>
+          <button
+            onClick={exportEventsCsv}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
+            title="Export currently filtered compliance events to CSV"
+          >
+            Export CSV
+          </button>
+        </div>
+      </div>
+
       {/* Transaction Audit Trail */}
       <div className="bg-slate-50 border rounded-xl overflow-hidden mb-4">
         <div className="bg-slate-100 px-4 py-3 border-b">
@@ -181,6 +289,44 @@ export default function AuditReport() {
                     ) : (
                       <span className="text-xl" title="Hash chain broken">🔴</span>
                     )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Compliance Events */}
+      <div className="bg-slate-50 border rounded-xl overflow-hidden mb-4">
+        <div className="bg-slate-100 px-4 py-3 border-b">
+          <h2 className="text-lg font-bold text-slate-800">Compliance Audit Events</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-200 text-slate-700 text-xs uppercase">
+              <tr>
+                <th className="p-3 text-left">Date & Time</th>
+                <th className="p-3 text-left">Action</th>
+                <th className="p-3 text-left">Actor</th>
+                <th className="p-3 text-left">Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {events.length === 0 && (
+                <tr><td className="p-3 text-center" colSpan="4">No audit events found for selected filter.</td></tr>
+              )}
+              {events.map((event, idx) => (
+                <tr key={event.id || idx} className={`bg-white hover:bg-slate-50 ${idx % 2 === 0 ? 'bg-slate-25' : ''}`}>
+                  <td className="p-3 font-mono text-xs">{event.timestamp || 'N/A'}</td>
+                  <td className="p-3">
+                    <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-bold">
+                      {event.action}
+                    </span>
+                  </td>
+                  <td className="p-3 text-slate-700">{event.actor || 'System'}</td>
+                  <td className="p-3 text-xs text-slate-600 max-w-xl truncate" title={event.details || ''}>
+                    {event.details || '-'}
                   </td>
                 </tr>
               ))}

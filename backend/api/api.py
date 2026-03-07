@@ -22,6 +22,45 @@ load_dotenv()
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
 
+
+def _is_production_env() -> bool:
+    return os.getenv("FLASK_ENV", "development").lower() == "production"
+
+
+def _validate_security_configuration() -> None:
+    is_production = _is_production_env()
+    weak_values = {
+        "change-me-in-production",
+        "pisa-dev-key",
+        "default-unsafe-key",
+        "edupulse-dev-secret-key-change-in-production",
+    }
+
+    checks = {
+        "JWT_SECRET_KEY": (os.getenv("JWT_SECRET_KEY") or "").strip(),
+        "DATA_ENCRYPTION_KEY": (os.getenv("DATA_ENCRYPTION_KEY") or "").strip(),
+        "LEDGER_SECRET_KEY": (os.getenv("LEDGER_SECRET_KEY") or "").strip(),
+    }
+
+    issues = []
+    for name, value in checks.items():
+        if not value:
+            issues.append(f"{name} is not set")
+            continue
+        if value in weak_values:
+            issues.append(f"{name} is using a known weak default")
+        if len(value) < 32:
+            issues.append(f"{name} is shorter than 32 characters")
+
+    if issues:
+        message = "; ".join(issues)
+        if is_production:
+            raise RuntimeError(f"Startup blocked due to insecure configuration: {message}")
+        logger.warning("Security configuration warning (development): %s", message)
+
+
+_validate_security_configuration()
+
 # SECURITY: Strict CORS configuration
 CORS(
     app,
@@ -91,7 +130,10 @@ def _log_db_config(active_db_url: str) -> None:
 _log_db_config(db_url)
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+jwt_secret_key = (os.getenv("JWT_SECRET_KEY") or "").strip()
+if not jwt_secret_key:
+    jwt_secret_key = "local-dev-only-jwt-secret-change-me"
+app.config["JWT_SECRET_KEY"] = jwt_secret_key
 app.config["JWT_TOKEN_LOCATION"] = ["headers"]  # Only headers, not query strings
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(
     minutes=app_settings.JWT_ACCESS_TOKEN_MINUTES

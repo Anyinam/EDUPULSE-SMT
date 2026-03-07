@@ -1,8 +1,9 @@
 Feature,Category,Free Tier,Basic Plan,Premium Plan
-Price,Pricing,GH₵ 0/month,GH₵ 200/month,GH₵ 500/month
+Price,Pricing,GH₵ 0/month,"GH₵ 360/term (Base) + GH₵ 12/student/term (Overage)","GH₵ 510/term (Base) + GH₵ 17/student/term (Overage)"
 Student Capacity,Quotas,50 students,200 students,Unlimited
-Annual Cost,Pricing,GH₵ 0,GH₵ 2400,GH₵ 6000
-Cost Per Student/Year,Pricing,GH₵ 0,GH₵ 12,GH₵ varies
+Annual Cost (30 students),Pricing,GH₵ 0,GH₵ 1080 (Base only),GH₵ 1530 (Base only)
+Annual Cost (100 students),Pricing,GH₵ 0,GH₵ 3600 (Base + 70 × GH₵12 × 3),GH₵ 5100 (Base + 70 × GH₵17 × 3)
+Cost Per Student/Year,Pricing,GH₵ 0,"GH₵36/student (30-student base); GH₵12/add'l","GH₵51/student (30-student base); GH₵17/add'l"
 ,,,,
 Basic Attendance Tracking,Core Features,✓,✓,✓
 Manual Grade Entry,Core Features,✓,✓,✓
@@ -46,6 +47,28 @@ Daily Revenue Reports,Governance Features,✗,Basic,✓
 Term Summary Exports,Governance Features,✗,Basic,✓
 Advanced Financial Analytics,Governance Features,✗,Basic,✓
 Payment Reconciliation Tools,Governance Features,✗,Basic,✓
+,,,,
+Security & Compliance,Security Features,,,
+Data Encryption at Rest,Security Features,✓,✓,✓
+Secure Data in Transit (HTTPS/TLS),Security Features,✓,✓,✓
+Multi-Tenant Data Isolation,Security Features,✓,✓,✓
+Role-Based Access Control,Security Features,✓,✓,✓
+JWT Authentication,Security Features,✓,✓,✓
+Security Headers (CSP/HSTS),Security Features,✓,✓,✓
+Rate Limiting & Login Lockout,Security Features,✓,✓,✓
+Password Hashing (Werkzeug),Security Features,✓,✓,✓
+,,,,
+Ghana Data Protection Act Compliance,Compliance Features,✓,✓,✓
+Mandatory Policy Acceptance (Signup),Compliance Features,✓,✓,✓
+Terms/Privacy/Retention Policy Display,Compliance Features,✓,✓,✓
+DSAR Workflow Support,Compliance Features,Basic,Standard,Advanced
+Audit Logging with Evidence Tracking,Compliance Features,✓,✓,Enhanced
+Field-Level Encryption (Bank/PII),Compliance Features,✓,✓,✓
+Tamper-Evident Financial Ledger,Compliance Features,✓,✓,✓
+Webhook Signature Verification,Compliance Features,N/A,N/A,✓
+Policy Acceptance Audit Trail,Compliance Features,✓,✓,✓
+Client IP Logging (Registration),Compliance Features,✓,✓,✓
+Production Secret Validation,Compliance Features,✓,✓,✓
 ,,,,
 Support Level,Support,Community,Standard,Priority
 Max Response Time,Support,24 hours,12 hours,2 hours

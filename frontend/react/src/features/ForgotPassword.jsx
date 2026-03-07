@@ -1,9 +1,15 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import TermsModal from '../components/TermsModal';
+import PrivacyModal from '../components/PrivacyModal';
+import DataRetentionModal from '../components/DataRetentionModal';
 
 export default function ForgotPassword() {
   const [form, setForm] = useState({ schoolCode: '', email: '' });
   const [status, setStatus] = useState({ type: '', msg: '' });
+  const [showTerms, setShowTerms] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showRetention, setShowRetention] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -60,6 +66,20 @@ export default function ForgotPassword() {
 
           <button className="w-full bg-slate-800 text-white p-4 rounded-xl font-bold mt-8 hover:bg-slate-700 transition-all shadow-lg">Send Reset Link</button>
           <p className="text-center mt-8 text-sm text-slate-400"><a href="/login" className="text-blue-600 font-bold hover:underline">Back to Login</a></p>
+
+          <div className="mt-4 p-4 bg-white border border-slate-200 rounded-xl">
+            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Legal Policies</p>
+            <p className="text-sm text-slate-600">By creating a school account, you accept our Terms of Service, Privacy Policy, and Data Retention Policy.</p>
+            <div className="mt-2 text-sm flex flex-wrap gap-3">
+              <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-semibold hover:underline">Terms of Service</button>
+              <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-semibold hover:underline">Privacy Policy</button>
+              <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>
+            </div>
+          </div>
+
+          <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
+          <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
+          <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
         </form>
       </div>
     </div>

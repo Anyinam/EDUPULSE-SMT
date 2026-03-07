@@ -15,23 +15,23 @@ SUBSCRIPTION_TIERS = {"Free Tier": 0, "Basic": 1, "Premium": 2}
 PRICING = {
     "Free Tier": {"per_student_per_term": 0, "max_free_students": 100},
     "Basic": {
-        "base_fee_per_term": 200,
-        "included_students": 25,
+        "base_fee_per_term": 360,
+        "included_students": 30,
         "per_student_per_term": 12,
         "per_student_per_term_range": "10-15",
     },
     "Premium": {
-        "base_fee_per_term": 450,
+        "base_fee_per_term": 510,
         "included_students": 30,
-        "per_student_per_term": 27,
-        "per_student_per_term_range": "25-30",
+        "per_student_per_term": 17,
+        "per_student_per_term_range": "15-20",
     },
 }
 
 PLAN_FEATURES = {
     "Free Tier": {
         "max_classes": 1,
-        "max_students": 100,
+        "max_students": 50,
         "max_staff": 3,
         "report_templates": ["gradman_v1"],  # Only basic template
         "features": {
@@ -109,10 +109,10 @@ PLAN_FEATURES = {
             "bulk_operations": True,
         },
         "description": "Unlimited access to all features with AI-powered insights",
-        "price": "450 GHS base + 27 GHS/student above 30/term",
-        "price_range": "25-30 GHS/student/term",
+        "price": "510 GHS base + 17 GHS/student above 30/term",
+        "price_range": "15-20 GHS/student/term",
         "billing_cycle": "per term (3 terms/year)",
-        "example_cost": "100 students: 450 + (70 × 27) = 2,340 GHS per term",
+        "example_cost": "100 students: 510 + (70 × 17) = 1,700 GHS per term",
     },
 }
 

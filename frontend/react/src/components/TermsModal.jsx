@@ -13,10 +13,11 @@ export default function TermsModal({ isOpen, onClose }) {
         
         <div className="p-6 overflow-y-auto text-slate-600 text-sm leading-relaxed space-y-4">
           <p><strong>1. Acceptance of Terms</strong><br/>By registering for EduPulse SMT, you agree to comply with and be bound by these Terms of Service.</p>
-          <p><strong>2. Data Privacy</strong><br/>We respect student privacy. Data is protected with access controls and secure transmission. EduPulse SMT processes data solely for providing governance insights.</p>
-          <p><strong>3. Subscription & Payments</strong><br/>Free Tier accounts are limited to 100 students. Premium features require an active subscription. Failure to renew may result in restricted access.</p>
-          <p><strong>4. User Responsibilities</strong><br/>You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account.</p>
-          <p><strong>5. Termination</strong><br/>We reserve the right to terminate or suspend access to our service immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms.</p>
+          <p><strong>2. Policy Bundle Acceptance</strong><br/>Registration also confirms acceptance of the Privacy Policy and Data Retention Policy that govern how school, staff, student, and guardian data is handled.</p>
+          <p><strong>3. Data Privacy</strong><br/>We respect student privacy. Data is protected with access controls and secure transmission. EduPulse SMT processes data solely for providing governance insights.</p>
+          <p><strong>4. Subscription & Payments</strong><br/>Free Tier accounts are limited to 100 students. Premium features require an active subscription. Failure to renew may result in restricted access.</p>
+          <p><strong>5. User Responsibilities</strong><br/>You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account.</p>
+          <p><strong>6. Termination</strong><br/>We reserve the right to terminate or suspend access to our service immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms.</p>
         </div>
 
         <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end">

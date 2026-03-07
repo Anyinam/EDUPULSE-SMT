@@ -44,6 +44,8 @@ class RegisterSchema(Schema):
     email = fields.Str(required=True, validate=validate.Email())
     termsAccepted = fields.Bool(required=True)
     termsVersion = fields.Str(required=True, validate=validate.Length(min=1, max=50))
+    policyAccepted = fields.Bool(required=True)
+    policyVersion = fields.Str(required=True, validate=validate.Length(min=1, max=50))
     selectedPlan = fields.Str(
         required=False,
         validate=validate.OneOf(["Free", "Basic", "Premium"]),
@@ -52,13 +54,15 @@ class RegisterSchema(Schema):
 
     @validates_schema
     def validate_password_and_terms(self, data, **kwargs):
-        """Ensures password meets security requirements and terms are accepted."""
+        """Ensures password meets security requirements and legal policies are accepted."""
         password = data.get("password", "")
         is_valid, error_msg = validate_password_strength(password)
         if not is_valid:
             raise ValidationError(error_msg)
         if data.get("termsAccepted") is not True:
-            raise ValidationError("Terms must be accepted")
+            raise ValidationError("Terms of Service must be accepted")
+        if data.get("policyAccepted") is not True:
+            raise ValidationError("Privacy and Data Retention policies must be accepted")
 
 
 class StudentGradeSchema(Schema):

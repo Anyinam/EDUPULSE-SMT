@@ -44,7 +44,7 @@ export default function TrialManager() {
       window.location.reload(); // Refresh to update all components
     } catch (err) {
       console.error("Failed to activate trial:", err);
-      alert(err.response?.data?.message || '❌ Failed to activate trial. Please try again.');
+      alert(err.response?.data?.message || err.response?.data?.error || '❌ Failed to activate trial. Please try again.');
     } finally {
       setProcessing(false);
     }
@@ -73,7 +73,7 @@ export default function TrialManager() {
       window.location.reload();
     } catch (err) {
       console.error("Failed to end trial:", err);
-      alert(err.response?.data?.message || '❌ Failed to end trial. Please try again.');
+      alert(err.response?.data?.message || err.response?.data?.error || '❌ Failed to end trial. Please try again.');
     } finally {
       setProcessing(false);
     }

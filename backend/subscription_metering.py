@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from backend.api.models import School, Student, db
-from backend.subscription_features import PRICING
+from backend.subscription_features import PRICING, PLAN_FEATURES
 
 
 def _now_utc() -> datetime:
@@ -30,7 +30,6 @@ def ensure_trial_expiry(school: School, commit: bool = False) -> bool:
     trial_end = _normalize_dt(school.trial_end_date)
     if school.trial_plan and trial_end and _now_utc() >= trial_end:
         school.trial_plan = None
-        school.trial_end_date = None
         school.is_trial_active = False
         if commit:
             db.session.commit()
@@ -59,21 +58,37 @@ def get_billing_visibility(school_id: str, commit: bool = True) -> dict[str, Any
     active_students = sync_student_meter(school, commit=False)
 
     pricing = _get_plan_pricing(school)
+    plan_info = PLAN_FEATURES.get(school.subscription_plan or "Free Tier", PLAN_FEATURES["Free Tier"])
+    
     included = max(0, int(pricing["included_students"] or 0))
+    max_students = plan_info.get("max_students", 50)
+    
+    # Calculate usage based on PLAN LIMIT, not included students
+    if max_students == float("inf"):
+        # Premium: unlimited
+        usage_percent = 0.0  # Never at capacity
+        capacity_display = "∞ Unlimited"
+    else:
+        usage_percent = round((active_students / max_students) * 100, 2) if max_students > 0 else 0.0
+        capacity_display = f"{max_students}"
+    
+    # Alert based on plan limit, not included students
+    if max_students == float("inf"):
+        alert_level = "ok"
+        alert_message = "Unlimited capacity available."
+    elif active_students >= max_students:
+        alert_level = "critical"
+        alert_message = f"Over Capacity - You have {active_students} students but limit is {max_students}. Upgrade to add more."
+    elif usage_percent >= 80:
+        alert_level = "warning"
+        alert_message = f"Approaching Capacity Limit ({usage_percent:.1f}% used)"
+    else:
+        alert_level = "ok"
+        alert_message = f"Within plan limit. {max_students - active_students} students available."
+
     overage_students = max(0, active_students - included)
     overage_cost = round(overage_students * float(pricing["overage_rate"] or 0), 2)
     total_due = round(float(pricing["base_fee"] or 0) + overage_cost, 2)
-
-    usage_percent = 100.0 if included == 0 and active_students > 0 else (0.0 if included == 0 else round((active_students / included) * 100, 2))
-    if usage_percent >= 100:
-        alert_level = "critical"
-        alert_message = "Included student limit reached. Overage billing active."
-    elif usage_percent >= 80:
-        alert_level = "warning"
-        alert_message = "You are above 80% of included students."
-    else:
-        alert_level = "ok"
-        alert_message = "Within included student limit."
 
     if commit:
         db.session.commit()
@@ -86,22 +101,35 @@ def get_billing_visibility(school_id: str, commit: bool = True) -> dict[str, Any
         "pricing_locked_at": school.pricing_locked_at.isoformat() if school.pricing_locked_at else None,
         "trial": {
             "active": bool(school.trial_plan and school.trial_end_date),
+            "is_active": bool(school.trial_plan and school.trial_end_date),
             "plan": school.trial_plan,
+            "start_date": None,
             "end_date": school.trial_end_date.isoformat() if school.trial_end_date else None,
         },
         "meter": {
+            "current_count": active_students,
             "active_students": active_students,
+            "plan_limit": max_students if max_students != float("inf") else None,  # None for unlimited
             "included_students": included,
             "overage_students": overage_students,
             "usage_percent": usage_percent,
+            "last_synced": school.last_metered_at.isoformat() if school.last_metered_at else None,
             "last_metered_at": school.last_metered_at.isoformat() if school.last_metered_at else None,
             "alert": {
                 "level": alert_level,
+                "title": "Over Capacity" if alert_level == "critical" else ("Approaching Capacity" if alert_level == "warning" else "Healthy Capacity"),
                 "message": alert_message,
             },
         },
+        "pricing": {
+            "base_fee": round(float(pricing["base_fee"] or 0), 2),
+            "included_students": included,
+            "overage_rate": round(float(pricing["overage_rate"] or 0), 2),
+            "version": school.plan_version,
+        },
         "cost_breakdown": {
             "base_fee": round(float(pricing["base_fee"] or 0), 2),
+            "overage_students": overage_students,
             "overage_rate": round(float(pricing["overage_rate"] or 0), 2),
             "overage_cost": overage_cost,
             "total_due": total_due,
@@ -117,6 +145,9 @@ def activate_premium_trial(school_id: str, days: int = 30) -> dict[str, Any]:
     ensure_trial_expiry(school, commit=False)
     if school.trial_plan and school.trial_end_date:
         return {"error": "An active trial already exists"}
+
+    if school.trial_end_date is not None:
+        return {"error": "This school has already used its one-time premium trial"}
 
     school.trial_plan = "Premium"
     school.trial_end_date = _now_utc() + timedelta(days=max(1, int(days)))
@@ -135,8 +166,10 @@ def end_trial(school_id: str) -> dict[str, Any]:
     if not school:
         return {"error": "School not found"}
 
+    if school.trial_end_date is None:
+        school.trial_end_date = _now_utc()
+
     school.trial_plan = None
-    school.trial_end_date = None
     school.is_trial_active = False
     db.session.commit()
 

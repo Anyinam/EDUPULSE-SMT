@@ -5,9 +5,11 @@ EDUPULSE PRICING & FEATURES COMPARISON
 PRICING
 ─────────────────────────────────────────────────────────────────────────────
 	Free Tier		Basic Plan		Premium Plan
-Price	GH₵ 0/month		GH₵ 200/month		GH₵ 500/month
-Annual	GH₵ 0			GH₵ 2,400		GH₵ 6,000
-Students	50			200			Unlimited
+Price	GH₵ 0/month		GH₵ 360/term (Base)	GH₵ 510/term (Base)
+				+ GH₵ 12/student/term	+ GH₵ 17/student/term (Overage)
+Annual (30 students)	GH₵ 0			GH₵ 1,080 (base only)	GH₵ 1,530 (base only)
+Annual (100 students)	GH₵ 0			GH₵ 3,600		GH₵ 5,100
+Students Included	50			30 (in base fee)	30 (in base fee)
 
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -82,6 +84,33 @@ Payment Reconciliation Tools		✗		Basic		✓
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+SECURITY & COMPLIANCE (All Tiers)
+─────────────────────────────────────────────────────────────────────────────
+Feature					Free Tier	Basic Plan	Premium Plan
+─────────────────────────────────────────────────────────────────────────────
+Data Encryption at Rest (Fernet)	✓		✓		✓
+Secure Data in Transit (HTTPS/TLS)	✓		✓		✓
+Multi-Tenant Data Isolation		✓		✓		✓
+Role-Based Access Control (RBAC)	✓		✓		✓
+JWT Authentication			✓		✓		✓
+Security Headers (CSP/HSTS/XFO)		✓		✓		✓
+Rate Limiting & Login Lockout		✓		✓		✓
+Password Hashing (Werkzeug)		✓		✓		✓
+Field-Level Encryption (Bank/PII)	✓		✓		✓
+Tamper-Evident Financial Ledger		✓		✓		✓
+Production Secret Validation		✓		✓		✓
+
+Ghana Data Protection Act Compliance	✓		✓		✓
+Mandatory Policy Acceptance (Signup)	✓		✓		✓
+Terms/Privacy/Retention Display		✓		✓		✓
+DSAR Workflow Support			Basic		Standard	Advanced
+Audit Logging with Evidence		✓		✓		Enhanced
+Policy Acceptance Audit Trail		✓		✓		✓
+Client IP Logging (Registration)	✓		✓		✓
+Webhook Signature Verification		✗		✗		✓
+
+═══════════════════════════════════════════════════════════════════════════════
+
 SUPPORT & SERVICE
 ─────────────────────────────────────────────────────────────────────────────
 Feature					Free Tier	Basic Plan	Premium Plan
@@ -101,29 +130,54 @@ Free Tier → Basic Plan
 └─ Hit 50-student capacity limit
 └─ Need advanced reports & analytics
 └─ Want full financial tracking
+└─ Need enhanced DSAR support (Standard SLA)
 
 Basic Plan → Premium Plan
 └─ Need to exceed 200 students
 └─ Want AI risk prediction
 └─ Want automated payment processing
 └─ Want AI-generated exam questions
+└─ Need enhanced audit logging & compliance support
+└─ Require webhook signature verification
 
 ═══════════════════════════════════════════════════════════════════════════════
 
 REVENUE PROJECTIONS (Per 100 Schools)
 ─────────────────────────────────────────────────────────────────────────────
 
-Scenario: 70% Basic / 30% Premium Mix
+Scenario: 70% Basic / 30% Premium Mix (Average: 100 students/school for both)
 
-Basic Plan (70 schools):
-  70 schools × GH₵2,400/year = GH₵168,000/year
+Basic Plan (70 schools × avg 100 students):
+  70 schools × [(GH₵360 × 3) + (70 students × GH₵12 × 3)]
+  = 70 schools × GH₵3,600/year = GH₵252,000/year
 
-Premium Plan (30 schools):
-  30 schools × GH₵6,000/year = GH₵180,000/year
+Premium Plan (30 schools × avg 100 students):
+  30 schools × [(GH₵510 × 3) + (70 students × GH₵17 × 3)]
+  = 30 schools × GH₵5,100/year = GH₵153,000/year
 
-Total Annual Revenue (100 schools): GH₵348,000
+Total Annual Revenue (100 schools): GH₵405,000
 
-Average ARR per School: GH₵3,480
+Average ARR per School: GH₵4,050
+
+REVENUE SCENARIOS (Basic Plan by School Size)
+─────────────────────────────────────────────────────────────────────────────
+School Size		Students	Annual Cost		Cost Per Student
+─────────────────────────────────────────────────────────────────────────────
+Small JHS		30		GH₵1,080		GH₵36/student
+Mid-size JHS		75		GH₵2,070		GH₵28/student
+Large JHS		150		GH₵3,060		GH₵20/student
+Secondary		200		GH₵4,320		GH₵22/student
+Large Secondary		400		GH₵12,600		GH₵32/student
+
+REVENUE SCENARIOS (Premium Plan by School Size)
+─────────────────────────────────────────────────────────────────────────────
+School Size		Students	Annual Cost		Cost Per Student
+─────────────────────────────────────────────────────────────────────────────
+Small JHS		30		GH₵1,530		GH₵51/student
+Mid-size JHS		75		GH₵2,655		GH₵35/student
+Large JHS		150		GH₵3,825		GH₵26/student
+Secondary		200		GH₵5,100		GH₵26/student
+Large Secondary		400		GH₵10,200		GH₵26/student
 
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -138,5 +192,10 @@ Multi-Tenant (Multiple Schools)		✓		✗
 Free Tier (No Cost Entry)		✓		✗
 Unlimited Scaling (Premium)		✓		✗
 Reference-Based Payment Parsing		✓		✗
+Ghana Data Protection Act Compliance	✓		✗
+Field-Level Data Encryption		✓		✗
+Tamper-Evident Financial Ledger		✓		✗
+Mandatory Policy Acceptance		✓		✗
+DSAR Workflow Support			✓		✗
 
 ═══════════════════════════════════════════════════════════════════════════════

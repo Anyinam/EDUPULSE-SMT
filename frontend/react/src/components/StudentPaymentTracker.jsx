@@ -866,9 +866,14 @@ export default function StudentPaymentTracker() {
                       <button
                         onClick={() => {
                           const codesText = paymentCodes.payment_codes
-                            .map(c => `${c.fee_type}: ${c.virtual_bank_account ? `Virtual Account ${c.virtual_bank_account}` : 'Not configured'} | Ref ${c.reference_code || c.code} (GH₵ ${c.amount.toFixed(2)})`)
+                            .map(c => {
+                              const routeText = c.virtual_bank_account
+                                ? `Virtual Account ${c.virtual_bank_account}${c.virtual_bank_name ? ` (${c.virtual_bank_name})` : ''}`
+                                : 'Virtual route pending - contact school accounts office';
+                              return `${c.fee_type}: ${routeText} | Ref ${c.reference_code || c.code} (GH₵ ${c.amount.toFixed(2)})`;
+                            })
                             .join('\n');
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStudent ID: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the matching virtual route for each fee type.\nFor USSD wallet-to-bank transfer, select the bank shown with the virtual account, then enter that virtual account number.\nPaystack identifies payment type from the route used.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStudent ID: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the matching route for each fee type.\nIf a virtual account is shown, use that for automatic processing.\nIf a virtual account is not yet available, contact the school's accounts office and include the backup reference.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -894,7 +899,9 @@ export default function StudentPaymentTracker() {
                           <p className="font-semibold text-slate-800">{code.fee_type}</p>
                           <p className="text-xs text-slate-600">Amount: GH₵ {code.amount.toFixed(2)}</p>
                           <p className="text-xs text-slate-700">
-                            {code.virtual_bank_account ? `🏦 Virtual Account: ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}` : '🏦 Virtual Account: Not configured'}
+                            {code.virtual_bank_account
+                              ? `🏦 Virtual Account: ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}`
+                              : '🏦 Virtual route pending: Contact school accounts office for approved payment instructions'}
                           </p>
 
                           <p className="text-xs text-slate-600">Backup Ref: {code.reference_code || code.code}</p>
@@ -917,7 +924,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Example instruction: "Pay GH₵ <strong>{paymentCodes.payment_codes[0]?.amount?.toFixed(2) || '0.00'}</strong> for {paymentCodes.payment_codes[0]?.fee_type || 'Tuition'} using virtual route <strong>{paymentCodes.payment_codes[0]?.virtual_bank_account || 'Not configured'}</strong>. In USSD wallet-to-bank, choose <strong>{paymentCodes.payment_codes[0]?.virtual_bank_name || 'the bank shown'}</strong>, then enter the virtual account. Backup ref: <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S0011'}</strong>."
+                    💬 Example instruction: "Pay GH₵ <strong>{paymentCodes.payment_codes[0]?.amount?.toFixed(2) || '0.00'}</strong> for {paymentCodes.payment_codes[0]?.fee_type || 'Tuition'} using <strong>{paymentCodes.payment_codes[0]?.virtual_bank_account ? `virtual route ${paymentCodes.payment_codes[0]?.virtual_bank_account}` : 'school-approved payment instructions from accounts office'}</strong>. Backup ref: <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S0011'}</strong>."
                   </p>
                 </div>
               )}

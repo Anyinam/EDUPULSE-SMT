@@ -137,18 +137,19 @@ export default function SubscriptionManager() {
   const currentStudents = sub.current_enrollment || 0;
   
   // Calculate costs using Model A (Base Fee + Included Students + Overage)
-  // Basic: ₵200 base/term + 25 included + ₵12/extra student
-  const basicBaseFee = 200;
-  const basicIncluded = 25;
+  // Basic: ₵360 base/term + 30 included + ₵12/extra student
+  const basicBaseFee = 360;
+  const basicIncluded = 30;
   const basicOverage = Math.max(0, currentStudents - basicIncluded);
   const basicTermCost = basicBaseFee + (basicOverage * 12);
   const basicAnnualCost = basicTermCost * 3;
   
   // Premium: ₵450 base/term + 30 included + ₵27/extra student
-  const premiumBaseFee = 450;
+  // Premium: ₵510 base/term + 30 included + ₵17/extra student
+  const premiumBaseFee = 510;
   const premiumIncluded = 30;
   const premiumOverage = Math.max(0, currentStudents - premiumIncluded);
-  const premiumTermCost = premiumBaseFee + (premiumOverage * 27);
+  const premiumTermCost = premiumBaseFee + (premiumOverage * 17);
   const premiumAnnualCost = premiumTermCost * 3;
 
   const plans = [

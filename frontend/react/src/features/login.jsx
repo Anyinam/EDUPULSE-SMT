@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Logo } from '../components/Logo';
+import TermsModal from '../components/TermsModal';
+import PrivacyModal from '../components/PrivacyModal';
+import DataRetentionModal from '../components/DataRetentionModal';
 
 const SUPPORT_CONTACT = {
   email: 'support@edupulse.com',
@@ -39,6 +42,9 @@ export default function Login() {
   const [ownerKey, setOwnerKey] = useState('');
   const [ownerMessage, setOwnerMessage] = useState('');
   const [isSavingOwnerContent, setIsSavingOwnerContent] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showRetention, setShowRetention] = useState(false);
 
   const ownerModeEnabled = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -292,6 +298,16 @@ export default function Login() {
             New Tenant? <a href="/register" className="text-blue-600 font-bold hover:underline">Create Credentials</a>
           </p>
 
+          <div className="mt-4 p-4 bg-white border border-slate-200 rounded-xl">
+            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Legal Policies</p>
+            <p className="text-sm text-slate-600">By creating a school account, you accept our Terms of Service, Privacy Policy, and Data Retention Policy.</p>
+            <div className="mt-2 text-sm flex flex-wrap gap-3">
+              <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-semibold hover:underline">Terms of Service</button>
+              <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-semibold hover:underline">Privacy Policy</button>
+              <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>
+            </div>
+          </div>
+
           <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl">
             <p className="text-xs font-bold text-slate-500 uppercase mb-2">Contact & Support</p>
             <p className="text-sm text-slate-600">Need help with setup or access?</p>
@@ -371,6 +387,10 @@ export default function Login() {
               </button>
             </div>
           )}
+
+          <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
+          <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
+          <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
         </form>
       </div>
     </div>

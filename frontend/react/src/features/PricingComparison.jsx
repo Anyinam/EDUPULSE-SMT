@@ -1,7 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check, X, Info } from 'lucide-react';
+import TermsModal from '../components/TermsModal';
+import PrivacyModal from '../components/PrivacyModal';
+import DataRetentionModal from '../components/DataRetentionModal';
 
 export default function PricingComparison() {
+  const [showTerms, setShowTerms] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showRetention, setShowRetention] = useState(false);
+
   const plans = [
     {
       name: 'Free Tier',
@@ -197,6 +204,13 @@ export default function PricingComparison() {
                   {plan.cta}
                 </button>
 
+                <p className="text-center text-xs text-slate-500 mt-3 leading-relaxed">
+                  By creating a school account, you accept our{' '}
+                  <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-semibold hover:underline">Terms of Service</button>,{' '}
+                  <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-semibold hover:underline">Privacy Policy</button>, and{' '}
+                  <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>.
+                </p>
+
                 <p className="text-center text-xs text-slate-500 mt-4">
                   No credit card required
                 </p>
@@ -290,8 +304,22 @@ export default function PricingComparison() {
               Contact our team
             </a>
           </p>
+
+          <div className="max-w-2xl mx-auto bg-white border border-slate-200 rounded-xl p-4">
+            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Legal Policies</p>
+            <p className="text-sm text-slate-600">By creating a school account, you accept our Terms of Service, Privacy Policy, and Data Retention Policy.</p>
+            <div className="mt-2 text-sm flex flex-wrap justify-center gap-3">
+              <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-semibold hover:underline">Terms of Service</button>
+              <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-semibold hover:underline">Privacy Policy</button>
+              <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>
+            </div>
+          </div>
         </div>
       </div>
+
+      <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
+      <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
+      <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
     </div>
   );
 }

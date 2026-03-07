@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import TermsModal from '../components/TermsModal';
 import PrivacyModal from '../components/PrivacyModal';
+import DataRetentionModal from '../components/DataRetentionModal';
 import { Logo } from '../components/Logo';
 import { CheckCircle, ArrowRight, ArrowLeft } from 'lucide-react';
 
-const TERMS_VERSION = '2026-02-22';
+const TERMS_VERSION = '2026-03-07';
+const POLICY_VERSION = '2026-03-07';
 
 export default function Register() {
   const [step, setStep] = useState(1); // Step 1: Info, Step 2: Plan Selection, Step 3: Confirmation
@@ -21,6 +23,7 @@ export default function Register() {
   const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showRetention, setShowRetention] = useState(false);
   const [studentCount, setStudentCount] = useState(100);
 
   const plans = [
@@ -94,7 +97,7 @@ export default function Register() {
         return;
       }
       if (!agreed) {
-        setError('You must agree to the Terms of Service and Privacy Policy');
+        setError('You must agree to the Terms of Service, Privacy Policy, and Data Retention Policy');
         return;
       }
       setStep(2);
@@ -120,7 +123,9 @@ export default function Register() {
         password: form.password,
         selectedPlan: form.selectedPlan, // Send selected plan
         termsAccepted: agreed,
-        termsVersion: TERMS_VERSION
+        termsVersion: TERMS_VERSION,
+        policyAccepted: agreed,
+        policyVersion: POLICY_VERSION
       };
 
       await axios.post('/api/register', payload);
@@ -262,6 +267,8 @@ export default function Register() {
                   <label htmlFor="terms" className="text-sm text-slate-600 cursor-pointer select-none">
                     I agree to the <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-bold hover:underline">Terms of Service</button> and
                     <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-bold hover:underline ml-1">Privacy Policy</button>
+                    <span className="ml-1">and</span>
+                    <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-bold hover:underline ml-1">Data Retention Policy</button>
                   </label>
                 </div>
               </div>
@@ -444,14 +451,22 @@ export default function Register() {
                 </button>
               </div>
 
+              <p className="text-center mt-5 text-xs text-slate-500 leading-relaxed">
+                By creating a school account, you accept our{' '}
+                <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-semibold hover:underline">Terms of Service</button>,{' '}
+                <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-semibold hover:underline">Privacy Policy</button>, and{' '}
+                <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>.
+              </p>
+
               <p className="text-center mt-6 text-xs text-slate-400">
-                By completing registration, you confirm all information is accurate
+                By completing registration, you confirm all information is accurate.
               </p>
             </div>
           )}
 
           <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
           <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
+          <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
         </div>
       </div>
     </div>

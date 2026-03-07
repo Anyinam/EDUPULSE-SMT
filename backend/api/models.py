@@ -50,10 +50,10 @@ class School(db.Model):
     school_website = db.Column(db.String(100))
 
     # Payment Account Details (optional for manual transfers)
-    bank_name = db.Column(db.String(100))  # Bank name (e.g., Fidelity Bank)
-    bank_account = db.Column(db.String(50))  # Bank account number
-    bank_account_name = db.Column(db.String(100))  # Account holder name
-    bank_branch = db.Column(db.String(100))  # Bank branch name
+    bank_name = db.Column(EncryptedString)  # Bank name (e.g., Fidelity Bank)
+    bank_account = db.Column(EncryptedString)  # Bank account number
+    bank_account_name = db.Column(EncryptedString)  # Account holder name
+    bank_branch = db.Column(EncryptedString)  # Bank branch name
 
     # Subscription & Billing
     subscription_plan = db.Column(
@@ -554,8 +554,15 @@ def _ledger_payload(payload):
 
 
 def _get_ledger_secret():
-    """Get the HMAC secret key from environment or use a development key."""
-    return os.getenv("LEDGER_SECRET_KEY", "edupulse-dev-secret-key-change-in-production").encode("utf-8")
+    """Get the HMAC secret key from environment with production enforcement."""
+    secret = (os.getenv("LEDGER_SECRET_KEY") or "").strip()
+    if not secret:
+        if os.getenv("FLASK_ENV", "development").lower() == "production":
+            raise RuntimeError(
+                "Startup blocked: LEDGER_SECRET_KEY must be set in production."
+            )
+        secret = "edupulse-dev-secret-key-change-in-production"
+    return secret.encode("utf-8")
 
 
 def _ledger_hash(previous_hash, payload_str):

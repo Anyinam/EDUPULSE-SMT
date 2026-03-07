@@ -8,6 +8,15 @@ These Terms of Service ("Terms") govern use of the EduPulse platform (the "Servi
 
 By accessing or using the Service, you agree to these Terms. If you are signing on behalf of a school, you confirm you have authority to bind the school.
 
+Signup Notice: By creating a school account, you accept our Terms of Service, Privacy Policy, and Data Retention Policy.
+
+During school registration, checking the acceptance box and submitting the signup form constitutes explicit acceptance of:
+
+- These Terms of Service
+- Privacy Policy
+- Data Retention and Deletion Policy
+- Data Processing Agreement
+
 ## 2. Service Description
 
 EduPulse provides software for school management, lesson planning, grading, reporting, and related features.

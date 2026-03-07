@@ -6,6 +6,8 @@ This Privacy Policy explains how EduPulse Limited ("EduPulse", "we", "us") colle
 
 This policy is designed to comply with Ghana's Data Protection Act, 2012 (Act 843).
 
+When a school completes registration on EduPulse, that registration action confirms acceptance of this Privacy Policy and the Data Retention and Deletion Policy as part of onboarding.
+
 ## 1. Who We Are
 
 Controller: EduPulse Limited

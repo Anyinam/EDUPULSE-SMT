@@ -54,10 +54,10 @@ Where:
 
 | Feature | Free Tier | Basic | Premium |
 |---------|-----------|-------|---------|
-| **Base Fee (per term)** | ₵0 | ₵200 | ₵450 |
-| **Included Students** | 0 | 25 | 30 |
-| **Overage Rate (per student/term)** | N/A | ₵12 | ₵27 |
-| **Annual Cost (3 terms)** | ₵0 | ₵600 base + overage | ₵1,350 base + overage |
+| **Base Fee (per term)** | ₵0 | ₵360 | ₵510 |
+| **Included Students** | 0 | 30 | 30 |
+| **Overage Rate (per student/term)** | N/A | ₵12 | ₵17 |
+| **Annual Cost (3 terms)** | ₵0 | ₵1,080 base + overage | ₵1,530 base + overage |
 | | | | |
 | **Max Students** | 50 | 200 | Unlimited (∞) |
 | **Max Classes** | 1 | 5 | Unlimited (∞) |
@@ -200,18 +200,18 @@ Total per Year (3 terms):    ₵600.00
 **Scenario:** School has 80 students, subscribes to Basic plan at term start
 
 ```
-Base Fee:                    ₵200.00
-Included:                    25 students
+Base Fee:                    ₵360.00
+Included:                    30 students
 Current Students:            80
-Students Over Threshold:     55 (80 - 25)
+Students Over Threshold:     50 (80 - 30)
 Overage Rate:                ₵12/student
-Overage Charge:              ₵660.00 (55 × ₵12)
+Overage Charge:              ₵600.00 (50 × ₵12)
 ────────────────────────────────────
-Total per Term:              ₵860.00
-Total per Year (3 terms):    ₵2,580.00
+Total per Term:              ₵960.00
+Total per Year (3 terms):    ₵2,880.00
 ```
 
-**Average per student:** ₵860 ÷ 80 = ₵10.75/student/term
+**Average per student:** ₵960 ÷ 80 = ₵12/student/term
 
 ---
 
@@ -220,18 +220,18 @@ Total per Year (3 terms):    ₵2,580.00
 **Scenario:** School has 150 students, subscribes to Premium plan at term start
 
 ```
-Base Fee:                    ₵450.00
+Base Fee:                    ₵510.00
 Included:                    30 students
 Current Students:            150
 Students Over Threshold:     120 (150 - 30)
-Overage Rate:                ₵27/student
-Overage Charge:              ₵3,240.00 (120 × ₵27)
+Overage Rate:                ₵17/student
+Overage Charge:              ₵2,040.00 (120 × ₵17)
 ────────────────────────────────────
-Total per Term:              ₵3,690.00
-Total per Year (3 terms):    ₵11,070.00
+Total per Term:              ₵2,550.00
+Total per Year (3 terms):    ₵7,650.00
 ```
 
-**Average per student:** ₵3,690 ÷ 150 = ₵24.60/student/term
+**Average per student:** ₵2,550 ÷ 150 = ₵17.00/student/term
 
 ---
 
@@ -272,8 +272,8 @@ Let's compare the cost for a school with **100 students** across plans:
 | Plan | Base Fee | Included | Overage | Overage Charge | **Total/Term** | **Total/Year** |
 |------|----------|----------|---------|----------------|----------------|----------------|
 | Free Tier | ₵0 | 0 | N/A | N/A | **₵0** | **₵0** |
-| Basic | ₵200 | 25 | 75 × ₵12 | ₵900 | **₵1,100** | **₵3,300** |
-| Premium | ₵450 | 30 | 70 × ₵27 | ₵1,890 | **₵2,340** | **₵7,020** |
+| Basic | ₵360 | 30 | 70 × ₵12 | ₵840 | **₵1,200** | **₵3,600** |
+| Premium | ₵510 | 30 | 70 × ₵17 | ₵1,190 | **₵1,700** | **₵5,100** |
 
 **Free Tier limitation:** Max 50 students, 1 class, read-only features
 
@@ -284,8 +284,8 @@ Let's compare the cost for a school with **100 students** across plans:
 ### Q1: What happens if we have zero students when subscribing?
 
 **A:** You pay only the base platform fee:
-- Basic: ₵200/term
-- Premium: ₵450/term
+- Basic: ₵360/term
+- Premium: ₵510/term
 
 When you later admit students, mid-term pro-ration applies.
 
@@ -297,7 +297,7 @@ When you later admit students, mid-term pro-ration applies.
 
 Example: Upgrade from Basic to Premium with 60 days left:
 ```
-Premium Term Cost: ₵450 base + overage
+Premium Term Cost: ₵510 base + overage
 Pro-ration: 60/90 = 66.7%
 You pay: 66.7% of (Premium Cost - Already Paid)
 ```
@@ -404,8 +404,8 @@ pro_rated_charge = overage_students × overage_rate × pro_ration_factor
 | Plan | Base/Term | Included | Overage Rate | Annual Base |
 |------|-----------|----------|--------------|-------------|
 | **Free Tier** | ₵0 | 0 | N/A | ₵0 |
-| **Basic** | ₵200 | 25 | ₵12/student | ₵600 |
-| **Premium** | ₵450 | 30 | ₵27/student | ₵1,350 |
+| **Basic** | ₵360 | 30 | ₵12/student | ₵1,080 |
+| **Premium** | ₵510 | 30 | ₵17/student | ₵1,530 |
 
 ### Key Files in Codebase
 

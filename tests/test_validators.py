@@ -69,6 +69,8 @@ class TestValidators:
             "password": "weak123456",  # No uppercase
             "termsAccepted": True,
             "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
         }
         with pytest.raises(ValidationError) as exc_info:
             schema.load(data)
@@ -85,6 +87,8 @@ class TestValidators:
             "password": "WeakPassword",  # No digit
             "termsAccepted": True,
             "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
         }
         with pytest.raises(ValidationError) as exc_info:
             schema.load(data)
@@ -101,6 +105,8 @@ class TestValidators:
             "password": "SecurePass123!",
             "termsAccepted": True,
             "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
         }
         result = schema.load(data)
         assert result["schoolCode"] == "CCA-OFK"

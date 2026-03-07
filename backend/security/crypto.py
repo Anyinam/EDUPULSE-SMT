@@ -10,10 +10,18 @@ logger = logging.getLogger(__name__)
 DEV_FERNET_KEY = "Q7dG5vjXFn340xkmevogawqruIgndlsWdz4mg0PjkmI="
 
 
+def _is_production_env():
+    return os.getenv("FLASK_ENV", "development").lower() == "production"
+
+
 @lru_cache(maxsize=1)
 def get_fernet():
     key = os.getenv("DATA_ENCRYPTION_KEY")
     if not key:
+        if _is_production_env():
+            raise RuntimeError(
+                "Startup blocked: DATA_ENCRYPTION_KEY must be set in production."
+            )
         key = DEV_FERNET_KEY
         logger.warning("DATA_ENCRYPTION_KEY not set; using dev key")
     if isinstance(key, str):

@@ -199,29 +199,48 @@ export default function BillingVisibility() {
             </span>
             <span className="text-xl text-slate-400">/</span>
             <span className="text-2xl font-bold text-slate-500">
-              {meter?.included_students || 0}
+              {meter?.plan_limit ? meter.plan_limit : '∞'}
             </span>
-            <span className="text-sm text-slate-500 ml-2">included students</span>
+            <span className="text-sm text-slate-500 ml-2">
+              {meter?.plan_limit ? 'student limit' : 'unlimited students'}
+            </span>
           </div>
           
-          {/* Progress Bar */}
-          <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden mb-2">
-            <div 
-              className={`${progressBarColor} h-full transition-all duration-500 ease-out rounded-full`}
-              style={{ width: `${Math.min(usagePercent, 100)}%` }}
-            />
-          </div>
+          {/* Progress Bar - Only show if not unlimited */}
+          {meter?.plan_limit && (
+            <>
+              <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden mb-2">
+                <div 
+                  className={`${progressBarColor} h-full transition-all duration-500 ease-out rounded-full`}
+                  style={{ width: `${Math.min(usagePercent, 100)}%` }}
+                />
+              </div>
+              
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600 font-medium">{usagePercent.toFixed(1)}% capacity used</span>
+                {meter?.last_synced && (
+                  <span className="text-slate-400 text-xs">
+                    Last synced: {new Date(meter.last_synced).toLocaleTimeString('en-GB', { 
+                      hour: '2-digit', minute: '2-digit' 
+                    })}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
           
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-600 font-medium">{usagePercent.toFixed(1)}% capacity used</span>
-            {meter?.last_synced && (
-              <span className="text-slate-400 text-xs">
-                Last synced: {new Date(meter.last_synced).toLocaleTimeString('en-GB', { 
-                  hour: '2-digit', minute: '2-digit' 
-                })}
-              </span>
-            )}
-          </div>
+          {!meter?.plan_limit && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-600 font-medium">Unlimited capacity - grow without limits</span>
+              {meter?.last_synced && (
+                <span className="text-slate-400 text-xs">
+                  Last synced: {new Date(meter.last_synced).toLocaleTimeString('en-GB', { 
+                    hour: '2-digit', minute: '2-digit' 
+                  })}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Alert Banner */}

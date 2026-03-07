@@ -95,6 +95,8 @@ class TestAuthenticationSecurity:
                         "email": "newuser@test.edu",
                         "termsAccepted": True,
                         "termsVersion": "2026-02-22",
+                        "policyAccepted": True,
+                        "policyVersion": "2026-03-07",
                     }
                 ),
                 content_type="application/json",
@@ -207,6 +209,8 @@ class TestInputValidation:
             "email": injection_email,
             "termsAccepted": True,
             "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
         }
 
         response = client.post(

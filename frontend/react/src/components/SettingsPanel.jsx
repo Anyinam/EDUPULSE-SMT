@@ -13,6 +13,10 @@ export default function SettingsPanel() {
     school_phone: '',
     school_address: '',
     school_website: '',
+    bank_name: '',
+    bank_account: '',
+    bank_account_name: '',
+    bank_branch: '',
     country_code: 'GH',
     anniversary_date: ''
   });
@@ -113,6 +117,37 @@ export default function SettingsPanel() {
     
     fetchSubscriptionPlan();
 
+    const fetchSchoolSettings = async () => {
+      try {
+        const headers = {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'X-School-ID': localStorage.getItem('school_id')
+        };
+        const res = await axios.get('/api/school/settings', { headers });
+        const data = res.data || {};
+
+        setSettings((prev) => ({
+          ...prev,
+          school_name: data.name || prev.school_name,
+          school_motto: data.motto || prev.school_motto,
+          logo_url: data.logo_url || prev.logo_url,
+          primary_color: data.primary_color || prev.primary_color,
+          school_email: data.school_email || prev.school_email,
+          school_phone: data.school_phone || prev.school_phone,
+          school_address: data.school_address || prev.school_address,
+          school_website: data.school_website || prev.school_website,
+          bank_name: data.bank_name || '',
+          bank_account: data.bank_account || '',
+          bank_account_name: data.bank_account_name || '',
+          bank_branch: data.bank_branch || '',
+          country_code: data.country_code || prev.country_code,
+          anniversary_date: data.anniversary_date || prev.anniversary_date,
+        }));
+      } catch (err) {
+        console.error('Failed to load school settings:', err);
+      }
+    };
+
 
     const fetchGradingScheme = async () => {
       try {
@@ -150,6 +185,7 @@ export default function SettingsPanel() {
     };
 
     
+    fetchSchoolSettings();
     fetchGradingScheme();
     fetchFees();
     fetchActiveTemplate();
@@ -168,8 +204,15 @@ export default function SettingsPanel() {
     try {
       const headers = getAuthHeaders();
       const res = await axios.get('/api/proprietor/paystack/providers?country=ghana', { headers });
-      const providers = Array.isArray(res.data) ? res.data : [];
+      const providers = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.providers)
+          ? res.data.providers
+          : [];
       setPaystackProviders(providers);
+      if (res.data?.warning) {
+        setPaystackProviderError(`⚠️ ${res.data.warning}`);
+      }
       if (!paystackRouteForm.preferred_bank && providers.length > 0) {
         const defaultProvider = providers[0]?.slug || providers[0]?.name || '';
         setPaystackRouteForm((prev) => ({ ...prev, preferred_bank: defaultProvider }));
@@ -219,14 +262,7 @@ export default function SettingsPanel() {
   };
 
   const handleCreatePaystackRoute = async () => {
-    if (!paystackRouteForm.customer_code.trim()) {
-      setPaystackRouteMessage('❌ Customer code is required (e.g., CUS_xxxxx).');
-      return;
-    }
-    if (!paystackRouteForm.preferred_bank.trim()) {
-      setPaystackRouteMessage('❌ Please choose a supported provider/bank.');
-      return;
-    }
+    const fallbackProvider = paystackRouteForm.preferred_bank?.trim() || 'titan-paystack';
 
     setCreatingPaystackRoute(true);
     setPaystackRouteMessage('');
@@ -234,12 +270,16 @@ export default function SettingsPanel() {
       const headers = getAuthHeaders();
       const payload = {
         payment_type: paystackRouteForm.payment_type,
-        customer_code: paystackRouteForm.customer_code.trim(),
-        preferred_bank: paystackRouteForm.preferred_bank.trim()
+        customer_code: paystackRouteForm.customer_code?.trim() || undefined,
+        preferred_bank: fallbackProvider
       };
 
       const res = await axios.post('/api/proprietor/paystack/subaccounts/create', payload, { headers });
-      setPaystackRouteMessage(`✅ ${res.data?.message || 'Virtual account created successfully.'}`);
+      if (res.data?.mode === 'manual_fallback') {
+        setPaystackRouteMessage(`⚠️ ${res.data?.message || 'Route created in fallback mode. Virtual account is not yet available.'}`);
+      } else {
+        setPaystackRouteMessage(`✅ ${res.data?.message || 'Virtual account created successfully.'}`);
+      }
       await fetchPaystackRoutes();
     } catch (err) {
       const error = err.response?.data?.error || err.response?.data?.message || 'Failed to create virtual account route';
@@ -506,6 +546,26 @@ export default function SettingsPanel() {
     }
   };
 
+  const providerErrorLower = (paystackProviderError || '').toLowerCase();
+  const hasProviderAuthIssue =
+    providerErrorLower.includes('unauthorized') ||
+    providerErrorLower.includes('paystack_secret_key') ||
+    providerErrorLower.includes('invalid key') ||
+    providerErrorLower.includes('forbidden') ||
+    providerErrorLower.includes('permission');
+
+  const paymentNetworkStatus = loadingPaystackProviders
+    ? 'Checking'
+    : paystackProviderError
+      ? 'Temporary Fallback'
+      : 'Active';
+
+  const paymentNetworkBadgeClass = loadingPaystackProviders
+    ? 'bg-slate-100 text-slate-700'
+    : paystackProviderError
+      ? 'bg-amber-100 text-amber-800'
+      : 'bg-green-100 text-green-800';
+
   return (
     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 max-w-3xl">
       <h2 className="text-2xl font-bold text-slate-800 mb-6">System Branding & Settings</h2>
@@ -755,26 +815,10 @@ export default function SettingsPanel() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="text-sm font-bold text-slate-700">School Paystack Customer Code</label>
-                  <div className="flex gap-2 mt-1">
-                    <input
-                      type="text"
-                      value={paystackRouteForm.customer_code}
-                      onChange={(e) => setPaystackRouteForm((prev) => ({ ...prev, customer_code: e.target.value }))}
-                      className="flex-1 p-2 border rounded bg-white"
-                      placeholder="e.g., CUS_358xertt55"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAutofillPaystackCustomerCode}
-                      disabled={resolvingPaystackCustomer}
-                      className="px-3 py-2 text-xs font-bold rounded bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
-                    >
-                      {resolvingPaystackCustomer ? 'Resolving...' : 'Auto-fill School Customer'}
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1">Uses one school-level Paystack customer for all fee-type routes.</p>
+                <div className="bg-slate-50 border border-slate-200 rounded p-2">
+                  <p className="text-xs text-slate-600">
+                    Customer profile is handled automatically by the system. No extra configuration is required.
+                  </p>
                 </div>
 
                 <div>
@@ -816,7 +860,17 @@ export default function SettingsPanel() {
                     </button>
                   </div>
                   {paystackProviderError && (
-                    <p className="text-xs text-red-600 mt-2">❌ {paystackProviderError}</p>
+                    <div className={`mt-2 rounded border p-2 text-xs ${paystackProviderError.startsWith('⚠️') ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-red-300 bg-red-50 text-red-700'}`}>
+                      <p className="font-semibold">{paystackProviderError.startsWith('⚠️') ? paystackProviderError : `❌ ${paystackProviderError}`}</p>
+                      {hasProviderAuthIssue && (
+                        <ul className="mt-2 list-disc pl-4 space-y-1">
+                          <li>Payment network is temporarily unavailable.</li>
+                          <li>You can still create routes and continue operations.</li>
+                          <li>Parents can pay using the school bank account while setup completes.</li>
+                          <li>If this continues, contact platform support.</li>
+                        </ul>
+                      )}
+                    </div>
                   )}
                   {paystackRouteMessage && (
                     <p className={`text-xs mt-2 ${paystackRouteMessage.startsWith('✅') ? 'text-green-700' : 'text-red-600'}`}>
@@ -827,6 +881,9 @@ export default function SettingsPanel() {
 
                 <div className="pt-2 border-t">
                   <p className="text-sm font-bold text-slate-700 mb-2">Configured Virtual Routes</p>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Status: <span className="font-semibold text-green-700">Virtual Account Ready</span> (real account number available) or <span className="font-semibold text-amber-700">Fallback Mode</span> (manual route while gateway setup completes).
+                  </p>
                   {loadingPaystackRoutes ? (
                     <p className="text-xs text-slate-500">Loading routes...</p>
                   ) : paystackRoutes.length === 0 ? (
@@ -835,13 +892,28 @@ export default function SettingsPanel() {
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {paystackRoutes
                         .filter((route) => route.is_active)
-                        .map((route) => (
-                          <div key={route.id} className="bg-white border rounded p-2 text-xs">
-                            <p className="font-bold text-slate-700">{route.payment_type}</p>
-                            <p className="text-slate-600">Acct: {route.virtual_bank_account || 'Not set'}</p>
-                            <p className="text-slate-600">Bank: {route.virtual_bank_name || route.momo_provider || 'Not set'}</p>
-                          </div>
-                        ))}
+                        .map((route) => {
+                          const isFallbackMode = !route.virtual_bank_account || (route.subaccount_code || '').startsWith('MANUAL_');
+
+                          return (
+                            <div key={route.id} className="bg-white border rounded p-2 text-xs">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <p className="font-bold text-slate-700">{route.payment_type}</p>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    isFallbackMode
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                      : 'bg-green-100 text-green-800 border border-green-300'
+                                  }`}
+                                >
+                                  {isFallbackMode ? 'Fallback Mode' : 'Virtual Account Ready'}
+                                </span>
+                              </div>
+                              <p className="text-slate-600">Acct: {route.virtual_bank_account || 'Not set'}</p>
+                              <p className="text-slate-600">Bank: {route.virtual_bank_name || route.momo_provider || 'Not set'}</p>
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
                 </div>
