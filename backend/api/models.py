@@ -65,7 +65,19 @@ class School(db.Model):
     )
     trial_plan = db.Column(db.String(20))
     trial_end_date = db.Column(db.DateTime)
+    is_trial_active = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
+
+    # Usage-based billing meter
+    current_student_count = db.Column(db.Integer, default=0)
+    last_metered_at = db.Column(db.DateTime)
+
+    # Pricing versioning / grandfathering
+    plan_version = db.Column(db.String(40))
+    pricing_locked_at = db.Column(db.DateTime)
+    custom_base_fee = db.Column(db.Float)
+    custom_included_students = db.Column(db.Integer)
+    custom_overage_rate = db.Column(db.Float)
 
     # Pillar 3: Business Rules (Custom Workflows)
     settings = db.relationship("SchoolSettings", backref="school", uselist=False)

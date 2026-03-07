@@ -94,6 +94,13 @@ from backend.email_templates import (
     get_paystack_payment_link_email,
     get_term_billing_notification_email
 )
+from backend.subscription_metering import (
+    activate_premium_trial,
+    end_trial,
+    get_billing_visibility,
+    lock_pricing_version,
+    sync_student_meter,
+)
 from backend.utils import (
     calculate_academic_health,
     generate_descriptive_analysis,
@@ -9217,6 +9224,9 @@ def get_subscription():
     
     # Get pricing info
     pricing_info = PRICING.get(effective_plan, {})
+
+    # Billing visibility with active-student meter and 80%/100% alerts
+    billing_visibility = get_billing_visibility(g.school_id, commit=False)
     
     # Get enabled modules from settings
     enabled_modules = {}
@@ -9274,6 +9284,7 @@ def get_subscription():
             "features": plan_info.get("features", {}),
             "features_display": plan_display,
             "report_templates": plan_info.get("report_templates", []),
+            "billing_visibility": billing_visibility,
         }
     )
 
@@ -9369,6 +9380,194 @@ def upgrade_subscription():
 
 
 # --- ACADEMIC TERM MANAGEMENT ---
+
+
+@api.route("/school/subscription/billing-visibility", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def get_subscription_billing_visibility():
+    """Visibility endpoint for active-student meter, overage, and threshold alerts."""
+    visibility = get_billing_visibility(g.school_id)
+    if "error" in visibility:
+        return jsonify(visibility), 404
+    return jsonify(visibility), 200
+
+
+@api.route("/school/subscription/meter/sync", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def sync_subscription_meter():
+    """Manually sync active-student billable meter."""
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    active_count = sync_student_meter(school)
+    return jsonify({
+        "message": "Student meter synced",
+        "active_students": active_count,
+        "last_metered_at": school.last_metered_at.isoformat() if school.last_metered_at else None,
+    }), 200
+
+
+@api.route("/school/subscription/trial/status", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def get_subscription_trial_status():
+    """Return premium trial entitlement status and expiry state."""
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    visibility = get_billing_visibility(g.school_id)
+    if "error" in visibility:
+        return jsonify(visibility), 404
+
+    return jsonify({"trial": visibility.get("trial", {})}), 200
+
+
+@api.route("/school/subscription/trial/activate", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def activate_subscription_trial():
+    """Activate premium trial entitlement for this tenant."""
+    data = request.get_json(silent=True) or {}
+    days = int(data.get("days", 30) or 30)
+
+    result = activate_premium_trial(g.school_id, days=days)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+
+@api.route("/school/subscription/trial/end", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def end_subscription_trial():
+    """End active trial and fall back to base subscription entitlements."""
+    result = end_trial(g.school_id)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+
+@api.route("/school/subscription/lock-pricing", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def lock_subscription_pricing():
+    """Lock current pricing values to grandfather existing tenant."""
+    data = request.get_json(silent=True) or {}
+    version_name = data.get("version")
+
+    result = lock_pricing_version(g.school_id, version=version_name)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+
+@api.route("/school/subscription/usage-report/send", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def send_usage_report():
+    """Send monthly usage report email to proprietor."""
+    from backend.email_service import send_usage_report_email
+    
+    data = request.get_json(silent=True) or {}
+    month = data.get("month")  # Optional: specify month (1-12)
+    year = data.get("year")    # Optional: specify year
+    
+    success = send_usage_report_email(g.school_id, month=month, year=year)
+    
+    if success:
+        return jsonify({
+            "message": "Usage report sent successfully",
+            "status": "sent"
+        }), 200
+    else:
+        return jsonify({
+            "message": "Failed to send usage report",
+            "status": "failed"
+        }), 500
+
+
+@api.route("/school/subscription/usage-stats", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def get_usage_stats():
+    """Get usage statistics for dashboard preview (without sending email)."""
+    from backend.email_service import get_school_usage_stats
+    
+    month = request.args.get("month", type=int)
+    year = request.args.get("year", type=int)
+    
+    stats = get_school_usage_stats(g.school_id, month=month, year=year)
+    
+    if not stats:
+        return jsonify({"message": "Failed to retrieve usage stats"}), 404
+    
+    return jsonify(stats), 200
+
+
+@api.route("/school/subscription/price-cap", methods=["GET", "POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def manage_price_cap():
+    """
+    Get or set price cap for predictable billing.
+    GET: Retrieve current price cap
+    POST: Set new price cap
+    """
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+    
+    if request.method == "GET":
+        # Return current price cap settings
+        price_cap = getattr(school, 'price_cap_amount', None)
+        price_cap_enabled = getattr(school, 'price_cap_enabled', False)
+        
+        return jsonify({
+            "price_cap_enabled": price_cap_enabled,
+            "price_cap_amount": price_cap,
+            "current_term_cost": school.current_student_count * 12 if school.current_student_count else 0,
+            "message": "Price cap retrieved successfully"
+        }), 200
+    
+    elif request.method == "POST":
+        # Set new price cap
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled", False)
+        amount = data.get("amount")
+        
+        if enabled and (not amount or amount <= 0):
+            return jsonify({"message": "Price cap amount must be positive when enabled"}), 400
+        
+        # Store price cap settings in SchoolSettings
+        settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+        if not settings:
+            settings = SchoolSettings(school_id=g.school_id)
+            db.session.add(settings)
+        
+        # Store as JSON in settings (extend SchoolSettings model if needed)
+        settings.price_cap_enabled = enabled
+        settings.price_cap_amount = amount if enabled else None
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Price cap updated successfully",
+            "price_cap_enabled": enabled,
+            "price_cap_amount": amount
+        }), 200
 
 
 @api.route("/school/terms", methods=["GET"])

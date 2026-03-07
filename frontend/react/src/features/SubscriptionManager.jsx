@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { CheckCircle, XCircle, TrendingUp, Users, Calendar, DollarSign, Tag, Info } from 'lucide-react';
+import BillingVisibility from '../components/BillingVisibility';
+import TrialManager from '../components/TrialManager';
+import BillingControlPanel from '../components/BillingControlPanel';
 
 export default function SubscriptionManager() {
   const [sub, setSub] = useState(null);
@@ -270,6 +273,21 @@ export default function SubscriptionManager() {
             </p>
             <p className="text-xs text-blue-100 mt-1">3 terms per year</p>
           </div>
+        </div>
+
+        {/* Billing Visibility Widget */}
+        <div className="mb-8">
+          <BillingVisibility />
+        </div>
+
+        {/* Trial Management Widget */}
+        <div className="mb-8">
+          <TrialManager />
+        </div>
+
+        {/* Billing Control Panel (Price Cap, etc.) */}
+        <div className="mb-8">
+          <BillingControlPanel />
         </div>
 
         {/* Billing Period Toggle */}

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
 import AIInsights from '../components/AIInsights'; 
 import RemoteOversight from '../components/RemoteOversight';
+import BillingVisibility from '../components/BillingVisibility';
 import { useBranding } from '../hooks/useBranding';
 import SettingsPanel from '../components/SettingsPanel';
 import PaymentEntry from './PaymentEntry';
@@ -176,6 +177,11 @@ export default function ProprietorPanel() {
                 </div>
               </div>
             )}
+
+            {/* Billing Visibility Section */}
+            <div className="mb-8">
+              <BillingVisibility />
+            </div>
 
             <div className="mb-8">
               <PerformanceAnalytics

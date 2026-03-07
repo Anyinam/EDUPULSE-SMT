@@ -1,63 +1,158 @@
-# EduPulse: AI-Driven School Governance & Revenue Protection
+# EduPulse: AI-Driven School Governance, Revenue Integrity & Subscription Intelligence
 
-EduPulse is a professional **Multi-Tenant SaaS (Software as a Service)** platform designed to solve revenue leakage and academic risk in Ghanaian schools. 
+EduPulse is a multi-tenant SaaS platform for Ghanaian schools that combines academic operations, payment governance, and usage-based subscription controls in one system.
 
-## 🚀 Professional Multi-Tenant Architecture
-Based on enterprise standards for medium and large businesses, EduPulse implements five core pillars of multi-tenancy:
+## 🚀 Current Implementation Snapshot
 
-1. **Business Authentication**: Users authenticate using Organization IDs and Business Credentials (Staff IDs) rather than generic global accounts.
-2. **UI Configurability**: The interface dynamically adapts to the school's branding. CSS variables are injected at login to apply the school's primary color and logo.
-3. **Custom Business Rules**: Proprietors define their own workflows, such as "Sack-Risk" thresholds and canteen cutoff times, via a dedicated Settings panel.
-4. **Schema Adaptation**: Our database utilizes generic subject models and JSON-based custom attributes, allowing schools to extend the data model without backend changes.
-5. **Multi-level Access Control**: Robust middleware ensures complete data isolation. Every request is intercepted by a Multi-Tenant Guard that restricts data access strictly to the user's organization.
+### Core Platform
+- Multi-tenant authentication and school-level data isolation (`JWT + X-School-ID + tenant guard`)
+- Role-based access control across `proprietor`, `headmaster`, `teacher`, `finance`, and `admin`
+- Dynamic school branding and configurable school settings
+- Audit-oriented workflows for sensitive operations
 
-## 🧠 AI & Operational Features
-- **Sack-Risk Pulse**: A predictive engine that correlates academic performance trends with financial payment consistency to prevent student dropouts.
-- **Zero-Waste Canteen Manifest**: Real-time meal portion calculation based on morning attendance and fee payment status to eliminate food waste.
-- **Remote Oversight Feed**: A live audit trail allowing traveling proprietors to monitor staff actions and MoMo revenue reconciliation in real-time.
+### Academic Operations
+- Attendance tracking and summaries
+- Grade entry and report-card generation workflows
+- Report builder with staged approvals (teacher → headmaster → proprietor)
+- Lesson notes and academic analytics tooling
 
-## 🔄 System Workflow
-The following diagram illustrates the **End-of-Term Governance Loop**, showing how data flows from teachers to the AI engine and finally to the Proprietor.
+### Finance & Payments
+- Manual and digital payment recording
+- Reconciliation workflows and transaction history
+- Payment tracking dashboards and oversight views
+- Immutable/auditable ledger-style operational records
+
+### Subscription, Metering & Monetization (Metronome-Aligned)
+- Active-student metering with manual sync endpoint
+- Billing visibility endpoint with cost breakdown and threshold alerts (`80% warning`, `100% critical`)
+- Premium trial entitlement lifecycle (status, activate, end, expiry checks)
+- Pricing grandfathering/version lock endpoint
+- Price-cap management endpoint for predictable billing control
+- Usage-report email trigger endpoint and backend email service utilities
+
+### Frontend Billing Experience
+- Billing visibility widget (meter + alerts + cost transparency)
+- Trial management widget (activate/end, countdown, state-aware messaging)
+- Billing control panel (price cap toggle, cap amount, budget feedback)
+- Email usage report trigger button from billing UI
+
+## 🧠 AI & Governance Features
+- AI-assisted academic insight surfaces
+- Risk-aware governance loops for intervention workflows
+- Remote oversight feed for proprietor monitoring
+- Operational analytics to support school decision-making
+
+## 🧩 API Highlights (Recent)
+- `GET /api/school/subscription/billing-visibility`
+- `POST /api/school/subscription/meter/sync`
+- `GET /api/school/subscription/trial/status`
+- `POST /api/school/subscription/trial/activate`
+- `POST /api/school/subscription/trial/end`
+- `POST /api/school/subscription/lock-pricing`
+- `GET /api/school/subscription/price-cap`
+- `POST /api/school/subscription/price-cap`
+- `GET /api/school/subscription/usage-stats`
+- `POST /api/school/subscription/usage-report/send`
+
+## 🔄 End-to-End Workflow (BPMN-Style with Gateways)
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant ST as Subject Teacher
-    participant HT as Homeroom Teacher
-    participant AI as EduPulse AI Engine
-    participant P as Proprietor
-    participant G as Guardian/Parent
+flowchart TD
+    S([Start]) --> A[School Onboarding]
+    A --> B{School registered?}
+    B -- No --> A
+    B -- Yes --> C[Create Proprietor Account]
+    C --> D[User Login]
+    D --> E{Auth valid + tenant context valid?}
+    E -- No --> D
+    E -- Yes --> F{Role Gateway}
 
-    Note over ST, P: Phase 1: Data Entry & Financials
-    G->>AI: Pays Tuition (MoMo Webhook)
-    AI->>P: Updates Financial Ledger (Real-time)
-    ST->>AI: Enters Subject Grades (Math/Eng)
-    ST->>AI: Submits Lesson Notes
+    %% Teacher lane
+    F -- Teacher --> T1[Mark Attendance]
+    T1 --> T2[Enter Grades / Lesson Notes]
+    T2 --> T3[Submit Report Data]
 
-    Note over HT, AI: Phase 2: Governance & Processing
-    HT->>AI: Triggers "Generate Terminal Report"
-    AI->>AI: Aggregates All Subject Scores
-    AI->>AI: Calculates Risk Score (60% Debt + 40% Grades)
-    AI->>AI: Generates Descriptive Narrative
+    %% Homeroom / Headmaster lane
+    F -- Headmaster --> H1[Review Class Performance]
+    H1 --> H2{Report complete?}
+    H2 -- No --> T2
+    H2 -- Yes --> H3[Approve / Return Report]
 
-    Note over P, G: Phase 3: Oversight & Intervention
-    AI->>P: Flags "Critical Risk" Students
-    P->>P: Reviews Live Feed & Risk Dashboard
-    alt Risk Score < 50%
-        P->>G: Intervention Call/Email (Via App)
-    else Risk Score > 50%
-        P->>HT: Approves Report Card
-    end
-    HT->>G: Prints/Sends Terminal Report
+    %% Finance lane
+    F -- Finance --> FN1[Record Payment / Confirm Transfer]
+    FN1 --> FN2[Reconcile Transactions]
+    FN2 --> FN3[Update Ledger + Payment Status]
+
+    %% Proprietor lane
+    F -- Proprietor --> P1[Open Proprietor Dashboard]
+    P1 --> P2[Review AI Insights + Risk Feed]
+    P2 --> P3{Intervention needed?}
+    P3 -- Yes --> P4[Initiate Parent/Staff Intervention]
+    P3 -- No --> P5[Continue Monitoring]
+
+    %% Subscription monetization lane
+    P1 --> M1[Open Subscription & Billing]
+    M1 --> M2[Fetch Billing Visibility]
+    M2 --> M3{Usage threshold reached?}
+    M3 -- Under 80% --> M4[Status OK]
+    M3 -- 80-99% --> M5[Warning Alert]
+    M3 -- 100%+ --> M6[Critical Alert + Overage Impact]
+
+    M4 --> M7{Need control actions?}
+    M5 --> M7
+    M6 --> M7
+
+    M7 -- Sync meter --> M8[Manual Meter Sync]
+    M7 -- Activate premium trial --> M9[Trial Activate]
+    M7 -- End trial --> M10[Trial End]
+    M7 -- Lock pricing --> M11[Grandfather Pricing Version]
+    M7 -- Set price cap --> M12[Update Price Cap]
+    M7 -- Email usage report --> M13[Send Usage Report Email]
+
+    %% Payment/plan path
+    M13 --> G1{Upgrade decision?}
+    M11 --> G1
+    M12 --> G1
+    M9 --> G1
+    G1 -- Yes --> U1[Initialize Payment]
+    U1 --> U2{Payment successful?}
+    U2 -- No --> U3[Retry / Alternate Method]
+    U2 -- Yes --> U4[Apply Plan + Entitlements]
+
+    %% Continuous governance loop
+    U4 --> Z[Audit Log + Notifications]
+    FN3 --> Z
+    H3 --> Z
+    P4 --> Z
+    P5 --> Z
+    M8 --> Z
+    M10 --> Z
+
+    Z --> R{Cycle complete for current term?}
+    R -- No --> F
+    R -- Yes --> END([Term Close + Next-Term Rollforward])
 ```
 
-## �️ Tech Stack
-- **Backend**: Python (Flask) with SQLAlchemy & JWT Authentication.
-- **Frontend**: React (Vite) with Tailwind CSS for dynamic branding.
-- **Database**: PostgreSQL (Multi-tenant isolated rows).
-- **Security**: Bcrypt password hashing and Row-Level Security (RLS) simulation via Middleware.
+## 🧱 Tech Stack
+- **Backend**: Flask, SQLAlchemy, Alembic, JWT
+- **Frontend**: React (Vite), Tailwind, Axios
+- **Database**: SQLite/PostgreSQL-compatible data model patterns
+- **Security**: Password hashing, role/tenant middleware, protected endpoints
 
-## 📦 Deployment
-The system is fully containerized for production readiness:
+## 🧪 Validation Status
+- Migration and subscription-metering updates applied
+- Frontend billing widgets integrated and built successfully
+- Test suite status: `86 passed, 0 failed`
+
+## 📦 Run Locally
+
 ```bash
-docker-compose up --build
+docker compose up --build
+```
+
+## 📁 Helpful Docs
+- `BUSINESS_PROCESS_MODEL.md`
+- `BPM_QUICK_REFERENCE.txt`
+- `PAYMENT_INTEGRATION.md`
+- `SUBSCRIPTION_FEATURES.md`
+- `REPORT_BUILDER_GUIDE.md`
