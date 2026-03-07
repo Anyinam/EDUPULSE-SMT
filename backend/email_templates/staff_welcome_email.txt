@@ -1,0 +1,50 @@
+Subject: You've Been Added to {{school_name}} on EduPulse SMT 👋
+
+Hello {{staff_name}},
+
+Welcome to the {{school_name}} team on EduPulse SMT!
+
+Your staff account has been created with the following details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Username: {{username}}
+• Email: {{email}}
+• Role: {{role}}
+• School: {{school_name}}
+• Login URL: {{login_url}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔐 Your First Login:
+
+1. Visit {{login_url}}
+2. Log in with:
+   - Username: {{username}}
+   - Temporary Password: {{temporary_password}}
+3. You will be prompted to change your password after login
+4. Temporary password expires in {{expiry_days}} days
+
+👨‍💼 Your Role & Permissions:
+
+{{role_description}}
+
+📚 What You Can Do:
+
+{{role_permissions}}
+
+💡 Getting Started:
+
+1. Log in to your dashboard
+2. Update your profile with a profile photo
+3. Review your assigned classes and subjects
+4. Check your teaching schedule in the Timetable section
+5. Start recording grades and submitting lesson notes
+
+❓ Need Help?
+
+• Dashboard Help: Click the "?" icon in the top menu
+• Email Support: support@edupulse.com
+• Contact Headmaster: {{headmaster_name}} ({{headmaster_email}})
+
+Welcome aboard! 🎓
+
+Best regards,
+{{school_name}} Administration via EduPulse SMT

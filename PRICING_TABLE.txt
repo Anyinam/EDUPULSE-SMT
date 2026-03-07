@@ -1,0 +1,142 @@
+EDUPULSE PRICING & FEATURES COMPARISON
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PRICING
+─────────────────────────────────────────────────────────────────────────────
+	Free Tier		Basic Plan		Premium Plan
+Price	GH₵ 0/month		GH₵ 200/month		GH₵ 500/month
+Annual	GH₵ 0			GH₵ 2,400		GH₵ 6,000
+Students	50			200			Unlimited
+
+═══════════════════════════════════════════════════════════════════════════════
+
+CORE FEATURES (All Tiers)
+─────────────────────────────────────────────────────────────────────────────
+✓ Basic Attendance Tracking
+✓ Manual Grade Entry
+✓ Student Roster Management
+✓ Role-Based Access Control (Proprietor, Teacher, Homeroom, Finance)
+✓ Multi-Tenant Isolation (School Branding)
+✓ Audit Logging
+✓ Manual Payment Entry
+
+═══════════════════════════════════════════════════════════════════════════════
+
+ADVANCED FEATURES
+─────────────────────────────────────────────────────────────────────────────
+Feature					Free Tier	Basic Plan	Premium Plan
+─────────────────────────────────────────────────────────────────────────────
+Full Grades Management			✗		✓		✓
+Financial Tracking (Tuition/Feeding)	✗		✓		✓
+Payment Method Tracking (Cash/Bank/MoMo)	Partial		✓		✓
+Lesson Notes & Academic Worklog		✗		✓		✓
+Inventory Management			✗		✓		✓
+Term Grading Policies			✗		✓		✓
+Student Support Tickets			✗		✓		✓
+System Alerts				✗		✓		✓
+Basic Reports & Analytics		✗		✓		✓
+
+═══════════════════════════════════════════════════════════════════════════════
+
+AI & INTELLIGENCE FEATURES (Premium Only)
+─────────────────────────────────────────────────────────────────────────────
+Feature					Free Tier	Basic Plan	Premium Plan
+─────────────────────────────────────────────────────────────────────────────
+AI Student Pulse (Risk Prediction)	✗		✗		✓
+AI-Generated Report Narratives		✗		✗		✓
+Predictive Risk Scoring (0-100 scale)	✗		✗		✓
+Academic + Financial Correlation		✗		✗		✓
+AI Question Generation for Admissions	✗		✗		✓
+Subject-Based Question Pools		✗		✗		✓
+Exam Difficulty Customization		✗		✗		✓
+Candidate Screening Automation		✗		✗		✓
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PAYMENT AUTOMATION (Premium Only)
+─────────────────────────────────────────────────────────────────────────────
+Feature					Free Tier	Basic Plan	Premium Plan
+─────────────────────────────────────────────────────────────────────────────
+MoMo Webhook Automation			✗		✗		✓
+Bank Transfer Webhook Automation	✗		✗		✓
+Auto-Categorized Payments		✗		✗		✓
+Duplicate Prevention			✗		✗		✓
+Real-Time Balance Updates		✗		✗		✓
+Reference-Based Parsing (S001-T1)	✗		✗		✓
+
+═══════════════════════════════════════════════════════════════════════════════
+
+GOVERNANCE & REPORTING
+─────────────────────────────────────────────────────────────────────────────
+Feature					Free Tier	Basic Plan	Premium Plan
+─────────────────────────────────────────────────────────────────────────────
+Proprietor Dashboard			Basic		Basic		Advanced
+Live Transaction Feed			✗		✗		✓
+Pending Payment Tracking		✗		Basic		✓
+Critical Risk Intervention List		✗		Basic		✓
+Daily Revenue Reports			✗		Basic		✓
+Term Summary Exports			✗		Basic		✓
+Advanced Financial Analytics		✗		Basic		✓
+Payment Reconciliation Tools		✗		Basic		✓
+
+═══════════════════════════════════════════════════════════════════════════════
+
+SUPPORT & SERVICE
+─────────────────────────────────────────────────────────────────────────────
+Feature					Free Tier	Basic Plan	Premium Plan
+─────────────────────────────────────────────────────────────────────────────
+Support Level				Community	Standard	Priority
+Max Response Time			24 hours	12 hours	2 hours
+Email Support				✓		✓		✓
+Phone Support				✗		✗		✓
+Dedicated Account Manager		✗		✗		✓
+
+═══════════════════════════════════════════════════════════════════════════════
+
+UPGRADE TRIGGERS
+─────────────────────────────────────────────────────────────────────────────
+
+Free Tier → Basic Plan
+└─ Hit 50-student capacity limit
+└─ Need advanced reports & analytics
+└─ Want full financial tracking
+
+Basic Plan → Premium Plan
+└─ Need to exceed 200 students
+└─ Want AI risk prediction
+└─ Want automated payment processing
+└─ Want AI-generated exam questions
+
+═══════════════════════════════════════════════════════════════════════════════
+
+REVENUE PROJECTIONS (Per 100 Schools)
+─────────────────────────────────────────────────────────────────────────────
+
+Scenario: 70% Basic / 30% Premium Mix
+
+Basic Plan (70 schools):
+  70 schools × GH₵2,400/year = GH₵168,000/year
+
+Premium Plan (30 schools):
+  30 schools × GH₵6,000/year = GH₵180,000/year
+
+Total Annual Revenue (100 schools): GH₵348,000
+
+Average ARR per School: GH₵3,480
+
+═══════════════════════════════════════════════════════════════════════════════
+
+COMPETITIVE DIFFERENTIATION
+─────────────────────────────────────────────────────────────────────────────
+
+Feature					EduPulse	Competitors
+─────────────────────────────────────────────────────────────────────────────
+AI Risk Prediction			✓		✗
+Automated Payment Webhooks		✓		✗
+Multi-Tenant (Multiple Schools)		✓		✗
+Free Tier (No Cost Entry)		✓		✗
+Unlimited Scaling (Premium)		✓		✗
+Reference-Based Payment Parsing		✓		✗
+
+═══════════════════════════════════════════════════════════════════════════════

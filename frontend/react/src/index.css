@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  /* This replaces your tailwind.config.jsx colors section */
+  --color-cca-blue: #1e3a8a;
+  --color-cca-blue-dark: #1a367c;
+  --color-cca-gold: #d4af37;
+}
+
+/* Custom CCA Styles using v4 syntax */
+@utility quill {
+  @apply bg-white rounded-lg shadow-sm;
+  height: 300px;
+}
+
+@utility btn-primary {
+  @apply bg-cca-blue hover:bg-cca-blue-dark text-white px-6 py-2 rounded-md transition-all font-semibold shadow-md;
+}
+
+@utility card {
+  @apply bg-white p-6 rounded-xl shadow-lg border border-gray-100;
+}

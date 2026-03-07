@@ -1,0 +1,22 @@
+first_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone
+Kwame,Asante,Male,2013-03-15,JHS 1,Kweku Asante,kwame@guardian.com,+233501001001
+Ama,Osei,Female,2013-07-11,JHS 1,Ama Serwa,ama@guardian.com,+233501001002
+Kofi,Mensah,Male,2013-01-22,JHS 1,Mensah Yaw,kofi@guardian.com,+233501001003
+Abena,Appiah,Female,2012-09-23,JHS 1,Appiah Adwoa,abena@guardian.com,+233501001004
+Nana,Boateng,Male,2012-04-17,JHS 1,Boateng Ata,nana@guardian.com,+233501001005
+Yaa,Nyarko,Female,2013-10-02,JHS 1,Nyarko Ama,yaa@guardian.com,+233501001006
+Gyasi,Owusu,Male,2013-06-27,JHS 1,Owusu Gyasi,gyasi@guardian.com,+233501001007
+Akosua,Mensah,Female,2013-02-14,JHS 1,Mensah Kodwo,akosua@guardian.com,+233501001008
+Kojo,Agyeman,Male,2012-11-08,JHS 1,Agyeman Kwaku,kojo@guardian.com,+233501001009
+Enie,Baah,Female,2013-08-19,JHS 1,Baah Ernest,enie@guardian.com,+233501001010
+Kwesi,Darko,Male,2012-03-21,JHS 2,Darko Kwasi,kwesi@guardian.com,+233501002001
+Efua,Adom,Female,2012-12-10,JHS 2,Adom Yawson,efua@guardian.com,+233501002002
+Amponsah,Boakye,Male,2012-05-05,JHS 2,Boakye Samuel,amponsah@guardian.com,+233501002003
+Afia,Yeboah,Female,2012-07-29,JHS 2,Yeboah Albert,afia@guardian.com,+233501002004
+Owusu,Ansah,Male,2011-09-13,JHS 2,Ansah Owusu,owusu@guardian.com,+233501002005
+Ama,Bonsu,Female,2012-01-04,JHS 2,Bonsu Ama,ama.bonsu@guardian.com,+233501002006
+Danso,Kempuor,Male,2011-10-25,JHS 2,Kempuor Danso,danso@guardian.com,+233501002007
+Nadia,Asare,Female,2012-06-18,JHS 2,Asare Nadia,nadia@guardian.com,+233501002008
+Yaw,Arhin,Male,2011-12-31,JHS 2,Arhin Yaw,yaw@guardian.com,+233501002009
+Bernice,Addai,Female,2012-03-09,JHS 2,Addai Bernard,bernice@guardian.com,+233501002010
+Elizabeth,Larbi,Female,JHS 3,Larbi Elizabeth,elizabeth@guardian.com,+233501003010

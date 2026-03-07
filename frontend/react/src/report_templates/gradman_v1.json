@@ -1,0 +1,109 @@
+{
+  "id": "gradman_v1",
+  "name": "Sample 1",
+  "description": "Layout modeled after the sample terminal report with summary stats and subject performance blocks.",
+  "config": {
+    "layout_version": "1.0",
+    "visibility": {
+      "hide_empty_fields": true,
+      "hide_empty_sections": true
+    },
+    "sections": [
+      {
+        "id": "school_header",
+        "label": "School Header",
+        "type": "header",
+        "fields": [
+          { "key": "school_name", "label": "School" },
+          { "key": "school_motto", "label": "Motto", "optional": true },
+          { "key": "school_contact", "label": "Contact", "optional": true }
+        ]
+      },
+      {
+        "id": "student_identity",
+        "label": "Student Identity",
+        "type": "student_info",
+        "fields": [
+          { "key": "student_name", "label": "Student Name" },
+          { "key": "student_code", "label": "Student ID" },
+          { "key": "class_name", "label": "Class" },
+          { "key": "academic_term", "label": "Term" },
+          { "key": "academic_year", "label": "Academic Year" }
+        ]
+      },
+      {
+        "id": "performance_summary",
+        "label": "Performance Summary",
+        "type": "summary",
+        "fields": [
+          { "key": "term_average", "label": "Average Mark" },
+          { "key": "overall_position", "label": "Position in Class", "optional": true },
+          { "key": "out_of_students", "label": "Out of", "optional": true },
+          { "key": "attendance_percentage", "label": "Attendance %", "optional": true },
+          { "key": "total_attendance", "label": "Total Attendance", "optional": true }
+        ]
+      },
+      {
+        "id": "subject_table",
+        "label": "Subjects",
+        "type": "table",
+        "columns": [
+          { "key": "subject", "label": "Subject" },
+          { "key": "class_score", "label": "Class" },
+          { "key": "exam_score", "label": "Exam" },
+          { "key": "total", "label": "Total" },
+          { "key": "grade", "label": "Grade" },
+          { "key": "position", "label": "Position", "optional": true },
+          { "key": "remarks", "label": "Remarks", "optional": true }
+        ]
+      },
+      {
+        "id": "grading_scale",
+        "label": "Grading Scale",
+        "type": "grading_scale"
+      },
+      {
+        "id": "teacher_remarks",
+        "label": "Class Teacher Remark",
+        "type": "remarks",
+        "fields": [
+          { "key": "homeroom_teacher_remarks", "label": "Remark", "optional": true }
+        ]
+      },
+      {
+        "id": "headmaster_remarks",
+        "label": "Headmaster Remark",
+        "type": "remarks",
+        "fields": [
+          { "key": "headmaster_remarks", "label": "Remark", "optional": true }
+        ]
+      },
+      {
+        "id": "proprietor_remarks",
+        "label": "Proprietor Remark",
+        "type": "remarks",
+        "fields": [
+          { "key": "proprietor_remarks", "label": "Remark", "optional": true }
+        ]
+      },
+      {
+        "id": "ai_analysis",
+        "label": "AI Performance Analysis",
+        "type": "analysis",
+        "fields": [
+          { "key": "ai_performance_analysis", "label": "Analysis", "optional": true }
+        ]
+      },
+      {
+        "id": "signatures",
+        "label": "Signatures",
+        "type": "signatures",
+        "fields": [
+          { "key": "class_teacher_signature", "label": "Class Teacher", "optional": true },
+          { "key": "headmaster_signature", "label": "Headmaster", "optional": true },
+          { "key": "proprietor_signature", "label": "Proprietor", "optional": true }
+        ]
+      }
+    ]
+  }
+}

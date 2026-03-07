@@ -1,0 +1,75 @@
+{
+  "id": "guardian_narrative",
+  "name": "Sample 5",
+  "description": "Narrative-first template with teacher and headmaster comments visible.",
+  "config": {
+    "layout_version": "1.0",
+    "visibility": {
+      "hide_empty_fields": true,
+      "hide_empty_sections": true
+    },
+    "sections": [
+      {
+        "id": "school_header",
+        "label": "School Header",
+        "type": "header",
+        "fields": [
+          { "key": "school_name", "label": "School" },
+          { "key": "school_motto", "label": "Motto", "optional": true },
+          { "key": "school_contact", "label": "Contact", "optional": true }
+        ]
+      },
+      {
+        "id": "student_identity",
+        "label": "Student Overview",
+        "type": "student_info",
+        "fields": [
+          { "key": "student_name", "label": "Student" },
+          { "key": "class_name", "label": "Class" },
+          { "key": "academic_term", "label": "Term" },
+          { "key": "academic_year", "label": "Year" }
+        ]
+      },
+      {
+        "id": "teacher_remarks",
+        "label": "Class Teacher Remark",
+        "type": "remarks",
+        "fields": [
+          { "key": "homeroom_teacher_remarks", "label": "Remark", "optional": true }
+        ]
+      },
+      {
+        "id": "headmaster_remarks",
+        "label": "Headmaster Remark",
+        "type": "remarks",
+        "fields": [
+          { "key": "headmaster_remarks", "label": "Remark", "optional": true }
+        ]
+      },
+      {
+        "id": "ai_analysis",
+        "label": "AI Summary",
+        "type": "analysis",
+        "fields": [
+          { "key": "ai_performance_analysis", "label": "Analysis", "optional": true }
+        ]
+      },
+      {
+        "id": "subject_table",
+        "label": "Subject Results",
+        "type": "table",
+        "columns": [
+          { "key": "subject", "label": "Subject" },
+          { "key": "total", "label": "Total" },
+          { "key": "grade", "label": "Grade" },
+          { "key": "remarks", "label": "Remarks", "optional": true }
+        ]
+      },
+      {
+        "id": "grading_scale",
+        "label": "Grading Scale",
+        "type": "grading_scale"
+      }
+    ]
+  }
+}

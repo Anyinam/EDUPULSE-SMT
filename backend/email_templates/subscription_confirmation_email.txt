@@ -1,0 +1,72 @@
+Subject: Welcome to {{plan_name}} - {{school_name}} Subscription Confirmed ✅
+
+Dear {{school_name}} Team,
+
+Congratulations! Your subscription to the {{plan_name}} plan has been confirmed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Subscription Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Plan: {{plan_name}}
+Price: {{price}} / {{billing_cycle}}
+Effective Date: {{start_date}}
+{%if next_billing_date%}Next Billing Date: {{next_billing_date}}{% endif %}
+Billing Email: {{billing_email}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 Your New Features:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{features_list}}
+
+📈 Usage Limits:
+
+{{usage_limits}}
+
+🚀 Getting Started with Your New Plan:
+
+1. **Log in** to your dashboard: {{login_url}}
+2. **Review Settings** to update school details if needed
+3. **Import Data** using bulk upload templates
+4. **Enable Features** that fit your school's needs
+5. **Create Support Ticket** if you need onboarding assistance
+
+📥 Data Import Templates (share with your school admin team):
+
+• Student Template (`DATA_IMPORT_TEMPLATE.csv`)
+	Required columns:
+	`first_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone`
+	Birthdate format: `YYYY-MM-DD`
+
+• Staff Template (`STAFF_IMPORT_TEMPLATE.csv`)
+	Required columns:
+	`username,email,password,roles,assigned_class,assigned_classes,assigned_subjects`
+	Multi-role example: `teacher,homeroom`
+
+❓ What's Included:
+
+{{included_services}}
+
+💬 Questions?
+
+Your dedicated support team is here to help:
+• Email: {{support_email}}
+• Phone: {{support_phone}}
+• Chat: Available in your dashboard
+• Video Tutorials: Check your email for links to our guide
+
+📝 Billing Information:
+
+Your subscription will renew on {{next_billing_date}}.
+You can manage your subscription at any time from your dashboard settings.
+
+To cancel or modify your subscription, visit:
+{{billing_management_url}}
+
+---
+
+Thank you for choosing EduPulse! We're committed to helping {{school_name}} succeed. 🎓
+
+Best regards,
+The EduPulse Team

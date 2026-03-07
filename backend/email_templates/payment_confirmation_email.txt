@@ -1,0 +1,54 @@
+Subject: Payment Confirmation - {{school_name}} Subscription Receipt
+
+Dear {{school_name}},
+
+Thank you for your payment! Your subscription is confirmed and active.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💳 Payment Receipt:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Invoice #: {{invoice_number}}
+Date: {{payment_date}}
+Amount Paid: {{amount_paid}}
+Payment Method: {{payment_method}}
+Status: {{payment_status}}
+
+Plan: {{plan_name}}
+Billing Cycle: {{billing_cycle}}
+{%if renewal_date%}Next Renewal: {{renewal_date}}{% endif %}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 Invoice Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Description: {{plan_name}} Subscription
+Subtotal: {{subtotal}}
+Tax: {{tax}}
+Total Due: {{total_amount}}
+
+Download Receipt: {{receipt_url}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Your Access:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{access_details}}
+
+📞 Payment Support:
+
+If you have any questions about this payment:
+• Email: {{billing_email}}
+• Phone: {{billing_phone}}
+• Dashboard: View invoices at {{dashboard_url}}
+
+💾 Keep This Receipt:
+
+This receipt is your proof of payment. We recommend saving it for your records.
+
+---
+
+Thank you for your business! 🎓
+
+Best regards,
+EduPulse SMT Billing Team

@@ -1,0 +1,293 @@
+EDUPULSE BUSINESS PROCESS MODEL - QUICK REFERENCE
+
+═════════════════════════════════════════════════════════════════════════════
+
+1. CUSTOMER ACQUISITION FUNNEL
+─────────────────────────────────────────────────────────────────────────────
+
+        Marketing/Organic
+               ↓
+      AWARENESS STAGE
+    "Ghana's #1 School
+     Management SaaS"
+               ↓
+       Try Free (50 students)
+    [No credit card needed]
+               ↓
+    1,000 Free Tier Signups
+    (GH₵0/month users)
+               ↓
+       Hit 50-Student Limit
+    "Upgrade to 200 students"
+               ↓
+  300 Convert to Basic (30%)
+  (GH₵200/month paying)
+               ↓
+  75 Upgrade to Premium (25%)
+  (GH₵500/month paying)
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+2. PRICING TIER LADDER (Freemium Model)
+─────────────────────────────────────────────────────────────────────────────
+
+Free Tier           Basic Plan           Premium Plan
+(GH₵0/month)       (GH₵200/month)       (GH₵500/month)
+───────────────────────────────────────────────────────────
+50 Students        200 Students         Unlimited
+✓ Core Features    ✓ All Free +         ✓ All Basic +
+✗ AI               ✓ Reports            ✓ AI Pulse
+✗ Webhooks         ✓ Finance            ✓ Automation
+✗ Premium          ✓ Inventory          ✓ AI Questions
+
+Target: 62.5% Basic, 37.5% Premium (of paying customers)
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+3. MONTHLY REVENUE PROJECTION (1,000 Signups)
+─────────────────────────────────────────────────────────────────────────────
+
+625 Free Users:       625 × GH₵0     = GH₵0
+300 Basic Users:      300 × GH₵200   = GH₵60,000
+75 Premium Users:     75 × GH₵500    = GH₵37,500
+                                        ───────────
+                    TOTAL MRR:          GH₵97,500
+
+    Average Revenue Per User (ARPU): GH₵97.50/month
+    Blended LTV (24-month): GH₵2,340/customer
+    Payback Period: ~6 months
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+4. YEAR 1 GROWTH TRAJECTORY
+─────────────────────────────────────────────────────────────────────────────
+
+Month  Free Users  Basic  Premium  MRR         ARR         MRR Growth
+────────────────────────────────────────────────────────────────────
+Q1:    100-300     10-35   2-8    GH₵4-15K   GH₵48-180K   —
+Q2:    300-500     35-60   8-15   GH₵15-30K  GH₵180-360K  +50%/qtr
+Q3:    500-650     60-85   15-25  GH₵30-47K  GH₵360-565K  +30%/qtr
+Q4:    650-800    85-120   25-40  GH₵47-72K  GH₵565-864K  +20%/qtr
+
+Year 1 Result: GH₵864K ARR (800 free, 120 basic, 40 premium)
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+5. REVENUE MECHANICS
+─────────────────────────────────────────────────────────────────────────────
+
+PRIMARY REVENUE
+├─ Monthly Subscription Fees
+│  ├─ Basic: GH₵200 × 300 schools = GH₵60,000/mo
+│  └─ Premium: GH₵500 × 75 schools = GH₵37,500/mo
+│     = GH₵97,500 MRR = GH₵1,170,000 ARR
+
+SECONDARY REVENUE (Future)
+├─ SMS Add-on: +GH₵18,000/month
+├─ Advanced Reports: +GH₵8,000/month
+└─ District API: +GH₵7,500/month
+   = +GH₵33,500/month (additional)
+
+TOTAL POTENTIAL ARR: GH₵1,170,000 + GH₵402,000 = GH₵1,572,000/year
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+6. UNIT ECONOMICS (Why This Business Scales)
+─────────────────────────────────────────────────────────────────────────────
+
+Customer Acquisition Cost (CAC):
+├─ Free Tier: GH₵15 (organic)
+├─ Basic Plan: GH₵100 (sales+trial)
+└─ Premium Plan: GH₵300 (enterprise)
+  Blended: GH₵160
+
+Customer Lifetime Value (LTV):
+├─ Basic: GH₵200/mo × 9.6 mo × 80% retention = GH₵1,920
+├─ Premium: GH₵500/mo × 10.5 mo × 90% retention = GH₵4,500
+  Blended: GH₵2,880
+
+KEY RATIO: LTV/CAC = 2,880/160 = 18:1
+           └─ Healthy SaaS = 3:1+. We're at 18:1 = EXCELLENT
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+7. CUSTOMER RETENTION (Churn Model)
+─────────────────────────────────────────────────────────────────────────────
+
+Month  Free 30-dy  Basic 30-dy  Premium 30-dy  Blended Retention
+────────────────────────────────────────────────────────────────────
+M1     100%        100%         100%           100% (launch cohort)
+M2     50%         82%          92%            75%
+M3     45%         80%          91%            72%
+M4     40%         80%          90%            71%
+M6     35%         79%          89%            69%
+M12    30%         78%          88%            65%
+
+Net Revenue Retention (NRR):
+├─ Basic Upgrades to Premium: +8%
+├─ Churn Impact: -20%
+├─ Net: +5-8% MoM growth from existing customers
+
+INTERPRETATION: Blended 75% retention means each customer stays ~9 months
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+8. PAYBACK PERIOD (How Fast CAC is Recovered)
+─────────────────────────────────────────────────────────────────────────────
+
+Basic Plan:
+CAC: GH₵100 ÷ Gross Margin (GH₵200 × 50%) = 1 month to recover CAC
+But blended: 100 CAC ÷ (200-100)/2 = 4 months average
+
+Premium Plan:
+CAC: GH₵300 ÷ Gross Margin (GH₵500 × 60%) = 1.25 months
+Blended: 300 CAC ÷ (500-100)/2 × 2 = 7.5 months
+
+BLENDED PAYBACK: 6 months (industry target: <9 months) ✓ EXCELLENT
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+9. VIRAL GROWTH MECHANICS
+─────────────────────────────────────────────────────────────────────────────
+
+VIRAL COEFFICIENT (k) = How many new customers each customer brings
+
+Viral Loop 1: Teacher Referral
+├─ Teacher A at School X uses EduPulse
+├─ Teacher B asks: "What's that?"
+├─ Teacher A shares recommendation
+├─ Teacher B signs up at School Y
+└─ Viral Coefficient (k): 0.15
+
+Viral Loop 2: Parent Network
+├─ Parent sees grades in app
+├─ Tells other parents at church
+├─ School gets adoption pressure
+└─ Viral Coefficient (k): 0.08
+
+Viral Loop 3: Staff Mobility
+├─ Teacher changes schools
+├─ Recommends EduPulse to new school
+└─ Viral Coefficient (k): 0.20
+
+BLENDED VIRAL COEFFICIENT: 0.3-0.4
+├─ Interpretation: Each customer brings 0.3-0.4 new customers
+├─ Result: Compounding growth at scale (exponential, not linear)
+└─ Formula: Month N = Previous Month × (1 + [growth] + [k])
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+10. COMPETITIVE MOAT (Why We're Hard to Replicate)
+─────────────────────────────────────────────────────────────────────────────
+
+Data Moat:
+├─ 1 year of payment history = Network effects
+├─ Proprietary AI trained on student data
+├─ Hard to replicate without historical data
+
+Switching Costs:
+├─ Teacher workflow familiarity
+├─ Parent app adoption
+├─ Integrated payment automation
+└─ Moderate lock-in effect
+
+Distribution Advantage:
+├─ Freemium model = viral acquisition
+├─ School network density = word-of-mouth
+└─ Proprietor satisfaction = churn prevention
+
+RESULT: Defensible position once market leadership established
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+11. GO-TO-MARKET CHANNELS
+─────────────────────────────────────────────────────────────────────────────
+
+CHANNEL 1: Direct Sales (20% of customers)
+├─ School proprietor networks
+├─ Educational associations
+├─ Sales team outreach
+└─ Cost: GH₵400 CAC | Benefit: Long-term contracts
+
+CHANNEL 2: Digital/Paid (30% of customers)
+├─ Facebook ads (targeting school admins)
+├─ Google Ads ("School software Ghana")
+├─ WhatsApp business groups
+└─ Cost: GH₵50-100 CAC | Benefit: Fast scaling
+
+CHANNEL 3: Freemium Viral (40% of customers)
+├─ Organic teacher referrals
+├─ Parent networks
+├─ Word-of-mouth adoption
+└─ Cost: GH₵15 CAC | Benefit: Lowest cost, fastest growth
+
+CHANNEL 4: Strategic Partnerships (10% of customers)
+├─ MTN Ghana (MoMo integration)
+├─ GCB/Ecobank (payment partners)
+├─ NPOs in education
+└─ Cost: Revenue share | Benefit: Distribution leverage
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+12. MARKET SIZING & OPPORTUNITY
+─────────────────────────────────────────────────────────────────────────────
+
+TAM: Total Addressable Market
+├─ Ghana schools: ~20,000
+├─ Average: GH₵2,688/year (blended ARPU)
+└─ TAM: 20,000 × GH₵2,688 = GH₵53.76 Million
+
+SAM: Serviceable Addressable Market (Realistic)
+├─ Target schools: JHS + Secondary (30% of market)
+├─ = 6,000 schools
+└─ SAM: 6,000 × GH₵2,688 = GH₵16.1 Million
+
+SOM: Serviceable Obtainable Market (Year 3)
+├─ Market share: 5% penetration
+├─ = 300 schools (conservative)
+└─ SOM: 300 × GH₵2,688 = GH₵806K Year 3 ARR
+
+GROWTH PATH:
+Year 1: 200 schools    = GH₵538K ARR
+Year 2: 450 schools    = GH₵1.2M ARR
+Year 3: 800 schools    = GH₵2.1M ARR
+Year 5: 2,000 schools  = GH₵5.4M ARR
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+SUMMARY: ONE-PAGE PITCH MESSAGING
+─────────────────────────────────────────────────────────────────────────────
+
+Problem:  Ghana's schools bleed money (cash leakage) & lose students to 
+          dropout without predictive insights. Teachers use paper, parents 
+          can't track progress.
+
+Solution: EduPulse = AI-powered school OS. Starts free (50 students), scales 
+          to unlimited. Automates payments, predicts dropouts, eliminates 
+          fraud.
+
+Business: Freemium SaaS. Free tier → Basic (GH₵200/mo) → Premium (GH₵500/mo).
+          Unit economics: 18:1 LTV/CAC. Payback: 6 months. Viral coefficient: 0.4
+
+Market:   20,000 schools in Ghana. GH₵53M TAM. Year 3 target: 800 schools,
+          GH₵2.1M ARR. Defensible via data moat + network effects.
+
+Traction: Deployed in [X] pilot schools. Conversion rate: 30-38% free→paid.
+          NPS score: [X]. Retention: 75% blended.
+
+Ask:      GH₵X for product + sales to reach 500 paying customers
+          (GH₵1.2M ARR breakeven) in 24 months.
+
+═════════════════════════════════════════════════════════════════════════════

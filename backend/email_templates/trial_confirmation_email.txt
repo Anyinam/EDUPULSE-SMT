@@ -1,0 +1,52 @@
+Subject: Welcome to EduPulse SMT Premium Trial - 14 Days Free Access
+
+Dear {{school_name}},
+
+Welcome to EduPulse SMT! 🎉
+
+We're excited to have you on board. Your school has been set up with a **14-day Premium Trial** at no cost, starting today.
+
+---
+
+**TRIAL DETAILS**
+✅ Plan: Premium (Full Features)
+📅 Duration: 14 days
+⏰ Expires: {{trial_end_date}}
+💰 Cost: FREE
+
+**WHAT YOU GET WITH PREMIUM**
+✓ Unlimited students and classes
+✓ Advanced AI-powered lesson note analysis
+✓ AI-generated lesson narratives
+✓ Full reporting and analytics
+✓ Complete staff management system
+✓ Email support
+
+**GETTING STARTED**
+1. Log in to your EduPulse dashboard: {{login_url}}
+2. Username: {{username}}
+3. Start creating lesson notes and classes
+4. Explore all Premium features
+
+**BEFORE YOUR TRIAL ENDS**
+When your 14-day trial period ends on {{trial_end_date}}, your school will automatically transition to our **Free Tier** plan (100 students, basic features) unless you subscribe to a paid plan.
+
+To continue enjoying Premium features after your trial:
+- Upgrade to Basic Plan (₵50/month, 200 students)
+- Upgrade to Premium Plan (₵250/month, unlimited students with AI narratives)
+
+---
+
+**PAYMENT & SUBSCRIPTION**
+We accept payment through secure Paystack integration. You can upgrade your plan anytime from your dashboard settings. Your first payment will be processed only after your trial ends.
+
+**NEED HELP?**
+If you have any questions or need assistance:
+📧 Email: support@edupulse.local
+📱 Contact our support team through the dashboard
+
+Thank you for choosing EduPulse!
+
+Best regards,
+**The EduPulse Team**
+Building excellence in educational management

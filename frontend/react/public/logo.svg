@@ -1,0 +1,21 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Default color scheme -->
+  <!-- Brain outline - left hemisphere -->
+  <circle cx="70" cy="80" r="20" stroke="#667eea" stroke-width="2.5" fill="none"/>
+  
+  <!-- Brain outline - right hemisphere -->
+  <circle cx="130" cy="80" r="20" stroke="#667eea" stroke-width="2.5" fill="none"/>
+  
+  <!-- Brain outline - connector -->
+  <path d="M 75 95 Q 100 120 125 95" stroke="#667eea" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  
+  <!-- Pulse/circuit lines -->
+  <path d="M 70 65 L 70 50 L 130 50 L 130 65" stroke="#ff6b6b" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  
+  <!-- Pulse circuit endpoints -->
+  <circle cx="70" cy="50" r="3" fill="#ff6b6b"/>
+  <circle cx="130" cy="50" r="3" fill="#ff6b6b"/>
+  
+  <!-- Learning indicator arrow -->
+  <path d="M 100 130 L 100 150 L 90 140 M 100 150 L 110 140" stroke="#00d4ff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

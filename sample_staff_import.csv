@@ -1,0 +1,8 @@
+username,email,password,roles,assigned_class,assigned_classes,assigned_subjects
+yaw_teacher,yaw.teacher@school.edu,SecurePass123,teacher,JHS 1,JHS 1|JHS 2,Mathematics|Science
+adjoa_homeroom,adjoa.homeroom@school.edu,SecurePass123,homeroom,Class 5,Class 5,English Language|Social Studies
+kofi_subject,kofi.subject@school.edu,SecurePass123,teacher,,JHS 2|JHS 3,Integrated Science
+ama_headmaster,ama.headmaster@school.edu,SecurePass123,headmaster,,,
+kwesi_finance,kwesi.finance@school.edu,SecurePass123,finance,,,
+aba_inventory,aba.inventory@school.edu,SecurePass123,inventory_manager,,,
+efua_dual,efua.dual@school.edu,SecurePass123,"teacher,homeroom",Class 6,Class 6|JHS 1,ICT|French

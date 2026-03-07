@@ -1,0 +1,73 @@
+Subject: Upgrade Successful! {{school_name}} is now on {{plan_name}} 🎉
+
+Dear {{school_name}} Team,
+
+Great news! Your subscription upgrade to {{plan_name}} is complete and active immediately.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Your Upgrade Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Previous Plan: {{previous_plan}}
+New Plan: {{plan_name}}
+Upgrade Date: {{upgrade_date}}
+Price: {{price}} / {{billing_cycle}}
+{%if prorated_credit%}
+
+Prorated Credit Applied: {{prorated_credit}}
+{% endif %}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✨ New Features Now Available:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{new_features}}
+
+🔓 Limitations Removed:
+
+{{removed_limitations}}
+
+📈 New Usage Limits:
+
+{{new_usage_limits}}
+
+🎯 Recommended Next Steps:
+
+1. **Explore New Features** - Check the dashboard for new options
+2. **Configure Settings** - Update school details and payment info
+3. **Train Staff** - Share new capabilities with your team
+4. **Import More Data** - You now have higher student/staff limits
+5. **Set Up Advanced Reports** - Use premium report templates
+
+📚 Resources for Your New Plan:
+
+{{new_resources}}
+
+💡 Feature Highlights:
+
+{{feature_highlights}}
+
+💬 Need Help?
+
+Our team is excited to help you get the most from your upgrade!
+• Setup Assistance: {{support_email}}
+• Feature Questions: {{support_phone}}
+• Video Guides: Check your email
+• Support Tickets: Open "Help & Support" in dashboard
+
+📋 Billing Summary:
+
+New Price: {{price}} per {{billing_cycle}}
+Next Billing Date: {{next_billing_date}}
+{%if prorated_amount%}
+Today's Charge (Prorated): {{prorated_amount}}
+{% endif %}
+
+View your invoice: {{invoice_url}}
+
+---
+
+Thank you for upgrading! We're confident this plan will help {{school_name}} reach new heights. 🚀
+
+Best regards,
+The EduPulse SMT Team

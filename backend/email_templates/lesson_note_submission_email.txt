@@ -1,0 +1,48 @@
+Subject: Lesson Note Submission Received - {{school_name}}
+
+Hello {{teacher_name}},
+
+Your lesson note for {{class_name}} - {{subject_name}} ({{lesson_dates}}) has been submitted successfully.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 Submission Details:
+• Class: {{class_name}}
+• Subject: {{subject_name}}
+• Dates: {{lesson_dates}}
+• Class Size: {{class_size}}
+• Status: Pending Review
+• Submit To: {{submit_to}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏳ What Happens Next:
+
+Your lesson note will be reviewed by {{approver_name}} ({{approver_role}}).
+You will receive another email once the review is complete.
+
+🎯 AI Scoring:
+
+Your submission has been analyzed with our advanced AI scoring system:
+• Completeness Score: {{completeness_score}}/100
+• Pedagogical Quality: {{pedagogical_score}}/100
+• Content Quality: {{content_quality_score}}/100
+• Overall Score: {{overall_score}}/100
+
+💬 Feedback & Comments:
+
+{{ai_feedback}}
+
+✏️ Next Steps:
+
+If requested for revisions:
+1. Log in to your dashboard
+2. Navigate to "Lesson Notes"
+3. Click "Edit" on your submission
+4. Make the requested changes
+5. Resubmit
+
+---
+
+Questions? Contact your headmaster: {{headmaster_name}} ({{headmaster_email}})
+
+Best regards,
+{{school_name}} via EduPulse SMT

@@ -1,0 +1,86 @@
+{
+  "id": "parent_focus",
+  "name": "Sample 2",
+  "description": "Parent-friendly summary with clear strengths, needs, and attendance focus.",
+  "config": {
+    "layout_version": "1.0",
+    "visibility": {
+      "hide_empty_fields": true,
+      "hide_empty_sections": true
+    },
+    "sections": [
+      {
+        "id": "school_header",
+        "label": "School Header",
+        "type": "header",
+        "fields": [
+          { "key": "school_name", "label": "School" },
+          { "key": "school_motto", "label": "Motto", "optional": true },
+          { "key": "school_contact", "label": "Contact", "optional": true }
+        ]
+      },
+      {
+        "id": "student_identity",
+        "label": "Student Overview",
+        "type": "student_info",
+        "fields": [
+          { "key": "student_name", "label": "Student" },
+          { "key": "class_name", "label": "Class" },
+          { "key": "academic_term", "label": "Term" },
+          { "key": "academic_year", "label": "Year" }
+        ]
+      },
+      {
+        "id": "performance_summary",
+        "label": "Overall Summary",
+        "type": "summary",
+        "fields": [
+          { "key": "term_average", "label": "Average" },
+          { "key": "overall_position", "label": "Position", "optional": true },
+          { "key": "out_of_students", "label": "Out of", "optional": true },
+          { "key": "attendance_percentage", "label": "Attendance %", "optional": true }
+        ]
+      },
+      {
+        "id": "strengths_needs",
+        "label": "Strengths and Needs",
+        "type": "insights",
+        "fields": [
+          { "key": "strengths", "label": "Strengths", "optional": true },
+          { "key": "weaknesses", "label": "Needs Improvement", "optional": true }
+        ]
+      },
+      {
+        "id": "subject_table",
+        "label": "Subject Scores",
+        "type": "table",
+        "columns": [
+          { "key": "subject", "label": "Subject" },
+          { "key": "total", "label": "Total" },
+          { "key": "grade", "label": "Grade" }
+        ]
+      },
+      {
+        "id": "grading_scale",
+        "label": "Grading Scale",
+        "type": "grading_scale"
+      },
+      {
+        "id": "teacher_remarks",
+        "label": "Teacher Comment",
+        "type": "remarks",
+        "fields": [
+          { "key": "homeroom_teacher_remarks", "label": "Remark", "optional": true }
+        ]
+      },
+      {
+        "id": "headmaster_remarks",
+        "label": "Headmaster Comment",
+        "type": "remarks",
+        "fields": [
+          { "key": "headmaster_remarks", "label": "Remark", "optional": true }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+# Testing & Development Dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Testing Framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+pytest-timeout>=2.1.0
+pytest-postgresql>=5.0.0
+
+# Database Drivers for Testing
+psycopg[binary]>=3.0.0  # Required by pytest-postgresql
+
+# Code Quality
+pylint>=2.17.0
+flake8>=6.0.0
+black>=23.3.0
+isort>=5.12.0
+mypy>=1.0.0
+
+# Security Testing
+bandit>=1.7.5
+safety>=2.3.5
+semgrep>=1.34.0
+
+# Performance Testing
+pytest-benchmark>=4.0.0
+locust>=2.15.0
+
+# Fixtures and Mocking
+faker>=18.0.0
+factory-boy>=3.2.0
+
+# Documentation
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+
+# Development Tools
+ipython>=8.0.0
+jupyter>=1.0.0
+notebook>=6.5.0
+click>=8.1.7
+
+# Database Tools
+alembic>=1.11.0
+sqlalchemy-utils>=0.41.0
+
+# Code Formatting
+autopep8>=2.0.0
+
+# Pre-commit hooks
+pre-commit>=3.0.0
+
+# All main requirements
+-r backend/requirements.txt

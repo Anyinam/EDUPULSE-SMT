@@ -1,0 +1,7 @@
+username,email,password,roles,assigned_class,assigned_classes,assigned_subjects
+kwame_teacher,kwame.asante@school.edu,SecurePass123,teacher,JHS 1,JHS 1|JHS 2,Mathematics|Science
+ama_homeroom,ama.osei@school.edu,SecurePass123,homeroom,Class 4,Class 4,English Language|Social Studies
+kofi_math,kofi.mensah@school.edu,SecurePass123,teacher,,JHS 2|JHS 3,Mathematics
+abena_headmaster,abena.appiah@school.edu,SecurePass123,headmaster,,,
+nana_finance,nana.boateng@school.edu,SecurePass123,finance,,,
+adwoa_dual,adwoa.darkwah@school.edu,SecurePass123,"teacher,homeroom",Class 6,Class 5|Class 6,English Language|French

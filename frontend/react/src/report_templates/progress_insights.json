@@ -1,0 +1,78 @@
+{
+  "id": "progress_insights",
+  "name": "Sample 3",
+  "description": "Highlights progress, effort, and AI narrative for quick parent inference.",
+  "config": {
+    "layout_version": "1.0",
+    "visibility": {
+      "hide_empty_fields": true,
+      "hide_empty_sections": true
+    },
+    "sections": [
+      {
+        "id": "school_header",
+        "label": "School Header",
+        "type": "header",
+        "fields": [
+          { "key": "school_name", "label": "School" },
+          { "key": "school_motto", "label": "Motto", "optional": true },
+          { "key": "school_contact", "label": "Contact", "optional": true }
+        ]
+      },
+      {
+        "id": "student_identity",
+        "label": "Student Overview",
+        "type": "student_info",
+        "fields": [
+          { "key": "student_name", "label": "Student" },
+          { "key": "class_name", "label": "Class" },
+          { "key": "academic_term", "label": "Term" },
+          { "key": "academic_year", "label": "Year" }
+        ]
+      },
+      {
+        "id": "performance_summary",
+        "label": "Performance Snapshot",
+        "type": "summary",
+        "fields": [
+          { "key": "term_average", "label": "Average" },
+          { "key": "overall_position", "label": "Position", "optional": true },
+          { "key": "attendance_percentage", "label": "Attendance %", "optional": true }
+        ]
+      },
+      {
+        "id": "ai_analysis",
+        "label": "AI Summary",
+        "type": "analysis",
+        "fields": [
+          { "key": "ai_performance_analysis", "label": "Analysis", "optional": true }
+        ]
+      },
+      {
+        "id": "subject_table",
+        "label": "Subject Details",
+        "type": "table",
+        "columns": [
+          { "key": "subject", "label": "Subject" },
+          { "key": "class_score", "label": "Class" },
+          { "key": "exam_score", "label": "Exam" },
+          { "key": "total", "label": "Total" },
+          { "key": "grade", "label": "Grade" }
+        ]
+      },
+      {
+        "id": "grading_scale",
+        "label": "Grading Scale",
+        "type": "grading_scale"
+      },
+      {
+        "id": "teacher_remarks",
+        "label": "Teacher Comment",
+        "type": "remarks",
+        "fields": [
+          { "key": "homeroom_teacher_remarks", "label": "Remark", "optional": true }
+        ]
+      }
+    ]
+  }
+}

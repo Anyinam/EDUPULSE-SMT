@@ -1,0 +1,63 @@
+Subject: Complete Your EduPulse SMT {{plan_name}} Plan Upgrade
+
+Dear {{school_name}},
+
+Thank you for choosing to upgrade your EduPulse SMT subscription!
+
+---
+
+**UPGRADE SUMMARY**
+📋 Plan: {{plan_name}}
+💰 Amount: {{amount}}
+🔄 Billing: {{billing_cycle}}
+
+**WHAT YOU GET**
+{{features_list}}
+
+**TRIAL REMAINING**
+{{trial_days_remaining}} days left in your Premium trial
+
+---
+
+**COMPLETE YOUR PAYMENT**
+Click the button below to securely complete your payment via Paystack:
+
+**[COMPLETE PAYMENT]({{payment_link}})**
+
+Or copy and paste this link in your browser:
+{{payment_link}}
+
+---
+
+**PAYMENT DETAILS**
+✓ Secure payment via Paystack
+✓ Your subscription will start immediately upon payment confirmation
+✓ Monthly automatic billing
+✓ Cancel anytime (no long-term contracts)
+
+**PAYMENT OPTIONS**
+We accept payment through Paystack, which supports:
+✓ Bank transfers
+✓ Debit cards
+✓ Credit cards
+✓ Mobile money
+
+---
+
+**NEED HELP?**
+If you have any questions about the upgrade:
+📧 Email: support@edupulse.local
+📱 Contact support through your dashboard
+
+**SECURITY NOTICE**
+This payment link is secure and encrypted. Never share this link with others. EduPulse will never ask for your payment information via email or phone.
+
+---
+
+After payment confirmation, you'll immediately have access to all {{plan_name}} features. Your payment confirmation will be sent to {{billing_email}}.
+
+Thank you for supporting EduPulse!
+
+Best regards,
+**The EduPulse Team**
+Making education management simple

@@ -1,0 +1,73 @@
+Subject: Your EduPulse Premium Trial Has Ended - Upgrade Now to Keep Full Access
+
+Dear {{school_name}},
+
+Your **14-day Premium Trial** with EduPulse has ended.
+
+---
+
+**WHAT HAPPENED TO YOUR ACCOUNT?**
+Your school account has been automatically downgraded to our **Free Tier** plan. Your data remains safe and accessible, but you now have access to limited features:
+
+**Free Tier Features (Current)**
+❌ Maximum 50 students
+❌ No lesson notes or AI analysis
+❌ No advanced reporting
+❌ Basic staff management only
+
+**Premium Features You Lost**
+✅ Unlimited students
+✅ AI-powered lesson note analysis
+✅ AI-generated narratives
+✅ Advanced reporting and analytics
+✅ Full staff and class management
+
+---
+
+**UPGRADE NOW TO REGAIN PREMIUM ACCESS**
+We offer two paid plans:
+
+**Basic Plan** - ₵50/month
+→ Up to 200 students
+→ Lesson notes with basic AI analysis
+→ Standard reporting
+→ Best for: Small to medium schools
+
+**Premium Plan** - ₵250/month
+→ Unlimited students
+→ Full AI-powered lesson notes with narratives
+→ Advanced analytics and reporting
+→ Best for: Growing schools seeking all features
+
+---
+
+**HOW TO UPGRADE**
+1. Log in to your dashboard: {{login_url}}
+2. Go to Settings → Subscription
+3. Choose your plan and proceed to payment
+4. Payment is processed securely via Paystack
+5. Your Premium access will be restored immediately
+
+**PAYMENT & BILLING**
+✓ Secure payment via Paystack
+✓ Monthly or annual billing options
+✓ Cancel anytime
+✓ No long-term contracts
+
+---
+
+**SPECIAL OFFER**
+If you upgrade within 7 days, we'll give you a **10% loyalty discount** on your first month.
+
+---
+
+**QUESTIONS?**
+If you need help choosing a plan or have questions about features:
+📧 Email: support@edupulse.local
+📱 Contact support through the dashboard
+
+We'd love to have you back on Premium!
+
+Best regards,
+**The EduPulse Team**
+Making education management simple

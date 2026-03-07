@@ -1,0 +1,54 @@
+Feature,Category,Free Tier,Basic Plan,Premium Plan
+Price,Pricing,GH₵ 0/month,GH₵ 200/month,GH₵ 500/month
+Student Capacity,Quotas,50 students,200 students,Unlimited
+Annual Cost,Pricing,GH₵ 0,GH₵ 2400,GH₵ 6000
+Cost Per Student/Year,Pricing,GH₵ 0,GH₵ 12,GH₵ varies
+,,,,
+Basic Attendance Tracking,Core Features,✓,✓,✓
+Manual Grade Entry,Core Features,✓,✓,✓
+Student Roster Management,Core Features,✓,✓,✓
+Role-Based Access Control,Core Features,✓,✓,✓
+Multi-Tenant Isolation,Core Features,✓,✓,✓
+Audit Logging,Core Features,✓,✓,✓
+Manual Payment Entry,Core Features,✓,✓,✓
+,,,,
+Full Grades Management,Advanced Features,✗,✓,✓
+Financial Tracking (Tuition/Feeding/Uniforms),Advanced Features,✗,✓,✓
+Payment Method Tracking (Cash/Bank/MoMo),Advanced Features,Partial,✓,✓
+Lesson Notes & Worklog,Advanced Features,✗,✓,✓
+Inventory Management,Advanced Features,✗,✓,✓
+Term Grading Policies,Advanced Features,✗,✓,✓
+Student Support Tickets,Advanced Features,✗,✓,✓
+System Alerts,Advanced Features,✗,✓,✓
+Basic Reports & Analytics,Advanced Features,✗,✓,✓
+,,,,
+AI Student Pulse (Risk Prediction),AI Features,✗,✗,✓
+AI-Generated Narratives,AI Features,✗,✗,✓
+Predictive Risk Scoring (0-100),AI Features,✗,✗,✓
+Academic+Financial Correlation Analysis,AI Features,✗,✗,✓
+AI Question Generation for Admissions,AI Features,✗,✗,✓
+Subject-Based Question Pools,AI Features,✗,✗,✓
+Difficulty Level Customization,AI Features,✗,✗,✓
+Candidate Screening Automation,AI Features,✗,✗,✓
+,,,,
+MoMo Webhook Automation,Payment Automation,✗,✗,✓
+Bank Transfer Webhook Automation,Payment Automation,✗,✗,✓
+Auto-Categorized Payments (Term/Frequency),Payment Automation,✗,✗,✓
+Duplicate Payment Prevention,Payment Automation,✗,✗,✓
+Real-Time Balance Updates,Payment Automation,✗,✗,✓
+Reference-Based Payment Parsing,Payment Automation,✗,✗,✓
+,,,,
+Proprietor Dashboard,Governance Features,Basic,Basic,Advanced
+Live Transaction Feed,Governance Features,Basic,Basic,✓
+Pending Payment Tracking,Governance Features,✗,Basic,✓
+Critical Risk Intervention List,Governance Features,✗,Basic,✓
+Daily Revenue Reports,Governance Features,✗,Basic,✓
+Term Summary Exports,Governance Features,✗,Basic,✓
+Advanced Financial Analytics,Governance Features,✗,Basic,✓
+Payment Reconciliation Tools,Governance Features,✗,Basic,✓
+,,,,
+Support Level,Support,Community,Standard,Priority
+Max Response Time,Support,24 hours,12 hours,2 hours
+Email Support,Support,✓,✓,✓
+Phone Support,Support,✗,✗,✓
+Dedicated Account Manager,Support,✗,✗,✓

@@ -1,0 +1,70 @@
+Subject: Welcome to EduPulse SMT - Your School Management Platform! 🎓
+
+Dear {{username}},
+
+Welcome to EduPulse - Your School Management Platform!
+
+Your school account has been successfully created with the following details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• School Name: {{school_name}}
+• Organization ID: {{school_id}}
+• Username: {{username}}
+• Login URL: {{login_url}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Getting Started (5 Simple Steps):
+
+1. Log in at {{login_url}} with your credentials
+2. Explore the dashboard to manage students, payments, and academic records
+3. Access staff management to add teachers and headmasters
+4. Set up your classes and subjects in the timetable
+5. Start recording grades and generating reports
+
+Your Current Subscription: {{subscription_plan}}
+
+Your plan includes access to:
+✅ Student & Staff Management
+✅ Grade Recording & Reports
+✅ Payment Tracking
+✅ Attendance Records
+✅ Lesson Note Submissions
+✅ Timetable Management
+✅ Inventory Management
+✅ Financial Reports
+
+Next Steps:
+
+1. **Update School Settings** - Add your school logo, contact details, and payment information
+2. **Import Student Data** - Use the attached `DATA_IMPORT_TEMPLATE.csv` template
+3. **Add Staff Members** - Create accounts for teachers, headmasters, and finance officers manually from the Staff & HR section
+4. **Configure Classes & Subjects** - Set up your academic structure
+5. **Customize Report Templates** - Choose how student reports are displayed
+
+CSV Import Template (attached):
+
+• Student Import Template: `DATA_IMPORT_TEMPLATE.csv`
+	Columns:
+	`first_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone`
+	Date format: `YYYY-MM-DD`
+	Example class names: JHS 1, JHS 2, JHS 3, Primary 1, Class 4, etc.
+
+Resources:
+
+• Quick Start Guide: Check your email for setup instructions
+• Data Import Templates: Available in your dashboard under "Settings"
+• FAQ: Available on the login page at {{login_url}}
+• Help Center: After login, open "Help Center" from the left sidebar menu
+
+Need Help?
+
+We're here to support you! 
+• Email: support@edupulse.com
+• Phone: +233-XXX-XXX-XXXX
+• Support Tickets: Open "Help & Support" in your dashboard
+
+Thank you for choosing EduPulse. We're excited to help {{school_name}} succeed!
+
+Best regards,
+The EduPulse Team 🎓
+
+P.S. Bookmark {{login_url}} for quick access to your dashboard!

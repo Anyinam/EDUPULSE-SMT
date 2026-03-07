@@ -1,0 +1,65 @@
+Subject: Invoice for {{term_name}} {{academic_year}} - {{school_name}}
+
+Hello {{proprietor_name}},
+
+You have successfully activated {{term_name}} for the {{academic_year}} academic year at {{school_name}}.
+
+📋 INVOICE DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Invoice Number:     {{invoice_number}}
+Billing Date:       {{billing_date}}
+Due Date:           {{due_date}}
+Subscription Plan:  {{plan_name}}
+
+🎓 ENROLLMENT & CHARGES BREAKDOWN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Active Students:     {{num_students}} students
+
+Billing Summary:
+  • Base Platform Fee:        ₵{{base_fee}}
+  • Included Students:        {{included_students}} students (no charge)
+  • Billable Students:        {{billable_students}} students
+  • Rate per Extra Student:   ₵{{rate_per_student}} per term
+  • Student Overage Cost:     ₵{{student_overage_cost}}
+  ─────────────────────────────────────
+  • TOTAL TERM COST:          ₵{{term_cost}}
+
+Term Dates:
+  • Start Date:     {{term_start_date}}
+  • Vacation Day:   {{vacation_date}}
+  • Reopening:      {{reopening_date}}
+
+💳 PAYMENT INSTRUCTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Click the link below to complete your payment via Paystack:
+
+{{payment_link}}
+
+This secure payment link will process your subscription fee for {{term_name}}.
+
+⏰ IMPORTANT NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Payment is due by {{due_date}}
+• Full access to all {{plan_name}} features continues until due date
+• Late payment may result in temporary feature restrictions
+• Receipt will be sent immediately upon successful payment
+
+📊 YOUR {{plan_name}} PLAN INCLUDES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{features_list}}
+
+Need help or have questions about this invoice?
+📧 Email: {{support_email}}
+📞 Phone: {{support_phone}}
+
+View your billing history and manage subscriptions:
+{{dashboard_url}}
+
+Thank you for choosing EduPulse to power {{school_name}}'s academic excellence!
+
+Best regards,
+The EduPulse Team
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is an automated notification. Please do not reply to this email.
+For support, contact {{support_email}}
