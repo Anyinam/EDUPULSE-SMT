@@ -42,6 +42,19 @@ export default function SettingsPanel() {
   });
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [subscriptionPlan, setSubscriptionPlan] = useState('');
+  const [paystackProviders, setPaystackProviders] = useState([]);
+  const [paystackRoutes, setPaystackRoutes] = useState([]);
+  const [loadingPaystackProviders, setLoadingPaystackProviders] = useState(false);
+  const [loadingPaystackRoutes, setLoadingPaystackRoutes] = useState(false);
+  const [creatingPaystackRoute, setCreatingPaystackRoute] = useState(false);
+  const [resolvingPaystackCustomer, setResolvingPaystackCustomer] = useState(false);
+  const [paystackProviderError, setPaystackProviderError] = useState('');
+  const [paystackRouteMessage, setPaystackRouteMessage] = useState('');
+  const [paystackRouteForm, setPaystackRouteForm] = useState({
+    payment_type: 'Tuition',
+    customer_code: '',
+    preferred_bank: ''
+  });
 
   // Color palette options for easy tenant selection
   const colorPalette = [
@@ -140,7 +153,101 @@ export default function SettingsPanel() {
     fetchGradingScheme();
     fetchFees();
     fetchActiveTemplate();
+    fetchPaystackProviders();
+    fetchPaystackRoutes();
   }, []);
+
+  const getAuthHeaders = () => ({
+    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+    'X-School-ID': localStorage.getItem('school_id')
+  });
+
+  const fetchPaystackProviders = async () => {
+    setLoadingPaystackProviders(true);
+    setPaystackProviderError('');
+    try {
+      const headers = getAuthHeaders();
+      const res = await axios.get('/api/proprietor/paystack/providers?country=ghana', { headers });
+      const providers = Array.isArray(res.data) ? res.data : [];
+      setPaystackProviders(providers);
+      if (!paystackRouteForm.preferred_bank && providers.length > 0) {
+        const defaultProvider = providers[0]?.slug || providers[0]?.name || '';
+        setPaystackRouteForm((prev) => ({ ...prev, preferred_bank: defaultProvider }));
+      }
+    } catch (err) {
+      const error = err.response?.data?.error || err.response?.data?.message || 'Failed to load supported providers';
+      setPaystackProviderError(error);
+    } finally {
+      setLoadingPaystackProviders(false);
+    }
+  };
+
+  const fetchPaystackRoutes = async () => {
+    setLoadingPaystackRoutes(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await axios.get('/api/proprietor/paystack/subaccounts', { headers });
+      setPaystackRoutes(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Failed to load Paystack routes:', err);
+      setPaystackRoutes([]);
+    } finally {
+      setLoadingPaystackRoutes(false);
+    }
+  };
+
+  const handleAutofillPaystackCustomerCode = async () => {
+    setResolvingPaystackCustomer(true);
+    setPaystackRouteMessage('');
+    try {
+      const headers = getAuthHeaders();
+      const res = await axios.post('/api/proprietor/paystack/customers/resolve', {}, { headers });
+      const customerCode = res.data?.customer_code || '';
+      if (!customerCode) {
+        setPaystackRouteMessage('❌ Could not resolve a Paystack customer code.');
+        return;
+      }
+
+      setPaystackRouteForm((prev) => ({ ...prev, customer_code: customerCode }));
+      setPaystackRouteMessage(`✅ Customer code auto-filled: ${customerCode}`);
+    } catch (err) {
+      const error = err.response?.data?.error || err.response?.data?.message || 'Failed to auto-fill customer code';
+      setPaystackRouteMessage(`❌ ${error}`);
+    } finally {
+      setResolvingPaystackCustomer(false);
+    }
+  };
+
+  const handleCreatePaystackRoute = async () => {
+    if (!paystackRouteForm.customer_code.trim()) {
+      setPaystackRouteMessage('❌ Customer code is required (e.g., CUS_xxxxx).');
+      return;
+    }
+    if (!paystackRouteForm.preferred_bank.trim()) {
+      setPaystackRouteMessage('❌ Please choose a supported provider/bank.');
+      return;
+    }
+
+    setCreatingPaystackRoute(true);
+    setPaystackRouteMessage('');
+    try {
+      const headers = getAuthHeaders();
+      const payload = {
+        payment_type: paystackRouteForm.payment_type,
+        customer_code: paystackRouteForm.customer_code.trim(),
+        preferred_bank: paystackRouteForm.preferred_bank.trim()
+      };
+
+      const res = await axios.post('/api/proprietor/paystack/subaccounts/create', payload, { headers });
+      setPaystackRouteMessage(`✅ ${res.data?.message || 'Virtual account created successfully.'}`);
+      await fetchPaystackRoutes();
+    } catch (err) {
+      const error = err.response?.data?.error || err.response?.data?.message || 'Failed to create virtual account route';
+      setPaystackRouteMessage(`❌ ${error}`);
+    } finally {
+      setCreatingPaystackRoute(false);
+    }
+  };
 
   const fetchActiveTemplate = async () => {
     try {
@@ -624,6 +731,122 @@ export default function SettingsPanel() {
                 </div>
               </div>
             </div>
+
+            {/* Paystack Dedicated Virtual Accounts */}
+            <div className="border rounded-lg p-4 bg-blue-50">
+              <h4 className="font-bold text-slate-800 mb-2">🧾 Paystack Virtual Accounts</h4>
+              <p className="text-xs text-slate-600 mb-3">
+                Create one dedicated virtual account per fee type. Parents can transfer to these account numbers directly.
+              </p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-bold text-slate-700">Payment Type</label>
+                  <select
+                    value={paystackRouteForm.payment_type}
+                    onChange={(e) => setPaystackRouteForm((prev) => ({ ...prev, payment_type: e.target.value }))}
+                    className="w-full p-2 border rounded mt-1 bg-white"
+                  >
+                    <option value="Tuition">Tuition</option>
+                    <option value="Feeding">Feeding</option>
+                    <option value="Uniform">Uniform</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-bold text-slate-700">School Paystack Customer Code</label>
+                  <div className="flex gap-2 mt-1">
+                    <input
+                      type="text"
+                      value={paystackRouteForm.customer_code}
+                      onChange={(e) => setPaystackRouteForm((prev) => ({ ...prev, customer_code: e.target.value }))}
+                      className="flex-1 p-2 border rounded bg-white"
+                      placeholder="e.g., CUS_358xertt55"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAutofillPaystackCustomerCode}
+                      disabled={resolvingPaystackCustomer}
+                      className="px-3 py-2 text-xs font-bold rounded bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
+                    >
+                      {resolvingPaystackCustomer ? 'Resolving...' : 'Auto-fill School Customer'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">Uses one school-level Paystack customer for all fee-type routes.</p>
+                </div>
+
+                <div>
+                  <label className="text-sm font-bold text-slate-700">Supported Provider / Bank</label>
+                  <select
+                    value={paystackRouteForm.preferred_bank}
+                    onChange={(e) => setPaystackRouteForm((prev) => ({ ...prev, preferred_bank: e.target.value }))}
+                    className="w-full p-2 border rounded mt-1 bg-white"
+                    disabled={loadingPaystackProviders}
+                  >
+                    {!loadingPaystackProviders && paystackProviders.length === 0 && (
+                      <option value="">No providers loaded</option>
+                    )}
+                    {paystackProviders.map((provider, idx) => (
+                      <option
+                        key={`${provider.slug || provider.name || 'provider'}-${idx}`}
+                        value={provider.slug || provider.name || ''}
+                      >
+                        {provider.name || provider.slug || 'Unknown Provider'}
+                        {provider.slug ? ` (${provider.slug})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={fetchPaystackProviders}
+                      className="px-3 py-1 text-xs font-bold rounded bg-slate-700 text-white hover:bg-slate-600"
+                    >
+                      {loadingPaystackProviders ? 'Refreshing...' : 'Refresh Providers'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCreatePaystackRoute}
+                      disabled={creatingPaystackRoute}
+                      className="px-3 py-1 text-xs font-bold rounded bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-50"
+                    >
+                      {creatingPaystackRoute ? 'Creating...' : 'Create Virtual Account'}
+                    </button>
+                  </div>
+                  {paystackProviderError && (
+                    <p className="text-xs text-red-600 mt-2">❌ {paystackProviderError}</p>
+                  )}
+                  {paystackRouteMessage && (
+                    <p className={`text-xs mt-2 ${paystackRouteMessage.startsWith('✅') ? 'text-green-700' : 'text-red-600'}`}>
+                      {paystackRouteMessage}
+                    </p>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t">
+                  <p className="text-sm font-bold text-slate-700 mb-2">Configured Virtual Routes</p>
+                  {loadingPaystackRoutes ? (
+                    <p className="text-xs text-slate-500">Loading routes...</p>
+                  ) : paystackRoutes.length === 0 ? (
+                    <p className="text-xs text-slate-500">No virtual routes created yet.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {paystackRoutes
+                        .filter((route) => route.is_active)
+                        .map((route) => (
+                          <div key={route.id} className="bg-white border rounded p-2 text-xs">
+                            <p className="font-bold text-slate-700">{route.payment_type}</p>
+                            <p className="text-slate-600">Acct: {route.virtual_bank_account || 'Not set'}</p>
+                            <p className="text-slate-600">Bank: {route.virtual_bank_name || route.momo_provider || 'Not set'}</p>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -823,7 +1046,7 @@ export default function SettingsPanel() {
         <div className="pt-6 border-t border-slate-200">
           <button
             type="submit"
-            className="w-full md:w-auto px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-xl shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all hover:scale-105 text-lg"
+            className="w-full md:w-auto px-8 py-4 bg-linear-to-r from-blue-600 to-blue-700 text-white font-bold rounded-xl shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all hover:scale-105 text-lg"
           >
             💾 Save Settings
           </button>
@@ -1007,7 +1230,7 @@ export default function SettingsPanel() {
         <div className="mt-10 border-t pt-8">
           <div className="flex items-center gap-2 mb-4">
             <h3 className="text-xl font-bold text-slate-800">🎨 Custom HTML Report Templates</h3>
-            <span className="text-xs bg-gradient-to-r from-yellow-400 to-amber-500 text-white px-3 py-1 rounded-full font-bold">PREMIUM</span>
+            <span className="text-xs bg-linear-to-r from-yellow-400 to-amber-500 text-white px-3 py-1 rounded-full font-bold">PREMIUM</span>
           </div>
           <p className="text-sm text-slate-600 mb-6">
             Upload your own custom HTML templates to completely customize how terminal reports look. You can provide HTML, CSS, and background images.
@@ -1083,7 +1306,7 @@ export default function SettingsPanel() {
             <button
               type="submit"
               disabled={uploadingTemplate}
-              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white font-bold rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-6 py-3 bg-linear-to-r from-purple-600 to-purple-700 text-white font-bold rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploadingTemplate ? '⏳ Uploading...' : '📤 Upload Custom Template'}
             </button>
@@ -1094,7 +1317,7 @@ export default function SettingsPanel() {
       {/* Premium Upsell for Free/Basic Tiers */}
       {subscriptionPlan !== 'Premium' && (
         <div className="mt-10 border-t pt-8">
-          <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-6">
+          <div className="bg-linear-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-6">
             <div className="flex items-start gap-4">
               <div className="text-4xl">🎨</div>
               <div>
@@ -1104,7 +1327,7 @@ export default function SettingsPanel() {
                 </p>
                 <button
                   onClick={() => alert('Upgrade to Premium to access Custom HTML Templates!')}
-                  className="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all"
+                  className="px-6 py-2 bg-linear-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all"
                 >
                   🚀 Upgrade to Premium
                 </button>

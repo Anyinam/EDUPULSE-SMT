@@ -117,18 +117,13 @@ export default function StudentPaymentTracker() {
     }
   };
 
-  const printPaymentCodesReceipt = () => {
+  const printPaymentInstructions = () => {
     if (!paymentCodes) return;
 
     const schoolName = branding.school_name || branding.name || 'School';
     const schoolEmail = branding.school_email || branding.email || '';
     const schoolPhone = branding.school_phone || branding.phone || '';
     const schoolAddress = branding.school_address || branding.address || '';
-
-    const bankName = branding.bank_name || '';
-    const bankAccount = branding.bank_account || '';
-    const bankAccountName = branding.bank_account_name || '';
-    const bankBranch = branding.bank_branch || '';
     const themeColor = branding.theme_color || '#3b82f6';
 
     const summaryRows = feeTypes.map((feeType) => {
@@ -446,7 +441,7 @@ export default function StudentPaymentTracker() {
 
           <!-- Important Notice -->
           <div class="important">
-            <strong>⚠️ Important:</strong> Parent should pay using the matching virtual route for each fee type. Paystack auto-detects payment type from the route used. Reference code is backup only.
+            <strong>⚠️ Important:</strong> Pay each fee type with its matching virtual account. During USSD wallet-to-bank transfer, select the bank shown with that virtual account. Paystack auto-detects payment type from the route used. Reference code is backup only.
           </div>
 
           <!-- Payment Methods Section -->
@@ -460,19 +455,18 @@ export default function StudentPaymentTracker() {
                   ${!code.virtual_bank_account ? '<p style="color:#b91c1c;"><strong>Virtual account not configured for this fee type.</strong></p>' : ''}
                   <p><strong>Amount:</strong> GH₵ ${code.amount.toFixed(2)}</p>
                   <p><strong>Backup Reference:</strong> ${code.reference_code || code.code}</p>
+                  ${code.virtual_bank_account ? `
+                    <p style="margin-top: 8px;"><strong>USSD Wallet-to-Bank:</strong></p>
+                    <p style="margin-left: 12px;">1) Dial your mobile money USSD code (e.g., MTN *170#)</p>
+                    <p style="margin-left: 12px;">2) Choose transfer/wallet-to-bank</p>
+                    <p style="margin-left: 12px;">3) Select bank: <strong>${code.virtual_bank_name || 'Bank shown with this virtual account'}</strong></p>
+                    <p style="margin-left: 12px;">4) Enter account number: <strong>${code.virtual_bank_account}</strong></p>
+                    <p style="margin-left: 12px;">5) Confirm account number, enter amount, and approve payment</p>
+                  ` : ''}
                 </div>
               </div>
             `).join('')}
 
-            <div class="payment-method">
-              <div class="payment-method-title">🏦 School Settlement Account (Receives Final Settlement)</div>
-              <div class="payment-method-content">
-                <p><strong>Bank:</strong> ${bankName || 'Not configured'}</p>
-                <p><strong>Account:</strong> ${bankAccount || 'Not configured'}</p>
-                ${bankAccountName ? `<p><strong>Account Name:</strong> ${bankAccountName}</p>` : ''}
-                ${bankBranch ? `<p><strong>Branch:</strong> ${bankBranch}</p>` : ''}
-              </div>
-            </div>
           </div>
 
           <!-- Summary Section -->
@@ -515,6 +509,206 @@ export default function StudentPaymentTracker() {
       </body>
       </html>
     `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 500);
+  };
+
+  const printPaymentReceipt = (student, payment, feeTypeSummary) => {
+    if (!student || !payment) return;
+
+    const schoolName = branding.school_name || branding.name || 'School';
+    const schoolEmail = branding.school_email || branding.email || '';
+    const schoolPhone = branding.school_phone || branding.phone || '';
+    const schoolAddress = branding.school_address || branding.address || '';
+    const themeColor = branding.theme_color || '#3b82f6';
+
+    const receiptNumber = `RCPT-${payment.id}`;
+    const paidAmount = Number(payment.amount || 0);
+    const baseAmount = Number(payment.base_amount || paidAmount);
+    const convenienceFee = Number(payment.convenience_fee_amount || 0);
+    const isConfirmed = payment.status === 'Verified' || payment.status === 'Confirmed';
+
+    const printWindow = window.open('', '', 'width=900,height=1100');
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Payment Receipt - ${student.name}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.55;
+            color: #1f2937;
+            background: #f5f5f5;
+            padding: 20px;
+          }
+          .container {
+            max-width: 760px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 36px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          }
+          .header {
+            border-bottom: 3px solid ${themeColor};
+            padding-bottom: 14px;
+            margin-bottom: 24px;
+          }
+          .school-name {
+            font-size: 24px;
+            font-weight: 700;
+            color: ${themeColor};
+            margin-bottom: 4px;
+          }
+          .contact {
+            font-size: 12px;
+            color: #6b7280;
+          }
+          .title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          }
+          .title {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+          }
+          .status {
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: ${isConfirmed ? '#dcfce7' : '#fef9c3'};
+            color: ${isConfirmed ? '#166534' : '#854d0e'};
+          }
+          .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 22px;
+          }
+          .card {
+            background: #f8fafc;
+            border-left: 4px solid ${themeColor};
+            padding: 12px;
+            border-radius: 4px;
+          }
+          .label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+          }
+          .value {
+            font-size: 14px;
+            color: #0f172a;
+            font-weight: 600;
+            word-break: break-word;
+          }
+          .summary {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 18px;
+          }
+          .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 14px;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 14px;
+          }
+          .summary-row:last-child { border-bottom: none; }
+          .total {
+            font-weight: 800;
+            font-size: 16px;
+            background: #eff6ff;
+          }
+          .footer {
+            margin-top: 22px;
+            padding-top: 14px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 12px;
+            color: #6b7280;
+            text-align: center;
+          }
+          @media print {
+            body { background: #fff; padding: 0; }
+            .container { box-shadow: none; border-radius: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="school-name">${schoolName}</div>
+            <div class="contact">
+              ${schoolAddress ? `${schoolAddress}<br>` : ''}
+              ${schoolPhone ? `📞 ${schoolPhone} ` : ''}
+              ${schoolEmail ? `• ✉️ ${schoolEmail}` : ''}
+            </div>
+          </div>
+
+          <div class="title-row">
+            <div class="title">🧾 PAYMENT RECEIPT</div>
+            <div class="status">${isConfirmed ? 'CONFIRMED' : 'PENDING VERIFICATION'}</div>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="label">Receipt Number</div>
+              <div class="value">${receiptNumber}</div>
+            </div>
+            <div class="card">
+              <div class="label">Payment Date</div>
+              <div class="value">${payment.date_paid || '-'}</div>
+            </div>
+            <div class="card">
+              <div class="label">Student</div>
+              <div class="value">${student.name} (${student.student_code || 'N/A'})</div>
+            </div>
+            <div class="card">
+              <div class="label">Fee Type</div>
+              <div class="value">${getFeeTypeLabel(payment.payment_type || '')}</div>
+            </div>
+            <div class="card">
+              <div class="label">Payment Method</div>
+              <div class="value">${payment.method || '-'}</div>
+            </div>
+            <div class="card">
+              <div class="label">Reference</div>
+              <div class="value">${payment.reference_id || '-'}</div>
+            </div>
+          </div>
+
+          <div class="summary">
+            <div class="summary-row"><span>Base Amount</span><strong>GH₵ ${baseAmount.toFixed(2)}</strong></div>
+            <div class="summary-row"><span>Convenience Fee</span><strong>GH₵ ${convenienceFee.toFixed(2)}</strong></div>
+            <div class="summary-row total"><span>Total Paid</span><strong>GH₵ ${paidAmount.toFixed(2)}</strong></div>
+          </div>
+
+          <div class="summary">
+            <div class="summary-row"><span>Required for ${getFeeTypeLabel(payment.payment_type || '')}</span><strong>GH₵ ${Number(feeTypeSummary?.requiredAmount || 0).toFixed(2)}</strong></div>
+            <div class="summary-row"><span>Total Paid so far (${getFeeTypeLabel(payment.payment_type || '')})</span><strong>GH₵ ${Number(feeTypeSummary?.totalPaid || 0).toFixed(2)}</strong></div>
+            <div class="summary-row"><span>Outstanding Balance</span><strong>GH₵ ${Number(feeTypeSummary?.outstanding || 0).toFixed(2)}</strong></div>
+            <div class="summary-row"><span>Refundable Credit</span><strong>GH₵ ${Number(feeTypeSummary?.refundable || 0).toFixed(2)}</strong></div>
+          </div>
+
+          <div class="footer">
+            Generated on ${new Date().toLocaleString()} • Keep this receipt for records
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
     printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
@@ -674,7 +868,7 @@ export default function StudentPaymentTracker() {
                           const codesText = paymentCodes.payment_codes
                             .map(c => `${c.fee_type}: ${c.virtual_bank_account ? `Virtual Account ${c.virtual_bank_account}` : 'Not configured'} | Ref ${c.reference_code || c.code} (GH₵ ${c.amount.toFixed(2)})`)
                             .join('\n');
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStudent ID: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the matching virtual route for each fee type. Paystack identifies payment type from the route used.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStudent ID: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the matching virtual route for each fee type.\nFor USSD wallet-to-bank transfer, select the bank shown with the virtual account, then enter that virtual account number.\nPaystack identifies payment type from the route used.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -683,10 +877,10 @@ export default function StudentPaymentTracker() {
                         📋 Copy Instructions
                       </button>
                       <button
-                        onClick={printPaymentCodesReceipt}
+                        onClick={printPaymentInstructions}
                         className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors"
                       >
-                        🖨️ Print Receipt
+                        🖨️ Print Instructions
                       </button>
                     </div>
                   </div>
@@ -711,7 +905,7 @@ export default function StudentPaymentTracker() {
                           </code>
                           <button
                             onClick={() => {
-                              navigator.clipboard.writeText(code.virtual_bank_account || code.momo_shortcode || (code.reference_code || code.code));
+                              navigator.clipboard.writeText(code.virtual_bank_account || (code.reference_code || code.code));
                               alert('Route copied!');
                             }}
                             className="px-2 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors text-xs font-bold"
@@ -723,7 +917,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Example instruction: "Pay GH₵ <strong>{paymentCodes.payment_codes[0]?.amount?.toFixed(2) || '0.00'}</strong> for {paymentCodes.payment_codes[0]?.fee_type || 'Tuition'} using virtual route <strong>{paymentCodes.payment_codes[0]?.virtual_bank_account || paymentCodes.payment_codes[0]?.momo_shortcode || 'Not configured'}</strong>. Backup ref: <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S0011'}</strong>."
+                    💬 Example instruction: "Pay GH₵ <strong>{paymentCodes.payment_codes[0]?.amount?.toFixed(2) || '0.00'}</strong> for {paymentCodes.payment_codes[0]?.fee_type || 'Tuition'} using virtual route <strong>{paymentCodes.payment_codes[0]?.virtual_bank_account || 'Not configured'}</strong>. In USSD wallet-to-bank, choose <strong>{paymentCodes.payment_codes[0]?.virtual_bank_name || 'the bank shown'}</strong>, then enter the virtual account. Backup ref: <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S0011'}</strong>."
                   </p>
                 </div>
               )}
@@ -794,11 +988,25 @@ export default function StudentPaymentTracker() {
                             <p className="text-xs font-bold text-slate-700 mb-2">Recent Payments:</p>
                             <div className="space-y-1 max-h-32 overflow-y-auto">
                               {summary.paymentHistory.slice(0, 5).map((payment) => (
-                                <div key={payment.id} className="text-xs flex justify-between">
-                                  <span>{payment.method} - {new Date(payment.date_paid).toLocaleDateString()}</span>
-                                  <span className={(payment.status === 'Verified' || payment.status === 'Confirmed') ? 'text-green-700 font-bold' : 'text-yellow-700'}>
-                                    GH₵ {payment.amount.toFixed(2)}
-                                  </span>
+                                <div key={payment.id} className="text-xs flex items-center justify-between gap-2">
+                                  <div>
+                                    <span>{payment.method} - {new Date(payment.date_paid).toLocaleDateString()}</span>
+                                    {payment.reference_id && (
+                                      <span className="ml-2 text-slate-500">Ref: {payment.reference_id}</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={(payment.status === 'Verified' || payment.status === 'Confirmed') ? 'text-green-700 font-bold' : 'text-yellow-700'}>
+                                      GH₵ {payment.amount.toFixed(2)}
+                                    </span>
+                                    <button
+                                      onClick={() => printPaymentReceipt(selectedStudent, payment, summary)}
+                                      className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors font-bold"
+                                      title="Print payment receipt"
+                                    >
+                                      🧾 Receipt
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                             </div>

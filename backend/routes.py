@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import secrets
+from urllib.parse import quote
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO, StringIO
 
@@ -2422,7 +2423,7 @@ def get_student_payment_codes(student_id):
     # Generate payment codes based on student code
     payment_codes = generate_all_payment_codes(student.student_code, fees_config)
 
-    # Virtual routing map by payment type (Paystack subaccounts)
+    # Virtual routing map by payment type (Paystack fee route accounts)
     subaccounts = PaystackSubAccount.query.filter_by(
         school_id=g.school_id, is_active=True
     ).all()
@@ -2453,7 +2454,7 @@ def get_student_payment_codes(student_id):
             if fee_type == "Feeding" and student.scholarship_covers_feeding:
                 base_amount = 0.0
         
-        # Calculate convenience fee (default 2.5% or from subaccount)
+        # Calculate convenience fee (default 2.5% or from fee route account)
         route = subaccount_map.get(fee_type)
         convenience_fee_percent = route.percentage_charge if route else 2.5
         convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
@@ -3517,22 +3518,40 @@ def paystack_webhook():
     if school_id_hint and student.school_id != school_id_hint:
         return jsonify({"status": "error", "message": "School mismatch in metadata"}), 400
 
-    payment_type = payment_type or "Tuition"
+    reference_payment_type = payment_type or "Tuition"  # From reference code (optional)
+    channel = (payload.get("channel") or "").lower()
     # All payments now processed through Paystack
     method = "Paystack_Payment"
 
-    # Extract subaccount information for split settlement tracking
+    # Extract fee route account information - this is the SOURCE OF TRUTH for payment type
     subaccount_data = payload.get("subaccount") or {}
     subaccount_code = subaccount_data.get("subaccount_code") if isinstance(subaccount_data, dict) else None
     
-    # Verify subaccount matches the payment type (if subaccount was used)
+    # CRITICAL: Resolve actual payment type from the virtual account used (DVA routing)
+    actual_payment_type = None
+    route_mismatch = False
+    
     if subaccount_code:
-        expected_subaccount = _get_subaccount_for_payment(student.school_id, payment_type)
-        if expected_subaccount and expected_subaccount != subaccount_code:
-            logger.warning(
-                f"Subaccount mismatch: expected {expected_subaccount} for {payment_type}, "
-                f"got {subaccount_code} - payment from {tx_ref}"
-            )
+        # Look up which payment type this virtual account handles
+        dva_route = PaystackSubAccount.query.filter_by(
+            school_id=student.school_id,
+            subaccount_code=subaccount_code,
+            is_active=True
+        ).first()
+        
+        if dva_route:
+            actual_payment_type = dva_route.payment_type
+            # Check if parent used wrong account (reference says Tuition but paid to Uniform account)
+            if reference_payment_type != actual_payment_type:
+                route_mismatch = True
+                logger.warning(
+                    f"Payment routing mismatch detected for {tx_ref}: "
+                    f"Reference code indicates '{reference_payment_type}' but payment received via '{actual_payment_type}' virtual account. "
+                    f"Recording as '{actual_payment_type}' (actual account used)."
+                )
+    
+    # Use DVA payment type if available (source of truth), otherwise fall back to reference
+    payment_type = actual_payment_type or reference_payment_type
 
     payment = Payment(
         student_id=student.id,
@@ -3563,12 +3582,22 @@ def paystack_webhook():
         "authorization": payload.get("authorization", {}),
     }
     
-    # Add subaccount split details if present
+    # Add fee route account split details if present
     if subaccount_code:
         ledger_metadata["subaccount"] = {
             "code": subaccount_code,
             "settlement_amount": subaccount_data.get("settlement_amount", 0) / 100.0,  # Convert from kobo
             "commission": subaccount_data.get("subaccount_share", 0) / 100.0,
+        }
+    
+    # Flag routing mismatches for school review and reconciliation
+    if route_mismatch:
+        ledger_metadata["routing_mismatch"] = {
+            "detected": True,
+            "reference_indicated": reference_payment_type,
+            "actual_account_used": actual_payment_type,
+            "resolution": "Used actual account type (DVA routing is authoritative)",
+            "requires_review": True
         }
 
     add_ledger_entry(
@@ -3594,7 +3623,7 @@ def paystack_webhook():
     return jsonify({"status": "recorded", "reference": tx_ref, "student_id": student.id}), 200
 
 
-# --- PAYSTACK SUBACCOUNT MANAGEMENT ---
+# --- PAYSTACK FEE ROUTE ACCOUNT MANAGEMENT ---
 
 def _call_paystack_api(endpoint, method="GET", data=None):
     """Helper to call Paystack API with authentication."""
@@ -3633,13 +3662,64 @@ def _call_paystack_api(endpoint, method="GET", data=None):
 
 
 def _get_subaccount_for_payment(school_id, payment_type):
-    """Resolve the Paystack subaccount for a given payment type."""
+    """Resolve a valid Paystack split route code for a given payment type.
+
+    Dedicated virtual account identifiers are stored in the same table for routing,
+    but must not be sent as `subaccount` during transaction initialization.
+    """
     subaccount = PaystackSubAccount.query.filter_by(
         school_id=school_id,
         payment_type=payment_type,
         is_active=True
     ).first()
-    return subaccount.subaccount_code if subaccount else None
+    if not subaccount or not subaccount.subaccount_code:
+        return None
+
+    code = (subaccount.subaccount_code or "").strip()
+    return code if code.startswith("ACCT_") else None
+
+
+def _resolve_or_create_paystack_customer_for_school(school):
+    """Resolve or create a single Paystack customer profile for a school.
+
+    Returns: (customer_code, email, source, error)
+    """
+    if not school:
+        return None, None, None, "School not found"
+
+    school_email = sanitize_string(school.school_email or "")
+    fallback_email = f"{(school.id or 'school').lower()}@edupulse.local"
+    email = school_email or fallback_email
+
+    first_name = sanitize_string((school.name or "School").split(" ")[0]) or "School"
+    last_name = "Admin"
+    phone = sanitize_string(school.school_phone or "")
+
+    existing_customer, fetch_error = _call_paystack_api(f"/customer/{quote(email, safe='')}")
+    if isinstance(existing_customer, dict) and existing_customer.get("customer_code"):
+        return existing_customer.get("customer_code"), email, "existing", None
+
+    create_payload = {
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+    }
+    if phone:
+        create_payload["phone"] = phone
+
+    created_customer, create_error = _call_paystack_api("/customer", method="POST", data=create_payload)
+    if create_error:
+        logger.error(
+            f"Paystack school-customer resolve/create failed for school {school.id}: "
+            f"fetch_error={fetch_error}, create_error={create_error}"
+        )
+        return None, email, None, create_error
+
+    customer_code = created_customer.get("customer_code") if isinstance(created_customer, dict) else None
+    if not customer_code:
+        return None, email, None, "Customer created but customer_code missing in Paystack response"
+
+    return customer_code, email, "created", None
 
 
 @api.route("/proprietor/paystack/subaccounts", methods=["GET"])
@@ -3647,7 +3727,7 @@ def _get_subaccount_for_payment(school_id, payment_type):
 @role_required("proprietor")
 @jwt_required()
 def get_paystack_subaccounts():
-    """List all Paystack subaccounts for the school."""
+    """List all Paystack fee route accounts for the school."""
     subaccounts = PaystackSubAccount.query.filter_by(
         school_id=g.school_id
     ).order_by(PaystackSubAccount.payment_type).all()
@@ -3660,86 +3740,97 @@ def get_paystack_subaccounts():
 @role_required("proprietor")
 @jwt_required()
 def create_paystack_subaccount():
-    """Create a Paystack virtual subaccount for a specific payment type.
-    
-    Paystack generates a VIRTUAL account number (+ MoMo shortcode) for the payment type.
-    Parents pay to this virtual account → Paystack auto-tags payment type.
-    All funds settle to school's ONE actual bank account.
-    
-    Example: School has Fidelity 1234567890 registered.
-    → Create "Tuition" subaccount → Paystack returns virtual account 9876543210
-    → Parents pay to 9876543210 → Paystack knows it's Tuition
-    → Funds settle to school's 1234567890
+    """Create a Paystack dedicated virtual account for a specific payment type.
+
+    Uses Paystack `/dedicated_account` so each payment type gets a dedicated
+    virtual account route (fee route account). This route is then shared with parents/guardians.
     """
     user_id = int(get_jwt_identity())
     data = request.get_json() or {}
     
     payment_type = sanitize_string(data.get("payment_type"))
     percentage_charge = data.get("percentage_charge", 2.5)  # Default 2.5% platform fee
+    customer_code = sanitize_string(data.get("customer_code") or data.get("customer"))
+    preferred_bank = sanitize_string(data.get("preferred_bank") or data.get("provider"))
     
     # Validate required fields
     if not payment_type or payment_type not in ["Tuition", "Feeding", "Uniform", "Transport", "Other"]:
         return jsonify({"error": "Invalid payment_type. Must be: Tuition, Feeding, Uniform, Transport, or Other"}), 400
+
+    if not preferred_bank:
+        return jsonify({
+            "error": "preferred_bank required.",
+            "hint": "Use /api/proprietor/paystack/providers to fetch supported providers",
+            "example": "titan-paystack",
+        }), 400
     
-    # Get school's main bank account (ONE account for all subaccounts)
+    # Get school for naming and audit context
     school = School.query.get(g.school_id)
     if not school:
         return jsonify({"error": "School not found"}), 404
+
+    if not customer_code:
+        resolved_customer_code, _, _, customer_error = _resolve_or_create_paystack_customer_for_school(school)
+        if customer_error or not resolved_customer_code:
+            return jsonify({
+                "error": f"Failed to resolve school Paystack customer: {customer_error or 'unknown error'}"
+            }), 502
+        customer_code = resolved_customer_code
     
-    # Require school to have registered bank account first
-    if not school.bank_account or not school.bank_name:
-        return jsonify({
-            "error": "School bank account not configured. Please update school settings with bank details first.",
-            "hint": "Go to Settings → Payment Details → Add your bank account information"
-        }), 400
-    
-    # For Paystack, we need the bank code. If not in School model, require it here for now
-    bank_code = sanitize_string(data.get("bank_code"))
-    if not bank_code:
-        return jsonify({
-            "error": "bank_code required. Use /api/proprietor/paystack/banks to find your bank's code",
-            "example": "GH190101 for Fidelity Bank"
-        }), 400
-    
-    # Check if subaccount already exists for this payment type
+    # Check if fee route account already exists for this payment type
     existing = PaystackSubAccount.query.filter_by(
         school_id=g.school_id,
         payment_type=payment_type
     ).first()
     
     if existing and existing.is_active:
-        return jsonify({"error": f"Active subaccount already exists for {payment_type}"}), 409
+        return jsonify({"error": f"Active fee route account already exists for {payment_type}"}), 409
     
     business_name = f"{school.name} - {payment_type}"
-    
-    # Call Paystack API to create subaccount (using school's ONE bank account)
+
+    # Call Paystack API to create dedicated virtual account
     paystack_data = {
-        "business_name": business_name,
-        "settlement_bank": bank_code,
-        "account_number": school.bank_account,
-        "percentage_charge": percentage_charge,
-        "description": f"Virtual account for {school.name} {payment_type} payments - settles to {school.bank_account}"
+        "customer": customer_code,
+        "preferred_bank": preferred_bank,
     }
-    
-    result, error = _call_paystack_api("/subaccount", method="POST", data=paystack_data)
+
+    result, error = _call_paystack_api("/dedicated_account", method="POST", data=paystack_data)
     
     if error:
-        logger.error(f"Paystack subaccount creation failed: {error}")
+        logger.error(f"Paystack dedicated account creation failed: {error}")
         return jsonify({"error": f"Paystack API error: {error}"}), 500
+
+    account_data = result.get("dedicated_account") if isinstance(result, dict) and isinstance(result.get("dedicated_account"), dict) else result
+    if not isinstance(account_data, dict):
+        account_data = {}
+
+    assigned_bank = account_data.get("assigned_bank") or {}
+    account_number = account_data.get("account_number") or account_data.get("account")
+    bank_name = account_data.get("bank_name") or account_data.get("bank") or assigned_bank.get("name")
+    dedicated_account_id = account_data.get("id") or result.get("id") if isinstance(result, dict) else None
+
+    if not account_number:
+        return jsonify({
+            "error": "Paystack dedicated account created but account number was not returned.",
+            "raw_response": result,
+        }), 502
+
+    # Keep legacy table compatibility: store deterministic route identifier in subaccount_code field (historical name).
+    stored_route_code = f"DVA_{dedicated_account_id}" if dedicated_account_id else f"DVA_{payment_type[:3].upper()}_{account_number[-6:]}"
     
     # Create database record
     subaccount = PaystackSubAccount(
         school_id=g.school_id,
         payment_type=payment_type,
-        subaccount_code=result.get("subaccount_code"),
+        subaccount_code=stored_route_code,
         business_name=business_name,
-        virtual_bank_account=result.get("settlement_account"),  # Virtual account number from Paystack
-        virtual_bank_name=result.get("settlement_bank"),
-        momo_shortcode=None,  # May need separate API call or webhook update
-        momo_provider=None,
+        virtual_bank_account=account_number,
+        virtual_bank_name=bank_name,
+        momo_shortcode=None,  # Not auto-populated in current integration
+        momo_provider=preferred_bank,
         percentage_charge=percentage_charge,
         is_active=True,
-        is_verified=True,  # Paystack verifies account before creating subaccount
+        is_verified=bool(account_data.get("active", True)),
         created_by=user_id
     )
     
@@ -3748,21 +3839,78 @@ def create_paystack_subaccount():
     log_action(
         user_id,
         g.school_id,
-        "PAYSTACK_SUBACCOUNT_CREATED",
-        f"Created Paystack virtual subaccount for {payment_type}: {subaccount.subaccount_code} (settles to {school.bank_account})"
+        "PAYSTACK_DEDICATED_ACCOUNT_CREATED",
+        f"Created Paystack dedicated virtual account for {payment_type}: {subaccount.virtual_bank_account} ({subaccount.virtual_bank_name or preferred_bank})"
     )
     
     db.session.commit()
     
     return jsonify({
-        "message": f"Virtual subaccount created for {payment_type}. Parents can pay to this virtual account.",
+        "message": f"Dedicated virtual account created for {payment_type}. Parents can pay to this virtual account.",
         "subaccount": subaccount.to_dict(),
-        "settlement_info": {
-            "settles_to": school.bank_account,
-            "bank_name": school.bank_name,
-            "account_name": school.bank_account_name
+        "fee_route_account": subaccount.to_dict(),
+        "dedicated_account": {
+            "customer": customer_code,
+            "preferred_bank": preferred_bank,
+            "dedicated_account_id": dedicated_account_id,
+            "account_number": account_number,
+            "bank_name": bank_name,
         }
     }), 201
+
+
+@api.route("/proprietor/paystack/customers/resolve", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def resolve_paystack_customer_code_for_school():
+    """Resolve or create the school-level Paystack customer and return customer code."""
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"error": "School not found"}), 404
+
+    customer_code, email, source, error = _resolve_or_create_paystack_customer_for_school(school)
+    if error or not customer_code:
+        return jsonify({"error": f"Failed to resolve customer code: {error or 'unknown error'}"}), 502
+
+    return jsonify(
+        {
+            "message": "Paystack school customer resolved",
+            "customer_code": customer_code,
+            "email": email,
+            "school_id": school.id,
+            "school_name": school.name,
+            "source": source,
+        }
+    )
+
+
+@api.route("/proprietor/paystack/providers", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_paystack_dedicated_account_providers():
+    """Get supported dedicated-account providers from Paystack."""
+    country = sanitize_string(request.args.get("country") or "ghana").lower()
+    endpoint = f"/dedicated_account/available_providers?country={country}"
+
+    result, error = _call_paystack_api(endpoint)
+    if error:
+        return jsonify({"error": f"Failed to fetch providers: {error}"}), 500
+
+    providers = []
+    for provider in (result or []):
+        if not isinstance(provider, dict):
+            continue
+        providers.append({
+            "name": provider.get("name"),
+            "slug": provider.get("slug") or provider.get("provider_slug"),
+            "id": provider.get("id"),
+            "bank_id": provider.get("bank_id"),
+            "type": provider.get("type"),
+        })
+
+    return jsonify(providers)
 
 
 @api.route("/proprietor/paystack/subaccounts/<int:subaccount_id>", methods=["DELETE"])
@@ -3770,7 +3918,7 @@ def create_paystack_subaccount():
 @role_required("proprietor")
 @jwt_required()
 def deactivate_paystack_subaccount(subaccount_id):
-    """Deactivate a Paystack subaccount (soft delete)."""
+    """Deactivate a Paystack fee route account (soft delete)."""
     user_id = int(get_jwt_identity())
     
     subaccount = PaystackSubAccount.query.filter_by(
@@ -3784,12 +3932,12 @@ def deactivate_paystack_subaccount(subaccount_id):
         user_id,
         g.school_id,
         "PAYSTACK_SUBACCOUNT_DEACTIVATED",
-        f"Deactivated Paystack subaccount: {subaccount.subaccount_code} ({subaccount.payment_type})"
+        f"Deactivated Paystack fee route account: {subaccount.subaccount_code} ({subaccount.payment_type})"
     )
     
     db.session.commit()
     
-    return jsonify({"message": "Subaccount deactivated"}), 200
+    return jsonify({"message": "Fee route account deactivated"}), 200
 
 
 @api.route("/proprietor/paystack/banks", methods=["GET"])
@@ -3839,7 +3987,7 @@ def initialize_paystack_payment():
         school_id=g.school_id
     ).first_or_404()
     
-    # Get subaccount for this payment type
+    # Get fee route account for this payment type
     subaccount_code = _get_subaccount_for_payment(g.school_id, payment_type)
     
     # Generate unique reference
@@ -3863,7 +4011,7 @@ def initialize_paystack_payment():
         "callback_url": data.get("callback_url", "https://edupulse.com/payment-complete"),
     }
     
-    # Add subaccount for split payment if exists
+    # Add fee route account for split payment if exists
     if subaccount_code:
         paystack_payload["subaccount"] = subaccount_code
         paystack_payload["transaction_charge"] = 0  # School pays all Paystack fees
@@ -4169,7 +4317,8 @@ def send_payment_reminders_whatsapp_bulk():
                 ref_code = payment_codes.get(fee_type)
 
                 if route and route.virtual_bank_account:
-                    route_text = f"Acct {route.virtual_bank_account}"
+                    route_bank = route.virtual_bank_name or "Bank shown for this virtual account"
+                    route_text = f"{route_bank} Acct {route.virtual_bank_account}"
                     line = f"{fee_type}: GH₵ {amount:.2f} via {route_text}"
                 else:
                     line = f"{fee_type}: GH₵ {amount:.2f} (virtual route not configured)"
@@ -4184,8 +4333,9 @@ def send_payment_reminders_whatsapp_bulk():
             y_position -= 0.1 * inch
             c.setFont("Helvetica", 9)
             footer_instructions = [
+                "For USSD wallet-to-bank, select the bank shown with each virtual account.",
+                "Then enter the same virtual account number, confirm, and complete payment.",
                 "Paystack auto-detects payment type from the virtual route used.",
-                f"All payments settle to school's main account: {school.bank_name or '-'} {school.bank_account or '-'}",
                 f"For support, contact {school.name}.",
             ]
             for instruction in footer_instructions:
@@ -4198,7 +4348,11 @@ def send_payment_reminders_whatsapp_bulk():
             
             # Send via WhatsApp
             filename = f"{student.name.replace(' ', '_')}_payment_statement.pdf"
-            caption = f"Payment reminder for {student.name} - Outstanding fees: GH₵ {total_owed:.2f}. See virtual payment routes in attached statement."
+            caption = (
+                f"Payment reminder for {student.name} - Outstanding fees: GH₵ {total_owed:.2f}. "
+                "See virtual payment routes in attached statement. "
+                "USSD wallet-to-bank: select the bank shown with each virtual account."
+            )
             result = send_document_bytes(student.parent_phone, pdf_bytes, filename, caption=caption)
             message_id = (result.get("messages") or [{}])[0].get("id")
 
@@ -4209,7 +4363,8 @@ def send_payment_reminders_whatsapp_bulk():
                 ref_code = payment_codes.get(fee_type)
                 route_value = None
                 if route and route.virtual_bank_account:
-                    route_value = f"Acct {route.virtual_bank_account}"
+                    route_bank = route.virtual_bank_name or "Bank shown"
+                    route_value = f"{route_bank} Acct {route.virtual_bank_account}"
 
                 if route_value:
                     route_lines.append(f"- {fee_type}: GH₵ {amount:.2f} via {route_value} (Ref {ref_code or '-'})")
@@ -4222,7 +4377,8 @@ def send_payment_reminders_whatsapp_bulk():
                 f"Total Outstanding: GH₵ {total_owed:.2f}\n\n"
                 f"Use the matching fee route:\n"
                 + "\n".join(route_lines[:6])
-                + "\n\nPaystack auto-detects payment type from the route used."
+                + "\n\nUSSD wallet-to-bank: select the bank shown with the virtual account, then enter that virtual account number."
+                + "\nPaystack auto-detects payment type from the route used."
             )
             try:
                 send_text_message(student.parent_phone, reminder_text[:1500])
