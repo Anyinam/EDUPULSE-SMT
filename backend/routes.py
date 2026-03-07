@@ -8273,6 +8273,34 @@ def get_class_performance():
             avg_value = float(avg_score or 0)
             prev_value = prev_map.get(class_name)
             delta = avg_value - prev_value if prev_value is not None else None
+            
+            # Get gender breakdown for this class
+            gender_stats = (
+                db.session.query(
+                    Student.gender,
+                    func.avg(ReportCard.term_average).label("avg_score"),
+                    func.count(ReportCard.id).label("count")
+                )
+                .join(Student, ReportCard.student_id == Student.id)
+                .filter(
+                    ReportCard.school_id == g.school_id,
+                    ReportCard.academic_term == academic_term,
+                    ReportCard.academic_year == academic_year,
+                    ReportCard.class_name == class_name,
+                    ReportCard.term_average.isnot(None),
+                    Student.gender.isnot(None),
+                )
+                .group_by(Student.gender)
+                .all()
+            )
+            
+            gender_breakdown = {}
+            for gender, g_avg, g_count in gender_stats:
+                gender_breakdown[gender] = {
+                    "average": round(float(g_avg or 0), 2),
+                    "count": int(g_count)
+                }
+            
             results.append(
                 {
                     "class_name": class_name,
@@ -8280,6 +8308,7 @@ def get_class_performance():
                     "count": int(count),
                     "prev_average": round(prev_value, 2) if prev_value is not None else None,
                     "delta": round(delta, 2) if delta is not None else None,
+                    "gender_breakdown": gender_breakdown,
                 }
             )
 
@@ -9183,16 +9212,23 @@ def get_subscription():
     
     # Get pricing info
     pricing_info = PRICING.get(effective_plan, {})
+    
+    # Get enabled modules from settings
+    enabled_modules = {}
+    if school.settings:
+        enabled_modules = school.settings.enabled_modules or {}
 
     return jsonify(
         {
             "plan": effective_plan,
+            "subscription_plan": effective_plan,  # Explicit alias for clarity
             "status": school.subscription_status,
             "next_billing": (
                 school.next_billing_date.strftime("%Y-%m-%d")
                 if school.next_billing_date
                 else "N/A"
             ),
+            "enabled_modules": enabled_modules,  # Include for frontend refresh
             "price": plan_info.get("price", "Free"),
             "price_range": plan_info.get("price_range"),
             "billing_cycle": plan_info.get("billing_cycle", "N/A"),

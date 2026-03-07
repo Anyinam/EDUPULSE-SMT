@@ -35,10 +35,30 @@ export default function PaymentCallback() {
           setMessage('Payment successful! Your subscription has been upgraded.');
           setDetails(res.data.data);
           
-          // Redirect to subscription page after 3 seconds
+          // CRITICAL: Refresh subscription data in localStorage
+          try {
+            const schoolRes = await axios.get('/api/school/subscription', { headers });
+            if (schoolRes.data) {
+              // Update localStorage with new subscription plan
+              const newPlan = schoolRes.data.subscription_plan || schoolRes.data.plan || 'Free Tier';
+              localStorage.setItem('subscription_plan', newPlan);
+              
+              // Update enabled modules from backend
+              if (schoolRes.data.enabled_modules) {
+                localStorage.setItem('enabled_modules', JSON.stringify(schoolRes.data.enabled_modules));
+              }
+              
+              console.log('✅ Subscription refreshed:', newPlan, schoolRes.data.enabled_modules);
+            }
+          } catch (refreshErr) {
+            console.error('Failed to refresh subscription data:', refreshErr);
+            // Continue anyway - user can manually refresh
+          }
+          
+          // Force full page reload to update all components with new subscription
           setTimeout(() => {
-            navigate('/proprietor?tab=subscription');
-          }, 3000);
+            window.location.href = '/proprietor?tab=subscription';
+          }, 2000);
         } else {
           setStatus('failed');
           setMessage(res.data.message || 'Payment verification failed. Please contact support.');

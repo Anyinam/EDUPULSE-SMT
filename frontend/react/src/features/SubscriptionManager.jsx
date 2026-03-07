@@ -61,8 +61,22 @@ export default function SubscriptionManager() {
           'X-School-ID': localStorage.getItem('school_id') 
         };
         await axios.post('/api/school/subscription/upgrade', { plan }, { headers });
+        
+        // Refresh subscription data from backend
+        const schoolRes = await axios.get('/api/school/subscription', { headers });
+        if (schoolRes.data) {
+          // Update localStorage with new plan
+          const newPlan = schoolRes.data.subscription_plan || schoolRes.data.plan || 'Free Tier';
+          localStorage.setItem('subscription_plan', newPlan);
+          
+          // Update enabled modules
+          if (schoolRes.data.enabled_modules) {
+            localStorage.setItem('enabled_modules', JSON.stringify(schoolRes.data.enabled_modules));
+          }
+        }
+        
         alert("Plan downgraded successfully!");
-        window.location.reload();
+        window.location.reload();  // Full reload to update all components
       } catch (err) {
         alert("Downgrade failed.");
       }
