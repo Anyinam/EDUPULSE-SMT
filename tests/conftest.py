@@ -156,6 +156,8 @@ def test_students(db, test_school):
     for i in range(5):
         student = Student(
             school_id=test_school.id,
+            first_name=f"Student{i+1}",
+            surname="Test",
             name=f"Student {i+1}",
             student_code=f"S{i+1:03d}",
             current_class="JHS 1",

@@ -195,7 +195,7 @@ export default function HeadmasterDashboard() {
       </div>
 
       {/* Bulk Status Update - End of Year Operations */}
-      <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 p-6 rounded-2xl shadow-lg text-white mb-8">
+      <div className="bg-linear-to-r from-emerald-500 to-emerald-600 p-6 rounded-2xl shadow-lg text-white mb-8">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="text-xl font-black mb-1">⚡ End of Year: Bulk Status Update</h3>
@@ -228,7 +228,10 @@ export default function HeadmasterDashboard() {
       )}
 
       <div className="mb-8">
-        <PerformanceAnalytics title="Class Performance (Headmaster View)" />
+        <PerformanceAnalytics
+          title="Class Performance (Headmaster View)"
+          defaultView="visualization"
+        />
       </div>
 
       {/* Report Card Approvals Section */}
@@ -473,7 +476,7 @@ export default function HeadmasterDashboard() {
       {viewingReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setViewingReport(null)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white p-6 rounded-t-2xl">
+            <div className="sticky top-0 bg-linear-to-r from-purple-600 to-blue-600 text-white p-6 rounded-t-2xl">
               <div className="flex justify-between items-start">
                 <div>
                   <h2 className="text-2xl font-black mb-1">📄 Student Report Card</h2>

@@ -140,7 +140,7 @@ export default function AdminDashboard() {
 
   if (!isAdmin || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-700">
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-900 to-slate-700">
         <div className="text-center">
           <div className="w-16 h-16 bg-white rounded-full animate-spin mb-6 mx-auto"></div>
           <p className="text-white text-xl font-bold">Loading Admin Dashboard...</p>
@@ -152,7 +152,7 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-slate-900">
       {/* Admin Header */}
-      <header className="bg-gradient-to-r from-purple-900 to-blue-900 text-white shadow-xl">
+      <header className="bg-linear-to-r from-purple-900 to-blue-900 text-white shadow-xl">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-black">EDUPULSE Platform Admin</h1>
@@ -203,19 +203,19 @@ export default function AdminDashboard() {
           {/* Overview Tab */}
           {activeTab === 'overview' && (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white p-6 rounded-xl shadow-lg">
+              <div className="bg-linear-to-br from-blue-600 to-blue-700 text-white p-6 rounded-xl shadow-lg">
                 <p className="text-sm font-bold uppercase text-blue-200">Total Schools</p>
                 <p className="text-4xl font-black mt-2">{schools.length}</p>
               </div>
-              <div className="bg-gradient-to-br from-green-600 to-green-700 text-white p-6 rounded-xl shadow-lg">
+              <div className="bg-linear-to-br from-green-600 to-green-700 text-white p-6 rounded-xl shadow-lg">
                 <p className="text-sm font-bold uppercase text-green-200">Total Users</p>
                 <p className="text-4xl font-black mt-2">{users.length}</p>
               </div>
-              <div className="bg-gradient-to-br from-purple-600 to-purple-700 text-white p-6 rounded-xl shadow-lg">
+              <div className="bg-linear-to-br from-purple-600 to-purple-700 text-white p-6 rounded-xl shadow-lg">
                 <p className="text-sm font-bold uppercase text-purple-200">Premium Schools</p>
                 <p className="text-4xl font-black mt-2">{schools.filter(s => s.subscription_plan === 'Premium').length}</p>
               </div>
-              <div className="bg-gradient-to-br from-amber-600 to-amber-700 text-white p-6 rounded-xl shadow-lg">
+              <div className="bg-linear-to-br from-amber-600 to-amber-700 text-white p-6 rounded-xl shadow-lg">
                 <p className="text-sm font-bold uppercase text-amber-200">Active Subscriptions</p>
                 <p className="text-4xl font-black mt-2">{schools.filter(s => s.subscription_status === 'Active').length}</p>
               </div>
@@ -225,7 +225,7 @@ export default function AdminDashboard() {
           {/* Schools Tab */}
           {activeTab === 'schools' && (
             <div className="bg-slate-800 rounded-xl shadow-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-800 to-blue-800 p-6 text-white">
+              <div className="bg-linear-to-r from-purple-800 to-blue-800 p-6 text-white">
                 <h2 className="text-2xl font-black">Registered Schools</h2>
                 <p className="text-slate-300 mt-1">Manage all schools in the platform</p>
               </div>
@@ -267,7 +267,7 @@ export default function AdminDashboard() {
           {/* Users Tab */}
           {activeTab === 'users' && (
             <div className="bg-slate-800 rounded-xl shadow-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-green-800 to-emerald-800 p-6 text-white">
+              <div className="bg-linear-to-r from-green-800 to-emerald-800 p-6 text-white">
                 <h2 className="text-2xl font-black">Platform Users</h2>
                 <p className="text-slate-300 mt-1">Manage platform admin users</p>
               </div>
@@ -298,7 +298,7 @@ export default function AdminDashboard() {
           {/* Subscriptions Tab */}
           {activeTab === 'subscriptions' && (
             <div className="bg-slate-800 rounded-xl shadow-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-amber-800 to-orange-800 p-6 text-white">
+              <div className="bg-linear-to-r from-amber-800 to-orange-800 p-6 text-white">
                 <h2 className="text-2xl font-black">Subscription Management</h2>
                 <p className="text-slate-300 mt-1">Monitor and manage school subscriptions</p>
               </div>
@@ -330,7 +330,7 @@ export default function AdminDashboard() {
           {/* Reports Tab */}
           {activeTab === 'reports' && (
             <div className="bg-slate-800 rounded-xl shadow-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-indigo-800 to-purple-800 p-6 text-white">
+              <div className="bg-linear-to-r from-indigo-800 to-purple-800 p-6 text-white">
                 <h2 className="text-2xl font-black">System Reports</h2>
                 <p className="text-slate-300 mt-1">Platform analytics and statistics</p>
               </div>
@@ -376,7 +376,7 @@ export default function AdminDashboard() {
           {/* Settings Tab */}
           {activeTab === 'settings' && (
             <div className="bg-slate-800 rounded-xl shadow-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-slate-700 to-slate-600 p-6 text-white">
+              <div className="bg-linear-to-r from-slate-700 to-slate-600 p-6 text-white">
                 <h2 className="text-2xl font-black">Platform Settings & Content Management</h2>
                 <p className="text-slate-300 mt-1">Manage FAQ, tutorials, and global help content</p>
               </div>

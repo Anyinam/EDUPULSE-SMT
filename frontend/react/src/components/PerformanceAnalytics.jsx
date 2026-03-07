@@ -3,9 +3,13 @@ import axios from 'axios';
 
 const TERM_OPTIONS = ['Term 1', 'Term 2', 'Term 3'];
 
-export default function PerformanceAnalytics({ title = 'Class Performance Overview' }) {
+export default function PerformanceAnalytics({
+  title = 'Class Performance Overview',
+  defaultView = 'overview',
+}) {
   const [academicTerm, setAcademicTerm] = useState('');
   const [academicYear, setAcademicYear] = useState('');
+  const [activeView, setActiveView] = useState(defaultView === 'visualization' ? 'visualization' : 'overview');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -47,6 +51,51 @@ export default function PerformanceAnalytics({ title = 'Class Performance Overvi
     if (!data?.classes?.length) return 100;
     return Math.max(...data.classes.map(c => c.average || 0), 100);
   }, [data]);
+
+  const classStats = useMemo(() => {
+    if (!data?.classes?.length) {
+      return {
+        topClass: null,
+        lowestClass: null,
+        overallAverage: 0,
+        maleCount: 0,
+        femaleCount: 0,
+        otherCount: 0,
+      };
+    }
+
+    const sorted = [...data.classes].sort((a, b) => (b.average || 0) - (a.average || 0));
+    const overallAverage = (
+      data.classes.reduce((sum, row) => sum + (row.average || 0), 0) / data.classes.length
+    ).toFixed(2);
+
+    const maleCount = data.classes.reduce(
+      (sum, row) => sum + (row.gender_breakdown?.Male?.count || 0),
+      0
+    );
+    const femaleCount = data.classes.reduce(
+      (sum, row) => sum + (row.gender_breakdown?.Female?.count || 0),
+      0
+    );
+    const otherCount = data.classes.reduce(
+      (sum, row) => sum + (row.gender_breakdown?.Other?.count || 0),
+      0
+    );
+
+    return {
+      topClass: sorted[0],
+      lowestClass: sorted[sorted.length - 1],
+      overallAverage,
+      maleCount,
+      femaleCount,
+      otherCount,
+    };
+  }, [data]);
+
+  const onViewClick = async () => {
+    await fetchData();
+    setActiveView('visualization');
+  };
 
   const downloadCSV = () => {
     if (!data?.classes?.length) return;
@@ -179,7 +228,7 @@ export default function PerformanceAnalytics({ title = 'Class Performance Overvi
             onChange={(e) => setAcademicYear(e.target.value)}
           />
           <button
-            onClick={fetchData}
+            onClick={onViewClick}
             className="bg-blue-600 text-white px-4 rounded-lg text-sm font-bold hover:bg-blue-700"
           >
             View
@@ -209,6 +258,31 @@ export default function PerformanceAnalytics({ title = 'Class Performance Overvi
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {!loading && !error && data?.classes?.length > 0 && (
+        <div className="mb-4 flex gap-2 border-b border-slate-200 pb-2">
+          <button
+            onClick={() => setActiveView('overview')}
+            className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${
+              activeView === 'overview'
+                ? 'bg-slate-800 text-white'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveView('visualization')}
+            className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${
+              activeView === 'visualization'
+                ? 'bg-blue-600 text-white'
+                : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+            }`}
+          >
+            Visualization
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && data?.classes?.length > 0 && activeView === 'overview' && (
         <div className="space-y-3">
           {data.classes.map((row) => (
             <div key={row.class_name} className="border rounded-lg p-3">
@@ -259,6 +333,131 @@ export default function PerformanceAnalytics({ title = 'Class Performance Overvi
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {!loading && !error && data?.classes?.length > 0 && activeView === 'visualization' && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase">Overall Avg</p>
+              <p className="text-2xl font-black text-slate-800">{classStats.overallAverage}%</p>
+            </div>
+            <div className="bg-green-50 border border-green-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-green-700 uppercase">Top Class</p>
+              <p className="text-sm font-bold text-green-900">{classStats.topClass?.class_name || 'N/A'}</p>
+              <p className="text-lg font-black text-green-900">{classStats.topClass?.average || 0}%</p>
+            </div>
+            <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-amber-700 uppercase">Lowest Class</p>
+              <p className="text-sm font-bold text-amber-900">{classStats.lowestClass?.class_name || 'N/A'}</p>
+              <p className="text-lg font-black text-amber-900">{classStats.lowestClass?.average || 0}%</p>
+            </div>
+            <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-indigo-700 uppercase">Classes</p>
+              <p className="text-2xl font-black text-indigo-900">{data.classes.length}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="border border-slate-200 rounded-lg p-4">
+              <h4 className="font-bold text-slate-800 mb-3">Class Performance Ranking</h4>
+              <div className="space-y-3">
+                {[...data.classes]
+                  .sort((a, b) => (b.average || 0) - (a.average || 0))
+                  .map((row) => (
+                    <div key={`chart-${row.class_name}`}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="font-semibold text-slate-700">{row.class_name}</span>
+                        <span className="font-bold text-slate-800">{row.average}%</span>
+                      </div>
+                      <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-600 rounded-full"
+                          style={{ width: `${Math.max(3, Math.min(100, row.average || 0))}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-lg p-4">
+              <h4 className="font-bold text-slate-800 mb-3">Gender Distribution</h4>
+              <div className="space-y-2 mb-3">
+                {[
+                  {
+                    label: 'Male',
+                    count: classStats.maleCount,
+                    colorTrack: 'bg-blue-100',
+                    colorFill: 'bg-blue-600',
+                    colorText: 'text-blue-800',
+                  },
+                  {
+                    label: 'Female',
+                    count: classStats.femaleCount,
+                    colorTrack: 'bg-pink-100',
+                    colorFill: 'bg-pink-500',
+                    colorText: 'text-pink-800',
+                  },
+                  {
+                    label: 'Other',
+                    count: classStats.otherCount,
+                    colorTrack: 'bg-purple-100',
+                    colorFill: 'bg-purple-500',
+                    colorText: 'text-purple-800',
+                  },
+                ].map((item) => {
+                  const total = classStats.maleCount + classStats.femaleCount + classStats.otherCount;
+                  const pct = total > 0 ? ((item.count / total) * 100).toFixed(1) : 0;
+
+                  return (
+                    <div key={item.label}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className={`font-semibold ${item.colorText}`}>{item.label}</span>
+                        <span className="font-bold text-slate-700">{item.count} ({pct}%)</span>
+                      </div>
+                      <div className={`w-full h-2.5 rounded-full overflow-hidden ${item.colorTrack}`}>
+                        <div className={`h-full rounded-full ${item.colorFill}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-slate-200 rounded-lg p-4">
+            <h4 className="font-bold text-slate-800 mb-3">Term Trend vs Previous Term</h4>
+            <div className="space-y-2">
+              {data.classes.map((row) => {
+                const hasDelta = row.delta !== null && row.delta !== undefined;
+                const deltaValue = hasDelta ? Number(row.delta) : 0;
+                const isPositive = deltaValue >= 0;
+
+                return (
+                  <div key={`trend-${row.class_name}`} className="grid grid-cols-12 gap-2 items-center">
+                    <p className="col-span-4 md:col-span-3 text-xs font-semibold text-slate-700">{row.class_name}</p>
+                    <div className="col-span-8 md:col-span-6 h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
+                        style={{
+                          width: `${Math.min(100, Math.max(2, Math.abs(deltaValue) * 10))}%`,
+                        }}
+                      />
+                    </div>
+                    <p
+                      className={`col-span-12 md:col-span-3 text-xs font-bold text-right ${
+                        hasDelta ? (isPositive ? 'text-green-600' : 'text-red-600') : 'text-slate-400'
+                      }`}
+                    >
+                      {hasDelta ? `${isPositive ? '+' : ''}${deltaValue}%` : 'No previous data'}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 

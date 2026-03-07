@@ -747,7 +747,7 @@ export default function TerminalReportPrinter() {
 
           {/* Performance Trend Graph */}
           {performanceHistory.length > 0 && (
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-6">
+            <div className="bg-linear-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-6">
               <h4 className="text-lg font-bold text-purple-800 mb-4">📊 Performance Trend Analysis</h4>
               
               {/* Visual Graph */}
@@ -764,7 +764,7 @@ export default function TerminalReportPrinter() {
                         <div className="text-xs font-bold text-slate-700 mb-1">{record.average}%</div>
                         <div 
                           className={`w-full rounded-t-lg transition-all ${
-                            isLast ? 'bg-gradient-to-t from-purple-600 to-purple-400' : 
+                            isLast ? 'bg-linear-to-t from-purple-600 to-purple-400' : 
                             record.average >= 70 ? 'bg-green-400' : 
                             record.average >= 50 ? 'bg-yellow-400' : 'bg-red-400'
                           }`}
@@ -815,7 +815,7 @@ export default function TerminalReportPrinter() {
 
           {/* AI Analysis Display */}
           {previewData.ai_performance_analysis && (
-            <div className="bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200 rounded-2xl p-6">
+            <div className="bg-linear-to-br from-cyan-50 to-blue-50 border border-cyan-200 rounded-2xl p-6">
               <h4 className="text-lg font-bold text-cyan-800 mb-3">🤖 AI Performance Analysis</h4>
               <div className="text-sm text-slate-700 leading-relaxed bg-white rounded-lg p-4 border border-cyan-100">
                 {previewData.ai_performance_analysis}
@@ -863,7 +863,7 @@ export default function TerminalReportPrinter() {
 
           {/* Student Promotion Section - Only Show for Term 3 */}
           {selectedTerm.includes('Term 3') || selectedTerm.includes('3') ? (
-            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-300 rounded-2xl p-6">
+            <div className="bg-linear-to-r from-indigo-50 to-purple-50 border border-indigo-300 rounded-2xl p-6">
               <h4 className="text-lg font-bold text-indigo-900 mb-4">📚 Promote to Next Class</h4>
               <p className="text-sm text-indigo-700 mb-4">Automatically promote student to next class after Term 3 approval</p>
               

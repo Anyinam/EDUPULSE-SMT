@@ -178,7 +178,10 @@ export default function ProprietorPanel() {
             )}
 
             <div className="mb-8">
-              <PerformanceAnalytics title="Class Performance (Proprietor View)" />
+              <PerformanceAnalytics
+                title="Class Performance (Proprietor View)"
+                defaultView="visualization"
+              />
             </div>
 
             {/* Report Card Approvals Section */}
@@ -188,7 +191,7 @@ export default function ProprietorPanel() {
                 <p className="text-sm text-slate-500 mb-4">Reports awaiting your review and final approval</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {reportApprovals.map(r => (
-                    <div key={r.id} className="border rounded-xl p-4 bg-gradient-to-br from-purple-50 to-blue-50 hover:shadow-md transition-shadow">
+                    <div key={r.id} className="border rounded-xl p-4 bg-linear-to-br from-purple-50 to-blue-50 hover:shadow-md transition-shadow">
                       <div className="flex items-center justify-between mb-2">
                         <p className="font-bold text-slate-800 text-sm">{r.student_name}</p>
                         <span className="px-2 py-1 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800">Pending</span>

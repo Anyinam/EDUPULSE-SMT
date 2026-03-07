@@ -74,7 +74,7 @@ export default function AuditReport() {
       </div>
 
       {/* Security Protocol Badge */}
-      <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
+      <div className="mb-6 p-4 bg-linear-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-2xl">🔒</span>
           <span className="font-bold text-blue-900">Security Protocol: HMAC-SHA256 Cryptographic Chaining</span>
@@ -87,24 +87,24 @@ export default function AuditReport() {
       {/* Summary Cards */}
       {summary && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
+          <div className="bg-linear-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
             <div className="text-sm font-bold text-green-700 mb-1">Total Transactions</div>
             <div className="text-3xl font-black text-green-900">{summary.summary.total_transactions.toLocaleString()}</div>
           </div>
           
-          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-6">
+          <div className="bg-linear-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-6">
             <div className="text-sm font-bold text-blue-700 mb-1">Total Value</div>
             <div className="text-3xl font-black text-blue-900">
               {summary.currency} {summary.summary.total_value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
             </div>
           </div>
           
-          <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-6">
+          <div className="bg-linear-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-6">
             <div className="text-sm font-bold text-purple-700 mb-1">Verified Entries</div>
             <div className="text-3xl font-black text-purple-900">{summary.summary.verified_count.toLocaleString()}</div>
           </div>
           
-          <div className={`bg-gradient-to-br ${summary.summary.is_chain_valid ? 'from-green-50 to-teal-50 border-green-200' : 'from-red-50 to-orange-50 border-red-200'} border rounded-xl p-6`}>
+          <div className={`bg-linear-to-br ${summary.summary.is_chain_valid ? 'from-green-50 to-teal-50 border-green-200' : 'from-red-50 to-orange-50 border-red-200'} border rounded-xl p-6`}>
             <div className="text-sm font-bold mb-1" style={{color: summary.summary.is_chain_valid ? '#065f46' : '#991b1b'}}>Ledger Status</div>
             <div className="text-lg font-black" style={{color: summary.summary.is_chain_valid ? '#047857' : '#dc2626'}}>
               {summary.summary.integrity_status}

@@ -65,6 +65,7 @@ class TestValidators:
             "schoolCode": "CCA-OFK",
             "schoolName": "CCA Ofankor",
             "username": "newuser",
+            "email": "newuser@cca.edu",
             "password": "weak123456",  # No uppercase
             "termsAccepted": True,
             "termsVersion": "2026-02-22",
@@ -80,6 +81,7 @@ class TestValidators:
             "schoolCode": "CCA-OFK",
             "schoolName": "CCA Ofankor",
             "username": "newuser",
+            "email": "newuser@cca.edu",
             "password": "WeakPassword",  # No digit
             "termsAccepted": True,
             "termsVersion": "2026-02-22",
@@ -95,7 +97,8 @@ class TestValidators:
             "schoolCode": "CCA-OFK",
             "schoolName": "CCA Ofankor",
             "username": "newuser",
-            "password": "SecurePass123",
+            "email": "newuser@cca.edu",
+            "password": "SecurePass123!",
             "termsAccepted": True,
             "termsVersion": "2026-02-22",
         }
@@ -282,7 +285,12 @@ class TestDatabaseConstraints:
             db.session.add(user)
 
             student = Student(
-                school_id="TEST-001", name="Test Student", current_class="JHS 1"
+                school_id="TEST-001",
+                first_name="Test",
+                surname="Student",
+                name="Test Student",
+                student_code="VAL001",
+                current_class="JHS 1",
             )
             db.session.add(student)
             db.session.flush()

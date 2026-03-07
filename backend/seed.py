@@ -405,6 +405,281 @@ def seed_everything():
         )
         db.session.add_all([report_kofi, report_abena])
 
+        # 9b. Add more students across multiple classes for Class Performance Analytics
+        # JHS 1 Additional Students
+        kwame = Student(
+            first_name="Kwame", surname="Boateng", name="Kwame Boateng",
+            student_code="S003", school_id="CCA-OFK", current_class="JHS 1",
+            feeding_paid=True, is_present=True, gender="Male",
+            guardian_name="Yaa Boateng", parent_phone="+233503456789",
+            parent_email="yaa@example.com"
+        )
+        esi = Student(
+            first_name="Esi", surname="Addo", name="Esi Addo",
+            student_code="S004", school_id="CCA-OFK", current_class="JHS 1",
+            feeding_paid=True, is_present=True, gender="Female",
+            guardian_name="Papa Addo", parent_phone="+233504567890",
+            parent_email="papa@example.com"
+        )
+        yaw = Student(
+            first_name="Yaw", surname="Appiah", name="Yaw Appiah",
+            student_code="S005", school_id="CCA-OFK", current_class="JHS 1",
+            feeding_paid=True, is_present=True, gender="Male",
+            guardian_name="Grace Appiah", parent_phone="+233505678901",
+            parent_email="grace@example.com"
+        )
+        
+        # JHS 2 Students
+        akua = Student(
+            first_name="Akua", surname="Owusu", name="Akua Owusu",
+            student_code="S006", school_id="CCA-OFK", current_class="JHS 2",
+            feeding_paid=True, is_present=True, gender="Female",
+            guardian_name="Mr. Owusu", parent_phone="+233506789012",
+            parent_email="owusu@example.com"
+        )
+        kojo = Student(
+            first_name="Kojo", surname="Asante", name="Kojo Asante",
+            student_code="S007", school_id="CCA-OFK", current_class="JHS 2",
+            feeding_paid=True, is_present=True, gender="Male",
+            guardian_name="Mrs. Asante", parent_phone="+233507890123",
+            parent_email="asante@example.com"
+        )
+        ama = Student(
+            first_name="Ama", surname="Tetteh", name="Ama Tetteh",
+            student_code="S008", school_id="CCA-OFK", current_class="JHS 2",
+            feeding_paid=True, is_present=True, gender="Female",
+            guardian_name="Mr. Tetteh", parent_phone="+233508901234",
+            parent_email="tetteh@example.com"
+        )
+        kwesi = Student(
+            first_name="Kwesi", surname="Darko", name="Kwesi Darko",
+            student_code="S009", school_id="CCA-OFK", current_class="JHS 2",
+            feeding_paid=True, is_present=True, gender="Male",
+            guardian_name="Mrs. Darko", parent_phone="+233509012345",
+            parent_email="darko@example.com"
+        )
+        
+        # JHS 3 Students
+        efua = Student(
+            first_name="Efua", surname="Ansah", name="Efua Ansah",
+            student_code="S010", school_id="CCA-OFK", current_class="JHS 3",
+            feeding_paid=True, is_present=True, gender="Female",
+            guardian_name="Mr. Ansah", parent_phone="+233510123456",
+            parent_email="ansah@example.com"
+        )
+        kofi_jhs3 = Student(
+            first_name="Kofi", surname="Sarpong", name="Kofi Sarpong",
+            student_code="S011", school_id="CCA-OFK", current_class="JHS 3",
+            feeding_paid=True, is_present=True, gender="Male",
+            guardian_name="Mrs. Sarpong", parent_phone="+233511234567",
+            parent_email="sarpong@example.com"
+        )
+        adwoa = Student(
+            first_name="Adwoa", surname="Manu", name="Adwoa Manu",
+            student_code="S012", school_id="CCA-OFK", current_class="JHS 3",
+            feeding_paid=True, is_present=True, gender="Female",
+            guardian_name="Mr. Manu", parent_phone="+233512345678",
+            parent_email="manu@example.com"
+        )
+        
+        # Primary 6 Students
+        kwabena = Student(
+            first_name="Kwabena", surname="Osei", name="Kwabena Osei",
+            student_code="S013", school_id="CCA-OFK", current_class="Primary 6",
+            feeding_paid=True, is_present=True, gender="Male",
+            guardian_name="Mrs. Osei", parent_phone="+233513456789",
+            parent_email="osei@example.com"
+        )
+        afua = Student(
+            first_name="Afua", surname="Oppong", name="Afua Oppong",
+            student_code="S014", school_id="CCA-OFK", current_class="Primary 6",
+            feeding_paid=True, is_present=True, gender="Female",
+            guardian_name="Mr. Oppong", parent_phone="+233514567890",
+            parent_email="oppong@example.com"
+        )
+        
+        db.session.add_all([
+            kwame, esi, yaw, akua, kojo, ama, kwesi,
+            efua, kofi_jhs3, adwoa, kwabena, afua
+        ])
+        db.session.commit()  # Commit to get student IDs
+        
+        # 9c. Create Report Cards for multiple terms to test Class Performance Analytics
+        report_cards = []
+        
+        # Term 1 Report Cards (2025/2026)
+        # JHS 1 - Term 1
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=kwame.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=85.2,
+                      overall_position="1st", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=esi.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=72.5,
+                      overall_position="5th", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=yaw.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=68.0,
+                      overall_position="8th", out_of_students=25, status="Published"),
+        ])
+        
+        # JHS 2 - Term 1
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=akua.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=88.5,
+                      overall_position="1st", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kojo.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=76.3,
+                      overall_position="4th", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=ama.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=81.0,
+                      overall_position="2nd", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kwesi.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=70.5,
+                      overall_position="7th", out_of_students=30, status="Published"),
+        ])
+        
+        # JHS 3 - Term 1
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=efua.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=91.2,
+                      overall_position="1st", out_of_students=28, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kofi_jhs3.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=83.7,
+                      overall_position="3rd", out_of_students=28, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=adwoa.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=87.5,
+                      overall_position="2nd", out_of_students=28, status="Published"),
+        ])
+        
+        # Primary 6 - Term 1
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=kwabena.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="Primary 6", term_average=79.0,
+                      overall_position="3rd", out_of_students=22, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=afua.id, academic_term="Term 1",
+                      academic_year="2025/2026", class_name="Primary 6", term_average=84.5,
+                      overall_position="1st", out_of_students=22, status="Published"),
+        ])
+        
+        # Term 2 Report Cards (2025/2026) - Show performance changes
+        # JHS 1 - Term 2
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=kofi.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=82.0,
+                      overall_position="2nd", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=abena.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=68.5,
+                      overall_position="10th", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kwame.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=87.5,
+                      overall_position="1st", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=esi.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=75.0,
+                      overall_position="4th", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=yaw.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=71.5,
+                      overall_position="6th", out_of_students=25, status="Published"),
+        ])
+        
+        # JHS 2 - Term 2
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=akua.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=90.0,
+                      overall_position="1st", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kojo.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=78.5,
+                      overall_position="3rd", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=ama.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=83.5,
+                      overall_position="2nd", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kwesi.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=73.0,
+                      overall_position="5th", out_of_students=30, status="Published"),
+        ])
+        
+        # JHS 3 - Term 2
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=efua.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=92.5,
+                      overall_position="1st", out_of_students=28, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kofi_jhs3.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=85.0,
+                      overall_position="3rd", out_of_students=28, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=adwoa.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=89.0,
+                      overall_position="2nd", out_of_students=28, status="Published"),
+        ])
+        
+        # Primary 6 - Term 2
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=kwabena.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="Primary 6", term_average=81.5,
+                      overall_position="2nd", out_of_students=22, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=afua.id, academic_term="Term 2",
+                      academic_year="2025/2026", class_name="Primary 6", term_average=86.0,
+                      overall_position="1st", out_of_students=22, status="Published"),
+        ])
+        
+        # Term 3 Report Cards (2025/2026) - Final term performance
+        # JHS 1 - Term 3
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=kofi.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=80.5,
+                      overall_position="3rd", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=abena.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=70.0,
+                      overall_position="9th", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kwame.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=89.0,
+                      overall_position="1st", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=esi.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=77.5,
+                      overall_position="4th", out_of_students=25, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=yaw.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 1", term_average=73.5,
+                      overall_position="5th", out_of_students=25, status="Published"),
+        ])
+        
+        # JHS 2 - Term 3
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=akua.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=91.5,
+                      overall_position="1st", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kojo.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=80.0,
+                      overall_position="3rd", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=ama.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=85.5,
+                      overall_position="2nd", out_of_students=30, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kwesi.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 2", term_average=75.5,
+                      overall_position="4th", out_of_students=30, status="Published"),
+        ])
+        
+        # JHS 3 - Term 3
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=efua.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=93.0,
+                      overall_position="1st", out_of_students=28, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=kofi_jhs3.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=86.5,
+                      overall_position="3rd", out_of_students=28, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=adwoa.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="JHS 3", term_average=90.5,
+                      overall_position="2nd", out_of_students=28, status="Published"),
+        ])
+        
+        # Primary 6 - Term 3
+        report_cards.extend([
+            ReportCard(school_id="CCA-OFK", student_id=kwabena.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="Primary 6", term_average=83.0,
+                      overall_position="2nd", out_of_students=22, status="Published"),
+            ReportCard(school_id="CCA-OFK", student_id=afua.id, academic_term="Term 3",
+                      academic_year="2025/2026", class_name="Primary 6", term_average=87.5,
+                      overall_position="1st", out_of_students=22, status="Published"),
+        ])
+        
+        db.session.add_all(report_cards)
+
         # 10. Audit Log: Mock initial action
         init_log = AuditLog(
             actor_id=boss.id,

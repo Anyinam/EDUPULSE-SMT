@@ -57,6 +57,8 @@ def client(app):
         for i in range(3):
             student = Student(
                 school_id="TEST-001",
+                first_name=f"Student{i+1}",
+                surname="API",
                 name=f"Student {i+1}",
                 student_code=f"S{i+1:03d}",
                 current_class="JHS 1",
@@ -143,7 +145,8 @@ class TestAuthenticationEndpoints:
                 "schoolCode": "NEW-SCHOOL",
                 "schoolName": "New Test School",
                 "username": "proprietor",
-                "password": "NewSchoolPass123",
+                "email": "proprietor@new-school.edu",
+                "password": "NewSchoolPass123!",
                 "termsAccepted": True,
                 "termsVersion": "2026-02-22",
             },
@@ -161,7 +164,8 @@ class TestAuthenticationEndpoints:
                 "schoolCode": "TEST-001",  # Already exists
                 "schoolName": "Duplicate School",
                 "username": "user",
-                "password": "DuplicatePass123",
+                "email": "user@duplicate.edu",
+                "password": "DuplicatePass123!",
                 "termsAccepted": True,
                 "termsVersion": "2026-02-22",
             },
@@ -179,6 +183,7 @@ class TestAuthenticationEndpoints:
                 "schoolCode": "WEAK-PASS",
                 "schoolName": "Weak Password School",
                 "username": "user",
+                "email": "user@weakpass.edu",
                 "password": "weak",  # Too weak
                 "termsAccepted": True,
                 "termsVersion": "2026-02-22",

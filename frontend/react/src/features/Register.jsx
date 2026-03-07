@@ -368,7 +368,7 @@ export default function Register() {
                       <ul className="space-y-2 text-sm">
                         {plan.features.map((feature, idx) => (
                           <li key={idx} className="flex items-start gap-2">
-                            <CheckCircle className="text-green-600 flex-shrink-0 mt-0.5" size={16} />
+                            <CheckCircle className="text-green-600 shrink-0 mt-0.5" size={16} />
                             <span>{feature}</span>
                           </li>
                         ))}

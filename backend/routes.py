@@ -1103,25 +1103,30 @@ def register():
 
         db.session.commit()
 
-        # Send welcome email to proprietor
+        # Send welcome email to proprietor (non-blocking)
         if email:
-            login_url = os.getenv("FRONTEND_URL", "http://localhost:5173/login")
-            subscription_plan = new_school.subscription_plan or "Free Tier"
+            try:
+                login_url = os.getenv("FRONTEND_URL", "http://localhost:5173/login")
+                subscription_plan = new_school.subscription_plan or "Free Tier"
 
-            welcome_subject, welcome_body = get_welcome_email(
-                username=username,
-                school_name=school_name,
-                school_id=school_id,
-                login_url=login_url,
-                subscription_plan=subscription_plan
-            )
+                welcome_subject, welcome_body = get_welcome_email(
+                    username=username,
+                    school_name=school_name,
+                    school_id=school_id,
+                    login_url=login_url,
+                    subscription_plan=subscription_plan
+                )
 
-            if welcome_subject and welcome_body:
-                send_email_notification(
-                    to_email=email,
-                    subject=welcome_subject,
-                    body=welcome_body,
-                    attachments=IMPORT_TEMPLATE_ATTACHMENTS,
+                if welcome_subject and welcome_body:
+                    send_email_notification(
+                        to_email=email,
+                        subject=welcome_subject,
+                        body=welcome_body,
+                        attachments=IMPORT_TEMPLATE_ATTACHMENTS,
+                    )
+            except Exception as email_error:
+                logger.warning(
+                    f"Welcome email failed for school {school_id} ({email}): {email_error}"
                 )
 
         logger.info(f"New school registered: {school_id} with {selected_plan} plan")

@@ -1117,7 +1117,7 @@ export default function TeacherDashboard() {
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
           {/* Header */}
-          <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-2xl">
+          <div className="sticky top-0 bg-linear-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-2xl">
             <div className="flex justify-between items-start">
               <div>
                 <h2 className="text-2xl font-bold mb-2">
@@ -1139,7 +1139,7 @@ export default function TeacherDashboard() {
           {/* Content */}
           <div className="p-6 space-y-6">
             {/* Overall Score */}
-            <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-xl border-2 border-blue-200">
+            <div className="bg-linear-to-br from-blue-50 to-purple-50 p-6 rounded-xl border-2 border-blue-200">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-bold text-gray-800">Overall Quality Score</h3>
                 <div className="flex items-center gap-3">

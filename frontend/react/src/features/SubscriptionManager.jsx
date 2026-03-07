@@ -215,7 +215,7 @@ export default function SubscriptionManager() {
   ];
 
   return (
-    <div className="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen p-8">
+    <div className="bg-linear-to-br from-slate-50 to-blue-50 min-h-screen p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -260,7 +260,7 @@ export default function SubscriptionManager() {
             <p className="text-xs text-slate-500 mt-1">N/A</p>
           </div>
 
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-2xl shadow-lg">
+          <div className="bg-linear-to-br from-blue-500 to-blue-600 text-white p-6 rounded-2xl shadow-lg">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="text-blue-100" size={20} />
               <p className="text-xs font-bold text-blue-100 uppercase">Annual Cost</p>
@@ -319,7 +319,7 @@ export default function SubscriptionManager() {
                   </div>
                 )}
                 {plan.recommended && !isCurrentPlan && (
-                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg">
+                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-linear-to-r from-purple-600 to-pink-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg">
                     RECOMMENDED
                   </div>
                 )}
@@ -367,9 +367,9 @@ export default function SubscriptionManager() {
                   {plan.features.map((feature, idx) => (
                     <li key={idx} className="flex items-start gap-2 text-sm">
                       {feature.included ? (
-                        <CheckCircle className="text-green-600 flex-shrink-0 mt-0.5" size={18} />
+                        <CheckCircle className="text-green-600 shrink-0 mt-0.5" size={18} />
                       ) : (
-                        <XCircle className="text-slate-300 flex-shrink-0 mt-0.5" size={18} />
+                        <XCircle className="text-slate-300 shrink-0 mt-0.5" size={18} />
                       )}
                       <span className={feature.included ? 'text-slate-700' : 'text-slate-400'}>
                         {feature.name} {feature.note && <span className="text-xs italic">{feature.note}</span>}
@@ -382,7 +382,7 @@ export default function SubscriptionManager() {
                 {!isCurrentPlan && prorateInfo && plan.name !== 'Free Tier' && (
                   <div className="mb-6 bg-amber-50 border border-amber-300 rounded-lg p-3">
                     <div className="flex items-start gap-2">
-                      <Tag className="text-amber-600 flex-shrink-0 mt-0.5" size={16} />
+                      <Tag className="text-amber-600 shrink-0 mt-0.5" size={16} />
                       <div className="text-sm">
                         <p className="font-bold text-amber-900">🎁 Mid-Term Discount!</p>
                         <p className="text-amber-800 text-xs mt-1">
@@ -401,7 +401,7 @@ export default function SubscriptionManager() {
                     onClick={() => handleUpgrade(plan.name, displayCost)}
                     className={`w-full py-3 rounded-xl font-bold transition-all ${
                       plan.name === 'Premium'
-                        ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 shadow-lg'
+                        ? 'bg-linear-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 shadow-lg'
                         : plan.name === 'Basic'
                         ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
                         : 'border-2 border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -416,7 +416,7 @@ export default function SubscriptionManager() {
         </div>
 
         {/* Billing Explanation */}
-        <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-6 mb-6">
+        <div className="bg-linear-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-6 mb-6">
           <h4 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
             <Info className="text-blue-600" size={20} />
             💰 How Billing is Calculated
@@ -455,7 +455,7 @@ export default function SubscriptionManager() {
         </div>
 
         {/* Termly Billing Info */}
-        <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-6">
+        <div className="bg-linear-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-6">
           <h4 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
             <Calendar className="text-blue-600" size={20} />
             How Termly Billing Works
@@ -463,21 +463,21 @@ export default function SubscriptionManager() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-800">
             <ul className="space-y-2">
               <li className="flex items-start gap-2">
-                <CheckCircle className="text-blue-600 flex-shrink-0 mt-0.5" size={16} />
+                <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={16} />
                 <span>Schools operate on <strong>3 terms per academic year</strong></span>
               </li>
               <li className="flex items-start gap-2">
-                <CheckCircle className="text-blue-600 flex-shrink-0 mt-0.5" size={16} />
+                <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={16} />
                 <span>Pay at the <strong>start of each term</strong> based on enrollment</span>
               </li>
             </ul>
             <ul className="space-y-2">
               <li className="flex items-start gap-2">
-                <CheckCircle className="text-blue-600 flex-shrink-0 mt-0.5" size={16} />
+                <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={16} />
                 <span>No monthly surprises - aligns with when parents pay fees</span>
               </li>
               <li className="flex items-start gap-2">
-                <CheckCircle className="text-blue-600 flex-shrink-0 mt-0.5" size={16} />
+                <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={16} />
                 <span>Example: 100 students on Basic = <strong>GH₵ 1,200/term</strong></span>
               </li>
             </ul>

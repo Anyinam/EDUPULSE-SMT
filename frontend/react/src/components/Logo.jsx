@@ -63,7 +63,7 @@ export const Logo = ({
         width={viewSize}
         height={viewSize}
         xmlns="http://www.w3.org/2000/svg"
-        className="flex-shrink-0"
+        className="shrink-0"
       >
         {variant === 'gradient' && (
           <defs>

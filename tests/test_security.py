@@ -138,6 +138,8 @@ class TestMultiTenantIsolation:
         # Create student in school1
         student = Student(
             school_id="SCHOOL-001",
+            first_name="Test",
+            surname="Student",
             name="Test Student",
             student_code="TS001",
             current_class="JHS 1",
@@ -269,6 +271,8 @@ class TestAccessControl:
 
         student = Student(
             school_id=test_school.id,
+            first_name="Test",
+            surname="Student",
             name="Test Student",
             student_code="TS001",
             current_class="JHS 1",
@@ -305,6 +309,8 @@ class TestAccessControl:
 
         student = Student(
             school_id=test_school.id,
+            first_name="Test",
+            surname="Student",
             name="Test Student",
             student_code="TS001",
             current_class="JHS 1",

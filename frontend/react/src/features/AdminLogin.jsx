@@ -34,12 +34,12 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Admin Console Header */}
-        <div className="bg-gradient-to-r from-purple-900 to-blue-900 p-8 rounded-t-3xl shadow-2xl border-b-4 border-purple-500">
+        <div className="bg-linear-to-r from-purple-900 to-blue-900 p-8 rounded-t-3xl shadow-2xl border-b-4 border-purple-500">
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg mx-auto mb-4">
+            <div className="w-16 h-16 bg-linear-to-br from-purple-400 to-blue-400 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg mx-auto mb-4">
               ⚙️
             </div>
             <h1 className="text-3xl font-black text-white mb-2">EDUPULSE</h1>
@@ -92,7 +92,7 @@ export default function AdminLogin() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold p-3 rounded-xl transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed mt-6"
+              className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold p-3 rounded-xl transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed mt-6"
             >
               {loading ? '⏳ Authenticating...' : '🔐 Sign In as Admin'}
             </button>

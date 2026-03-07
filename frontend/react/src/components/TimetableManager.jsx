@@ -328,7 +328,7 @@ export default function TimetableManager({
       </div>
 
       {canManage && showSubjectManager && (
-        <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-6 rounded-2xl shadow-sm border-2 border-purple-200 mb-6">
+        <div className="bg-linear-to-r from-purple-50 to-blue-50 p-6 rounded-2xl shadow-sm border-2 border-purple-200 mb-6">
           <h3 className="text-lg font-bold text-purple-900 mb-4">📚 Subject Management</h3>
           <div className="bg-white p-4 rounded-lg mb-4">
             <label className="block text-sm font-bold text-slate-700 mb-2">Add Custom Subject</label>

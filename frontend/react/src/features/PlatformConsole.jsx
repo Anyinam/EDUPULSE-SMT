@@ -232,7 +232,7 @@ export default function PlatformConsole() {
   // Login screen
   if (!token || !currentUser) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 to-indigo-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-linear-to-br from-blue-900 to-indigo-800 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Platform Console</h1>
