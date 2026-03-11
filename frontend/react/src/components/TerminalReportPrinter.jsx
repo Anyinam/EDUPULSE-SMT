@@ -21,6 +21,9 @@ export default function TerminalReportPrinter() {
   const [promotionData, setPromotionData] = useState({ new_class: '', remarks: '' });
   const [promotingStudent, setPromotingStudent] = useState(false);
   const [sendingBulkWhatsapp, setSendingBulkWhatsapp] = useState(false);
+  const [whatsappTargetMode, setWhatsappTargetMode] = useState('class');
+  const [whatsappStudentIds, setWhatsappStudentIds] = useState([]);
+  const [whatsappResult, setWhatsappResult] = useState(null);
   const userRole = localStorage.getItem('role') || 'proprietor';
   const subscriptionPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
   const isPremium = subscriptionPlan === 'Premium';
@@ -281,26 +284,48 @@ export default function TerminalReportPrinter() {
       setMessage('❌ WhatsApp bulk terminal-report send is available for Premium plan only.');
       return;
     }
-    if (!selectedClass) {
+    if (!selectedClass && whatsappTargetMode === 'class') {
       setMessage('❌ Select a class first.');
       return;
     }
 
     try {
       setSendingBulkWhatsapp(true);
-      setMessage('⏳ Sending terminal report PDFs to WhatsApp numbers for selected class...');
+      setWhatsappResult(null);
+      setMessage('⏳ Sending terminal report PDFs to WhatsApp numbers...');
 
       const headers = {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id')
       };
 
-      const res = await axios.post('/api/proprietor/terminal-reports/whatsapp/bulk-send', {
-        class_name: selectedClass,
+      let payload = {
+        target_mode: whatsappTargetMode,
         academic_term: selectedTerm,
         academic_year: selectedYear
-      }, { headers });
+      };
 
+      if (whatsappTargetMode === 'class') {
+        payload.class_name = selectedClass;
+      } else if (whatsappTargetMode === 'single') {
+        if (!selectedStudent) {
+          setMessage('❌ Select a student first for single mode.');
+          setSendingBulkWhatsapp(false);
+          return;
+        }
+        payload.student_ids = [Number(selectedStudent)];
+      } else {
+        if (whatsappStudentIds.length === 0) {
+          setMessage('❌ Select one or more students for selected mode.');
+          setSendingBulkWhatsapp(false);
+          return;
+        }
+        payload.student_ids = whatsappStudentIds;
+      }
+
+      const res = await axios.post('/api/proprietor/terminal-reports/whatsapp/bulk-send', payload, { headers });
+
+      setWhatsappResult(res.data);
       setMessage(`✅ ${res.data?.message || 'Bulk WhatsApp send completed.'}`);
     } catch (err) {
       setMessage(`❌ Bulk send failed: ${err.response?.data?.message || err.message}`);
@@ -650,6 +675,63 @@ export default function TerminalReportPrinter() {
         Generate professional terminal reports with remarks from headmaster and proprietor
         {!isPremium && <span className="ml-2 text-amber-700 font-semibold">(WhatsApp bulk send requires Premium)</span>}
       </p>
+
+      <div className="mb-6 p-4 rounded-lg border bg-slate-50">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1">WhatsApp Target</label>
+            <select
+              value={whatsappTargetMode}
+              onChange={(e) => setWhatsappTargetMode(e.target.value)}
+              className="w-full p-2 border rounded-lg bg-white"
+            >
+              <option value="class">All in Selected Class</option>
+              <option value="single">Single Selected Student</option>
+              <option value="selected">Select Multiple Students</option>
+            </select>
+          </div>
+
+          {whatsappTargetMode === 'selected' && (
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-slate-600 mb-1">Select Students</label>
+              <select
+                multiple
+                value={whatsappStudentIds.map(String)}
+                onChange={(e) => {
+                  const values = Array.from(e.target.selectedOptions).map((option) => Number(option.value));
+                  setWhatsappStudentIds(values);
+                }}
+                className="w-full p-2 border rounded-lg bg-white h-24"
+              >
+                {students.map((student) => (
+                  <option key={student.id || student.student_id} value={student.id || student.student_id}>
+                    {student.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 mt-1">Hold Ctrl/Cmd to select multiple students.</p>
+            </div>
+          )}
+        </div>
+
+        {whatsappResult && (
+          <div className="mt-3 p-3 bg-white border rounded-lg text-xs">
+            <p className="font-bold text-slate-800">Delivery Verification Summary</p>
+            <p className="text-slate-600 mt-1">
+              Mode: {whatsappResult.target_mode || '-'} • Attempted: {whatsappResult.attempted_count || 0} • Sent: {whatsappResult.sent_count || 0} • Skipped: {whatsappResult.skipped_count || 0}
+            </p>
+            {(whatsappResult.skipped || []).length > 0 && (
+              <div className="mt-2 text-red-700 max-h-24 overflow-y-auto">
+                {(whatsappResult.skipped || []).slice(0, 10).map((item) => (
+                  <div key={`${item.student_id}-${item.reason}`}>
+                    {item.student_name}: {item.verification_status || item.reason}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {message && (
         <div className={`mb-6 p-4 rounded-lg ${message.includes('✅') ? 'bg-green-50 text-green-800 border border-green-200' : message.includes('❌') ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-blue-50 text-blue-800 border border-blue-200'}`}>

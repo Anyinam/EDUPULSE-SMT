@@ -7,11 +7,12 @@ import logging
 import os
 import re
 import secrets
+import time
 from urllib.parse import quote
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO, StringIO
 
-from flask import Blueprint, g, jsonify, make_response, request
+from flask import Blueprint, Response, current_app, g, jsonify, make_response, request, stream_with_context
 from flask_jwt_extended import (
     create_access_token,
     decode_token,
@@ -30,6 +31,7 @@ from backend.api.models import (
     AuditLog,
     ClassGradingPolicy,
     DailyLessonPhase,
+    ExamPaper,
     Inventory,
     LedgerEntry,
     LessonNote,
@@ -82,6 +84,7 @@ from backend.subscription_features import (
     has_feature,
 )
 from backend.lesson_note_ai import generate_ai_lesson_note_score, generate_quick_feedback
+from backend.exam_ai import generate_exam_questions
 from backend.email_templates import (
     get_welcome_email, 
     get_password_reset_email, 
@@ -4181,18 +4184,27 @@ def initialize_paystack_payment():
 @rate_limit_api
 @jwt_required()
 def send_terminal_reports_whatsapp_bulk():
-    """Send terminal report PDFs in bulk to parent WhatsApp numbers for a class."""
+    """Send terminal report PDFs by class, single student, or selected students."""
     user_id = int(get_jwt_identity())
     payload = request.get_json(silent=True) or {}
 
+    target_mode = sanitize_string(payload.get("target_mode")) or "class"
     class_name = sanitize_string(payload.get("class_name"))
+    requested_student_ids = payload.get("student_ids") if isinstance(payload.get("student_ids"), list) else []
+    requested_student_ids = [int(student_id) for student_id in requested_student_ids if str(student_id).isdigit()]
     academic_term = sanitize_string(payload.get("academic_term")) or "Term 1"
     academic_year = sanitize_string(payload.get("academic_year")) or "2024/2025"
 
-    if not class_name:
-        return jsonify({"message": "class_name is required"}), 400
-    if class_name not in VALID_GRADES:
-        return jsonify({"message": "Invalid class name."}), 400
+    if target_mode not in ["class", "single", "selected"]:
+        return jsonify({"message": "target_mode must be one of: class, single, selected"}), 400
+
+    if target_mode == "class":
+        if not class_name:
+            return jsonify({"message": "class_name is required for class mode"}), 400
+        if class_name not in VALID_GRADES:
+            return jsonify({"message": "Invalid class name."}), 400
+    elif target_mode in ["single", "selected"] and not requested_student_ids:
+        return jsonify({"message": "student_ids is required for single/selected mode"}), 400
 
     school = School.query.get(g.school_id)
     if not school:
@@ -4220,9 +4232,33 @@ def send_terminal_reports_whatsapp_bulk():
     ).count()
     daily_limit = school.settings.whatsapp_daily_limit or 50
 
-    students = Student.query.filter_by(school_id=g.school_id, current_class=class_name).all()
+    if target_mode == "class":
+        students = Student.query.filter_by(school_id=g.school_id, current_class=class_name).all()
+    else:
+        students = Student.query.filter(
+            Student.school_id == g.school_id,
+            Student.id.in_(requested_student_ids),
+        ).all()
+
     if not students:
-        return jsonify({"message": "No students found for this class"}), 404
+        return jsonify({"message": "No students found for the selected target"}), 404
+
+    if target_mode == "single":
+        students = students[:1]
+
+    def classify_reason(reason: str):
+        text_reason = (reason or "").lower()
+        if "missing_parent_phone" in text_reason:
+            return "missing_phone"
+        if "daily_limit_reached" in text_reason:
+            return "daily_limit_reached"
+        if "report_not_found" in text_reason:
+            return "report_not_found"
+        if "invalid" in text_reason or "format" in text_reason:
+            return "invalid_number_format"
+        if "not in allowed list" in text_reason or "recipient" in text_reason:
+            return "not_on_whatsapp_or_unreachable"
+        return "delivery_failed"
 
     sent = []
     skipped = []
@@ -4230,11 +4266,21 @@ def send_terminal_reports_whatsapp_bulk():
 
     for student in students:
         if daily_count + sent_count >= daily_limit:
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": "daily_limit_reached"})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": "daily_limit_reached",
+                "verification_status": "not_attempted",
+            })
             continue
 
         if not student.parent_phone:
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": "missing_parent_phone"})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": "missing_parent_phone",
+                "verification_status": "missing_phone",
+            })
             continue
 
         report = ReportCard.query.filter_by(
@@ -4245,7 +4291,12 @@ def send_terminal_reports_whatsapp_bulk():
         ).first()
 
         if not report:
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": "report_not_found"})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": "report_not_found",
+                "verification_status": "not_attempted",
+            })
             continue
 
         try:
@@ -4260,13 +4311,24 @@ def send_terminal_reports_whatsapp_bulk():
                 "student_name": student.name,
                 "phone": student.parent_phone,
                 "message_id": message_id,
+                "verification_status": "accepted_by_whatsapp" if message_id else "sent_no_message_id",
             })
             sent_count += 1
         except WhatsAppError as exc:
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": str(exc)})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": str(exc),
+                "verification_status": classify_reason(str(exc)),
+            })
         except Exception as exc:
             logger.error(f"Bulk WhatsApp report send failed for student {student.id}: {exc}")
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": "unexpected_error"})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": "unexpected_error",
+                "verification_status": "delivery_failed",
+            })
 
     log_action(
         user_id,
@@ -4287,6 +4349,8 @@ def send_terminal_reports_whatsapp_bulk():
         {
             "status": "success",
             "message": f"Bulk send completed: {len(sent)} sent, {len(skipped)} skipped.",
+            "target_mode": target_mode,
+            "attempted_count": len(students),
             "sent_count": len(sent),
             "skipped_count": len(skipped),
             "sent": sent,
@@ -4305,7 +4369,7 @@ def send_terminal_reports_whatsapp_bulk():
 @rate_limit_api
 @jwt_required()
 def send_payment_reminders_whatsapp_bulk():
-    """Send payment reminders via WhatsApp in bulk to parents with outstanding fees."""
+    """Send payment reminders via WhatsApp by class, selected students, or single student."""
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
@@ -4313,6 +4377,18 @@ def send_payment_reminders_whatsapp_bulk():
     from backend.utils import generate_all_payment_codes
 
     user_id = int(get_jwt_identity())
+    payload = request.get_json(silent=True) or {}
+    target_mode = sanitize_string(payload.get("target_mode")) or "class"
+    class_name = sanitize_string(payload.get("class_name"))
+    requested_student_ids = payload.get("student_ids") if isinstance(payload.get("student_ids"), list) else []
+    requested_student_ids = [int(student_id) for student_id in requested_student_ids if str(student_id).isdigit()]
+
+    if target_mode not in ["class", "single", "selected"]:
+        return jsonify({"message": "target_mode must be one of: class, single, selected"}), 400
+    if target_mode == "class" and not class_name:
+        return jsonify({"message": "class_name is required for class mode"}), 400
+    if target_mode in ["single", "selected"] and not requested_student_ids:
+        return jsonify({"message": "student_ids is required for single/selected mode"}), 400
     
     school = School.query.get(g.school_id)
     if not school:
@@ -4357,8 +4433,19 @@ def send_payment_reminders_whatsapp_bulk():
         "other_fees": school.settings.other_fees if school.settings else {},
     }
 
-    # Get all students with outstanding fees
-    students = Student.query.filter_by(school_id=g.school_id).all()
+    # Resolve target students
+    if target_mode == "class":
+        students = Student.query.filter_by(school_id=g.school_id, current_class=class_name).all()
+    else:
+        students = Student.query.filter(
+            Student.school_id == g.school_id,
+            Student.id.in_(requested_student_ids),
+        ).all()
+
+    if target_mode == "single":
+        students = students[:1]
+
+    # Keep only students with outstanding fees
     eligible_students = [
         s
         for s in students
@@ -4375,13 +4462,35 @@ def send_payment_reminders_whatsapp_bulk():
     skipped = []
     sent_count = 0
 
+    def classify_reason(reason: str):
+        text_reason = (reason or "").lower()
+        if "missing_parent_phone" in text_reason:
+            return "missing_phone"
+        if "daily_limit_reached" in text_reason:
+            return "daily_limit_reached"
+        if "invalid" in text_reason or "format" in text_reason:
+            return "invalid_number_format"
+        if "not in allowed list" in text_reason or "recipient" in text_reason:
+            return "not_on_whatsapp_or_unreachable"
+        return "delivery_failed"
+
     for student in eligible_students:
         if daily_count + sent_count >= daily_limit:
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": "daily_limit_reached"})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": "daily_limit_reached",
+                "verification_status": "not_attempted",
+            })
             continue
 
         if not student.parent_phone:
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": "missing_parent_phone"})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": "missing_parent_phone",
+                "verification_status": "missing_phone",
+            })
             continue
 
         try:
@@ -4528,13 +4637,24 @@ def send_payment_reminders_whatsapp_bulk():
                 "phone": student.parent_phone,
                 "amount_owed": total_owed,
                 "message_id": message_id,
+                "verification_status": "accepted_by_whatsapp" if message_id else "sent_no_message_id",
             })
             sent_count += 1
         except WhatsAppError as exc:
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": str(exc)})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": str(exc),
+                "verification_status": classify_reason(str(exc)),
+            })
         except Exception as exc:
             logger.error(f"Bulk WhatsApp payment reminder failed for student {student.id}: {exc}")
-            skipped.append({"student_id": student.id, "student_name": student.name, "reason": "unexpected_error"})
+            skipped.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "reason": "unexpected_error",
+                "verification_status": "delivery_failed",
+            })
 
     log_action(
         user_id,
@@ -4555,6 +4675,9 @@ def send_payment_reminders_whatsapp_bulk():
         {
             "status": "success",
             "message": f"Bulk payment reminders sent: {len(sent)} sent, {len(skipped)} skipped.",
+            "target_mode": target_mode,
+            "attempted_count": len(eligible_students),
+            "class_name": class_name,
             "sent_count": len(sent),
             "skipped_count": len(skipped),
             "sent": sent,
@@ -5476,7 +5599,9 @@ def get_live_feed():
             {
                 "logs": [
                     {
+                        "id": log.id,
                         "time": log.timestamp.strftime("%H:%M"),
+                        "timestamp_iso": log.timestamp.isoformat() if log.timestamp else None,
                         "user": log.actor.username if log.actor else "Unknown",
                         "action": log.action,
                         "details": log.details,
@@ -5521,6 +5646,216 @@ def get_live_feed():
         )
     except Exception as e:
         return jsonify({"message": "Error fetching live feed", "error": str(e)}), 500
+
+
+def _get_live_dashboard_thresholds(settings):
+    default_thresholds = {
+        "unpaid_tuition": 10,
+        "pending_cash": 5,
+        "low_stock_count": 3,
+        "critical_risk_students": 3,
+    }
+    try:
+        cfg = settings.report_template_config if settings and settings.report_template_config else {}
+        stored = cfg.get("live_dashboard_thresholds", {}) if isinstance(cfg, dict) else {}
+        if not isinstance(stored, dict):
+            return default_thresholds
+        merged = default_thresholds.copy()
+        for key in default_thresholds.keys():
+            if key in stored:
+                merged[key] = int(stored.get(key))
+        return merged
+    except Exception:
+        return default_thresholds
+
+
+def _build_stream_token(user_id, school_id, expires_minutes=15):
+    expires_at = int(time.time()) + (expires_minutes * 60)
+    raw = f"{user_id}:{school_id}:{expires_at}"
+    secret = (current_app.config.get("SECRET_KEY") or "edupulse-stream-secret").encode("utf-8")
+    signature = hmac.new(secret, raw.encode("utf-8"), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{raw}:{signature}".encode("utf-8")).decode("utf-8")
+
+
+def _verify_stream_token(stream_token):
+    try:
+        decoded = base64.urlsafe_b64decode(stream_token.encode("utf-8")).decode("utf-8")
+        user_id_str, school_id_str, expires_at_str, provided_sig = decoded.split(":", 3)
+        raw = f"{user_id_str}:{school_id_str}:{expires_at_str}"
+        secret = (current_app.config.get("SECRET_KEY") or "edupulse-stream-secret").encode("utf-8")
+        expected_sig = hmac.new(secret, raw.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected_sig, provided_sig):
+            return None
+        if int(expires_at_str) < int(time.time()):
+            return None
+        return {"user_id": int(user_id_str), "school_id": int(school_id_str)}
+    except Exception:
+        return None
+
+
+@api.route("/proprietor/live-events/token", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_proprietor_live_events_token():
+    user_id = int(get_jwt_identity())
+    return jsonify({"stream_token": _build_stream_token(user_id=user_id, school_id=g.school_id, expires_minutes=15)})
+
+
+@api.route("/proprietor/live-dashboard/thresholds", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_live_dashboard_thresholds():
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    if not settings:
+        return jsonify({"message": "School settings not found"}), 404
+    return jsonify(_get_live_dashboard_thresholds(settings))
+
+
+@api.route("/proprietor/live-dashboard/thresholds", methods=["PUT"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def update_live_dashboard_thresholds():
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    if not settings:
+        return jsonify({"message": "School settings not found"}), 404
+
+    payload = request.get_json() or {}
+    thresholds = {
+        "unpaid_tuition": max(0, int(payload.get("unpaid_tuition", 10))),
+        "pending_cash": max(0, int(payload.get("pending_cash", 5))),
+        "low_stock_count": max(0, int(payload.get("low_stock_count", 3))),
+        "critical_risk_students": max(0, int(payload.get("critical_risk_students", 3))),
+    }
+
+    cfg = settings.report_template_config if isinstance(settings.report_template_config, dict) else {}
+    cfg["live_dashboard_thresholds"] = thresholds
+    settings.report_template_config = cfg
+    db.session.commit()
+
+    log_action(
+        user_id=int(get_jwt_identity()),
+        school_id=g.school_id,
+        action="PROPRIETOR_LIVE_THRESHOLDS_UPDATED",
+        details=json.dumps(thresholds),
+    )
+    return jsonify(thresholds)
+
+
+@api.route("/proprietor/live-dashboard/alerts/ack", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def acknowledge_live_dashboard_alert():
+    payload = request.get_json() or {}
+    alert_id = str(payload.get("alert_id", "")).strip()
+    if not alert_id:
+        return jsonify({"message": "alert_id is required"}), 400
+
+    log_action(
+        user_id=int(get_jwt_identity()),
+        school_id=g.school_id,
+        action="PROPRIETOR_ALERT_ACK",
+        details=alert_id,
+    )
+    return jsonify({"status": "acknowledged", "alert_id": alert_id})
+
+
+@api.route("/proprietor/live-dashboard/alerts/ack", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_acknowledged_live_dashboard_alerts():
+    rows = (
+        db.session.query(AuditLog)
+        .filter(
+            AuditLog.school_id == g.school_id,
+            AuditLog.action == "PROPRIETOR_ALERT_ACK",
+        )
+        .order_by(AuditLog.id.desc())
+        .limit(200)
+        .all()
+    )
+    alert_ids = []
+    seen = set()
+    for row in rows:
+        aid = (row.details or "").strip()
+        if aid and aid not in seen:
+            seen.add(aid)
+            alert_ids.append(aid)
+    return jsonify({"acknowledged_alert_ids": alert_ids})
+
+
+@api.route("/proprietor/live-events", methods=["GET"])
+def proprietor_live_events():
+    """Server-Sent Events stream for proprietor live dashboard updates."""
+    stream_token = request.args.get("stream_token", "")
+    since_id = request.args.get("since_id", default=0, type=int) or 0
+
+    if not stream_token:
+        return jsonify({"message": "stream_token is required"}), 400
+
+    verified = _verify_stream_token(stream_token)
+    if not verified:
+        return jsonify({"message": "Invalid or expired stream token"}), 401
+
+    school_id = verified["school_id"]
+    user = User.query.filter_by(id=verified["user_id"], school_id=school_id).first()
+    if not user or user.role != "proprietor":
+        return jsonify({"message": "Access denied"}), 403
+
+    @stream_with_context
+    def event_stream():
+        last_seen_id = since_id
+        heartbeat_count = 0
+
+        while True:
+            new_logs = (
+                db.session.query(AuditLog)
+                .filter(AuditLog.school_id == school_id, AuditLog.id > last_seen_id)
+                .options(joinedload(AuditLog.actor))
+                .order_by(AuditLog.id.asc())
+                .limit(50)
+                .all()
+            )
+
+            if new_logs:
+                last_seen_id = max(log.id for log in new_logs)
+                payload = {
+                    "type": "new_logs",
+                    "last_id": last_seen_id,
+                    "logs": [
+                        {
+                            "id": log.id,
+                            "time": log.timestamp.strftime("%H:%M") if log.timestamp else "--:--",
+                            "timestamp_iso": log.timestamp.isoformat() if log.timestamp else None,
+                            "user": log.actor.username if log.actor else "Unknown",
+                            "action": log.action,
+                            "details": log.details,
+                        }
+                        for log in new_logs
+                    ],
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+            else:
+                heartbeat_count += 1
+                if heartbeat_count % 4 == 0:
+                    heartbeat = {"type": "heartbeat", "last_id": last_seen_id}
+                    yield f"data: {json.dumps(heartbeat)}\n\n"
+
+            time.sleep(5)
+
+    return Response(
+        event_stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @api.route("/finance/confirm-payment/<int:payment_id>", methods=["POST"])
@@ -8832,7 +9167,7 @@ def get_staff_list():
 
 @api.route("/teacher/assignments", methods=["GET"])
 @multi_tenant_guard
-@role_required("teacher", "homeroom")
+@role_required("teacher", "homeroom", "headmaster", "proprietor")
 @jwt_required()
 def get_teacher_assignments():
     """Get class/subject assignments for the logged-in teacher."""
@@ -8855,6 +9190,453 @@ def get_teacher_assignments():
             "assignments": pairs,
         }
     )
+
+
+# ============================================================
+# EXAM PAPER APIs - For Teachers to Create Question Papers
+# ============================================================
+
+@api.route("/exams/papers", methods=["POST"])
+@multi_tenant_guard
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def create_exam_paper():
+    """Create a new exam question paper."""
+    try:
+        user_id = int(get_jwt_identity())
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get("title") or not data.get("class_name") or not data.get("subject_name"):
+            return jsonify({"message": "Missing required fields: title, class_name, subject_name"}), 400
+        
+        # Validate questions is a list
+        questions = data.get("questions", [])
+        if not isinstance(questions, list):
+            return jsonify({"message": "questions must be a list"}), 400
+        
+        paper = ExamPaper(
+            school_id=g.school_id,
+            teacher_id=user_id,
+            class_name=data["class_name"],
+            subject_name=data["subject_name"],
+            title=data["title"],
+            academic_term=data.get("academic_term"),
+            academic_year=data.get("academic_year"),
+            exam_type=data.get("exam_type"),
+            instructions=data.get("instructions"),
+            total_marks=data.get("total_marks"),
+            duration_minutes=data.get("duration_minutes"),
+            questions=questions,
+            status=data.get("status", "draft")
+        )
+        
+        db.session.add(paper)
+        db.session.commit()
+        
+        log_action(user_id, g.school_id, "EXAM_PAPER_CREATED", 
+                  f"Created exam paper: {paper.title} for {paper.class_name} {paper.subject_name}")
+        
+        return jsonify({
+            "message": "Exam paper created successfully",
+            "paper_id": paper.id
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error creating exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/papers", methods=["GET"])
+@multi_tenant_guard
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def get_exam_papers():
+    """Get all exam papers created by the teacher."""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        # Query parameters for filtering
+        class_name = request.args.get("class_name")
+        subject_name = request.args.get("subject_name")
+        status = request.args.get("status")
+        
+        query = ExamPaper.query.filter_by(school_id=g.school_id, teacher_id=user_id)
+        
+        if class_name:
+            query = query.filter_by(class_name=class_name)
+        if subject_name:
+            query = query.filter_by(subject_name=subject_name)
+        if status:
+            query = query.filter_by(status=status)
+        
+        papers = query.order_by(ExamPaper.created_at.desc()).all()
+        
+        return jsonify([{
+            "id": p.id,
+            "title": p.title,
+            "class_name": p.class_name,
+            "subject_name": p.subject_name,
+            "academic_term": p.academic_term,
+            "academic_year": p.academic_year,
+            "exam_type": p.exam_type,
+            "total_marks": p.total_marks,
+            "duration_minutes": p.duration_minutes,
+            "status": p.status,
+            "question_count": len(p.questions) if p.questions else 0,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            "finalized_at": p.finalized_at.isoformat() if p.finalized_at else None
+        } for p in papers])
+    except Exception as e:
+        return jsonify({"message": "Error fetching exam papers", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/<int:paper_id>", methods=["GET"])
+@multi_tenant_guard
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def get_exam_paper(paper_id):
+    """Get a specific exam paper with full details."""
+    try:
+        user_id = int(get_jwt_identity())
+        paper = ExamPaper.query.filter_by(
+            id=paper_id,
+            school_id=g.school_id,
+        ).first_or_404()
+
+        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
+        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
+        can_view = (
+            paper.teacher_id == user_id
+            or "headmaster" in role_set
+            or "proprietor" in role_set
+        )
+        if not can_view:
+            return jsonify({"message": "Access denied to this exam paper."}), 403
+        
+        return jsonify({
+            "id": paper.id,
+            "title": paper.title,
+            "class_name": paper.class_name,
+            "subject_name": paper.subject_name,
+            "academic_term": paper.academic_term,
+            "academic_year": paper.academic_year,
+            "exam_type": paper.exam_type,
+            "instructions": paper.instructions,
+            "total_marks": paper.total_marks,
+            "duration_minutes": paper.duration_minutes,
+            "questions": paper.questions,
+            "status": paper.status,
+            "created_at": paper.created_at.isoformat() if paper.created_at else None,
+            "updated_at": paper.updated_at.isoformat() if paper.updated_at else None,
+            "finalized_at": paper.finalized_at.isoformat() if paper.finalized_at else None
+        })
+    except Exception as e:
+        return jsonify({"message": "Error fetching exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/<int:paper_id>", methods=["PUT"])
+@multi_tenant_guard
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def update_exam_paper(paper_id):
+    """Update an exam paper."""
+    try:
+        user_id = int(get_jwt_identity())
+        paper = ExamPaper.query.filter_by(
+            id=paper_id,
+            school_id=g.school_id,
+            teacher_id=user_id,
+        ).first_or_404()
+
+        data = request.get_json() or {}
+
+        if "title" in data:
+            paper.title = data["title"]
+        if "class_name" in data:
+            paper.class_name = data["class_name"]
+        if "subject_name" in data:
+            paper.subject_name = data["subject_name"]
+        if "academic_term" in data:
+            paper.academic_term = data["academic_term"]
+        if "academic_year" in data:
+            paper.academic_year = data["academic_year"]
+        if "exam_type" in data:
+            paper.exam_type = data["exam_type"]
+        if "instructions" in data:
+            paper.instructions = data["instructions"]
+        if "total_marks" in data:
+            paper.total_marks = data["total_marks"]
+        if "duration_minutes" in data:
+            paper.duration_minutes = data["duration_minutes"]
+        if "questions" in data:
+            paper.questions = data["questions"]
+        if "status" in data:
+            paper.status = data["status"]
+            if data["status"] == "finalized" and not paper.finalized_at:
+                paper.finalized_at = datetime.now(timezone.utc)
+
+        paper.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        log_action(
+            user_id,
+            g.school_id,
+            "EXAM_PAPER_UPDATED",
+            f"Updated exam paper: {paper.title}",
+        )
+
+        return jsonify({"message": "Exam paper updated successfully"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error updating exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/<int:paper_id>", methods=["DELETE"])
+@multi_tenant_guard
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def delete_exam_paper(paper_id):
+    """Delete an exam paper."""
+    try:
+        user_id = int(get_jwt_identity())
+        paper = ExamPaper.query.filter_by(
+            id=paper_id,
+            school_id=g.school_id,
+            teacher_id=user_id,
+        ).first_or_404()
+
+        title = paper.title
+        db.session.delete(paper)
+        db.session.commit()
+
+        log_action(
+            user_id,
+            g.school_id,
+            "EXAM_PAPER_DELETED",
+            f"Deleted exam paper: {title}",
+        )
+
+        return jsonify({"message": "Exam paper deleted successfully"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error deleting exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/<int:paper_id>/submit", methods=["POST"])
+@multi_tenant_guard
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def submit_exam_paper(paper_id):
+    """Submit an exam paper to headmaster or proprietor for review/approval flow."""
+    try:
+        user_id = int(get_jwt_identity())
+        payload = request.get_json(silent=True) or {}
+        submit_to = sanitize_string(payload.get("submit_to"))
+
+        if submit_to not in ["headmaster", "proprietor"]:
+            return jsonify({"message": "submit_to must be 'headmaster' or 'proprietor'"}), 400
+
+        paper = ExamPaper.query.filter_by(
+            id=paper_id,
+            school_id=g.school_id,
+            teacher_id=user_id,
+        ).first_or_404()
+
+        school_users = User.query.filter(User.school_id == g.school_id).all()
+        receiver_exists = next(
+            (
+                record
+                for record in school_users
+                if (record.role == submit_to)
+                or (isinstance(record.roles, list) and submit_to in record.roles)
+            ),
+            None,
+        )
+        if not receiver_exists:
+            return jsonify({"message": f"No {submit_to} user found for this school."}), 400
+
+        paper.status = f"submitted_{submit_to}"
+        paper.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        log_action(
+            user_id,
+            g.school_id,
+            "EXAM_PAPER_SUBMITTED",
+            f"Submitted exam paper '{paper.title}' to {submit_to}",
+        )
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"Exam paper submitted to {submit_to}.",
+                "paper_id": paper.id,
+                "paper_status": paper.status,
+            }
+        )
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error submitting exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/inbox", methods=["GET"])
+@multi_tenant_guard
+@role_required("headmaster", "proprietor")
+@jwt_required()
+def get_exam_papers_inbox():
+    """Review inbox for submitted exam papers (headmaster/proprietor)."""
+    try:
+        user_id = int(get_jwt_identity())
+        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+
+        role_set = set((user.roles or []) + [user.role or ""])
+        target_statuses = []
+        if "headmaster" in role_set:
+            target_statuses.append("submitted_headmaster")
+        if "proprietor" in role_set:
+            target_statuses.append("submitted_proprietor")
+
+        if not target_statuses:
+            return jsonify([])
+
+        class_name = sanitize_string(request.args.get("class_name"))
+        subject_name = sanitize_string(request.args.get("subject_name"))
+
+        query = ExamPaper.query.filter(
+            ExamPaper.school_id == g.school_id,
+            ExamPaper.status.in_(target_statuses),
+        )
+
+        if class_name:
+            query = query.filter(ExamPaper.class_name == class_name)
+        if subject_name:
+            query = query.filter(ExamPaper.subject_name == subject_name)
+
+        papers = query.order_by(ExamPaper.updated_at.desc(), ExamPaper.created_at.desc()).all()
+
+        teacher_ids = sorted({p.teacher_id for p in papers})
+        teachers = (
+            User.query.filter(User.school_id == g.school_id, User.id.in_(teacher_ids)).all()
+            if teacher_ids
+            else []
+        )
+        teacher_map = {teacher.id: teacher.username for teacher in teachers}
+
+        return jsonify(
+            [
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "class_name": p.class_name,
+                    "subject_name": p.subject_name,
+                    "academic_term": p.academic_term,
+                    "academic_year": p.academic_year,
+                    "exam_type": p.exam_type,
+                    "status": p.status,
+                    "question_count": len(p.questions) if p.questions else 0,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+                    "teacher_id": p.teacher_id,
+                    "teacher_name": teacher_map.get(p.teacher_id),
+                }
+                for p in papers
+            ]
+        )
+    except Exception as e:
+        return jsonify({"message": "Error fetching exam inbox", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/<int:paper_id>/review", methods=["POST"])
+@multi_tenant_guard
+@role_required("headmaster", "proprietor")
+@jwt_required()
+def review_exam_paper(paper_id):
+    """Review submitted exam paper: approve/forward or reject/return."""
+    try:
+        user_id = int(get_jwt_identity())
+        payload = request.get_json(silent=True) or {}
+        action = sanitize_string(payload.get("action"))
+        feedback = sanitize_string(payload.get("feedback"))
+
+        if action not in ["approve", "reject"]:
+            return jsonify({"message": "action must be 'approve' or 'reject'"}), 400
+
+        reviewer = User.query.filter_by(id=user_id, school_id=g.school_id).first()
+        if not reviewer:
+            return jsonify({"message": "Reviewer not found"}), 404
+
+        role_set = set((reviewer.roles or []) + [reviewer.role or ""])
+        paper = ExamPaper.query.filter_by(id=paper_id, school_id=g.school_id).first_or_404()
+
+        if paper.status == "submitted_headmaster" and "headmaster" in role_set:
+            if action == "approve":
+                paper.status = "submitted_proprietor"
+            else:
+                paper.status = "returned_by_headmaster"
+        elif paper.status == "submitted_proprietor" and "proprietor" in role_set:
+            if action == "approve":
+                paper.status = "finalized"
+                if not paper.finalized_at:
+                    paper.finalized_at = datetime.now(timezone.utc)
+            else:
+                paper.status = "returned_by_proprietor"
+        else:
+            return jsonify({"message": "This exam paper is not in your review queue."}), 403
+
+        paper.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        review_details = (
+            f"Exam paper '{paper.title}' reviewed by {reviewer.username}: action={action}, "
+            f"new_status={paper.status}"
+        )
+        if feedback:
+            review_details += f", feedback={feedback}"
+
+        log_action(
+            user_id,
+            g.school_id,
+            "EXAM_PAPER_REVIEWED",
+            review_details,
+        )
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": "Exam paper review completed.",
+                "paper_id": paper.id,
+                "paper_status": paper.status,
+            }
+        )
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error reviewing exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/generate-questions", methods=["POST"])
+@multi_tenant_guard
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def generate_exam_questions_ai():
+    """Generate exam questions with AI (with fallback when provider is unavailable)."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        payload["school_id"] = g.school_id
+        result = generate_exam_questions(payload)
+
+        log_action(
+            int(get_jwt_identity()),
+            g.school_id,
+            "EXAM_AI_GENERATE_QUESTIONS",
+            f"AI question generation used provider={result.get('provider')} status={result.get('status')}",
+        )
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"message": "Error generating questions", "error": str(e)}), 500
 
 
 @api.route("/staff/<int:user_id>", methods=["DELETE"])

@@ -20,6 +20,7 @@ import HolidayCalendar from '../components/HolidayCalendar';
 import AuditReport from '../components/AuditReport';
 import PerformanceAnalytics from '../components/PerformanceAnalytics';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
+import ExamInboxPanel from '../components/ExamInboxPanel';
 
 export default function ProprietorPanel() {
   // Use React Router's useSearchParams hook to properly handle query parameters
@@ -34,32 +35,49 @@ export default function ProprietorPanel() {
   const [viewingReport, setViewingReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [attendanceStats, setAttendanceStats] = useState(null);
+  const [pendingExamCount, setPendingExamCount] = useState(0);
+  const [lastDashboardRefresh, setLastDashboardRefresh] = useState(null);
   const { branding } = useBranding();
   const plan = localStorage.getItem('subscription_plan') || 'Free Tier';
 
   const fetchRiskData = async () => {
-    const headers = { 
-      'Authorization': `Bearer ${localStorage.getItem('token')}`,
-      'X-School-ID': localStorage.getItem('school_id') 
-    };
-    const res = await axios.get('/api/proprietor/live-feed', { headers });
-    
-    // Filter for students whose parents need a call
-    setCriticalStudents(res.data.critical_list || []);
-    setPendingPayments(res.data.pending_payments || []);
-    setStats(res.data.stats || { today_revenue: 0, canteen_count: 0 });
-    
-    // Fetch all students for payment dropdown (simplified for demo)
-    const studentsRes = await axios.get('/api/proprietor/students', { headers });
-    setAllStudents(studentsRes.data);
+    try {
+      const headers = { 
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id') 
+      };
+      const res = await axios.get('/api/proprietor/live-feed', { headers });
+      
+      // Filter for students whose parents need a call
+      setCriticalStudents(res.data.critical_list || []);
+      setPendingPayments(res.data.pending_payments || []);
+      setStats(res.data.stats || { today_revenue: 0, canteen_count: 0 });
+      
+      // Fetch all students for payment dropdown (simplified for demo)
+      const studentsRes = await axios.get('/api/proprietor/students', { headers });
+      setAllStudents(studentsRes.data);
+    } catch (err) {
+      console.error('Failed to fetch proprietor dashboard live data', err);
+    }
   };
 
   // Fetch AI-flagged students for the Intervention List
   useEffect(() => {
-    fetchRiskData();
-    fetchReportApprovals();
-    fetchAttendance();
-  }, []);
+    if (activeTab !== 'dashboard') return;
+
+    const refreshDashboardData = async () => {
+      await Promise.allSettled([
+        fetchRiskData(),
+        fetchReportApprovals(),
+        fetchAttendance()
+      ]);
+      setLastDashboardRefresh(new Date());
+    };
+
+    refreshDashboardData();
+    const refreshTimer = setInterval(refreshDashboardData, 30000);
+    return () => clearInterval(refreshTimer);
+  }, [activeTab]);
 
   const getAuthHeaders = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -151,6 +169,15 @@ export default function ProprietorPanel() {
         <header className="flex justify-between items-end mb-8">
           <div>
             <h1 className="text-4xl font-black text-slate-800">Proprietor Command</h1>
+            <p className={`text-xs mt-1 ${(lastDashboardRefresh && (Date.now() - lastDashboardRefresh.getTime() > 60000)) ? 'text-red-500' : 'text-slate-500'}`}>
+              {lastDashboardRefresh
+                ? `Dashboard updated ${lastDashboardRefresh.toLocaleTimeString()}`
+                : 'Dashboard loading...'}
+            </p>
+          </div>
+          <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-indigo-200">
+            <span className="text-xs font-bold text-indigo-500 uppercase">Pending Exams</span>
+            <p className="text-2xl font-black text-indigo-700">{pendingExamCount}</p>
           </div>
         </header>
 
@@ -235,6 +262,13 @@ export default function ProprietorPanel() {
                 </div>
               </div>
             )}
+
+            <div className="mb-8">
+              <ExamInboxPanel
+                title="Exam Papers Waiting for Proprietor Review"
+                onInboxChange={setPendingExamCount}
+              />
+            </div>
 
             {/* AI Insights Section */}
             <div className="mb-8">

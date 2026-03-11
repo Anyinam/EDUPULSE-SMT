@@ -5,6 +5,7 @@ import PerformanceAnalytics from '../components/PerformanceAnalytics';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import TeacherAlerts from '../components/TeacherAlerts';
 import PromotionHistoryModal from '../components/PromotionHistoryModal';
+import ExamInboxPanel from '../components/ExamInboxPanel';
 import StudentsRegistry from './StudentsRegistry';
 
 const CLASS_OPTIONS = [
@@ -32,6 +33,7 @@ export default function HeadmasterDashboard() {
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [selectedStudentForPromotion, setSelectedStudentForPromotion] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [pendingExamCount, setPendingExamCount] = useState(0);
 
   const getAuthHeaders = () => ({
     headers: {
@@ -152,11 +154,17 @@ export default function HeadmasterDashboard() {
           <h1 className="text-3xl font-black text-slate-800">🎓 Headmaster's Desk</h1>
           <p className="text-slate-500">Lesson Note Supervision & AI Review</p>
         </div>
-        <div className="bg-white px-4 py-2 rounded-lg shadow-sm border">
-          <span className="text-xs font-bold text-gray-400 uppercase">Pending Review</span>
-          <p className="text-2xl font-black text-orange-600">
-            {notes.filter(n => n.status === 'Pending').length}
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-indigo-200">
+            <span className="text-xs font-bold text-indigo-500 uppercase">Pending Exams</span>
+            <p className="text-2xl font-black text-indigo-700">{pendingExamCount}</p>
+          </div>
+          <div className="bg-white px-4 py-2 rounded-lg shadow-sm border">
+            <span className="text-xs font-bold text-gray-400 uppercase">Pending Review</span>
+            <p className="text-2xl font-black text-orange-600">
+              {notes.filter(n => n.status === 'Pending').length}
+            </p>
+          </div>
         </div>
       </header>
 
@@ -279,6 +287,13 @@ export default function HeadmasterDashboard() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="mb-8">
+        <ExamInboxPanel
+          title="Exam Papers Waiting for Headmaster Review"
+          onInboxChange={setPendingExamCount}
+        />
       </div>
 
       <div className="mb-8">

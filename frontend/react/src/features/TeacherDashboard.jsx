@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import TimetableManager from '../components/TimetableManager';
 import TeacherAlerts from '../components/TeacherAlerts';
+import ExamPapers from './ExamPapers';
 import { useBranding } from '../hooks/useBranding';
 
 export default function TeacherDashboard() {
@@ -125,24 +126,31 @@ export default function TeacherDashboard() {
   useEffect(() => {
     const fetchClasses = async () => {
       try {
-        // Get all academic classes from school (endpoint has its own fallback logic)
+        // First, try to get teacher's assigned classes from assignments
+        const assignmentsRes = await axios.get('/api/teacher/assignments', getAuthHeaders());
+        const assignedClasses = Array.isArray(assignmentsRes.data?.assigned_classes)
+          ? assignmentsRes.data.assigned_classes
+          : [];
+
+        // If teacher has assigned classes, use only those
+        if (assignedClasses.length > 0) {
+          setAvailableClasses(assignedClasses);
+          // Set initial selected class to first assigned class
+          if (!assignedClasses.includes(selectedClass)) {
+            setSelectedClass(assignedClasses[0]);
+          }
+          return;
+        }
+
+        // Otherwise, fall back to all school classes (for backward compatibility)
         const res = await axios.get('/api/school/classes', getAuthHeaders());
         const allClasses = Array.isArray(res.data) ? res.data.map(c => c.name || c.class_name) : [];
         
         if (allClasses.length > 0) {
-          // For subject teachers, only show their assigned class
-          const assignedClass = localStorage.getItem('assigned_class');
-          const userRole = localStorage.getItem('role');
-          
-          if (userRole === 'teacher' && assignedClass) {
-            setAvailableClasses([assignedClass]);
-            setSelectedClass(assignedClass);
-          } else {
-            setAvailableClasses(allClasses);
-            // Ensure selectedClass is in the list
-            if (!allClasses.includes(selectedClass)) {
-              setSelectedClass(allClasses[0]);
-            }
+          setAvailableClasses(allClasses);
+          // Ensure selectedClass is in the list
+          if (!allClasses.includes(selectedClass)) {
+            setSelectedClass(allClasses[0]);
           }
         } else {
           // Should not reach here since endpoint has fallback, but just in case
@@ -539,7 +547,6 @@ export default function TeacherDashboard() {
           </div>
         </div>
       )}
-
       <div className="mb-8">
         <TimetableManager title="My Teaching Schedule" scope="mine" canManage={false} />
       </div>
@@ -572,8 +579,20 @@ export default function TeacherDashboard() {
           >
             📖 My Lesson Notes ({myLessonNotes.length})
           </button>
+          <button
+            onClick={() => setActiveTab('exam-papers')}
+            className={`px-6 py-3 font-bold transition-colors ${
+              activeTab === 'exam-papers'
+                ? 'border-b-4 border-blue-600 text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            📝 Exam Papers
+          </button>
         </div>
       </div>
+
+      {activeTab === 'exam-papers' && <ExamPapers />}
 
       {activeTab === 'lesson-notes' && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">

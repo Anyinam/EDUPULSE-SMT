@@ -1312,3 +1312,41 @@ class PlatformUser(db.Model):
     def check_password(self, password):
         """Verify password against stored hash."""
         return check_password_hash(self.password_hash, password)
+
+class ExamPaper(db.Model):
+    """Teacher-created exam question papers with AI assistance."""
+
+    __tablename__ = "exam_papers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    school_id = db.Column(db.String(20), db.ForeignKey("schools.id"), nullable=False, index=True)
+    teacher_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    
+    # Exam metadata
+    class_name = db.Column(db.String(50), nullable=False, index=True)
+    subject_name = db.Column(db.String(100), nullable=False, index=True)
+    academic_term = db.Column(db.String(20))  # e.g., "Term 1"
+    academic_year = db.Column(db.String(20))  # e.g., "2024/2025"
+    exam_type = db.Column(db.String(50))  # e.g., "Mid-Term", "End of Term", "Mock Exam"
+    
+    # Paper content
+    title = db.Column(db.String(255), nullable=False)  # e.g., "Mathematics Mid-Term Exam"
+    instructions = db.Column(db.Text)  # General instructions for students
+    total_marks = db.Column(db.Integer)  # Total marks for the exam
+    duration_minutes = db.Column(db.Integer)  # Exam duration in minutes
+    
+    # Questions stored as JSON
+    # Format: [{"type": "mcq", "question": "...", "options": [...], "marks": 2}, ...]
+    questions = db.Column(db.JSON, default=list, nullable=False)
+    
+    # Status
+    status = db.Column(db.String(20), default="draft")  # draft, finalized, archived
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    finalized_at = db.Column(db.DateTime)  # When the paper was finalized
+    
+    # Relationships
+    school = db.relationship("School", backref="exam_papers")
+    teacher = db.relationship("User", backref="exam_papers")
