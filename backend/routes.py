@@ -11801,7 +11801,7 @@ def download_backup():
             columns = ", ".join(data.keys())
             values = ", ".join(
                 [
-                    f"'{str(v).replace("'", "''")}'" if v is not None else "NULL"
+                    ("'" + str(v).replace("'", "''") + "'") if v is not None else "NULL"
                     for v in data.values()
                 ]
             )
