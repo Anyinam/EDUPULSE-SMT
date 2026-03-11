@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 
+const readStoredBrandingForCurrentSchool = () => {
+  try {
+    const schoolId = localStorage.getItem('school_id') || '';
+    const storedSchoolId = localStorage.getItem('branding_school_id') || '';
+    const raw = JSON.parse(localStorage.getItem('branding')) || {};
+    if (schoolId && storedSchoolId && storedSchoolId !== schoolId) {
+      return {};
+    }
+    return raw;
+  } catch (err) {
+    return {};
+  }
+};
+
 const normalizeBranding = (data, fallback) => ({
   name: data?.school_name ?? fallback.name ?? '',
   school_name: data?.school_name ?? fallback.school_name ?? fallback.name ?? '',
@@ -26,13 +40,7 @@ const normalizeBranding = (data, fallback) => ({
 });
 
 export const useBranding = ({ refreshOnMount = false } = {}) => {
-  const [branding, setBranding] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('branding')) || {};
-    } catch (err) {
-      return {};
-    }
-  });
+  const [branding, setBranding] = useState(() => readStoredBrandingForCurrentSchool());
 
   const refreshBranding = useCallback(async () => {
     const token = localStorage.getItem('token');
@@ -48,6 +56,7 @@ export const useBranding = ({ refreshOnMount = false } = {}) => {
       });
       const nextBranding = normalizeBranding(res.data, branding);
       localStorage.setItem('branding', JSON.stringify(nextBranding));
+      localStorage.setItem('branding_school_id', schoolId);
       if (nextBranding.theme_color) {
         document.documentElement.style.setProperty('--school-primary', nextBranding.theme_color);
       }
@@ -66,12 +75,7 @@ export const useBranding = ({ refreshOnMount = false } = {}) => {
 
   useEffect(() => {
     const handleBrandingUpdated = () => {
-      try {
-        const latest = JSON.parse(localStorage.getItem('branding')) || {};
-        setBranding(latest);
-      } catch (err) {
-        setBranding({});
-      }
+      setBranding(readStoredBrandingForCurrentSchool());
     };
 
     window.addEventListener('branding-updated', handleBrandingUpdated);

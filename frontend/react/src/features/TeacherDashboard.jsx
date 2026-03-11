@@ -6,6 +6,8 @@ import ExamPapers from './ExamPapers';
 import { useBranding } from '../hooks/useBranding';
 
 export default function TeacherDashboard() {
+  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const canAccessExamPapers = currentPlan === 'Premium';
   const [students, setStudents] = useState([]);
   const [studentLoadError, setStudentLoadError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -580,19 +582,32 @@ export default function TeacherDashboard() {
             📖 My Lesson Notes ({myLessonNotes.length})
           </button>
           <button
-            onClick={() => setActiveTab('exam-papers')}
+            onClick={() => {
+              if (!canAccessExamPapers) {
+                alert('Exam Papers is a Premium-only feature.');
+                return;
+              }
+              setActiveTab('exam-papers');
+            }}
             className={`px-6 py-3 font-bold transition-colors ${
               activeTab === 'exam-papers'
                 ? 'border-b-4 border-blue-600 text-blue-600'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            📝 Exam Papers
+            📝 Exam Papers {canAccessExamPapers ? '' : '(Premium)'}
           </button>
         </div>
       </div>
 
-      {activeTab === 'exam-papers' && <ExamPapers />}
+      {activeTab === 'exam-papers' && canAccessExamPapers && <ExamPapers />}
+
+      {activeTab === 'exam-papers' && !canAccessExamPapers && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-6 mb-6 text-amber-900">
+          <h3 className="text-lg font-bold mb-2">Exam Papers is Premium-only</h3>
+          <p className="text-sm">Upgrade to Premium to create and manage exam papers with the AI Exam Assistant.</p>
+        </div>
+      )}
 
       {activeTab === 'lesson-notes' && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">

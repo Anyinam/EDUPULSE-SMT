@@ -61,7 +61,9 @@ export default function Register() {
         'Grade entry & editing',
         'Payment tracking',
         'Lesson notes creation',
-        'Bulk operations'
+        'Bulk operations',
+        'Exam Papers module (Premium only)',
+        'AI Exam Assistant (Premium only)'
       ],
     },
     {
@@ -78,6 +80,8 @@ export default function Register() {
         'Unlimited students',
         'Unlimited classes',
         'Everything in Basic',
+        'Exam Papers module',
+        'AI Exam Assistant for exam papers',
         'AI-powered grade narratives',
         'Advanced analytics',
         'Custom HTML templates',
@@ -122,14 +126,39 @@ export default function Register() {
         email: form.email.trim(),
         password: form.password,
         selectedPlan: form.selectedPlan, // Send selected plan
+        studentCount,
         termsAccepted: agreed,
         termsVersion: TERMS_VERSION,
         policyAccepted: agreed,
         policyVersion: POLICY_VERSION
       };
 
-      await axios.post('/api/register', payload);
-      alert(`Registration Successful! Your account has been created with the Free Tier plan. You can upgrade to ${form.selectedPlan} (with payment) from your Dashboard after login.`);
+      const res = await axios.post('/api/register', payload);
+
+      if (res.data?.requires_payment && res.data?.payment_url) {
+        // Temporary auth context for payment verification callback.
+        if (res.data.token) {
+          localStorage.setItem('token', res.data.token);
+        }
+        if (res.data.school_id) {
+          localStorage.setItem('school_id', res.data.school_id);
+        }
+        if (res.data.role) {
+          localStorage.setItem('role', res.data.role);
+        }
+        if (Array.isArray(res.data.roles)) {
+          localStorage.setItem('roles', JSON.stringify(res.data.roles));
+        }
+        if (res.data.subscription_plan) {
+          localStorage.setItem('subscription_plan', res.data.subscription_plan);
+        }
+
+        alert('Registration saved. Redirecting to payment to activate your selected plan.');
+        window.location.href = res.data.payment_url;
+        return;
+      }
+
+      alert('Registration Successful! You can now login.');
       window.location.href = '/login';
     } catch (err) {
       const errorMsg = err.response?.data?.message || 'Registration failed.';
@@ -292,7 +321,7 @@ export default function Register() {
               {/* Important Notice */}
               <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-xl mb-6">
                 <p className="text-sm text-blue-900 font-semibold">
-                  ℹ️ All accounts start with <strong>Free Tier</strong>. To activate paid plans (Basic/Premium), you'll complete payment from your Dashboard after login.
+                  ℹ️ All accounts start with <strong>Free Tier</strong>. Your selected paid plan (Basic/Premium) is saved as preference and can be activated later from your Dashboard.
                 </p>
               </div>
 

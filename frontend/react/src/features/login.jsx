@@ -143,6 +143,7 @@ export default function Login() {
       localStorage.setItem('subscription_plan', res.data.subscription_plan);
       localStorage.setItem('enabled_modules', JSON.stringify(res.data.enabled_modules || {}));
       localStorage.setItem('branding', JSON.stringify(res.data.branding));
+      localStorage.setItem('branding_school_id', res.data.school_id);
 
       // Redirect based on Multi-level Access Control (Requirement 5)
       let target = '/teacher';
@@ -186,6 +187,7 @@ export default function Login() {
       localStorage.setItem('subscription_plan', res.data.subscription_plan);
       localStorage.setItem('enabled_modules', JSON.stringify(res.data.enabled_modules || {}));
       localStorage.setItem('branding', JSON.stringify(res.data.branding));
+      localStorage.setItem('branding_school_id', res.data.school_id);
 
       let target = '/teacher';
       if (roles.includes('proprietor')) {

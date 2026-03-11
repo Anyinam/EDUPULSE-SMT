@@ -107,11 +107,17 @@ Blended Metrics (70% Basic, 30% Premium):
         └─────────────────────────────────┘
                         ↓
         ┌─────────────────────────────────┐
-        │  Auto-Assign Free Tier Plan     │
-        │  50 Students Capacity           │
-        │  No Credit Card Required        │
+        │  Plan Selection at Signup       │
+        │  Free / Basic / Premium         │
+        │  Student count for billing calc │
         └─────────────────────────────────┘
                         ↓
+        ┌─────────────────────────────────┐
+        │  Decision Gateway               │
+        │  ├─ Free: Activate immediately  │
+        │  └─ Paid: Redirect to Paystack  │
+        └─────────────────────────────────┘
+            ↓
         ┌─────────────────────────────────┐
         │  Create First Admin User        │
         │  ├─ Proprietor Role             │
@@ -129,8 +135,8 @@ Blended Metrics (70% Basic, 30% Premium):
                         ↓
         ┌─────────────────────────────────┐
         │  ACTIVATION SUCCESS             │
-        │  School is now live!            │
-        │  (Free Tier active)             │
+        │  Free: instant activation        │
+        │  Paid: activation after payment  │
         └─────────────────────────────────┘
 
 ACTIVATION METRICS TARGET:
@@ -187,7 +193,8 @@ CONVERSION OPTIONS:
 Basic Plan User Sees:
 ├─ "🔒 AI Student Pulse (Premium Feature)"
 ├─ "🔒 Automated Payment Processing"
-├─ "🔒 AI Question Generation"
+├─ "🔒 Exam Papers Module"
+├─ "🔒 AI Exam Assistant"
 └─ Dashboard banners: "Unlock AI for GH₵500/mo"
 
 ENGAGEMENT METRICS:

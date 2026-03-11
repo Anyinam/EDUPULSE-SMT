@@ -4,6 +4,12 @@
 
 Your revenue model is **SaaS subscription-based**. Schools (tenants) subscribe to different tiers (Free/Basic/Premium) and you receive automatic payments via **Paystack** (Ghana's leading payment gateway).
 
+### Current Onboarding Payment Behavior
+- Free plan: registration completes immediately and user proceeds to login.
+- Basic/Premium: registration initializes payment immediately and redirects to checkout.
+- After successful payment verification, subscription is activated and user is redirected to login.
+- Welcome email is sent once per registration flow (duplicate sends prevented by audit checks).
+
 ---
 
 ## 💳 Revenue Flow Diagram

@@ -27,6 +27,11 @@ export default function PlatformConsole() {
   const [addUserForm, setAddUserForm] = useState({ username: '', email: '', password: '' });
   const [addUserError, setAddUserError] = useState('');
   const [ownerKey, setOwnerKey] = useState('');
+  const [emailTrace, setEmailTrace] = useState([]);
+  const [emailTraceSummary, setEmailTraceSummary] = useState([]);
+  const [emailTraceLoading, setEmailTraceLoading] = useState(false);
+  const [emailTraceError, setEmailTraceError] = useState('');
+  const [emailTraceSchoolFilter, setEmailTraceSchoolFilter] = useState('');
 
   // Check authentication on mount
   useEffect(() => {
@@ -174,6 +179,25 @@ export default function PlatformConsole() {
     }
   };
 
+  const fetchRegistrationEmailTrace = async () => {
+    setEmailTraceLoading(true);
+    setEmailTraceError('');
+    try {
+      const query = emailTraceSchoolFilter
+        ? `?school_id=${encodeURIComponent(emailTraceSchoolFilter.trim())}`
+        : '';
+      const response = await axios.get(`${API_BASE_URL}/platform/registration-email-trace${query}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setEmailTrace(Array.isArray(response.data?.events) ? response.data.events : []);
+      setEmailTraceSummary(Array.isArray(response.data?.duplicate_summary) ? response.data.duplicate_summary : []);
+    } catch (error) {
+      setEmailTraceError(error.response?.data?.message || 'Failed to load registration email trace');
+    } finally {
+      setEmailTraceLoading(false);
+    }
+  };
+
   // Add user
   const handleAddUser = async (e) => {
     e.preventDefault();
@@ -226,6 +250,8 @@ export default function PlatformConsole() {
       if (ownerKey) fetchHelpContent();
     } else if (activeTab === 'users' && users.length === 0) {
       fetchUsers();
+    } else if (activeTab === 'email_trace' && emailTrace.length === 0) {
+      fetchRegistrationEmailTrace();
     }
   }, [activeTab, token, currentUser]);
 
@@ -331,6 +357,16 @@ export default function PlatformConsole() {
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
               User Management
+            </button>
+            <button
+              onClick={() => setActiveTab('email_trace')}
+              className={`${
+                activeTab === 'email_trace'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Registration Email Trace
             </button>
           </nav>
         </div>
@@ -612,6 +648,107 @@ export default function PlatformConsole() {
                     <p className="text-center text-gray-500 py-4">No users found</p>
                   )}
                 </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'email_trace' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Registration Email Trace</h2>
+              <p className="text-sm text-gray-600 mb-4">Track welcome-email sends and quickly detect duplicates per school.</p>
+
+              <div className="flex flex-wrap gap-3 mb-4">
+                <input
+                  type="text"
+                  value={emailTraceSchoolFilter}
+                  onChange={(e) => setEmailTraceSchoolFilter(e.target.value)}
+                  placeholder="Filter by school ID (optional)"
+                  className="px-3 py-2 border border-gray-300 rounded-md min-w-80"
+                />
+                <button
+                  onClick={fetchRegistrationEmailTrace}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                >
+                  Refresh Trace
+                </button>
+              </div>
+
+              {emailTraceError && (
+                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                  {emailTraceError}
+                </div>
+              )}
+
+              {emailTraceLoading ? (
+                <p className="text-gray-600">Loading trace...</p>
+              ) : (
+                <>
+                  <div className="mb-6">
+                    <h3 className="text-md font-semibold text-gray-800 mb-2">Duplicate Summary</h3>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">School ID</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Welcome Email Count</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Duplicate</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {emailTraceSummary.map((row) => (
+                            <tr key={row.school_id}>
+                              <td className="px-4 py-2 text-sm text-gray-800 font-mono">{row.school_id}</td>
+                              <td className="px-4 py-2 text-sm text-gray-700">{row.welcome_email_count}</td>
+                              <td className="px-4 py-2 text-sm">
+                                <span className={`px-2 py-1 rounded text-xs font-semibold ${row.has_duplicates ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                  {row.has_duplicates ? 'YES' : 'NO'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          {emailTraceSummary.length === 0 && (
+                            <tr>
+                              <td colSpan="3" className="px-4 py-4 text-sm text-gray-500 text-center">No registration email activity found.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-md font-semibold text-gray-800 mb-2">Recent Events</h3>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">School</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {emailTrace.map((row) => (
+                            <tr key={row.id}>
+                              <td className="px-4 py-2 text-xs text-gray-600">{row.timestamp ? new Date(row.timestamp).toLocaleString() : '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-800 font-mono">{row.school_id}</td>
+                              <td className="px-4 py-2 text-xs text-blue-700 font-semibold">{row.action}</td>
+                              <td className="px-4 py-2 text-xs text-gray-600">{row.details || '-'}</td>
+                            </tr>
+                          ))}
+                          {emailTrace.length === 0 && (
+                            <tr>
+                              <td colSpan="4" className="px-4 py-4 text-sm text-gray-500 text-center">No events available.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>

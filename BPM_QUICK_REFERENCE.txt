@@ -39,7 +39,10 @@ Free Tier           Basic Plan           Premium Plan
 ✓ Core Features    ✓ All Free +         ✓ All Basic +
 ✗ AI               ✓ Reports            ✓ AI Pulse
 ✗ Webhooks         ✓ Finance            ✓ Automation
-✗ Premium          ✓ Inventory          ✓ AI Questions
+✗ Premium          ✓ Inventory          ✓ Exam Papers + AI Exam Assistant
+
+Onboarding note: Paid plans (Basic/Premium) trigger immediate checkout during registration,
+and welcome email is sent once after successful payment verification.
 
 Target: 62.5% Basic, 37.5% Premium (of paying customers)
 

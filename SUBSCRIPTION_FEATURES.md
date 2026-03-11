@@ -15,8 +15,10 @@ EduPulse offers three subscription tiers, each with specific features and resour
 | **Feeding Records** | View Only ❌ | Full Access ✅ | Full Access ✅ |
 | **Grade Entry & Editing** | Not Available ❌ | Full Access ✅ | Full Access ✅ |
 | **Lesson Notes** | Not Available ❌ | Full Access ✅ | Full Access ✅ |
+| **Exam Papers Module** | Not Available ❌ | Not Available ❌ | Full Access ✅ |
 | **Report Templates** | 1 Template | All 5 Templates | All 5 + Custom HTML |
 | **AI Lesson Analysis** | Not Available ❌ | Basic Feedback ⚡ | Full Analysis ⚡⚡ |
+| **AI Exam Assistant** | Not Available ❌ | Not Available ❌ | Full Access ✅ |
 | **AI Grade Narratives** | Not Available ❌ | Not Available ❌ | Full Suite ✅ |
 | **Payment Tracking** | Not Available ❌ | Basic Tracking ✅ | Full Reconciliation ✅ |
 | **Advanced Analytics** | Not Available ❌ | Not Available ❌ | Full Dashboard ✅ |
@@ -42,6 +44,7 @@ EduPulse offers three subscription tiers, each with specific features and resour
 ### What's **NOT** Included ❌:
 - Grade entry and editing
 - Lesson notes planning
+- Exam papers module
 - AI analysis of any kind
 - Payment tracking
 - Advanced reports
@@ -78,6 +81,8 @@ EduPulse offers three subscription tiers, each with specific features and resour
 - ✅ Limited to **15 Staff Members**
 
 ### What's **NOT** Included ❌:
+- Exam papers module
+- AI Exam Assistant
 - AI-generated grade narratives
 - Advanced analytics dashboard
 - HTML/CSS custom templates
@@ -172,6 +177,20 @@ EduPulse offers three subscription tiers, each with specific features and resour
 | Free | ❌ Not Available | No access to lesson planning |
 | Basic | Full Access | Can create notes with daily phases; basic AI feedback |
 | Premium | Full Access | Full access + advanced AI analysis and scoring |
+
+### Exam Papers Module
+| Tier | Level | Details |
+|------|-------|---------|
+| Free | ❌ Not Available | No access to exam paper authoring/review |
+| Basic | ❌ Not Available | No access to exam paper authoring/review |
+| Premium | ✅ Full | Full exam paper workflow with submission/review pipeline |
+
+### AI Exam Assistant
+| Tier | Level | Details |
+|------|-------|---------|
+| Free | ❌ None | Not available |
+| Basic | ❌ None | Not available |
+| Premium | ✅ Full | Guided question generation for exam papers |
 
 ### Report Generation
 | Tier | Level | Details |

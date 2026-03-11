@@ -38,6 +38,7 @@ PLAN_FEATURES = {
             "attendance": "view_only",  # Can view but not edit
             "feeding": "view_only",  # Can view but not edit
             "lesson_notes": False,  # Cannot access
+            "exam_papers": False,  # Premium only
             "grade_entry": False,  # Cannot edit grades
             "grade_viewing": True,  # Can view grades
             "report_generation": True,  # Can generate reports (limited templates)
@@ -67,6 +68,7 @@ PLAN_FEATURES = {
             "attendance": "full_access",  # Full read/write
             "feeding": "full_access",  # Full read/write
             "lesson_notes": True,  # Can create and manage
+            "exam_papers": False,  # Premium only
             "grade_entry": True,  # Can enter and edit grades
             "grade_viewing": True,
             "report_generation": True,
@@ -98,6 +100,7 @@ PLAN_FEATURES = {
             "attendance": "full_access",
             "feeding": "full_access",
             "lesson_notes": True,
+            "exam_papers": True,
             "grade_entry": True,
             "grade_viewing": True,
             "report_generation": True,

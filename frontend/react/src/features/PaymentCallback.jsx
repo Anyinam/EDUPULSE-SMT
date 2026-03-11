@@ -34,6 +34,7 @@ export default function PaymentCallback() {
           setStatus('success');
           setMessage('Payment successful! Your subscription has been upgraded.');
           setDetails(res.data.data);
+          const isRegistrationFlow = Boolean(res.data.registration_flow || searchParams.get('onboarding') === 'registration');
           
           // CRITICAL: Refresh subscription data in localStorage
           try {
@@ -55,8 +56,16 @@ export default function PaymentCallback() {
             // Continue anyway - user can manually refresh
           }
           
-          // Force full page reload to update all components with new subscription
+          // Registration payment should finish at login page.
           setTimeout(() => {
+            if (isRegistrationFlow) {
+              localStorage.removeItem('token');
+              localStorage.removeItem('role');
+              localStorage.removeItem('roles');
+              localStorage.removeItem('assigned_class');
+              window.location.href = '/login';
+              return;
+            }
             window.location.href = '/proprietor?tab=subscription';
           }, 2000);
         } else {

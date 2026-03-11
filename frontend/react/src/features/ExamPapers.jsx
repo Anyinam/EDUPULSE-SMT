@@ -11,7 +11,11 @@ import { useBranding } from '../hooks/useBranding';
  * - Save as draft or finalize
  */
 export default function ExamPapers() {
-  const { branding } = useBranding();
+  const { branding } = useBranding({ refreshOnMount: true });
+  const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;
+  const MAX_COMPRESSED_IMAGE_BYTES = 2 * 1024 * 1024;
+  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const isPremiumPlan = currentPlan === 'Premium';
   
   // State management
   const [papers, setPapers] = useState([]);
@@ -41,7 +45,8 @@ export default function ExamPapers() {
     options: ['', '', '', ''],
     correct_answer: '',
     marks: 2,
-    section: 'A'
+    section: 'A',
+    image_url: ''
   });
   
   // AI Assistant state
@@ -49,7 +54,8 @@ export default function ExamPapers() {
     topic: '',
     difficulty: 'medium',
     question_type: 'mcq',
-    count: 5
+    count: 5,
+    teacher_instructions: ''
   });
   const [aiGeneratedPrompt, setAiGeneratedPrompt] = useState('');
   const [showAiDialog, setShowAiDialog] = useState(false);
@@ -59,6 +65,8 @@ export default function ExamPapers() {
   const [hasLocalDraft, setHasLocalDraft] = useState(false);
   const [localDraftMeta, setLocalDraftMeta] = useState(null);
   const [saveState, setSaveState] = useState('idle');
+  const [imageProcessing, setImageProcessing] = useState(false);
+  const [imageDropActive, setImageDropActive] = useState(false);
   
   // Auth headers
   const getAuthHeaders = () => ({
@@ -343,8 +351,97 @@ export default function ExamPapers() {
       options: ['', '', '', ''],
       correct_answer: '',
       marks: 2,
-      section: 'A'
+      section: 'A',
+      image_url: ''
     });
+  };
+
+  const compressImageFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 1200;
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not initialize image canvas.'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => reject(new Error('Failed to load image for compression.'));
+      img.src = String(reader.result || '');
+    };
+    reader.onerror = () => reject(new Error('Failed to read image file.'));
+    reader.readAsDataURL(file);
+  });
+
+  const estimateDataUrlSizeBytes = (dataUrl) => {
+    const parts = String(dataUrl || '').split(',');
+    if (parts.length < 2) return 0;
+    const base64 = parts[1];
+    return Math.floor((base64.length * 3) / 4);
+  };
+
+  const setQuestionImageFromFile = async (file) => {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file.');
+      return;
+    }
+
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+      alert('Image is too large. Please choose an image under 8MB.');
+      return;
+    }
+
+    try {
+      setImageProcessing(true);
+      const compressedImage = await compressImageFile(file);
+      const compressedBytes = estimateDataUrlSizeBytes(compressedImage);
+      if (compressedBytes > MAX_COMPRESSED_IMAGE_BYTES) {
+        alert('Compressed image is still too large. Please use a smaller image (ideally under 2MB).');
+        return;
+      }
+      setNewQuestion((prev) => ({
+        ...prev,
+        image_url: String(compressedImage || '')
+      }));
+    } catch (error) {
+      console.error('Failed to process image', error);
+      alert('Could not process the image. Please try another file.');
+    } finally {
+      setImageProcessing(false);
+      setImageDropActive(false);
+    }
+  };
+
+  const handleQuestionImageFile = (event) => {
+    const file = event.target.files?.[0];
+    setQuestionImageFromFile(file);
+    event.target.value = '';
+  };
+
+  const handleImageDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const file = event.dataTransfer?.files?.[0];
+    setQuestionImageFromFile(file);
+  };
+
+  const handleQuestionTextPaste = (event) => {
+    const files = event.clipboardData?.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (!file.type.startsWith('image/')) return;
+    event.preventDefault();
+    setQuestionImageFromFile(file);
   };
   
   const removeQuestion = (questionId) => {
@@ -362,6 +459,10 @@ export default function ExamPapers() {
       let questionHtml = `<div style="margin-bottom: 20px;">
         <p><strong>Question ${idx + 1} (${q.marks} marks)</strong></p>
         <p>${q.question}</p>`;
+
+      if (q.image_url) {
+        questionHtml += `<div style="margin: 10px 0;"><img src="${q.image_url}" alt="Question diagram" style="max-width: 100%; max-height: 260px; border: 1px solid #ddd; border-radius: 6px;" /></div>`;
+      }
       
       if (q.type === 'mcq' && q.options) {
         questionHtml += '<div style="margin-left: 20px;">';
@@ -397,6 +498,12 @@ export default function ExamPapers() {
           <h2>${paperData.title}</h2>
           <p><strong>Class:</strong> ${paperData.class_name} | <strong>Subject:</strong> ${paperData.subject_name}</p>
           <p><strong>Term:</strong> ${paperData.academic_term} ${paperData.academic_year} | <strong>Duration:</strong> ${paperData.duration_minutes} minutes | <strong>Total Marks:</strong> ${paperData.total_marks}</p>
+          <div style="margin-top: 16px; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px;">
+            <p><strong>Name:</strong> ____________________________</p>
+            <p><strong>Student ID:</strong> _____________________</p>
+            <p><strong>Date:</strong> ____________________________</p>
+            <p><strong>Signature:</strong> ______________________</p>
+          </div>
         </div>
         
         <div class="instructions">
@@ -422,6 +529,11 @@ export default function ExamPapers() {
   };
   
   const generateAiQuestions = async () => {
+    if (!isPremiumPlan) {
+      alert('AI Exam Assistant is available on Premium plan only.');
+      return;
+    }
+
     const promptText = `You are an experienced ${paperData.subject_name || 'school subject'} teacher. Create ${aiPrompt.count} ${aiPrompt.question_type.toUpperCase()} exam questions for ${paperData.class_name || 'the selected class'} on the topic: ${aiPrompt.topic || 'general revision'}.
 
 Requirements:
@@ -436,7 +548,10 @@ Output format:
 1) Question
 2) Options A-D (for MCQ only)
 3) Correct answer / marking scheme
-4) Recommended marks`;
+4) Recommended marks
+
+Teacher custom instructions:
+${aiPrompt.teacher_instructions || 'None'}`;
 
     setAiGeneratedPrompt(promptText);
 
@@ -446,6 +561,7 @@ Output format:
         difficulty: aiPrompt.difficulty,
         question_type: aiPrompt.question_type,
         count: aiPrompt.count,
+        teacher_instructions: aiPrompt.teacher_instructions,
         class_name: paperData.class_name,
         subject_name: paperData.subject_name,
         exam_type: paperData.exam_type
@@ -803,12 +919,24 @@ Output format:
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-blue-900">Questions ({paperData.questions.length})</h2>
           <button
-            onClick={() => setShowAiDialog(true)}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold"
+            onClick={() => {
+              if (!isPremiumPlan) {
+                alert('AI Exam Assistant is available on Premium plan only.');
+                return;
+              }
+              setShowAiDialog(true);
+            }}
+            className={`px-4 py-2 rounded-lg transition-colors font-semibold ${isPremiumPlan ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-slate-300 text-slate-600 cursor-not-allowed'}`}
           >
-            🤖 AI Assistant
+            🤖 AI Exam Assistant {isPremiumPlan ? '' : '(Premium)'}
           </button>
         </div>
+
+        {!isPremiumPlan && (
+          <div className="mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm">
+            AI Exam Assistant is a Premium-only feature. Upgrade your plan to generate exam questions with AI guidance.
+          </div>
+        )}
         
         {/* Add New Question Form */}
         <div className="bg-blue-50 p-4 rounded-lg mb-4">
@@ -858,10 +986,57 @@ Output format:
             <textarea
               value={newQuestion.question}
               onChange={(e) => setNewQuestion({ ...newQuestion, question: e.target.value })}
+              onPaste={handleQuestionTextPaste}
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               rows="2"
               placeholder="Enter the question..."
             />
+            <p className="text-[11px] text-slate-500 mt-1">Tip: You can paste an image directly here (Ctrl+V) after screenshot copy.</p>
+          </div>
+
+          <div className="mb-3">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Diagram/Image (Optional)</label>
+            <input
+              type="text"
+              value={newQuestion.image_url || ''}
+              onChange={(e) => setNewQuestion({ ...newQuestion, image_url: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm mb-2"
+              placeholder="Paste image URL or base64 data URL"
+            />
+            <div
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setImageDropActive(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setImageDropActive(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setImageDropActive(false);
+              }}
+              onDrop={handleImageDrop}
+              className={`p-3 border-2 border-dashed rounded text-xs text-center mb-2 ${imageDropActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white'}`}
+            >
+              Drag and drop image here, or choose file below
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleQuestionImageFile}
+              className="w-full px-2 py-2 border rounded text-xs bg-white"
+            />
+            {imageProcessing && (
+              <p className="text-xs text-blue-700 mt-2">Processing and compressing image...</p>
+            )}
+            {newQuestion.image_url && (
+              <img
+                src={newQuestion.image_url}
+                alt="Question diagram preview"
+                className="mt-2 max-h-36 border rounded"
+              />
+            )}
           </div>
           
           {newQuestion.type === 'mcq' && (
@@ -928,6 +1103,16 @@ Output format:
                     ))}
                   </div>
                 )}
+
+                {q.image_url && (
+                  <div className="ml-6 mt-3">
+                    <img
+                      src={q.image_url}
+                      alt="Question diagram"
+                      className="max-h-48 border rounded"
+                    />
+                  </div>
+                )}
                 
                 <div className="ml-6 mt-2 text-xs text-gray-500">
                   Type: {q.type.toUpperCase()} • Section: {q.section}
@@ -942,7 +1127,7 @@ Output format:
       {showAiDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-xl font-bold text-blue-900 mb-4">🤖 AI Question Generator</h3>
+            <h3 className="text-xl font-bold text-blue-900 mb-4">🤖 AI Exam Assistant</h3>
             
             <div className="space-y-4 mb-6">
               <div>
@@ -980,6 +1165,17 @@ Output format:
                   <option value="short">Short Answer</option>
                   <option value="essay">Essay</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Teacher Instructions (Optional)</label>
+                <textarea
+                  value={aiPrompt.teacher_instructions}
+                  onChange={(e) => setAiPrompt({ ...aiPrompt, teacher_instructions: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  rows="3"
+                  placeholder="Example: Include 2 word problems, avoid fractions, use Ghana context, add one diagram-based question..."
+                />
               </div>
               
               <div>

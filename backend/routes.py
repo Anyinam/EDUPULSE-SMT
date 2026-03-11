@@ -905,6 +905,65 @@ def remove_platform_user(user_id):
         return jsonify({"message": "Failed to remove user"}), 500
 
 
+@api.route("/platform/registration-email-trace", methods=["GET"])
+@jwt_required()
+def get_registration_email_trace():
+    """Platform admin trace endpoint for registration-related emails and duplicates."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    school_id = sanitize_string(request.args.get("school_id", "")).strip()
+    limit = request.args.get("limit", default=200, type=int) or 200
+    limit = max(1, min(limit, 1000))
+
+    actions = [
+        "REGISTRATION_WELCOME_EMAIL_SENT",
+        "REGISTRATION_POLICY_ACCEPTED",
+    ]
+
+    query = db.session.query(AuditLog).filter(AuditLog.action.in_(actions))
+    if school_id:
+        query = query.filter(AuditLog.school_id == school_id)
+
+    rows = query.order_by(AuditLog.timestamp.desc()).limit(limit).all()
+
+    # Duplicate analysis for welcome-email events.
+    duplicate_map = {}
+    for row in rows:
+        if row.action != "REGISTRATION_WELCOME_EMAIL_SENT":
+            continue
+        sid = row.school_id or "unknown"
+        duplicate_map[sid] = duplicate_map.get(sid, 0) + 1
+
+    duplicate_summary = [
+        {
+            "school_id": sid,
+            "welcome_email_count": count,
+            "has_duplicates": count > 1,
+        }
+        for sid, count in sorted(duplicate_map.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
+    return jsonify(
+        {
+            "events": [
+                {
+                    "id": row.id,
+                    "school_id": row.school_id,
+                    "user_id": row.user_id,
+                    "action": row.action,
+                    "details": row.details,
+                    "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                }
+                for row in rows
+            ],
+            "duplicate_summary": duplicate_summary,
+            "total_events": len(rows),
+        }
+    )
+
+
 # --- 1. AUTHENTICATION (Pillar 1: Business Credentials) ---
 @api.route("/login", methods=["POST"])
 @rate_limit_auth
@@ -1072,6 +1131,8 @@ def register():
     policy_version = sanitize_string(data.get("policyVersion"))
     policy_accepted = data.get("policyAccepted") is True
     selected_plan = sanitize_string(data.get("selectedPlan", "Free"))  # Get selected plan, default to Free
+    requested_student_count = int(data.get("studentCount") or 100)
+    requested_student_count = max(1, min(requested_student_count, 10000))
     client_ip = get_client_ip()
 
     if not terms_accepted:
@@ -1133,20 +1194,29 @@ def register():
         except Exception as audit_error:
             logger.warning(f"Policy acceptance audit log failed: {audit_error}")
 
-        # Send welcome email to proprietor (non-blocking)
-        if email:
+        def _send_registration_welcome_once():
+            if not email:
+                return
+            existing = (
+                db.session.query(AuditLog.id)
+                .filter(
+                    AuditLog.school_id == school_id,
+                    AuditLog.action == "REGISTRATION_WELCOME_EMAIL_SENT",
+                )
+                .first()
+            )
+            if existing:
+                return
             try:
                 login_url = os.getenv("FRONTEND_URL", "http://localhost:5173/login")
                 subscription_plan = new_school.subscription_plan or "Free Tier"
-
                 welcome_subject, welcome_body = get_welcome_email(
                     username=username,
                     school_name=school_name,
                     school_id=school_id,
                     login_url=login_url,
-                    subscription_plan=subscription_plan
+                    subscription_plan=subscription_plan,
                 )
-
                 if welcome_subject and welcome_body:
                     send_email_notification(
                         to_email=email,
@@ -1154,13 +1224,74 @@ def register():
                         body=welcome_body,
                         attachments=IMPORT_TEMPLATE_ATTACHMENTS,
                     )
+                    log_action(
+                        new_user.id,
+                        school_id,
+                        "REGISTRATION_WELCOME_EMAIL_SENT",
+                        f"Welcome email sent to {email}",
+                    )
             except Exception as email_error:
                 logger.warning(
                     f"Welcome email failed for school {school_id} ({email}): {email_error}"
                 )
 
-        logger.info(f"New school registered: {school_id} with {selected_plan} plan")
-        return jsonify({"message": "School registered successfully."})
+        # Free plan completes immediately and sends the single welcome email.
+        if selected_plan == "Free":
+            _send_registration_welcome_once()
+            logger.info(f"New school registered: {school_id} with Free plan")
+            return jsonify({"message": "School registered successfully.", "requires_payment": False})
+
+        # Paid plans require immediate payment after registration.
+        from backend.paystack_integration import PaystackError, initialize_payment
+        term_breakdown = get_term_cost_breakdown(selected_plan, requested_student_count)
+        amount_cedis = float(term_breakdown.get("total", 0))
+        if amount_cedis <= 0:
+            return jsonify({"message": "Unable to compute payment amount for selected plan."}), 400
+
+        auth_token = create_access_token(identity=str(new_user.id))
+        callback_url = os.getenv("FRONTEND_URL", "http://localhost:3000") + "/payment/callback?onboarding=registration"
+
+        try:
+            paystack_result = initialize_payment(
+                email=email,
+                amount_cents=int(round(amount_cedis * 100)),
+                plan_name=selected_plan,
+                school_id=school_id,
+                metadata={
+                    "user_id": new_user.id,
+                    "student_count": requested_student_count,
+                    "billing_period": "term",
+                    "terms": 1,
+                    "onboarding_flow": "registration",
+                    "callback_url": callback_url,
+                },
+            )
+        except PaystackError as pay_err:
+            logger.error(f"Registration payment init failed for {school_id}: {pay_err}")
+            return (
+                jsonify(
+                    {
+                        "message": "School registered, but payment initialization failed. Please login and complete upgrade from dashboard.",
+                        "requires_payment": False,
+                    }
+                ),
+                200,
+            )
+
+        logger.info(f"New school registered: {school_id} with pending paid plan {selected_plan}")
+        return jsonify(
+            {
+                "message": "School registered. Complete payment to activate selected plan.",
+                "requires_payment": True,
+                "payment_url": paystack_result.get("authorization_url"),
+                "payment_reference": paystack_result.get("reference"),
+                "token": auth_token,
+                "school_id": school_id,
+                "role": "proprietor",
+                "roles": ["proprietor"],
+                "subscription_plan": new_school.subscription_plan or "Free Tier",
+            }
+        )
     except Exception as e:
         db.session.rollback()
         logger.error(f"Registration error: {str(e)}")
@@ -9198,6 +9329,7 @@ def get_teacher_assignments():
 
 @api.route("/exams/papers", methods=["POST"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("teacher", "homeroom", "headmaster")
 @jwt_required()
 def create_exam_paper():
@@ -9248,6 +9380,7 @@ def create_exam_paper():
 
 @api.route("/exams/papers", methods=["GET"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("teacher", "homeroom", "headmaster")
 @jwt_required()
 def get_exam_papers():
@@ -9293,6 +9426,7 @@ def get_exam_papers():
 
 @api.route("/exams/papers/<int:paper_id>", methods=["GET"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("teacher", "homeroom", "headmaster")
 @jwt_required()
 def get_exam_paper(paper_id):
@@ -9337,6 +9471,7 @@ def get_exam_paper(paper_id):
 
 @api.route("/exams/papers/<int:paper_id>", methods=["PUT"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("teacher", "homeroom", "headmaster")
 @jwt_required()
 def update_exam_paper(paper_id):
@@ -9394,6 +9529,7 @@ def update_exam_paper(paper_id):
 
 @api.route("/exams/papers/<int:paper_id>", methods=["DELETE"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("teacher", "homeroom", "headmaster")
 @jwt_required()
 def delete_exam_paper(paper_id):
@@ -9425,6 +9561,7 @@ def delete_exam_paper(paper_id):
 
 @api.route("/exams/papers/<int:paper_id>/submit", methods=["POST"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("teacher", "homeroom", "headmaster")
 @jwt_required()
 def submit_exam_paper(paper_id):
@@ -9482,6 +9619,7 @@ def submit_exam_paper(paper_id):
 
 @api.route("/exams/papers/inbox", methods=["GET"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("headmaster", "proprietor")
 @jwt_required()
 def get_exam_papers_inbox():
@@ -9551,6 +9689,7 @@ def get_exam_papers_inbox():
 
 @api.route("/exams/papers/<int:paper_id>/review", methods=["POST"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("headmaster", "proprietor")
 @jwt_required()
 def review_exam_paper(paper_id):
@@ -9618,11 +9757,26 @@ def review_exam_paper(paper_id):
 
 @api.route("/exams/generate-questions", methods=["POST"])
 @multi_tenant_guard
+@feature_required("exam_papers")
 @role_required("teacher", "homeroom", "headmaster")
 @jwt_required()
 def generate_exam_questions_ai():
     """Generate exam questions with AI (with fallback when provider is unavailable)."""
     try:
+        school = School.query.get(g.school_id)
+        effective_plan = get_effective_plan(school)
+        if effective_plan != "Premium":
+            return (
+                jsonify(
+                    {
+                        "message": "AI Exam Assistant is available for Premium plan only.",
+                        "required_plan": "Premium",
+                        "current_plan": effective_plan,
+                    }
+                ),
+                403,
+            )
+
         payload = request.get_json(silent=True) or {}
         payload["school_id"] = g.school_id
         result = generate_exam_questions(payload)
@@ -12193,12 +12347,51 @@ def paystack_verify_payment(reference):
                 reference=reference,
                 metadata=metadata
             )
+
+            onboarding_flow = metadata.get("onboarding_flow")
+            if onboarding_flow == "registration":
+                proprietor = User.query.filter_by(school_id=school.id, role="proprietor").first()
+                recipient_email = proprietor.email if proprietor and proprietor.email else None
+                already_sent = (
+                    db.session.query(AuditLog.id)
+                    .filter(
+                        AuditLog.school_id == school.id,
+                        AuditLog.action == "REGISTRATION_WELCOME_EMAIL_SENT",
+                    )
+                    .first()
+                )
+                if recipient_email and not already_sent:
+                    try:
+                        login_url = os.getenv("FRONTEND_URL", "http://localhost:5173/login")
+                        welcome_subject, welcome_body = get_welcome_email(
+                            username=proprietor.username,
+                            school_name=school.name,
+                            school_id=school.id,
+                            login_url=login_url,
+                            subscription_plan=school.subscription_plan or plan_name,
+                        )
+                        if welcome_subject and welcome_body:
+                            send_email_notification(
+                                to_email=recipient_email,
+                                subject=welcome_subject,
+                                body=welcome_body,
+                                attachments=IMPORT_TEMPLATE_ATTACHMENTS,
+                            )
+                            log_action(
+                                proprietor.id,
+                                school.id,
+                                "REGISTRATION_WELCOME_EMAIL_SENT",
+                                f"Welcome email sent to {recipient_email}",
+                            )
+                    except Exception as email_error:
+                        logger.warning(f"Failed to send post-payment welcome email for {school.id}: {email_error}")
             
             logger.info(f"Payment verified and processed for school {school.id}")
             
             return jsonify({
                 "status": "success",
                 "message": "Payment verified and subscription updated",
+                "registration_flow": onboarding_flow == "registration",
                 "data": result
             }), 200
             

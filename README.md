@@ -15,6 +15,8 @@ EduPulse is a multi-tenant SaaS platform for Ghanaian schools that combines acad
 - Grade entry and report-card generation workflows
 - Report builder with staged approvals (teacher → headmaster → proprietor)
 - Lesson notes and academic analytics tooling
+- Exam papers workflow (teacher authoring + headmaster/proprietor review) for Premium tenants
+- AI Exam Assistant for guided question generation (Premium only)
 
 ### Finance & Payments
 - Manual and digital payment recording
@@ -42,6 +44,13 @@ EduPulse is a multi-tenant SaaS platform for Ghanaian schools that combines acad
 - Remote oversight feed for proprietor monitoring
 - Operational analytics to support school decision-making
 
+## 💳 Registration & Billing Flow (Current)
+- Tenant registration supports plan selection at onboarding.
+- If `Free` is selected: registration completes and user proceeds to login.
+- If `Basic` or `Premium` is selected: payment is initialized immediately at registration and user is redirected to Paystack.
+- After successful payment verification, user is redirected to login and receives one welcome email.
+- Duplicate registration welcome emails are prevented by audit-logged single-send checks.
+
 ## 🧩 API Highlights (Recent)
 - `GET /api/school/subscription/billing-visibility`
 - `POST /api/school/subscription/meter/sync`
@@ -53,6 +62,7 @@ EduPulse is a multi-tenant SaaS platform for Ghanaian schools that combines acad
 - `POST /api/school/subscription/price-cap`
 - `GET /api/school/subscription/usage-stats`
 - `POST /api/school/subscription/usage-report/send`
+- `GET /api/platform/registration-email-trace`
 
 ## 🔄 End-to-End Workflow (BPMN-Style with Gateways)
 

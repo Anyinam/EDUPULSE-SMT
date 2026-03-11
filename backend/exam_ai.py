@@ -9,6 +9,7 @@ def _fallback_questions(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     topic = payload.get("topic") or "General Revision"
     question_type = (payload.get("question_type") or "mcq").lower()
     difficulty = payload.get("difficulty") or "medium"
+    teacher_instructions = (payload.get("teacher_instructions") or "").strip()
     count = int(payload.get("count") or 5)
     count = max(1, min(count, 20))
 
@@ -24,6 +25,7 @@ def _fallback_questions(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "section": "A",
                     "difficulty": difficulty,
                     "marking_guide": "Award marks for concept accuracy, examples, and clear explanation.",
+                    "teacher_instructions": teacher_instructions,
                 }
             )
         elif question_type == "short":
@@ -35,6 +37,7 @@ def _fallback_questions(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "section": "A",
                     "difficulty": difficulty,
                     "marking_guide": "Award marks for correct principle and valid application.",
+                    "teacher_instructions": teacher_instructions,
                 }
             )
         else:
@@ -53,6 +56,7 @@ def _fallback_questions(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "section": "A",
                     "difficulty": difficulty,
                     "marking_guide": "Correct option: A",
+                    "teacher_instructions": teacher_instructions,
                 }
             )
 
@@ -83,6 +87,7 @@ def generate_exam_questions(payload: Dict[str, Any]) -> Dict[str, Any]:
     class_name = payload.get("class_name") or "Selected Class"
     subject_name = payload.get("subject_name") or "General Subject"
     exam_type = payload.get("exam_type") or "Class Test"
+    teacher_instructions = (payload.get("teacher_instructions") or "").strip()
 
     system_prompt = (
         "You are an experienced school teacher and assessment designer. "
@@ -91,6 +96,8 @@ def generate_exam_questions(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_prompt = (
         f"Generate {count} {question_type} questions for {subject_name}, class {class_name}, "
         f"topic '{topic}', difficulty {difficulty}, exam type {exam_type}. "
+        f"Teacher instructions: {teacher_instructions or 'None provided'}. "
+        "These teacher instructions are high priority and must be followed unless unsafe or impossible. "
         "Return ONLY JSON array. Each item must include: "
         "type, question, marks, section, difficulty, marking_guide. "
         "If type is mcq, include options (array of 4) and correct_answer (A/B/C/D)."
