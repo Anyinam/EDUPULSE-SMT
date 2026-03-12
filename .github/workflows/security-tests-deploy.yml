@@ -12,6 +12,17 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  sanity:
+    name: Workflow Sanity Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print trigger context
+        run: |
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+
   # 1. SECURITY SCANNING
   security-scan:
     name: Security & Code Quality Checks
