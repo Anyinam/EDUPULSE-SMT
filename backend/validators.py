@@ -51,6 +51,11 @@ class RegisterSchema(Schema):
         validate=validate.OneOf(["Free", "Basic", "Premium"]),
         load_default="Free"
     )
+    studentCount = fields.Int(
+        required=False,
+        validate=validate.Range(min=1, max=10000),
+        load_default=100,
+    )
 
     @validates_schema
     def validate_password_and_terms(self, data, **kwargs):
