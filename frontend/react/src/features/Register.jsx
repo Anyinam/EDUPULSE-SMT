@@ -195,7 +195,7 @@ export default function Register() {
           <h2 className="text-5xl font-black mb-6 leading-tight">Start Your Journey.</h2>
           <p className="text-blue-200 text-lg leading-relaxed">
             {step === 1 && '"Join hundreds of schools using EduPulse to secure revenue and improve academic outcomes."'}
-            {step === 2 && '"Choose the perfect plan for your school. Start with Free and upgrade anytime."'}
+            {step === 2 && '"Choose the right plan for your school. Basic and Premium continue to secure payment during signup."'}
             {step === 3 && '"You\'re almost there! Review your details and complete registration."'}
           </p>
           
@@ -321,7 +321,7 @@ export default function Register() {
               {/* Important Notice */}
               <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-xl mb-6">
                 <p className="text-sm text-blue-900 font-semibold">
-                  ℹ️ All accounts start with <strong>Free Tier</strong>. Your selected paid plan (Basic/Premium) is saved as preference and can be activated later from your Dashboard.
+                  ℹ️ <strong>Free</strong> completes instantly. If you choose <strong>Basic</strong> or <strong>Premium</strong>, you will be redirected to payment immediately to activate that plan.
                 </p>
               </div>
 
@@ -435,7 +435,11 @@ export default function Register() {
           {step === 3 && (
             <div>
               <h1 className="text-3xl font-bold text-slate-800 mb-2">Confirm Registration</h1>
-              <p className="text-slate-500 mb-8">Review your details before completing registration</p>
+              <p className="text-slate-500 mb-8">
+                {form.selectedPlan === 'Free'
+                  ? 'Review your details before completing registration'
+                  : 'Review your details before continuing to payment'}
+              </p>
 
               <div className="bg-slate-50 rounded-2xl p-6 mb-6 space-y-4">
                 <div>
@@ -476,7 +480,7 @@ export default function Register() {
                   onClick={handleRegister}
                   className="flex-1 bg-green-600 text-white p-4 rounded-xl font-bold hover:bg-green-700 transition-all shadow-xl shadow-green-200 flex items-center justify-center gap-2"
                 >
-                  Complete Registration ✓
+                  {form.selectedPlan === 'Free' ? 'Complete Registration ✓' : 'Proceed to Payment →'}
                 </button>
               </div>
 
