@@ -246,7 +246,7 @@ jobs:
     
     environment:
       name: production
-      url: https://edupulse.edu
+      url: ${{ vars.PRODUCTION_URL || 'https://your-domain.com' }}
     
     steps:
       - uses: actions/checkout@v4
