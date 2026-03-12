@@ -24,7 +24,6 @@ export default function Register() {
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showRetention, setShowRetention] = useState(false);
-  const [studentCount, setStudentCount] = useState(100);
 
   const plans = [
     {
@@ -46,9 +45,9 @@ export default function Register() {
     {
       name: 'Basic',
       price: 12,
-      baseFee: 200,
-      includedStudents: 25,
-      priceLabel: '₵200 base + ₵12/extra above 25',
+      baseFee: 360,
+      includedStudents: 30,
+      priceLabel: 'GH₵360 per term includes 30 students',
       description: 'Full school operations for growing institutions',
       maxStudents: 200,
       maxClasses: 5,
@@ -68,10 +67,10 @@ export default function Register() {
     },
     {
       name: 'Premium',
-      price: 27,
-      baseFee: 450,
+      price: 17,
+      baseFee: 510,
       includedStudents: 30,
-      priceLabel: '₵450 base + ₵27/extra above 30',
+      priceLabel: 'GH₵510 per term includes 30 students',
       description: 'Unlimited access with AI-powered insights',
       maxStudents: Infinity,
       maxClasses: Infinity,
@@ -126,7 +125,6 @@ export default function Register() {
         email: form.email.trim(),
         password: form.password,
         selectedPlan: form.selectedPlan, // Send selected plan
-        studentCount,
         termsAccepted: agreed,
         termsVersion: TERMS_VERSION,
         policyAccepted: agreed,
@@ -168,20 +166,6 @@ export default function Register() {
     }
   };
 
-  const calculateCost = (plan) => {
-    if (plan.name === 'Free') return { term: 0, annual: 0, overage: 0, included: 0, baseFee: 0 };
-
-    const cappedStudents = plan.maxStudents === Infinity
-      ? studentCount
-      : Math.min(studentCount, plan.maxStudents);
-    const baseFee = plan.baseFee || 0;
-    const included = plan.includedStudents || 0;
-    const overage = Math.max(0, cappedStudents - included);
-    const termCost = baseFee + (overage * plan.price);
-    const annualCost = termCost * 3;
-    return { term: termCost, annual: annualCost, overage, included, baseFee };
-  };
-
   return (
     <div className="min-h-screen flex bg-white font-sans">
       {/* Left Side - Branding */}
@@ -195,7 +179,7 @@ export default function Register() {
           <h2 className="text-5xl font-black mb-6 leading-tight">Start Your Journey.</h2>
           <p className="text-blue-200 text-lg leading-relaxed">
             {step === 1 && '"Join hundreds of schools using EduPulse to secure revenue and improve academic outcomes."'}
-            {step === 2 && '"Choose the right plan for your school. Basic and Premium continue to secure payment during signup."'}
+            {step === 2 && '"Choose the right plan for your school. Paid plans charge only the base fee during signup."'}
             {step === 3 && '"You\'re almost there! Review your details and complete registration."'}
           </p>
           
@@ -321,44 +305,13 @@ export default function Register() {
               {/* Important Notice */}
               <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-xl mb-6">
                 <p className="text-sm text-blue-900 font-semibold">
-                  ℹ️ <strong>Free</strong> completes instantly. If you choose <strong>Basic</strong> or <strong>Premium</strong>, you will be redirected to payment immediately to activate that plan.
+                  ℹ️ <strong>Free</strong> completes instantly. If you choose <strong>Basic</strong> or <strong>Premium</strong>, you will pay only the base fee now. Any overage above the included students will be billed later from actual usage.
                 </p>
-              </div>
-
-              {/* Student Count Adjuster */}
-              <div className="bg-slate-50 p-4 rounded-xl mb-6">
-                <label className="text-sm font-bold text-slate-700 mb-2 block">Number of Students</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="1000"
-                  value={studentCount}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setStudentCount(1); // Allow clearing but set to minimum
-                    } else {
-                      const num = parseInt(val);
-                      if (!isNaN(num) && num > 0) {
-                        setStudentCount(Math.min(1000, num));
-                      }
-                    }
-                  }}
-                  onBlur={(e) => {
-                    // Ensure valid value on blur
-                    if (!e.target.value || parseInt(e.target.value) < 1) {
-                      setStudentCount(1);
-                    }
-                  }}
-                  className="w-full p-3 border rounded-lg"
-                />
-                <p className="text-xs text-slate-600 mt-2">Adjust to calculate cost for your school</p>
               </div>
 
               {/* Plan Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {plans.map((plan) => {
-                  const cost = calculateCost(plan);
                   const isSelected = form.selectedPlan === plan.name;
                   
                   return (
@@ -390,13 +343,10 @@ export default function Register() {
                           <div className="text-3xl font-black text-slate-800">GH₵ 0</div>
                         ) : (
                           <>
-                            <div className="text-2xl font-black text-slate-800">GH₵ {cost.term.toLocaleString()}</div>
-                            <div className="text-sm text-slate-600">per term ({studentCount} students)</div>
-                            <div className="text-xs text-slate-500 mt-1">Base: GH₵ {cost.baseFee} + {cost.included} included</div>
-                            {cost.overage > 0 && (
-                              <div className="text-xs text-slate-500">Overage: {cost.overage} × GH₵ {plan.price} = GH₵ {(cost.overage * plan.price).toLocaleString()}</div>
-                            )}
-                            <div className="text-xs text-slate-500 mt-1">GH₵ {cost.annual.toLocaleString()}/year</div>
+                            <div className="text-2xl font-black text-slate-800">GH₵ {plan.baseFee.toLocaleString()}</div>
+                            <div className="text-sm text-slate-600">base fee at signup</div>
+                            <div className="text-xs text-slate-500 mt-1">Includes first {plan.includedStudents} students each term</div>
+                            <div className="text-xs text-slate-500">Later overage: GH₵ {plan.price}/student above {plan.includedStudents}</div>
                           </>
                         )}
                       </div>
@@ -463,7 +413,12 @@ export default function Register() {
                   <div className="text-2xl font-black text-blue-600">{form.selectedPlan}</div>
                   {form.selectedPlan !== 'Free' && (
                     <div className="text-sm text-slate-600 mt-1">
-                      ~GH₵ {calculateCost(plans.find(p => p.name === form.selectedPlan)).term.toLocaleString()}/term for {studentCount} students
+                      GH₵ {plans.find(p => p.name === form.selectedPlan)?.baseFee?.toLocaleString()} due now at signup
+                    </div>
+                  )}
+                  {form.selectedPlan !== 'Free' && (
+                    <div className="text-xs text-slate-500 mt-1">
+                      Overage above {plans.find(p => p.name === form.selectedPlan)?.includedStudents} students will be billed later based on actual active students.
                     </div>
                   )}
                 </div>

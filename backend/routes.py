@@ -1131,8 +1131,6 @@ def register():
     policy_version = sanitize_string(data.get("policyVersion"))
     policy_accepted = data.get("policyAccepted") is True
     selected_plan = sanitize_string(data.get("selectedPlan", "Free"))  # Get selected plan, default to Free
-    requested_student_count = int(data.get("studentCount") or 100)
-    requested_student_count = max(1, min(requested_student_count, 10000))
     client_ip = get_client_ip()
 
     if not terms_accepted:
@@ -1243,8 +1241,8 @@ def register():
 
         # Paid plans require immediate payment after registration.
         from backend.paystack_integration import PaystackError, initialize_payment
-        term_breakdown = get_term_cost_breakdown(selected_plan, requested_student_count)
-        amount_cedis = float(term_breakdown.get("total", 0))
+        pricing_info = PRICING.get(selected_plan, {})
+        amount_cedis = float(pricing_info.get("base_fee_per_term", 0) or 0)
         if amount_cedis <= 0:
             return jsonify({"message": "Unable to compute payment amount for selected plan."}), 400
 
@@ -1259,10 +1257,14 @@ def register():
                 school_id=school_id,
                 metadata={
                     "user_id": new_user.id,
-                    "student_count": requested_student_count,
+                    "student_count": 0,
                     "billing_period": "term",
                     "terms": 1,
                     "onboarding_flow": "registration",
+                    "charge_mode": "base_fee_only",
+                    "base_fee": amount_cedis,
+                    "included_students": pricing_info.get("included_students", 0),
+                    "overage_rate": pricing_info.get("per_student_per_term", 0),
                     "callback_url": callback_url,
                 },
             )
