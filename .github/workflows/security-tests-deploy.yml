@@ -140,10 +140,17 @@ jobs:
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
+        continue-on-error: true
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
+
+      - name: Skip Codecov upload (no token configured)
+        if: ${{ secrets.CODECOV_TOKEN == '' }}
+        run: echo "CODECOV_TOKEN is not configured; skipping Codecov upload."
       
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
