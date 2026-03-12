@@ -6611,7 +6611,8 @@ def bulk_admit_students():
 
         if file:
             # Read CSV file from memory
-            stream = StringIO(file.stream.read().decode("UTF8"), newline=None)
+            # Use utf-8-sig to transparently strip BOM from CSV headers.
+            stream = StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
             csv_input = csv.DictReader(stream)
 
             school = School.query.get(g.school_id)
@@ -6633,6 +6634,12 @@ def bulk_admit_students():
             uploaded_names_guardians = set()  # Track (name, guardian) pairs in THIS upload
 
             for idx, row in enumerate(csv_input, start=1):
+                # Normalize header keys to tolerate spaces/case/BOM variations.
+                normalized_row = {
+                    (str(k).strip().lstrip("\ufeff").lower() if k is not None else ""): (v or "")
+                    for k, v in row.items()
+                }
+
                 if current_count >= limit:
                     errors.append(
                         f"Stopped at row {idx}: Plan limit of {limit} students reached."
@@ -6640,9 +6647,9 @@ def bulk_admit_students():
                     break
 
                 # Basic Validation - support both old format (name) and new format (first_name, surname)
-                first_name = (row.get("first_name") or "").strip()
-                surname = (row.get("surname") or "").strip()
-                name = (row.get("name") or "").strip()
+                first_name = (normalized_row.get("first_name") or "").strip()
+                surname = (normalized_row.get("surname") or "").strip()
+                name = (normalized_row.get("name") or "").strip()
                 
                 # If name is provided, split it; otherwise use first_name and surname
                 if name and not first_name and not surname:
@@ -6654,7 +6661,7 @@ def bulk_admit_students():
                     errors.append(f"Row {idx}: Missing first_name and/or surname")
                     continue
 
-                student_code = (row.get("student_code") or "").strip().upper()
+                student_code = (normalized_row.get("student_code") or "").strip().upper()
                 if not student_code:
                     while True:
                         candidate = generate_student_code(prefix, next_index)
@@ -6670,15 +6677,15 @@ def bulk_admit_students():
                     )
                     continue
 
-                class_assigned = row.get("class_assigned") or "Class 1"
+                class_assigned = (normalized_row.get("class_assigned") or "Class 1").strip()
                 if class_assigned not in VALID_GRADES:
                     errors.append(
                         f"Row {idx}: Invalid class_assigned '{class_assigned}'"
                     )
                     continue
 
-                gender = (row.get("gender") or "").strip()  # Male, Female, Other
-                raw_dob = (row.get("date_of_birth") or "").strip()
+                gender = (normalized_row.get("gender") or "").strip()  # Male, Female, Other
+                raw_dob = (normalized_row.get("date_of_birth") or "").strip()
                 date_of_birth = None
                 if raw_dob:
                     try:
@@ -6688,9 +6695,9 @@ def bulk_admit_students():
                             f"Row {idx}: Invalid date_of_birth '{raw_dob}'. Use YYYY-MM-DD"
                         )
                         continue
-                guardian_name = (row.get("guardian_name") or "").strip()
-                parent_email = (row.get("parent_email") or "").strip()
-                parent_phone = (row.get("parent_phone") or "").strip()
+                guardian_name = (normalized_row.get("guardian_name") or "").strip()
+                parent_email = (normalized_row.get("parent_email") or "").strip()
+                parent_phone = (normalized_row.get("parent_phone") or "").strip()
                 full_name = f"{first_name} {surname}".strip()
 
 # Check for same name existing in database (warning, allow duplicates)

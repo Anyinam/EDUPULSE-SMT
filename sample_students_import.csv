@@ -1,31 +1,201 @@
-first_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone
-Kwame,Asante,Male,2013-03-15,JHS 1,Kweku Asante,kwame@guardian.com,+233501001001
-Ama,Osei,Female,2013-07-11,JHS 1,Ama Serwa,ama@guardian.com,+233501001002
-Kofi,Mensah,Male,2013-01-22,JHS 1,Mensah Yaw,kofi@guardian.com,+233501001003
-Abena,Appiah,Female,2012-09-23,JHS 1,Appiah Adwoa,abena@guardian.com,+233501001004
-Nana,Boateng,Male,2012-04-17,JHS 1,Boateng Ata,nana@guardian.com,+233501001005
-Yaa,Nyarko,Female,2013-10-02,JHS 1,Nyarko Ama,yaa@guardian.com,+233501001006
-Gyasi,Owusu,Male,2013-06-27,JHS 1,Owusu Gyasi,gyasi@guardian.com,+233501001007
-Akosua,Mensah,Female,2013-02-14,JHS 1,Mensah Kodwo,akosua@guardian.com,+233501001008
-Kojo,Agyeman,Male,2012-11-08,JHS 1,Agyeman Kwaku,kojo@guardian.com,+233501001009
-Enie,Baah,Female,2013-08-19,JHS 1,Baah Ernest,enie@guardian.com,+233501001010
-Kwesi,Darko,Male,2012-03-21,JHS 2,Darko Kwasi,kwesi@guardian.com,+233501002001
-Efua,Adom,Female,2012-12-10,JHS 2,Adom Yawson,efua@guardian.com,+233501002002
-Amponsah,Boakye,Male,2012-05-05,JHS 2,Boakye Samuel,amponsah@guardian.com,+233501002003
-Afia,Yeboah,Female,2012-07-29,JHS 2,Yeboah Albert,afia@guardian.com,+233501002004
-Owusu,Ansah,Male,2011-09-13,JHS 2,Ansah Owusu,owusu@guardian.com,+233501002005
-Ama,Bonsu,Female,2012-01-04,JHS 2,Bonsu Ama,ama.bonsu@guardian.com,+233501002006
-Danso,Kempuor,Male,2011-10-25,JHS 2,Kempuor Danso,danso@guardian.com,+233501002007
-Nadia,Asare,Female,2012-06-18,JHS 2,Asare Nadia,nadia@guardian.com,+233501002008
-Yaw,Arhin,Male,2011-12-31,JHS 2,Arhin Yaw,yaw@guardian.com,+233501002009
-Bernice,Addai,Female,2012-03-09,JHS 2,Addai Bernard,bernice@guardian.com,+233501002010
-Kwao,Anane,Male,2011-05-28,JHS 3,Anane Kwao,kwao@guardian.com,+233501003001
-Philomena,Akoto,Female,2011-07-16,JHS 3,Akoto Philip,philomena@guardian.com,+233501003002
-Samuel,Adu,Male,2011-02-02,JHS 3,Adu Samuel,samuel@guardian.com,+233501003003
-Christabel,Mensah,Female,2011-11-11,JHS 3,Mensah Christian,christabel@guardian.com,+233501003004
-Benjamin,Oppong,Male,2011-04-08,JHS 3,Oppong Benjamin,benjamin@guardian.com,+233501003005
-Sandra,Obeng,Female,2011-08-24,JHS 3,Obeng Sandra,sandra@guardian.com,+233501003006
-Francis,Antwi,Male,2011-01-15,JHS 3,Antwi Francis,francis@guardian.com,+233501003007
-Grace,Boadi,Female,2011-09-05,JHS 3,Boadi Grace,grace@guardian.com,+233501003008
-Joseph,Akufo,Male,2011-03-30,JHS 3,Akufo Joseph,joseph@guardian.com,+233501003009
-Elizabeth,Larbi,Female,2011-12-20,JHS 3,Larbi Elizabeth,elizabeth@guardian.com,+233501003010
+]633;E;docker compose down -v && docker compose up --build;349b856a-9201-4175-8ad6-d9294b0ff4dd]633;Cfirst_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone
+Kwame,Asante,Male,2011-02-02,JHS 1,Kwame Asante Senior,guardian001@example.com,+233501200001
+Ama,Osei,Female,2012-03-03,JHS 2,Ama Osei Senior,guardian002@example.com,+233501200002
+Kofi,Mensah,Male,2013-04-04,JHS 3,Kofi Mensah Senior,guardian003@example.com,+233501200003
+Abena,Appiah,Female,2014-05-05,JHS 1,Abena Appiah Senior,guardian004@example.com,+233501200004
+Nana,Boateng,Male,2010-06-06,JHS 2,Nana Boateng Senior,guardian005@example.com,+233501200005
+Yaa,Nyarko,Female,2011-07-07,JHS 3,Yaa Nyarko Senior,guardian006@example.com,+233501200006
+Kojo,Agyeman,Male,2012-08-08,JHS 1,Kojo Agyeman Senior,guardian007@example.com,+233501200007
+Akosua,Darko,Female,2013-09-09,JHS 2,Akosua Darko Senior,guardian008@example.com,+233501200008
+Kwesi,Boakye,Male,2014-10-10,JHS 3,Kwesi Boakye Senior,guardian009@example.com,+233501200009
+Efua,Yeboah,Female,2010-11-11,JHS 1,Efua Yeboah Senior,guardian010@example.com,+233501200010
+Owusu,Ansah,Male,2011-12-12,JHS 2,Owusu Ansah Senior,guardian011@example.com,+233501200011
+Afia,Bonsu,Female,2012-01-13,JHS 3,Afia Bonsu Senior,guardian012@example.com,+233501200012
+Yaw,Arhin,Male,2013-02-14,JHS 1,Yaw Arhin Senior,guardian013@example.com,+233501200013
+Bernice,Addai,Female,2014-03-15,JHS 2,Bernice Addai Senior,guardian014@example.com,+233501200014
+Samuel,Adu,Male,2010-04-16,JHS 3,Samuel Adu Senior,guardian015@example.com,+233501200015
+Grace,Boadi,Female,2011-05-17,JHS 1,Grace Boadi Senior,guardian016@example.com,+233501200016
+Joseph,Akufo,Male,2012-06-18,JHS 2,Joseph Akufo Senior,guardian017@example.com,+233501200017
+Sandra,Obeng,Female,2013-07-19,JHS 3,Sandra Obeng Senior,guardian018@example.com,+233501200018
+Francis,Antwi,Male,2014-08-20,JHS 1,Francis Antwi Senior,guardian019@example.com,+233501200019
+Christabel,Larbi,Female,2010-09-21,JHS 2,Christabel Larbi Senior,guardian020@example.com,+233501200020
+Kwame,Asante,Male,2011-10-22,JHS 3,Kwame Asante Senior,guardian021@example.com,+233501200021
+Ama,Osei,Female,2012-11-23,JHS 1,Ama Osei Senior,guardian022@example.com,+233501200022
+Kofi,Mensah,Male,2013-12-24,JHS 2,Kofi Mensah Senior,guardian023@example.com,+233501200023
+Abena,Appiah,Female,2014-01-25,JHS 3,Abena Appiah Senior,guardian024@example.com,+233501200024
+Nana,Boateng,Male,2010-02-26,JHS 1,Nana Boateng Senior,guardian025@example.com,+233501200025
+Yaa,Nyarko,Female,2011-03-27,JHS 2,Yaa Nyarko Senior,guardian026@example.com,+233501200026
+Kojo,Agyeman,Male,2012-04-28,JHS 3,Kojo Agyeman Senior,guardian027@example.com,+233501200027
+Akosua,Darko,Female,2013-05-01,JHS 1,Akosua Darko Senior,guardian028@example.com,+233501200028
+Kwesi,Boakye,Male,2014-06-02,JHS 2,Kwesi Boakye Senior,guardian029@example.com,+233501200029
+Efua,Yeboah,Female,2010-07-03,JHS 3,Efua Yeboah Senior,guardian030@example.com,+233501200030
+Owusu,Ansah,Male,2011-08-04,JHS 1,Owusu Ansah Senior,guardian031@example.com,+233501200031
+Afia,Bonsu,Female,2012-09-05,JHS 2,Afia Bonsu Senior,guardian032@example.com,+233501200032
+Yaw,Arhin,Male,2013-10-06,JHS 3,Yaw Arhin Senior,guardian033@example.com,+233501200033
+Bernice,Addai,Female,2014-11-07,JHS 1,Bernice Addai Senior,guardian034@example.com,+233501200034
+Samuel,Adu,Male,2010-12-08,JHS 2,Samuel Adu Senior,guardian035@example.com,+233501200035
+Grace,Boadi,Female,2011-01-09,JHS 3,Grace Boadi Senior,guardian036@example.com,+233501200036
+Joseph,Akufo,Male,2012-02-10,JHS 1,Joseph Akufo Senior,guardian037@example.com,+233501200037
+Sandra,Obeng,Female,2013-03-11,JHS 2,Sandra Obeng Senior,guardian038@example.com,+233501200038
+Francis,Antwi,Male,2014-04-12,JHS 3,Francis Antwi Senior,guardian039@example.com,+233501200039
+Christabel,Larbi,Female,2010-05-13,JHS 1,Christabel Larbi Senior,guardian040@example.com,+233501200040
+Kwame,Asante,Male,2011-06-14,JHS 2,Kwame Asante Senior,guardian041@example.com,+233501200041
+Ama,Osei,Female,2012-07-15,JHS 3,Ama Osei Senior,guardian042@example.com,+233501200042
+Kofi,Mensah,Male,2013-08-16,JHS 1,Kofi Mensah Senior,guardian043@example.com,+233501200043
+Abena,Appiah,Female,2014-09-17,JHS 2,Abena Appiah Senior,guardian044@example.com,+233501200044
+Nana,Boateng,Male,2010-10-18,JHS 3,Nana Boateng Senior,guardian045@example.com,+233501200045
+Yaa,Nyarko,Female,2011-11-19,JHS 1,Yaa Nyarko Senior,guardian046@example.com,+233501200046
+Kojo,Agyeman,Male,2012-12-20,JHS 2,Kojo Agyeman Senior,guardian047@example.com,+233501200047
+Akosua,Darko,Female,2013-01-21,JHS 3,Akosua Darko Senior,guardian048@example.com,+233501200048
+Kwesi,Boakye,Male,2014-02-22,JHS 1,Kwesi Boakye Senior,guardian049@example.com,+233501200049
+Efua,Yeboah,Female,2010-03-23,JHS 2,Efua Yeboah Senior,guardian050@example.com,+233501200050
+Owusu,Ansah,Male,2011-04-24,JHS 3,Owusu Ansah Senior,guardian051@example.com,+233501200051
+Afia,Bonsu,Female,2012-05-25,JHS 1,Afia Bonsu Senior,guardian052@example.com,+233501200052
+Yaw,Arhin,Male,2013-06-26,JHS 2,Yaw Arhin Senior,guardian053@example.com,+233501200053
+Bernice,Addai,Female,2014-07-27,JHS 3,Bernice Addai Senior,guardian054@example.com,+233501200054
+Samuel,Adu,Male,2010-08-28,JHS 1,Samuel Adu Senior,guardian055@example.com,+233501200055
+Grace,Boadi,Female,2011-09-01,JHS 2,Grace Boadi Senior,guardian056@example.com,+233501200056
+Joseph,Akufo,Male,2012-10-02,JHS 3,Joseph Akufo Senior,guardian057@example.com,+233501200057
+Sandra,Obeng,Female,2013-11-03,JHS 1,Sandra Obeng Senior,guardian058@example.com,+233501200058
+Francis,Antwi,Male,2014-12-04,JHS 2,Francis Antwi Senior,guardian059@example.com,+233501200059
+Christabel,Larbi,Female,2010-01-05,JHS 3,Christabel Larbi Senior,guardian060@example.com,+233501200060
+Kwame,Asante,Male,2011-02-06,JHS 1,Kwame Asante Senior,guardian061@example.com,+233501200061
+Ama,Osei,Female,2012-03-07,JHS 2,Ama Osei Senior,guardian062@example.com,+233501200062
+Kofi,Mensah,Male,2013-04-08,JHS 3,Kofi Mensah Senior,guardian063@example.com,+233501200063
+Abena,Appiah,Female,2014-05-09,JHS 1,Abena Appiah Senior,guardian064@example.com,+233501200064
+Nana,Boateng,Male,2010-06-10,JHS 2,Nana Boateng Senior,guardian065@example.com,+233501200065
+Yaa,Nyarko,Female,2011-07-11,JHS 3,Yaa Nyarko Senior,guardian066@example.com,+233501200066
+Kojo,Agyeman,Male,2012-08-12,JHS 1,Kojo Agyeman Senior,guardian067@example.com,+233501200067
+Akosua,Darko,Female,2013-09-13,JHS 2,Akosua Darko Senior,guardian068@example.com,+233501200068
+Kwesi,Boakye,Male,2014-10-14,JHS 3,Kwesi Boakye Senior,guardian069@example.com,+233501200069
+Efua,Yeboah,Female,2010-11-15,JHS 1,Efua Yeboah Senior,guardian070@example.com,+233501200070
+Owusu,Ansah,Male,2011-12-16,JHS 2,Owusu Ansah Senior,guardian071@example.com,+233501200071
+Afia,Bonsu,Female,2012-01-17,JHS 3,Afia Bonsu Senior,guardian072@example.com,+233501200072
+Yaw,Arhin,Male,2013-02-18,JHS 1,Yaw Arhin Senior,guardian073@example.com,+233501200073
+Bernice,Addai,Female,2014-03-19,JHS 2,Bernice Addai Senior,guardian074@example.com,+233501200074
+Samuel,Adu,Male,2010-04-20,JHS 3,Samuel Adu Senior,guardian075@example.com,+233501200075
+Grace,Boadi,Female,2011-05-21,JHS 1,Grace Boadi Senior,guardian076@example.com,+233501200076
+Joseph,Akufo,Male,2012-06-22,JHS 2,Joseph Akufo Senior,guardian077@example.com,+233501200077
+Sandra,Obeng,Female,2013-07-23,JHS 3,Sandra Obeng Senior,guardian078@example.com,+233501200078
+Francis,Antwi,Male,2014-08-24,JHS 1,Francis Antwi Senior,guardian079@example.com,+233501200079
+Christabel,Larbi,Female,2010-09-25,JHS 2,Christabel Larbi Senior,guardian080@example.com,+233501200080
+Kwame,Asante,Male,2011-10-26,JHS 3,Kwame Asante Senior,guardian081@example.com,+233501200081
+Ama,Osei,Female,2012-11-27,JHS 1,Ama Osei Senior,guardian082@example.com,+233501200082
+Kofi,Mensah,Male,2013-12-28,JHS 2,Kofi Mensah Senior,guardian083@example.com,+233501200083
+Abena,Appiah,Female,2014-01-01,JHS 3,Abena Appiah Senior,guardian084@example.com,+233501200084
+Nana,Boateng,Male,2010-02-02,JHS 1,Nana Boateng Senior,guardian085@example.com,+233501200085
+Yaa,Nyarko,Female,2011-03-03,JHS 2,Yaa Nyarko Senior,guardian086@example.com,+233501200086
+Kojo,Agyeman,Male,2012-04-04,JHS 3,Kojo Agyeman Senior,guardian087@example.com,+233501200087
+Akosua,Darko,Female,2013-05-05,JHS 1,Akosua Darko Senior,guardian088@example.com,+233501200088
+Kwesi,Boakye,Male,2014-06-06,JHS 2,Kwesi Boakye Senior,guardian089@example.com,+233501200089
+Efua,Yeboah,Female,2010-07-07,JHS 3,Efua Yeboah Senior,guardian090@example.com,+233501200090
+Owusu,Ansah,Male,2011-08-08,JHS 1,Owusu Ansah Senior,guardian091@example.com,+233501200091
+Afia,Bonsu,Female,2012-09-09,JHS 2,Afia Bonsu Senior,guardian092@example.com,+233501200092
+Yaw,Arhin,Male,2013-10-10,JHS 3,Yaw Arhin Senior,guardian093@example.com,+233501200093
+Bernice,Addai,Female,2014-11-11,JHS 1,Bernice Addai Senior,guardian094@example.com,+233501200094
+Samuel,Adu,Male,2010-12-12,JHS 2,Samuel Adu Senior,guardian095@example.com,+233501200095
+Grace,Boadi,Female,2011-01-13,JHS 3,Grace Boadi Senior,guardian096@example.com,+233501200096
+Joseph,Akufo,Male,2012-02-14,JHS 1,Joseph Akufo Senior,guardian097@example.com,+233501200097
+Sandra,Obeng,Female,2013-03-15,JHS 2,Sandra Obeng Senior,guardian098@example.com,+233501200098
+Francis,Antwi,Male,2014-04-16,JHS 3,Francis Antwi Senior,guardian099@example.com,+233501200099
+Christabel,Larbi,Female,2010-05-17,JHS 1,Christabel Larbi Senior,guardian100@example.com,+233501200100
+Kwame,Asante,Male,2011-06-18,JHS 2,Kwame Asante Senior,guardian101@example.com,+233501200101
+Ama,Osei,Female,2012-07-19,JHS 3,Ama Osei Senior,guardian102@example.com,+233501200102
+Kofi,Mensah,Male,2013-08-20,JHS 1,Kofi Mensah Senior,guardian103@example.com,+233501200103
+Abena,Appiah,Female,2014-09-21,JHS 2,Abena Appiah Senior,guardian104@example.com,+233501200104
+Nana,Boateng,Male,2010-10-22,JHS 3,Nana Boateng Senior,guardian105@example.com,+233501200105
+Yaa,Nyarko,Female,2011-11-23,JHS 1,Yaa Nyarko Senior,guardian106@example.com,+233501200106
+Kojo,Agyeman,Male,2012-12-24,JHS 2,Kojo Agyeman Senior,guardian107@example.com,+233501200107
+Akosua,Darko,Female,2013-01-25,JHS 3,Akosua Darko Senior,guardian108@example.com,+233501200108
+Kwesi,Boakye,Male,2014-02-26,JHS 1,Kwesi Boakye Senior,guardian109@example.com,+233501200109
+Efua,Yeboah,Female,2010-03-27,JHS 2,Efua Yeboah Senior,guardian110@example.com,+233501200110
+Owusu,Ansah,Male,2011-04-28,JHS 3,Owusu Ansah Senior,guardian111@example.com,+233501200111
+Afia,Bonsu,Female,2012-05-01,JHS 1,Afia Bonsu Senior,guardian112@example.com,+233501200112
+Yaw,Arhin,Male,2013-06-02,JHS 2,Yaw Arhin Senior,guardian113@example.com,+233501200113
+Bernice,Addai,Female,2014-07-03,JHS 3,Bernice Addai Senior,guardian114@example.com,+233501200114
+Samuel,Adu,Male,2010-08-04,JHS 1,Samuel Adu Senior,guardian115@example.com,+233501200115
+Grace,Boadi,Female,2011-09-05,JHS 2,Grace Boadi Senior,guardian116@example.com,+233501200116
+Joseph,Akufo,Male,2012-10-06,JHS 3,Joseph Akufo Senior,guardian117@example.com,+233501200117
+Sandra,Obeng,Female,2013-11-07,JHS 1,Sandra Obeng Senior,guardian118@example.com,+233501200118
+Francis,Antwi,Male,2014-12-08,JHS 2,Francis Antwi Senior,guardian119@example.com,+233501200119
+Christabel,Larbi,Female,2010-01-09,JHS 3,Christabel Larbi Senior,guardian120@example.com,+233501200120
+Kwame,Asante,Male,2011-02-10,JHS 1,Kwame Asante Senior,guardian121@example.com,+233501200121
+Ama,Osei,Female,2012-03-11,JHS 2,Ama Osei Senior,guardian122@example.com,+233501200122
+Kofi,Mensah,Male,2013-04-12,JHS 3,Kofi Mensah Senior,guardian123@example.com,+233501200123
+Abena,Appiah,Female,2014-05-13,JHS 1,Abena Appiah Senior,guardian124@example.com,+233501200124
+Nana,Boateng,Male,2010-06-14,JHS 2,Nana Boateng Senior,guardian125@example.com,+233501200125
+Yaa,Nyarko,Female,2011-07-15,JHS 3,Yaa Nyarko Senior,guardian126@example.com,+233501200126
+Kojo,Agyeman,Male,2012-08-16,JHS 1,Kojo Agyeman Senior,guardian127@example.com,+233501200127
+Akosua,Darko,Female,2013-09-17,JHS 2,Akosua Darko Senior,guardian128@example.com,+233501200128
+Kwesi,Boakye,Male,2014-10-18,JHS 3,Kwesi Boakye Senior,guardian129@example.com,+233501200129
+Efua,Yeboah,Female,2010-11-19,JHS 1,Efua Yeboah Senior,guardian130@example.com,+233501200130
+Owusu,Ansah,Male,2011-12-20,JHS 2,Owusu Ansah Senior,guardian131@example.com,+233501200131
+Afia,Bonsu,Female,2012-01-21,JHS 3,Afia Bonsu Senior,guardian132@example.com,+233501200132
+Yaw,Arhin,Male,2013-02-22,JHS 1,Yaw Arhin Senior,guardian133@example.com,+233501200133
+Bernice,Addai,Female,2014-03-23,JHS 2,Bernice Addai Senior,guardian134@example.com,+233501200134
+Samuel,Adu,Male,2010-04-24,JHS 3,Samuel Adu Senior,guardian135@example.com,+233501200135
+Grace,Boadi,Female,2011-05-25,JHS 1,Grace Boadi Senior,guardian136@example.com,+233501200136
+Joseph,Akufo,Male,2012-06-26,JHS 2,Joseph Akufo Senior,guardian137@example.com,+233501200137
+Sandra,Obeng,Female,2013-07-27,JHS 3,Sandra Obeng Senior,guardian138@example.com,+233501200138
+Francis,Antwi,Male,2014-08-28,JHS 1,Francis Antwi Senior,guardian139@example.com,+233501200139
+Christabel,Larbi,Female,2010-09-01,JHS 2,Christabel Larbi Senior,guardian140@example.com,+233501200140
+Kwame,Asante,Male,2011-10-02,JHS 3,Kwame Asante Senior,guardian141@example.com,+233501200141
+Ama,Osei,Female,2012-11-03,JHS 1,Ama Osei Senior,guardian142@example.com,+233501200142
+Kofi,Mensah,Male,2013-12-04,JHS 2,Kofi Mensah Senior,guardian143@example.com,+233501200143
+Abena,Appiah,Female,2014-01-05,JHS 3,Abena Appiah Senior,guardian144@example.com,+233501200144
+Nana,Boateng,Male,2010-02-06,JHS 1,Nana Boateng Senior,guardian145@example.com,+233501200145
+Yaa,Nyarko,Female,2011-03-07,JHS 2,Yaa Nyarko Senior,guardian146@example.com,+233501200146
+Kojo,Agyeman,Male,2012-04-08,JHS 3,Kojo Agyeman Senior,guardian147@example.com,+233501200147
+Akosua,Darko,Female,2013-05-09,JHS 1,Akosua Darko Senior,guardian148@example.com,+233501200148
+Kwesi,Boakye,Male,2014-06-10,JHS 2,Kwesi Boakye Senior,guardian149@example.com,+233501200149
+Efua,Yeboah,Female,2010-07-11,JHS 3,Efua Yeboah Senior,guardian150@example.com,+233501200150
+Owusu,Ansah,Male,2011-08-12,JHS 1,Owusu Ansah Senior,guardian151@example.com,+233501200151
+Afia,Bonsu,Female,2012-09-13,JHS 2,Afia Bonsu Senior,guardian152@example.com,+233501200152
+Yaw,Arhin,Male,2013-10-14,JHS 3,Yaw Arhin Senior,guardian153@example.com,+233501200153
+Bernice,Addai,Female,2014-11-15,JHS 1,Bernice Addai Senior,guardian154@example.com,+233501200154
+Samuel,Adu,Male,2010-12-16,JHS 2,Samuel Adu Senior,guardian155@example.com,+233501200155
+Grace,Boadi,Female,2011-01-17,JHS 3,Grace Boadi Senior,guardian156@example.com,+233501200156
+Joseph,Akufo,Male,2012-02-18,JHS 1,Joseph Akufo Senior,guardian157@example.com,+233501200157
+Sandra,Obeng,Female,2013-03-19,JHS 2,Sandra Obeng Senior,guardian158@example.com,+233501200158
+Francis,Antwi,Male,2014-04-20,JHS 3,Francis Antwi Senior,guardian159@example.com,+233501200159
+Christabel,Larbi,Female,2010-05-21,JHS 1,Christabel Larbi Senior,guardian160@example.com,+233501200160
+Kwame,Asante,Male,2011-06-22,JHS 2,Kwame Asante Senior,guardian161@example.com,+233501200161
+Ama,Osei,Female,2012-07-23,JHS 3,Ama Osei Senior,guardian162@example.com,+233501200162
+Kofi,Mensah,Male,2013-08-24,JHS 1,Kofi Mensah Senior,guardian163@example.com,+233501200163
+Abena,Appiah,Female,2014-09-25,JHS 2,Abena Appiah Senior,guardian164@example.com,+233501200164
+Nana,Boateng,Male,2010-10-26,JHS 3,Nana Boateng Senior,guardian165@example.com,+233501200165
+Yaa,Nyarko,Female,2011-11-27,JHS 1,Yaa Nyarko Senior,guardian166@example.com,+233501200166
+Kojo,Agyeman,Male,2012-12-28,JHS 2,Kojo Agyeman Senior,guardian167@example.com,+233501200167
+Akosua,Darko,Female,2013-01-01,JHS 3,Akosua Darko Senior,guardian168@example.com,+233501200168
+Kwesi,Boakye,Male,2014-02-02,JHS 1,Kwesi Boakye Senior,guardian169@example.com,+233501200169
+Efua,Yeboah,Female,2010-03-03,JHS 2,Efua Yeboah Senior,guardian170@example.com,+233501200170
+Owusu,Ansah,Male,2011-04-04,JHS 3,Owusu Ansah Senior,guardian171@example.com,+233501200171
+Afia,Bonsu,Female,2012-05-05,JHS 1,Afia Bonsu Senior,guardian172@example.com,+233501200172
+Yaw,Arhin,Male,2013-06-06,JHS 2,Yaw Arhin Senior,guardian173@example.com,+233501200173
+Bernice,Addai,Female,2014-07-07,JHS 3,Bernice Addai Senior,guardian174@example.com,+233501200174
+Samuel,Adu,Male,2010-08-08,JHS 1,Samuel Adu Senior,guardian175@example.com,+233501200175
+Grace,Boadi,Female,2011-09-09,JHS 2,Grace Boadi Senior,guardian176@example.com,+233501200176
+Joseph,Akufo,Male,2012-10-10,JHS 3,Joseph Akufo Senior,guardian177@example.com,+233501200177
+Sandra,Obeng,Female,2013-11-11,JHS 1,Sandra Obeng Senior,guardian178@example.com,+233501200178
+Francis,Antwi,Male,2014-12-12,JHS 2,Francis Antwi Senior,guardian179@example.com,+233501200179
+Christabel,Larbi,Female,2010-01-13,JHS 3,Christabel Larbi Senior,guardian180@example.com,+233501200180
+Kwame,Asante,Male,2011-02-14,JHS 1,Kwame Asante Senior,guardian181@example.com,+233501200181
+Ama,Osei,Female,2012-03-15,JHS 2,Ama Osei Senior,guardian182@example.com,+233501200182
+Kofi,Mensah,Male,2013-04-16,JHS 3,Kofi Mensah Senior,guardian183@example.com,+233501200183
+Abena,Appiah,Female,2014-05-17,JHS 1,Abena Appiah Senior,guardian184@example.com,+233501200184
+Nana,Boateng,Male,2010-06-18,JHS 2,Nana Boateng Senior,guardian185@example.com,+233501200185
+Yaa,Nyarko,Female,2011-07-19,JHS 3,Yaa Nyarko Senior,guardian186@example.com,+233501200186
+Kojo,Agyeman,Male,2012-08-20,JHS 1,Kojo Agyeman Senior,guardian187@example.com,+233501200187
+Akosua,Darko,Female,2013-09-21,JHS 2,Akosua Darko Senior,guardian188@example.com,+233501200188
+Kwesi,Boakye,Male,2014-10-22,JHS 3,Kwesi Boakye Senior,guardian189@example.com,+233501200189
+Efua,Yeboah,Female,2010-11-23,JHS 1,Efua Yeboah Senior,guardian190@example.com,+233501200190
+Owusu,Ansah,Male,2011-12-24,JHS 2,Owusu Ansah Senior,guardian191@example.com,+233501200191
+Afia,Bonsu,Female,2012-01-25,JHS 3,Afia Bonsu Senior,guardian192@example.com,+233501200192
+Yaw,Arhin,Male,2013-02-26,JHS 1,Yaw Arhin Senior,guardian193@example.com,+233501200193
+Bernice,Addai,Female,2014-03-27,JHS 2,Bernice Addai Senior,guardian194@example.com,+233501200194
+Samuel,Adu,Male,2010-04-28,JHS 3,Samuel Adu Senior,guardian195@example.com,+233501200195
+Grace,Boadi,Female,2011-05-01,JHS 1,Grace Boadi Senior,guardian196@example.com,+233501200196
+Joseph,Akufo,Male,2012-06-02,JHS 2,Joseph Akufo Senior,guardian197@example.com,+233501200197
+Sandra,Obeng,Female,2013-07-03,JHS 3,Sandra Obeng Senior,guardian198@example.com,+233501200198
+Francis,Antwi,Male,2014-08-04,JHS 1,Francis Antwi Senior,guardian199@example.com,+233501200199
+Christabel,Larbi,Female,2010-09-05,JHS 2,Christabel Larbi Senior,guardian200@example.com,+233501200200
