@@ -238,6 +238,7 @@ def process_payment_confirmation(school_id, plan_name, amount_paid_cedis, refere
         # Update school subscription
         old_plan = school.subscription_plan
         school.subscription_plan = plan_name
+        school.subscription_status = "Active"
         
         # Set next billing date based on billing period
         # Termly billing: approximately 4 months per term (3 terms per year)

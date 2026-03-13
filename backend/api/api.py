@@ -13,7 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from backend import settings as app_settings
-from backend.middleware import limiter
+from backend.middleware import limiter, run_billing_enforcement_sweep
 
 from .models import School, StudentGrade, User, db
 
@@ -193,6 +193,18 @@ def scheduled_send_trial_reminders():
         result = send_trial_reminder_email(days_before_expiry=3)
         import logging
         logging.getLogger(__name__).info(f"Scheduled trial reminder job result: {result}")
+
+
+@scheduler.scheduled_job('cron', hour=3, minute=0, id='billing_enforcement_sweep')
+def scheduled_billing_enforcement_sweep():
+    """Scheduled job to recalculate grace/overdue/suspended billing statuses."""
+    with app.app_context():
+        result = run_billing_enforcement_sweep(commit=True)
+        logging.getLogger(__name__).info(
+            "Scheduled billing enforcement sweep result: checked=%s updated=%s",
+            result.get("checked"),
+            result.get("updated"),
+        )
 
 # Start scheduler if not already running
 if not scheduler.running:

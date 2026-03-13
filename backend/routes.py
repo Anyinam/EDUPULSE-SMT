@@ -123,6 +123,7 @@ from backend.whatsapp_integration import WhatsAppError, send_document_bytes, sen
 from .middleware import (
     check_quota,
     csrf_protect,
+    get_billing_status_info,
     feature_required,
     get_effective_plan,
     limiter,
@@ -1104,6 +1105,7 @@ def login():
                 "assigned_class": user.assigned_class,
                 "school_id": school.id,
                 "subscription_plan": school.subscription_plan,
+                "subscription_status": get_billing_status_info(school).get("status"),
                 "enabled_modules": (
                     school.settings.enabled_modules if school.settings else {}
                 ),
@@ -1380,6 +1382,7 @@ def verify_two_factor():
     )
 
     school = School.query.get(user.school_id)
+    billing_status = get_billing_status_info(school)
     return jsonify(
         {
             "token": access_token,
@@ -1388,6 +1391,7 @@ def verify_two_factor():
             "assigned_class": user.assigned_class,
             "school_id": school.id,
             "subscription_plan": school.subscription_plan,
+            "subscription_status": billing_status.get("status"),
             "enabled_modules": (
                 school.settings.enabled_modules if school.settings else {}
             ),
@@ -10504,6 +10508,11 @@ def get_all_subscription_plans():
 def get_subscription():
     """Get subscription details including feature matrix and termly pricing."""
     school = School.query.get(g.school_id)
+    billing_status = get_billing_status_info(school)
+    if billing_status.get("status_changed"):
+        school.subscription_status = billing_status.get("status")
+        db.session.commit()
+
     current_students = Student.query.filter_by(school_id=g.school_id, status='Active').count()
     current_classes = (
         len(school.academic_classes) if hasattr(school, "academic_classes") else 0
@@ -10536,7 +10545,8 @@ def get_subscription():
         {
             "plan": effective_plan,
             "subscription_plan": effective_plan,  # Explicit alias for clarity
-            "status": school.subscription_status,
+            "status": billing_status.get("status", school.subscription_status),
+            "billing_status": billing_status,
             "next_billing": (
                 school.next_billing_date.strftime("%Y-%m-%d")
                 if school.next_billing_date

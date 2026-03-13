@@ -9,6 +9,7 @@ export default function SubscriptionManager() {
   const [sub, setSub] = useState(null);
   const [billingPeriod, setBillingPeriod] = useState('term');
   const [prorateInfo, setProrateInfo] = useState(null);
+  const [billingRestriction, setBillingRestriction] = useState(null);
 
   useEffect(() => {
     const fetchSub = async () => {
@@ -24,6 +25,23 @@ export default function SubscriptionManager() {
       }
     };
     fetchSub();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('billing') !== 'blocked') {
+      return;
+    }
+
+    try {
+      const raw = sessionStorage.getItem('billing_restriction');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setBillingRestriction(parsed);
+      }
+    } catch (_err) {
+      setBillingRestriction(null);
+    }
   }, []);
 
   // Calculate proration info on mount/plan change
@@ -228,6 +246,17 @@ export default function SubscriptionManager() {
             💡 <strong>Termly Billing:</strong> Schools operate on 3 terms per academic year. We bill per student per term to align with your cash flow.
           </p>
         </div>
+
+        {billingRestriction && (
+          <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-semibold text-amber-900">
+              Billing action required: your account is currently {billingRestriction.status || 'restricted'}.
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Settle outstanding subscription fees below to unlock full platform access.
+            </p>
+          </div>
+        )}
 
         {/* Current Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">

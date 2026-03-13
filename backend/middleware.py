@@ -7,7 +7,7 @@ from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-from backend.api.models import School, User
+from backend.api.models import School, User, db
 from backend.subscription_features import (
     PLAN_FEATURES,
     SUBSCRIPTION_TIERS,
@@ -16,6 +16,157 @@ from backend.subscription_features import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Subscription enforcement windows
+GRACE_PERIOD_DAYS = 7
+OVERDUE_PERIOD_DAYS = 14
+
+# Endpoints that must remain reachable for account recovery/payment.
+BILLING_RECOVERY_PREFIXES = (
+    "/api/school/subscription",
+    "/api/paystack",
+    "/api/payment",
+    "/api/finance/paystack",
+    "/api/help",
+)
+
+
+def _to_utc(dt_value):
+    if dt_value is None:
+        return None
+    if dt_value.tzinfo is None:
+        return dt_value.replace(tzinfo=timezone.utc)
+    return dt_value.astimezone(timezone.utc)
+
+
+def _billing_restriction_payload(status_info, message):
+    return {
+        "message": message,
+        "error": "billing_restriction",
+        "redirect_to": "/proprietor?tab=subscription",
+        "billing_status": status_info,
+    }
+
+
+def is_billing_recovery_path(path):
+    return any(path.startswith(prefix) for prefix in BILLING_RECOVERY_PREFIXES)
+
+
+def get_billing_status_info(school, now=None):
+    """Compute effective billing status from due dates and current school state."""
+    status = (school.subscription_status or "Active").strip().title()
+    now_utc = _to_utc(now or datetime.now(timezone.utc))
+    due_date = _to_utc(school.next_billing_date)
+
+    # Keep manual account deactivation as fully suspended.
+    if not school.is_active:
+        return {
+            "status": "Suspended",
+            "previous_status": status,
+            "status_changed": status != "Suspended",
+            "days_past_due": None,
+            "next_billing_date": due_date.isoformat() if due_date else None,
+            "reason": "account_inactive",
+        }
+
+    # Free tier has no recurring subscription enforcement.
+    if (school.subscription_plan or "Free Tier") == "Free Tier":
+        return {
+            "status": "Active",
+            "previous_status": status,
+            "status_changed": status != "Active",
+            "days_past_due": 0,
+            "next_billing_date": due_date.isoformat() if due_date else None,
+            "reason": "free_tier",
+        }
+
+    if due_date is None:
+        return {
+            "status": "Active",
+            "previous_status": status,
+            "status_changed": status != "Active",
+            "days_past_due": 0,
+            "next_billing_date": None,
+            "reason": "no_due_date",
+        }
+
+    days_past_due = max(0, (now_utc.date() - due_date.date()).days)
+    if days_past_due == 0:
+        computed_status = "Active"
+    elif days_past_due <= GRACE_PERIOD_DAYS:
+        computed_status = "Grace"
+    elif days_past_due <= OVERDUE_PERIOD_DAYS:
+        computed_status = "Overdue"
+    else:
+        computed_status = "Suspended"
+
+    return {
+        "status": computed_status,
+        "previous_status": status,
+        "status_changed": computed_status != status,
+        "days_past_due": days_past_due,
+        "next_billing_date": due_date.isoformat() if due_date else None,
+        "reason": "past_due" if days_past_due > 0 else "current",
+    }
+
+
+def refresh_school_billing_status(school, commit=False):
+    """Persist computed billing status when it changes and return status details."""
+    info = get_billing_status_info(school)
+    if info["status_changed"]:
+        school.subscription_status = info["status"]
+        if commit:
+            db.session.commit()
+    return info
+
+
+def enforce_school_billing_access(school):
+    """Return a Flask response tuple when access must be restricted, else None."""
+    status_info = refresh_school_billing_status(school, commit=True)
+    g.billing_status = status_info
+
+    path = request.path or ""
+    if is_billing_recovery_path(path):
+        return None
+
+    method = (request.method or "GET").upper()
+    status = status_info.get("status")
+
+    # Suspended: lock almost all product access, keep billing flows available.
+    if status == "Suspended":
+        return jsonify(
+            _billing_restriction_payload(
+                status_info,
+                "Subscription is suspended due to unpaid billing. Complete payment to restore access.",
+            )
+        ), 402
+
+    # Overdue: keep read-only access, block state-changing actions.
+    if status == "Overdue" and method in {"POST", "PUT", "PATCH", "DELETE"}:
+        return jsonify(
+            _billing_restriction_payload(
+                status_info,
+                "Account is overdue. Read-only access is enabled until payment is completed.",
+            )
+        ), 402
+
+    return None
+
+
+def run_billing_enforcement_sweep(commit=True):
+    """Recompute billing states for all paid-plan schools (for scheduled jobs)."""
+    schools = School.query.filter(School.subscription_plan != "Free Tier").all()
+    changed = 0
+    for school in schools:
+        status_info = get_billing_status_info(school)
+        if status_info["status_changed"]:
+            school.subscription_status = status_info["status"]
+            changed += 1
+
+    if commit and changed:
+        db.session.commit()
+
+    return {"checked": len(schools), "updated": changed}
 
 # Load rate limit settings
 try:
@@ -50,6 +201,11 @@ def multi_tenant_guard(f):
         # 3. Isolation: Store school context in Flask's global 'g' object
         # This ensures all DB queries are filtered by this ID
         g.school_id = school_id
+
+        restriction = enforce_school_billing_access(school)
+        if restriction:
+            return restriction
+
         return f(*args, **kwargs)
 
     return decorated_function
@@ -107,6 +263,13 @@ def role_required(*allowed_roles):
                     ),
                     403,
                 )
+
+            if not hasattr(g, "billing_status"):
+                school = School.query.get(g.school_id)
+                if school:
+                    restriction = enforce_school_billing_access(school)
+                    if restriction:
+                        return restriction
 
             return f(*args, **kwargs)
 
