@@ -6901,10 +6901,52 @@ def bulk_admit_students():
             return jsonify({"message": "No selected file"}), 400
 
         if file:
-            # Read CSV file from memory
-            # Use utf-8-sig to transparently strip BOM from CSV headers.
-            stream = StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
+            # Read CSV file from memory with BOM-safe decoding.
+            raw_csv_text = file.stream.read().decode("utf-8-sig", errors="replace")
+            raw_csv_text = raw_csv_text.replace("\r\n", "\n").replace("\r", "\n")
+
+            # Recover if unexpected terminal/control noise appears before the CSV header.
+            lines = raw_csv_text.split("\n")
+            header_start_index = 0
+            for i, line in enumerate(lines):
+                lowered = (line or "").lower()
+                if "first_name" in lowered and "surname" in lowered:
+                    header_start_index = i
+                    break
+
+            cleaned_csv_text = "\n".join(lines[header_start_index:])
+            stream = StringIO(cleaned_csv_text, newline=None)
             csv_input = csv.DictReader(stream)
+
+            if not csv_input.fieldnames:
+                return jsonify({"message": "CSV header not found. Please use the template columns."}), 400
+
+            def normalize_csv_key(key):
+                key = (str(key or "").strip().lstrip("\ufeff")).lower()
+                key = re.sub(r"[^a-z0-9_]", "", key)
+
+                aliases = {
+                    "firstname": "first_name",
+                    "lastname": "surname",
+                    "class": "class_assigned",
+                    "classassigned": "class_assigned",
+                    "dateofbirth": "date_of_birth",
+                    "dob": "date_of_birth",
+                    "guardian": "guardian_name",
+                    "guardianname": "guardian_name",
+                    "parentemail": "parent_email",
+                    "parentphone": "parent_phone",
+                    "phone": "parent_phone",
+                    "surname": "surname",
+                    "firstname_": "first_name",
+                }
+                if key in aliases:
+                    return aliases[key]
+                if key.endswith("firstname"):
+                    return "first_name"
+                if key.endswith("lastname"):
+                    return "surname"
+                return key
 
             school = School.query.get(g.school_id)
             limit = get_plan_limits(get_effective_plan(school))
@@ -6927,7 +6969,7 @@ def bulk_admit_students():
             for idx, row in enumerate(csv_input, start=1):
                 # Normalize header keys to tolerate spaces/case/BOM variations.
                 normalized_row = {
-                    (str(k).strip().lstrip("\ufeff").lower() if k is not None else ""): (v or "")
+                    (normalize_csv_key(k) if k is not None else ""): (v or "")
                     for k, v in row.items()
                 }
 
