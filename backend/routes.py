@@ -11496,8 +11496,23 @@ def create_card_setup_link():
 
     from backend.paystack_integration import initialize_payment, PaystackError
 
-    frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
-    callback_url = f"{frontend_url}/payment/callback"
+    configured_frontend = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+    origin = (request.headers.get("Origin") or "").strip().rstrip("/")
+    referer = (request.headers.get("Referer") or "").strip()
+
+    callback_base = configured_frontend
+    if origin.startswith("http://") or origin.startswith("https://"):
+        callback_base = origin
+    elif referer.startswith("http://") or referer.startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(referer)
+            callback_base = f"{parsed.scheme}://{parsed.netloc}"
+        except Exception:
+            callback_base = configured_frontend
+
+    callback_url = f"{callback_base}/payment/callback"
     plan_name = school.subscription_plan if school.subscription_plan and school.subscription_plan != "Free Tier" else "Basic"
 
     try:
