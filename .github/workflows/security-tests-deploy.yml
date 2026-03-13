@@ -173,6 +173,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
     
     steps:
       - uses: actions/checkout@v4
@@ -205,9 +206,17 @@ jobs:
           scan-ref: '.'
           format: 'sarif'
           output: 'trivy-results.sarif'
+
+      - name: Upload Trivy SARIF artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-sarif
+          path: trivy-results.sarif
       
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
         with:
           sarif_file: 'trivy-results.sarif'
 
@@ -317,10 +326,11 @@ jobs:
       - name: Send Slack notification
         uses: 8398a7/action-slack@v3
         if: always() && env.SLACK_WEBHOOK != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ env.SLACK_WEBHOOK }}
         with:
           status: ${{ job.status }}
           text: 'EduPulse CI/CD Pipeline: ${{ job.status }}'
-          webhook_url: ${{ env.SLACK_WEBHOOK }}
           fields: |
             repo,message,commit,author,action,eventName
 
