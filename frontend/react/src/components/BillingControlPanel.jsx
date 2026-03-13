@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, DollarSign, Settings, AlertCircle, CheckCircle } from 'lucide-react';
+import { Shield, DollarSign, Settings, AlertCircle, CheckCircle, Repeat } from 'lucide-react';
 
 /**
  * Billing Control Panel
@@ -16,6 +16,14 @@ export default function BillingControlPanel() {
   const [inputCapAmount, setInputCapAmount] = useState('');
   const [currentCost, setCurrentCost] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [autoBillingEnabled, setAutoBillingEnabled] = useState(false);
+  const [hasAuthorization, setHasAuthorization] = useState(false);
+  const [authorizationMeta, setAuthorizationMeta] = useState({
+    authorization_last4: '',
+    authorization_brand: '',
+    authorization_bank: '',
+    authorization_email: ''
+  });
 
   const fetchPriceCap = async () => {
     try {
@@ -33,6 +41,26 @@ export default function BillingControlPanel() {
       console.error("Failed to fetch price cap:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAutoBilling = async () => {
+    try {
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+      const res = await axios.get('/api/school/subscription/auto-billing', { headers });
+      setAutoBillingEnabled(Boolean(res.data.enabled));
+      setHasAuthorization(Boolean(res.data.has_authorization));
+      setAuthorizationMeta({
+        authorization_last4: res.data.authorization_last4 || '',
+        authorization_brand: res.data.authorization_brand || '',
+        authorization_bank: res.data.authorization_bank || '',
+        authorization_email: res.data.authorization_email || ''
+      });
+    } catch (err) {
+      console.error('Failed to fetch auto-billing settings:', err);
     }
   };
 
@@ -75,8 +103,34 @@ export default function BillingControlPanel() {
     }
   };
 
+  const handleSaveAutoBilling = async () => {
+    if (autoBillingEnabled && !hasAuthorization) {
+      alert('⚠️ No reusable payment authorization found yet. Complete at least one successful card payment first, then enable auto-billing.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+      await axios.post('/api/school/subscription/auto-billing', {
+        enabled: autoBillingEnabled
+      }, { headers });
+      alert('✅ Auto-billing settings saved successfully!');
+      await fetchAutoBilling();
+    } catch (err) {
+      console.error('Failed to save auto-billing settings:', err);
+      alert('❌ Failed to save auto-billing settings. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchPriceCap();
+    fetchAutoBilling();
   }, []);
 
   if (loading) {
@@ -103,6 +157,60 @@ export default function BillingControlPanel() {
 
       {/* Price Cap Section */}
       <div className="space-y-4">
+        <div className="bg-linear-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 p-5 rounded-xl">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Repeat className="text-emerald-700" size={20} />
+                <h4 className="font-bold text-emerald-900">Automatic Term Billing</h4>
+              </div>
+              <p className="text-sm text-emerald-800">
+                Automatically charge term subscription fees using your saved reusable card authorization.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setAutoBillingEnabled(!autoBillingEnabled)}
+              className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
+                autoBillingEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+              }`}
+            >
+              <span
+                className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                  autoBillingEnabled ? 'translate-x-7' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className={`p-3 rounded-lg border ${hasAuthorization ? 'bg-white border-emerald-200' : 'bg-amber-50 border-amber-300'}`}>
+            {hasAuthorization ? (
+              <div className="text-sm text-emerald-900">
+                <p className="font-semibold mb-1">Reusable authorization detected</p>
+                <p className="text-xs text-emerald-800">
+                  {authorizationMeta.authorization_brand || 'Card'} •••• {authorizationMeta.authorization_last4 || '----'}
+                  {authorizationMeta.authorization_bank ? ` (${authorizationMeta.authorization_bank})` : ''}
+                </p>
+                {authorizationMeta.authorization_email && (
+                  <p className="text-xs text-emerald-700 mt-1">Billing email: {authorizationMeta.authorization_email}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-amber-900 font-semibold">
+                No reusable authorization saved yet. Complete one successful card payment first.
+              </p>
+            )}
+          </div>
+
+          <button
+            onClick={handleSaveAutoBilling}
+            disabled={saving}
+            className="w-full mt-3 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white rounded-xl font-bold transition-colors"
+          >
+            Save Auto-Billing Settings
+          </button>
+        </div>
+
         <div className="bg-linear-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 p-5 rounded-xl">
           <div className="flex items-start justify-between mb-4">
             <div>

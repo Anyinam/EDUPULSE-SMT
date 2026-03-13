@@ -269,7 +269,13 @@ export default function BillingVisibility() {
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-2 mb-4">
           <DollarSign className="text-green-600" size={20} />
-          <h3 className="text-lg font-bold text-slate-800">Current Term Billing</h3>
+          <h3 className="text-lg font-bold text-slate-800">Billing Projection</h3>
+        </div>
+
+        <div className="mb-4 bg-blue-50 border border-blue-200 p-3 rounded-lg">
+          <p className="text-xs text-blue-800">
+            Signup for paid plans charges only the base fee. Overage is calculated from actual active students and billed later in your subscription cycle.
+          </p>
         </div>
 
         <div className="space-y-3">
@@ -319,8 +325,8 @@ export default function BillingVisibility() {
           {/* Total */}
           <div className="flex items-center justify-between pt-2">
             <div>
-              <p className="text-base font-bold text-slate-800">Total This Term</p>
-              <p className="text-xs text-slate-500">Billed at end of term</p>
+              <p className="text-base font-bold text-slate-800">Projected Total Due</p>
+              <p className="text-xs text-slate-500">Based on current active student usage</p>
             </div>
             <p className="text-2xl font-black text-blue-600">
               GH₵ {(cost_breakdown?.total_due || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}

@@ -183,6 +183,33 @@ def log_system_action(school_id, action, details):
     db.session.commit()
 
 
+def _auto_billing_setting_key(school_id):
+    return f"auto_billing:{school_id}"
+
+
+def _get_auto_billing_config(school_id):
+    setting = PlatformSetting.query.filter_by(
+        setting_key=_auto_billing_setting_key(school_id)
+    ).first()
+    return setting.setting_value if setting and isinstance(setting.setting_value, dict) else {}
+
+
+def _upsert_auto_billing_config(school_id, config):
+    setting = PlatformSetting.query.filter_by(
+        setting_key=_auto_billing_setting_key(school_id)
+    ).first()
+    if not setting:
+        setting = PlatformSetting(
+            setting_key=_auto_billing_setting_key(school_id),
+            setting_value=config,
+        )
+        db.session.add(setting)
+    else:
+        setting.setting_value = config
+    db.session.commit()
+    return setting.setting_value
+
+
 def calculate_prorated_admission_charge(school, num_new_students, effective_plan):
     """
     Calculate and process pro-rated charges for mid-term student admissions.
@@ -10852,6 +10879,47 @@ def manage_price_cap():
         }), 200
 
 
+@api.route("/school/subscription/auto-billing", methods=["GET", "POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def manage_auto_billing():
+    """Get or update auto-billing preference for subscription renewals."""
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    config = _get_auto_billing_config(g.school_id)
+
+    if request.method == "GET":
+        return jsonify(
+            {
+                "enabled": bool(config.get("enabled", False)),
+                "has_authorization": bool(config.get("authorization_code")),
+                "authorization_last4": config.get("authorization_last4"),
+                "authorization_brand": config.get("authorization_brand"),
+                "authorization_bank": config.get("authorization_bank"),
+                "authorization_email": config.get("customer_email"),
+                "updated_at": config.get("updated_at"),
+            }
+        ), 200
+
+    data = request.get_json(silent=True) or {}
+    enabled = bool(data.get("enabled", False))
+    config["enabled"] = enabled
+    config["updated_at"] = get_utc_now().isoformat()
+    saved = _upsert_auto_billing_config(g.school_id, config)
+
+    return jsonify(
+        {
+            "message": "Auto-billing settings updated",
+            "enabled": bool(saved.get("enabled", False)),
+            "has_authorization": bool(saved.get("authorization_code")),
+            "updated_at": saved.get("updated_at"),
+        }
+    ), 200
+
+
 @api.route("/school/terms", methods=["GET"])
 @multi_tenant_guard
 @jwt_required()
@@ -11133,33 +11201,72 @@ def activate_academic_term(term_id):
                             from datetime import datetime
                             invoice_number = f"INV-{g.school_id}-{term.id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
                             
-                            # Initialize Paystack payment
-                            from backend.paystack_integration import initialize_termly_payment, PaystackError
+                            # Attempt auto-charge first; fallback to payment link.
+                            from backend.paystack_integration import (
+                                initialize_termly_payment,
+                                charge_authorization,
+                                PaystackError,
+                            )
                             
                             try:
-                                payment_result = initialize_termly_payment(
-                                    email=proprietor.email,
-                                    plan_name=effective_plan,
-                                    school_id=g.school_id,
-                                    num_students=num_students,
-                                    academic_term_id=term.id
-                                )
-                                
-                                payment_link = payment_result['authorization_url']
-                                reference = payment_result['reference']
-                                
-                                # Create ledger entry for tracking
                                 billing_due_date = term.billing_due_date or (term.end_date if term.end_date else None)
-                                
-                                ledger_entry = LedgerEntry(
-                                    school_id=g.school_id,
-                                    tx_type="subscription",
-                                    tx_ref=reference,
-                                    description=f"Subscription fee for {term.name} {term.academic_year}",
-                                    amount=term_cost,
-                                    status="Pending"
-                                )
-                                db.session.add(ledger_entry)
+                                auto_cfg = _get_auto_billing_config(g.school_id)
+                                auto_enabled = bool(auto_cfg.get("enabled", False))
+                                auto_auth_code = auto_cfg.get("authorization_code")
+                                auto_email = auto_cfg.get("customer_email") or proprietor.email
+
+                                if auto_enabled and auto_auth_code and auto_email:
+                                    auto_result = charge_authorization(
+                                        email=auto_email,
+                                        amount_cents=int(round(term_cost * 100)),
+                                        authorization_code=auto_auth_code,
+                                        metadata={
+                                            "school_id": g.school_id,
+                                            "plan_name": effective_plan,
+                                            "billing_type": "termly_auto",
+                                            "academic_term_id": term.id,
+                                            "num_students": num_students,
+                                            "term_name": term.name,
+                                            "academic_year": term.academic_year,
+                                        },
+                                    )
+
+                                    reference = auto_result.get("reference") or f"AUTO-{g.school_id}-{term.id}-{int(time.time())}"
+                                    ledger_entry = LedgerEntry(
+                                        school_id=g.school_id,
+                                        tx_type="subscription",
+                                        tx_ref=reference,
+                                        description=f"Auto-billed subscription for {term.name} {term.academic_year}",
+                                        amount=term_cost,
+                                        status="Completed",
+                                    )
+                                    db.session.add(ledger_entry)
+                                    payment_link = None
+                                    billing_initiated = True
+                                    logger.info(
+                                        f"Auto-billing successful for school {g.school_id}: ₵{term_cost} ({reference})"
+                                    )
+                                else:
+                                    payment_result = initialize_termly_payment(
+                                        email=proprietor.email,
+                                        plan_name=effective_plan,
+                                        school_id=g.school_id,
+                                        num_students=num_students,
+                                        academic_term_id=term.id
+                                    )
+
+                                    payment_link = payment_result['authorization_url']
+                                    reference = payment_result['reference']
+
+                                    ledger_entry = LedgerEntry(
+                                        school_id=g.school_id,
+                                        tx_type="subscription",
+                                        tx_ref=reference,
+                                        description=f"Subscription fee for {term.name} {term.academic_year}",
+                                        amount=term_cost,
+                                        status="Pending"
+                                    )
+                                    db.session.add(ledger_entry)
                                 
                                 # Update school next_billing_date
                                 if billing_due_date:
@@ -12356,6 +12463,24 @@ def paystack_verify_payment(reference):
                 reference=reference,
                 metadata=metadata
             )
+
+            authorization = transaction.get("authorization") or {}
+            if authorization.get("reusable") and authorization.get("authorization_code"):
+                auto_cfg = _get_auto_billing_config(school.id)
+                auto_cfg.update(
+                    {
+                        "authorization_code": authorization.get("authorization_code"),
+                        "authorization_last4": authorization.get("last4"),
+                        "authorization_brand": authorization.get("brand"),
+                        "authorization_bank": authorization.get("bank"),
+                        "customer_email": transaction.get("customer", {}).get("email")
+                        or user.email,
+                        "updated_at": get_utc_now().isoformat(),
+                        # Keep existing preference unless explicitly changed by user.
+                        "enabled": bool(auto_cfg.get("enabled", False)),
+                    }
+                )
+                _upsert_auto_billing_config(school.id, auto_cfg)
 
             onboarding_flow = metadata.get("onboarding_flow")
             if onboarding_flow == "registration":

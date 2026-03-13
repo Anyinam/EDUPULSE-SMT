@@ -109,6 +109,56 @@ def initialize_payment(email, amount_cents, plan_name, school_id, metadata=None)
         raise PaystackError(error_msg)
 
 
+def charge_authorization(email, amount_cents, authorization_code, metadata=None):
+    """Charge a saved/reusable Paystack authorization token."""
+    if not PAYSTACK_SECRET_KEY:
+        raise PaystackError("PAYSTACK_SECRET_KEY not configured")
+
+    header = {
+        "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "email": email,
+        "amount": amount_cents,
+        "authorization_code": authorization_code,
+        "metadata": metadata or {},
+    }
+
+    try:
+        response = requests.post(
+            f"{PAYSTACK_BASE_URL}/transaction/charge_authorization",
+            json=payload,
+            headers=header,
+            timeout=10,
+        )
+
+        if response.status_code not in [200, 201]:
+            error_msg = f"Paystack API error: {response.status_code} - {response.text}"
+            logger.error(error_msg)
+            raise PaystackError(error_msg)
+
+        data = response.json()
+        if not data.get("status"):
+            error_msg = f"Paystack error: {data.get('message', 'Unknown error')}"
+            logger.error(error_msg)
+            raise PaystackError(error_msg)
+
+        tx = data.get("data", {})
+        tx_status = tx.get("status")
+        if tx_status != "success":
+            raise PaystackError(f"Charge authorization returned non-success status: {tx_status}")
+
+        logger.info(f"Auto-charge successful: reference={tx.get('reference')}")
+        return tx
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error charging authorization with Paystack: {str(e)}"
+        logger.error(error_msg)
+        raise PaystackError(error_msg)
+
+
 def verify_payment(reference):
     """
     Verify a payment transaction with Paystack.
