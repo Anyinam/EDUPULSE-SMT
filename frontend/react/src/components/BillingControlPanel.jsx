@@ -173,7 +173,7 @@ export default function BillingControlPanel() {
     setCardActionLoading(true);
     try {
       const res = await axios.post('/api/school/subscription/cards/setup-link', {
-        amount_cedis: 1
+        amount_cedis: 5
       }, { headers: getHeaders() });
 
       const checkoutUrl = res.data.authorization_url;
@@ -184,7 +184,8 @@ export default function BillingControlPanel() {
       window.location.href = checkoutUrl;
     } catch (err) {
       console.error('Failed to initialize card setup:', err);
-      alert('❌ Failed to start card setup. Please try again.');
+      const msg = err.response?.data?.message || 'Failed to start card setup. Please try again.';
+      alert(`❌ ${msg}`);
     } finally {
       setCardActionLoading(false);
     }
@@ -363,7 +364,7 @@ export default function BillingControlPanel() {
           </button>
 
           <p className="mt-2 text-[11px] text-emerald-900">
-            Add/replace card uses a secure Paystack checkout with a small verification amount (GH₵1) to store reusable authorization.
+            Add/replace card uses secure Paystack checkout with a small verification amount (GH₵5) to store reusable authorization.
           </p>
         </div>
 

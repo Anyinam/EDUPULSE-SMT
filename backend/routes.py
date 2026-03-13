@@ -11490,9 +11490,9 @@ def create_card_setup_link():
         return jsonify({"message": "Proprietor email not found"}), 400
 
     payload = request.get_json(silent=True) or {}
-    setup_amount = float(payload.get("amount_cedis") or 1.0)
-    if setup_amount <= 0:
-        return jsonify({"message": "amount_cedis must be greater than 0"}), 400
+    setup_amount = float(payload.get("amount_cedis") or 5.0)
+    if setup_amount < 1:
+        return jsonify({"message": "amount_cedis must be at least 1.00"}), 400
 
     from backend.paystack_integration import initialize_payment, PaystackError
 

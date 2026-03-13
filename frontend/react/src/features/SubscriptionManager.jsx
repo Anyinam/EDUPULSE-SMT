@@ -214,7 +214,7 @@ export default function SubscriptionManager() {
     },
     {
       name: 'Premium',
-      price: 27,
+      price: 17,
       baseFee: premiumBaseFee,
       included: premiumIncluded,
       overage: premiumOverage,
