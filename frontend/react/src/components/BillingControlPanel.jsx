@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, DollarSign, Settings, AlertCircle, CheckCircle, Repeat } from 'lucide-react';
+import { Shield, DollarSign, Settings, AlertCircle, CheckCircle, Repeat, CreditCard, Trash2, Plus, Star } from 'lucide-react';
 
 /**
  * Billing Control Panel
@@ -16,8 +16,11 @@ export default function BillingControlPanel() {
   const [inputCapAmount, setInputCapAmount] = useState('');
   const [currentCost, setCurrentCost] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [cardActionLoading, setCardActionLoading] = useState(false);
   const [autoBillingEnabled, setAutoBillingEnabled] = useState(false);
   const [hasAuthorization, setHasAuthorization] = useState(false);
+  const [cards, setCards] = useState([]);
+  const [defaultCardId, setDefaultCardId] = useState('');
   const [authorizationMeta, setAuthorizationMeta] = useState({
     authorization_last4: '',
     authorization_brand: '',
@@ -53,6 +56,8 @@ export default function BillingControlPanel() {
       const res = await axios.get('/api/school/subscription/auto-billing', { headers });
       setAutoBillingEnabled(Boolean(res.data.enabled));
       setHasAuthorization(Boolean(res.data.has_authorization));
+      setCards(res.data.cards || []);
+      setDefaultCardId(res.data.default_card_id || '');
       setAuthorizationMeta({
         authorization_last4: res.data.authorization_last4 || '',
         authorization_brand: res.data.authorization_brand || '',
@@ -125,6 +130,80 @@ export default function BillingControlPanel() {
       alert('❌ Failed to save auto-billing settings. Please try again.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const getHeaders = () => ({
+    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+    'X-School-ID': localStorage.getItem('school_id')
+  });
+
+  const handleSetDefaultCard = async (cardId) => {
+    setCardActionLoading(true);
+    try {
+      await axios.post('/api/school/subscription/cards/default', { card_id: cardId }, { headers: getHeaders() });
+      await fetchAutoBilling();
+      alert('✅ Default card updated successfully.');
+    } catch (err) {
+      console.error('Failed to set default card:', err);
+      alert('❌ Failed to update default card. Please try again.');
+    } finally {
+      setCardActionLoading(false);
+    }
+  };
+
+  const handleRemoveCard = async (cardId) => {
+    const confirmDelete = window.confirm('Remove this saved card from recurring billing?');
+    if (!confirmDelete) return;
+
+    setCardActionLoading(true);
+    try {
+      await axios.delete(`/api/school/subscription/cards/${cardId}`, { headers: getHeaders() });
+      await fetchAutoBilling();
+      alert('✅ Card removed successfully.');
+    } catch (err) {
+      console.error('Failed to remove card:', err);
+      alert('❌ Failed to remove card. Please try again.');
+    } finally {
+      setCardActionLoading(false);
+    }
+  };
+
+  const handleAddCard = async () => {
+    setCardActionLoading(true);
+    try {
+      const res = await axios.post('/api/school/subscription/cards/setup-link', {
+        amount_cedis: 1
+      }, { headers: getHeaders() });
+
+      const checkoutUrl = res.data.authorization_url;
+      if (!checkoutUrl) {
+        alert('❌ Failed to get Paystack card setup link.');
+        return;
+      }
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      console.error('Failed to initialize card setup:', err);
+      alert('❌ Failed to start card setup. Please try again.');
+    } finally {
+      setCardActionLoading(false);
+    }
+  };
+
+  const handleUnsubscribeAutoBilling = async () => {
+    const confirmUnsubscribe = window.confirm('Disable recurring auto-billing now? You can enable it again anytime.');
+    if (!confirmUnsubscribe) return;
+
+    setCardActionLoading(true);
+    try {
+      await axios.post('/api/school/subscription/auto-billing/unsubscribe', {}, { headers: getHeaders() });
+      await fetchAutoBilling();
+      alert('✅ Recurring auto-billing disabled.');
+    } catch (err) {
+      console.error('Failed to unsubscribe auto-billing:', err);
+      alert('❌ Failed to disable recurring auto-billing.');
+    } finally {
+      setCardActionLoading(false);
     }
   };
 
@@ -202,6 +281,71 @@ export default function BillingControlPanel() {
             )}
           </div>
 
+          <div className="mt-3 bg-white border border-emerald-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-emerald-900">Saved Billing Cards</p>
+              <button
+                onClick={handleAddCard}
+                disabled={cardActionLoading}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold"
+              >
+                <Plus size={14} />
+                Add New Card
+              </button>
+            </div>
+
+            {cards.length === 0 ? (
+              <p className="text-xs text-slate-600">
+                No saved cards yet. Add a card to enable recurring pay-as-you-go billing.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {cards.map((card) => {
+                  const isDefault = card.card_id === defaultCardId || card.is_default;
+                  return (
+                    <div key={card.card_id} className="border border-slate-200 rounded-lg p-2.5 bg-slate-50">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CreditCard size={14} className="text-slate-600" />
+                          <p className="text-xs font-semibold text-slate-800">
+                            {card.brand || 'Card'} •••• {card.last4 || '----'}
+                            {card.bank ? ` (${card.bank})` : ''}
+                          </p>
+                        </div>
+                        {isDefault && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                            <Star size={10} />
+                            Default
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        {!isDefault && (
+                          <button
+                            onClick={() => handleSetDefaultCard(card.card_id)}
+                            disabled={cardActionLoading}
+                            className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-[11px] font-semibold"
+                          >
+                            Set Default
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleRemoveCard(card.card_id)}
+                          disabled={cardActionLoading}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white text-[11px] font-semibold"
+                        >
+                          <Trash2 size={12} />
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleSaveAutoBilling}
             disabled={saving}
@@ -209,6 +353,18 @@ export default function BillingControlPanel() {
           >
             Save Auto-Billing Settings
           </button>
+
+          <button
+            onClick={handleUnsubscribeAutoBilling}
+            disabled={cardActionLoading}
+            className="w-full mt-2 py-2.5 bg-white border border-rose-300 hover:bg-rose-50 disabled:bg-slate-100 disabled:text-slate-400 text-rose-700 rounded-xl font-bold transition-colors"
+          >
+            Unsubscribe Auto-Billing
+          </button>
+
+          <p className="mt-2 text-[11px] text-emerald-900">
+            Add/replace card uses a secure Paystack checkout with a small verification amount (GH₵1) to store reusable authorization.
+          </p>
         </div>
 
         <div className="bg-linear-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 p-5 rounded-xl">

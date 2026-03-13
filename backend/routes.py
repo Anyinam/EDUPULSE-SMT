@@ -211,6 +211,180 @@ def _upsert_auto_billing_config(school_id, config):
     return setting.setting_value
 
 
+def _sanitize_saved_card(card):
+    return {
+        "card_id": card.get("card_id"),
+        "last4": card.get("last4"),
+        "brand": card.get("brand"),
+        "bank": card.get("bank"),
+        "exp_month": card.get("exp_month"),
+        "exp_year": card.get("exp_year"),
+        "channel": card.get("channel"),
+        "customer_email": card.get("customer_email"),
+        "is_default": bool(card.get("is_default", False)),
+        "added_at": card.get("added_at"),
+        "updated_at": card.get("updated_at"),
+    }
+
+
+def _get_card_fingerprint(card):
+    return (
+        sanitize_string(card.get("signature") or "")
+        or sanitize_string(card.get("authorization_code") or "")
+    )
+
+
+def _sync_legacy_card_fields(config):
+    cards = config.get("cards") if isinstance(config.get("cards"), list) else []
+    default_card = next((c for c in cards if c.get("is_default")), cards[0] if cards else None)
+
+    if default_card:
+        config["authorization_code"] = default_card.get("authorization_code")
+        config["authorization_last4"] = default_card.get("last4")
+        config["authorization_brand"] = default_card.get("brand")
+        config["authorization_bank"] = default_card.get("bank")
+        config["customer_email"] = default_card.get("customer_email")
+        config["default_card_id"] = default_card.get("card_id")
+    else:
+        config["authorization_code"] = None
+        config["authorization_last4"] = None
+        config["authorization_brand"] = None
+        config["authorization_bank"] = None
+        config["default_card_id"] = None
+
+    return config
+
+
+def _normalize_auto_billing_config(config):
+    normalized = config if isinstance(config, dict) else {}
+    cards = normalized.get("cards")
+    if not isinstance(cards, list):
+        cards = []
+
+    # Migrate legacy single-card storage into cards array.
+    if normalized.get("authorization_code"):
+        legacy_fp = sanitize_string(normalized.get("authorization_code"))
+        exists = any(
+            sanitize_string(c.get("authorization_code") or "") == legacy_fp
+            for c in cards
+        )
+        if not exists:
+            cards.append(
+                {
+                    "card_id": hashlib.sha256(legacy_fp.encode("utf-8")).hexdigest()[:24],
+                    "authorization_code": normalized.get("authorization_code"),
+                    "last4": normalized.get("authorization_last4"),
+                    "brand": normalized.get("authorization_brand"),
+                    "bank": normalized.get("authorization_bank"),
+                    "customer_email": normalized.get("customer_email"),
+                    "is_default": True,
+                    "added_at": normalized.get("updated_at") or get_utc_now().isoformat(),
+                    "updated_at": normalized.get("updated_at") or get_utc_now().isoformat(),
+                }
+            )
+
+    deduped = []
+    seen = set()
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        fp = _get_card_fingerprint(card)
+        if not fp:
+            continue
+        if fp in seen:
+            continue
+        seen.add(fp)
+        deduped.append(card)
+
+    default_card_id = normalized.get("default_card_id")
+    default_present = bool(
+        default_card_id and any(c.get("card_id") == default_card_id for c in deduped)
+    )
+
+    for index, card in enumerate(deduped):
+        if not card.get("card_id"):
+            fp = _get_card_fingerprint(card)
+            card["card_id"] = hashlib.sha256(fp.encode("utf-8")).hexdigest()[:24]
+        if "added_at" not in card:
+            card["added_at"] = get_utc_now().isoformat()
+        if "updated_at" not in card:
+            card["updated_at"] = card.get("added_at") or get_utc_now().isoformat()
+
+        if default_present:
+            card["is_default"] = card.get("card_id") == default_card_id
+        else:
+            card["is_default"] = index == 0
+
+    normalized["cards"] = deduped
+    normalized = _sync_legacy_card_fields(normalized)
+    return normalized
+
+
+def _get_default_saved_card(config):
+    normalized = _normalize_auto_billing_config(config)
+    cards = normalized.get("cards") or []
+    return next((c for c in cards if c.get("is_default")), cards[0] if cards else None)
+
+
+def _save_reusable_authorization(school_id, authorization, customer_email):
+    if not isinstance(authorization, dict):
+        return None
+    auth_code = sanitize_string(authorization.get("authorization_code") or "")
+    if not auth_code:
+        return None
+    if not authorization.get("reusable"):
+        return None
+
+    config = _normalize_auto_billing_config(_get_auto_billing_config(school_id))
+    cards = config.get("cards") or []
+    signature = sanitize_string(authorization.get("signature") or "")
+    fingerprint = signature or auth_code
+    card_id = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:24]
+
+    payload = {
+        "card_id": card_id,
+        "authorization_code": auth_code,
+        "last4": authorization.get("last4"),
+        "brand": authorization.get("brand"),
+        "bank": authorization.get("bank"),
+        "exp_month": authorization.get("exp_month"),
+        "exp_year": authorization.get("exp_year"),
+        "channel": authorization.get("channel"),
+        "signature": signature,
+        "customer_email": customer_email,
+        "is_default": False,
+        "added_at": get_utc_now().isoformat(),
+        "updated_at": get_utc_now().isoformat(),
+    }
+
+    existing_idx = None
+    for idx, card in enumerate(cards):
+        if not isinstance(card, dict):
+            continue
+        same_signature = signature and sanitize_string(card.get("signature") or "") == signature
+        same_auth = sanitize_string(card.get("authorization_code") or "") == auth_code
+        if same_signature or same_auth:
+            existing_idx = idx
+            break
+
+    if existing_idx is not None:
+        previous = cards[existing_idx]
+        payload["added_at"] = previous.get("added_at") or payload["added_at"]
+        payload["is_default"] = bool(previous.get("is_default", False))
+        cards[existing_idx] = payload
+    else:
+        if not cards:
+            payload["is_default"] = True
+        cards.append(payload)
+
+    config["cards"] = cards
+    config["updated_at"] = get_utc_now().isoformat()
+    config = _normalize_auto_billing_config(config)
+    saved = _upsert_auto_billing_config(school_id, config)
+    saved = _normalize_auto_billing_config(saved)
+    return next((c for c in (saved.get("cards") or []) if c.get("card_id") == card_id), None)
+
+
 def calculate_prorated_admission_charge(school, num_new_students, effective_plan):
     """
     Calculate and process pro-rated charges for mid-term student admissions.
@@ -10899,9 +11073,10 @@ def manage_auto_billing():
     if not school:
         return jsonify({"message": "School not found"}), 404
 
-    config = _get_auto_billing_config(g.school_id)
+    config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
 
     if request.method == "GET":
+        cards = config.get("cards") or []
         return jsonify(
             {
                 "enabled": bool(config.get("enabled", False)),
@@ -10910,6 +11085,9 @@ def manage_auto_billing():
                 "authorization_brand": config.get("authorization_brand"),
                 "authorization_bank": config.get("authorization_bank"),
                 "authorization_email": config.get("customer_email"),
+                "default_card_id": config.get("default_card_id"),
+                "cards": [_sanitize_saved_card(c) for c in cards],
+                "cards_count": len(cards),
                 "updated_at": config.get("updated_at"),
             }
         ), 200
@@ -10918,16 +11096,198 @@ def manage_auto_billing():
     enabled = bool(data.get("enabled", False))
     config["enabled"] = enabled
     config["updated_at"] = get_utc_now().isoformat()
-    saved = _upsert_auto_billing_config(g.school_id, config)
+    saved = _normalize_auto_billing_config(_upsert_auto_billing_config(g.school_id, config))
 
     return jsonify(
         {
             "message": "Auto-billing settings updated",
             "enabled": bool(saved.get("enabled", False)),
             "has_authorization": bool(saved.get("authorization_code")),
+            "default_card_id": saved.get("default_card_id"),
+            "cards": [_sanitize_saved_card(c) for c in (saved.get("cards") or [])],
             "updated_at": saved.get("updated_at"),
         }
     ), 200
+
+
+@api.route("/school/subscription/auto-billing/unsubscribe", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def unsubscribe_auto_billing():
+    """Disable recurring auto-billing while keeping saved cards for future re-enable."""
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
+    config["enabled"] = False
+    config["updated_at"] = get_utc_now().isoformat()
+    saved = _normalize_auto_billing_config(_upsert_auto_billing_config(g.school_id, config))
+
+    return jsonify(
+        {
+            "message": "Recurring auto-billing disabled successfully.",
+            "enabled": bool(saved.get("enabled", False)),
+            "cards_count": len(saved.get("cards") or []),
+            "can_reenable_anytime": True,
+        }
+    ), 200
+
+
+@api.route("/school/subscription/cards", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def list_saved_cards():
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
+    cards = config.get("cards") or []
+
+    return jsonify(
+        {
+            "cards": [_sanitize_saved_card(c) for c in cards],
+            "default_card_id": config.get("default_card_id"),
+            "cards_count": len(cards),
+            "enabled": bool(config.get("enabled", False)),
+        }
+    ), 200
+
+
+@api.route("/school/subscription/cards/default", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def set_default_saved_card():
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    card_id = sanitize_string(data.get("card_id") or "")
+    if not card_id:
+        return jsonify({"message": "card_id is required"}), 400
+
+    config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
+    cards = config.get("cards") or []
+    if not cards:
+        return jsonify({"message": "No saved cards available"}), 400
+
+    found = False
+    for card in cards:
+        is_default = card.get("card_id") == card_id
+        card["is_default"] = is_default
+        if is_default:
+            card["updated_at"] = get_utc_now().isoformat()
+            found = True
+
+    if not found:
+        return jsonify({"message": "Card not found"}), 404
+
+    config["cards"] = cards
+    config["updated_at"] = get_utc_now().isoformat()
+    saved = _normalize_auto_billing_config(_upsert_auto_billing_config(g.school_id, config))
+
+    return jsonify(
+        {
+            "message": "Default billing card updated",
+            "default_card_id": saved.get("default_card_id"),
+            "cards": [_sanitize_saved_card(c) for c in (saved.get("cards") or [])],
+        }
+    ), 200
+
+
+@api.route("/school/subscription/cards/<card_id>", methods=["DELETE"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def remove_saved_card(card_id):
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    card_id = sanitize_string(card_id or "")
+    if not card_id:
+        return jsonify({"message": "Invalid card id"}), 400
+
+    config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
+    cards = config.get("cards") or []
+    retained = [c for c in cards if c.get("card_id") != card_id]
+
+    if len(retained) == len(cards):
+        return jsonify({"message": "Card not found"}), 404
+
+    if not retained:
+        config["enabled"] = False
+
+    config["cards"] = retained
+    config["updated_at"] = get_utc_now().isoformat()
+    saved = _normalize_auto_billing_config(_upsert_auto_billing_config(g.school_id, config))
+
+    return jsonify(
+        {
+            "message": "Card removed successfully",
+            "cards": [_sanitize_saved_card(c) for c in (saved.get("cards") or [])],
+            "default_card_id": saved.get("default_card_id"),
+            "enabled": bool(saved.get("enabled", False)),
+        }
+    ), 200
+
+
+@api.route("/school/subscription/cards/setup-link", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor")
+def create_card_setup_link():
+    """Create a Paystack checkout link to securely add or replace billing card authorization."""
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    proprietor = User.query.filter_by(school_id=g.school_id, role="proprietor").first()
+    if not proprietor or not proprietor.email:
+        return jsonify({"message": "Proprietor email not found"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    setup_amount = float(payload.get("amount_cedis") or 1.0)
+    if setup_amount <= 0:
+        return jsonify({"message": "amount_cedis must be greater than 0"}), 400
+
+    from backend.paystack_integration import initialize_payment, PaystackError
+
+    frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+    callback_url = f"{frontend_url}/payment/callback"
+    plan_name = school.subscription_plan if school.subscription_plan and school.subscription_plan != "Free Tier" else "Basic"
+
+    try:
+        result = initialize_payment(
+            email=proprietor.email,
+            amount_cents=int(round(setup_amount * 100)),
+            plan_name=plan_name,
+            school_id=g.school_id,
+            metadata={
+                "callback_url": callback_url,
+                "card_setup_only": True,
+                "transaction_type": "card_setup",
+                "skip_subscription_update": True,
+                "school_id": g.school_id,
+            },
+        )
+
+        return jsonify(
+            {
+                "message": "Card setup link generated",
+                "authorization_url": result.get("authorization_url"),
+                "reference": result.get("reference"),
+                "setup_amount_cedis": round(setup_amount, 2),
+                "note": "This payment method will be saved for future pay-as-you-go recurring billing.",
+            }
+        ), 200
+    except PaystackError as err:
+        return jsonify({"message": f"Failed to initialize card setup: {str(err)}"}), 500
 
 
 @api.route("/school/terms", methods=["GET"])
@@ -11220,10 +11580,11 @@ def activate_academic_term(term_id):
                             
                             try:
                                 billing_due_date = term.billing_due_date or (term.end_date if term.end_date else None)
-                                auto_cfg = _get_auto_billing_config(g.school_id)
+                                auto_cfg = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
                                 auto_enabled = bool(auto_cfg.get("enabled", False))
-                                auto_auth_code = auto_cfg.get("authorization_code")
-                                auto_email = auto_cfg.get("customer_email") or proprietor.email
+                                default_card = _get_default_saved_card(auto_cfg)
+                                auto_auth_code = (default_card or {}).get("authorization_code")
+                                auto_email = (default_card or {}).get("customer_email") or proprietor.email
 
                                 if auto_enabled and auto_auth_code and auto_email:
                                     auto_result = charge_authorization(
@@ -12460,37 +12821,51 @@ def paystack_verify_payment(reference):
             # Extract plan info from metadata
             metadata = transaction.get('metadata', {})
             plan_name = metadata.get('plan_name')
+            card_setup_only = bool(metadata.get("card_setup_only") or metadata.get("skip_subscription_update"))
             
-            if not plan_name:
+            if not plan_name and not card_setup_only:
                 return jsonify({"message": "Invalid transaction metadata"}), 400
-            
-            # Process the payment and update subscription
+
             amount_paid = transaction.get('amount', 0) / 100  # Convert pesewas to Cedis
+
+            if card_setup_only:
+                authorization = transaction.get("authorization") or {}
+                saved_card = _save_reusable_authorization(
+                    school.id,
+                    authorization,
+                    transaction.get("customer", {}).get("email") or user.email,
+                )
+
+                if not saved_card:
+                    return jsonify({"message": "Payment succeeded but no reusable card authorization was returned."}), 200
+
+                return jsonify(
+                    {
+                        "status": "success",
+                        "message": "Card saved successfully for recurring pay-as-you-go billing.",
+                        "data": {
+                            "amount_paid": amount_paid,
+                            "card": _sanitize_saved_card(saved_card),
+                        },
+                    }
+                ), 200
+
+            # Process the payment and update subscription
             result = process_payment_confirmation(
-                school.id, 
-                plan_name, 
-                amount_paid, 
+                school.id,
+                plan_name,
+                amount_paid,
                 reference=reference,
                 metadata=metadata
             )
 
             authorization = transaction.get("authorization") or {}
             if authorization.get("reusable") and authorization.get("authorization_code"):
-                auto_cfg = _get_auto_billing_config(school.id)
-                auto_cfg.update(
-                    {
-                        "authorization_code": authorization.get("authorization_code"),
-                        "authorization_last4": authorization.get("last4"),
-                        "authorization_brand": authorization.get("brand"),
-                        "authorization_bank": authorization.get("bank"),
-                        "customer_email": transaction.get("customer", {}).get("email")
-                        or user.email,
-                        "updated_at": get_utc_now().isoformat(),
-                        # Keep existing preference unless explicitly changed by user.
-                        "enabled": bool(auto_cfg.get("enabled", False)),
-                    }
+                _save_reusable_authorization(
+                    school.id,
+                    authorization,
+                    transaction.get("customer", {}).get("email") or user.email,
                 )
-                _upsert_auto_billing_config(school.id, auto_cfg)
 
             onboarding_flow = metadata.get("onboarding_flow")
             if onboarding_flow == "registration":
@@ -12595,8 +12970,9 @@ def paystack_subscription_webhook():
             school_id = metadata.get('school_id')
             plan_name = metadata.get('plan_name')
             amount_paid = transaction.get('amount', 0) / 100  # Convert pesewas to GHS
+            card_setup_only = bool(metadata.get("card_setup_only") or metadata.get("skip_subscription_update"))
             
-            if status != 'success' or not school_id or not plan_name:
+            if status != 'success' or not school_id or (not plan_name and not card_setup_only):
                 logger.warning(f"Invalid charge webhook data: {event}")
                 return jsonify({"message": "Invalid data"}), 400
             
@@ -12608,7 +12984,21 @@ def paystack_subscription_webhook():
             from backend.paystack_integration import process_payment_confirmation, PaystackError
             
             try:
+                if card_setup_only:
+                    _save_reusable_authorization(
+                        school_id,
+                        transaction.get("authorization") or {},
+                        (transaction.get("customer") or {}).get("email"),
+                    )
+                    logger.info(f"Webhook card setup processed for school {school_id}, reference {reference}")
+                    return jsonify({"message": "OK"}), 200
+
                 result = process_payment_confirmation(school_id, plan_name, amount_paid, reference=reference)
+                _save_reusable_authorization(
+                    school_id,
+                    transaction.get("authorization") or {},
+                    (transaction.get("customer") or {}).get("email"),
+                )
                 logger.info(f"Webhook payment processed: school {school_id}, plan {plan_name}, reference {reference}")
                 return jsonify({"message": "OK"}), 200
                 
