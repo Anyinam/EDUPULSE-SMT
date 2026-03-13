@@ -231,7 +231,7 @@ export default function BillingControlPanel() {
       </div>
 
       <p className="text-sm text-slate-600 mb-6">
-        Set spending limits and manage your billing preferences to maintain budget predictability.
+        Manage recurring card billing for your pay-as-you-go subscription and keep spending predictable.
       </p>
 
       {/* Price Cap Section */}
@@ -244,7 +244,7 @@ export default function BillingControlPanel() {
                 <h4 className="font-bold text-emerald-900">Automatic Term Billing</h4>
               </div>
               <p className="text-sm text-emerald-800">
-                Automatically charge term subscription fees using your saved reusable card authorization.
+                Automatically charge recurring term fees from your default saved card. If unavailable, we fall back to manual payment links.
               </p>
             </div>
 

@@ -196,19 +196,92 @@ def _get_auto_billing_config(school_id):
 
 
 def _upsert_auto_billing_config(school_id, config):
+    safe_config = json.loads(json.dumps(config or {}))
     setting = PlatformSetting.query.filter_by(
         setting_key=_auto_billing_setting_key(school_id)
     ).first()
     if not setting:
         setting = PlatformSetting(
             setting_key=_auto_billing_setting_key(school_id),
-            setting_value=config,
+            setting_value=safe_config,
         )
         db.session.add(setting)
     else:
-        setting.setting_value = config
+        setting.setting_value = safe_config
     db.session.commit()
     return setting.setting_value
+
+
+def _billing_timeline_setting_key(school_id):
+    return f"billing_timeline:{school_id}"
+
+
+def _get_billing_timeline(school_id):
+    setting = PlatformSetting.query.filter_by(
+        setting_key=_billing_timeline_setting_key(school_id)
+    ).first()
+    value = setting.setting_value if setting and isinstance(setting.setting_value, list) else []
+    return value
+
+
+def _upsert_billing_timeline(school_id, events):
+    safe_events = json.loads(json.dumps(events or []))
+    setting = PlatformSetting.query.filter_by(
+        setting_key=_billing_timeline_setting_key(school_id)
+    ).first()
+    if not setting:
+        setting = PlatformSetting(
+            setting_key=_billing_timeline_setting_key(school_id),
+            setting_value=safe_events,
+        )
+        db.session.add(setting)
+    else:
+        setting.setting_value = safe_events
+    db.session.commit()
+    return setting.setting_value
+
+
+def _append_billing_timeline_event(
+    school_id,
+    event_type,
+    status,
+    title,
+    details,
+    amount=None,
+    reference=None,
+    due_date=None,
+    next_retry_at=None,
+    metadata=None,
+):
+    events = _get_billing_timeline(school_id)
+    event = {
+        "id": hashlib.sha256(
+            f"{school_id}:{event_type}:{reference or ''}:{time.time()}".encode("utf-8")
+        ).hexdigest()[:20],
+        "created_at": get_utc_now().isoformat(),
+        "event_type": event_type,
+        "status": status,
+        "title": title,
+        "details": details,
+        "amount": amount,
+        "reference": reference,
+        "due_date": due_date,
+        "next_retry_at": next_retry_at,
+        "metadata": metadata or {},
+    }
+    events.insert(0, event)
+    events = events[:200]
+    return _upsert_billing_timeline(school_id, events)
+
+
+def _is_subscription_reference_processed(reference, school_id=None):
+    if not reference:
+        return False
+    query = LedgerEntry.query.filter_by(tx_ref=reference)
+    if school_id:
+        query = query.filter_by(school_id=school_id)
+    existing = query.first()
+    return existing is not None
 
 
 def _sanitize_saved_card(card):
@@ -300,6 +373,7 @@ def _normalize_auto_billing_config(config):
     default_present = bool(
         default_card_id and any(c.get("card_id") == default_card_id for c in deduped)
     )
+    has_marked_default = any(bool(c.get("is_default")) for c in deduped)
 
     for index, card in enumerate(deduped):
         if not card.get("card_id"):
@@ -312,8 +386,18 @@ def _normalize_auto_billing_config(config):
 
         if default_present:
             card["is_default"] = card.get("card_id") == default_card_id
+        elif has_marked_default:
+            # Preserve existing default choice when stored flags are present.
+            card["is_default"] = bool(card.get("is_default"))
         else:
             card["is_default"] = index == 0
+
+    # Ensure only one default card remains true.
+    default_count = sum(1 for c in deduped if c.get("is_default"))
+    if default_count > 1:
+        first_default_id = next((c.get("card_id") for c in deduped if c.get("is_default")), None)
+        for card in deduped:
+            card["is_default"] = card.get("card_id") == first_default_id
 
     normalized["cards"] = deduped
     normalized = _sync_legacy_card_fields(normalized)
@@ -11009,6 +11093,140 @@ def get_usage_stats():
     return jsonify(stats), 200
 
 
+@api.route("/school/subscription/billing-timeline", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def get_billing_timeline():
+    """Return recent billing lifecycle events for proprietor support visibility."""
+    limit = request.args.get("limit", default=50, type=int)
+    limit = max(1, min(limit, 200))
+    events = _get_billing_timeline(g.school_id)
+    return jsonify({"events": events[:limit], "count": len(events)}), 200
+
+
+@api.route("/school/subscription/ledger/reconciliation", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def get_subscription_ledger_reconciliation():
+    """Provide ledger integrity and reconciliation details for subscription transactions."""
+    school_id = g.school_id
+    summary = get_ledger_summary(school_id)
+    is_valid, broken_entries, checked = verify_ledger_chain(school_id)
+
+    subscription_entries = (
+        LedgerEntry.query.filter(
+            LedgerEntry.school_id == school_id,
+            LedgerEntry.tx_type.like("subscription%"),
+        )
+        .order_by(LedgerEntry.created_at.desc())
+        .limit(100)
+        .all()
+    )
+
+    pending = [e for e in subscription_entries if e.amount > 0 and (e.meta or {}).get("status") == "Pending"]
+    completed = [e for e in subscription_entries if e.amount > 0 and (e.meta or {}).get("status") != "Pending"]
+
+    return jsonify(
+        {
+            "summary": summary,
+            "chain_check": {
+                "valid": is_valid,
+                "checked_entries": checked,
+                "broken_entries": broken_entries,
+            },
+            "subscription_ledger": {
+                "total_entries": len(subscription_entries),
+                "completed_entries": len(completed),
+                "pending_entries": len(pending),
+                "recent": [
+                    {
+                        "tx_ref": entry.tx_ref,
+                        "tx_type": entry.tx_type,
+                        "amount": entry.amount,
+                        "currency": entry.currency,
+                        "source": entry.source,
+                        "verified": bool(entry.is_verified),
+                        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+                        "metadata": entry.meta or {},
+                    }
+                    for entry in subscription_entries
+                ],
+            },
+        }
+    ), 200
+
+
+@api.route("/school/subscription/statement/download", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def download_billing_statement():
+    """Download billing statement as CSV for accounting and reconciliation."""
+    fmt = (request.args.get("format") or "csv").strip().lower()
+    if fmt != "csv":
+        return jsonify({"message": "Only CSV statement format is currently supported."}), 400
+
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+
+    query = LedgerEntry.query.filter(
+        LedgerEntry.school_id == g.school_id,
+        LedgerEntry.tx_type.like("subscription%"),
+    )
+
+    if start_date:
+        try:
+            parsed = datetime.fromisoformat(start_date).date()
+            query = query.filter(LedgerEntry.created_at >= datetime.combine(parsed, datetime.min.time()))
+        except Exception:
+            return jsonify({"message": "Invalid start_date format. Use YYYY-MM-DD."}), 400
+
+    if end_date:
+        try:
+            parsed = datetime.fromisoformat(end_date).date()
+            query = query.filter(LedgerEntry.created_at <= datetime.combine(parsed, datetime.max.time()))
+        except Exception:
+            return jsonify({"message": "Invalid end_date format. Use YYYY-MM-DD."}), 400
+
+    entries = query.order_by(LedgerEntry.created_at.desc()).all()
+
+    csv_buffer = StringIO()
+    writer = csv.writer(csv_buffer)
+    writer.writerow(
+        [
+            "created_at",
+            "tx_ref",
+            "tx_type",
+            "amount",
+            "currency",
+            "source",
+            "verified",
+            "metadata",
+        ]
+    )
+    for entry in entries:
+        writer.writerow(
+            [
+                entry.created_at.isoformat() if entry.created_at else "",
+                entry.tx_ref,
+                entry.tx_type,
+                f"{entry.amount:.2f}",
+                entry.currency,
+                entry.source,
+                "yes" if entry.is_verified else "no",
+                json.dumps(entry.meta or {}, sort_keys=True),
+            ]
+        )
+
+    filename = f"billing_statement_{g.school_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    response = make_response(csv_buffer.getvalue())
+    response.headers["Content-Type"] = "text/csv"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    return response
+
+
 @api.route("/school/subscription/price-cap", methods=["GET", "POST"])
 @multi_tenant_guard
 @jwt_required()
@@ -11123,13 +11341,13 @@ def unsubscribe_auto_billing():
     config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
     config["enabled"] = False
     config["updated_at"] = get_utc_now().isoformat()
-    saved = _normalize_auto_billing_config(_upsert_auto_billing_config(g.school_id, config))
+    _upsert_auto_billing_config(g.school_id, config)
 
     return jsonify(
         {
             "message": "Recurring auto-billing disabled successfully.",
-            "enabled": bool(saved.get("enabled", False)),
-            "cards_count": len(saved.get("cards") or []),
+            "enabled": False,
+            "cards_count": len(config.get("cards") or []),
             "can_reenable_anytime": True,
         }
     ), 200
@@ -11176,26 +11394,31 @@ def set_default_saved_card():
     if not cards:
         return jsonify({"message": "No saved cards available"}), 400
 
-    found = False
-    for card in cards:
-        is_default = card.get("card_id") == card_id
-        card["is_default"] = is_default
-        if is_default:
-            card["updated_at"] = get_utc_now().isoformat()
-            found = True
-
-    if not found:
+    target = next((c for c in cards if c.get("card_id") == card_id), None)
+    if not target:
         return jsonify({"message": "Card not found"}), 404
 
+    for card in cards:
+        card["is_default"] = False
+
+    target["is_default"] = True
+    target["updated_at"] = get_utc_now().isoformat()
+
     config["cards"] = cards
+    config["default_card_id"] = card_id
+    config["authorization_code"] = target.get("authorization_code")
+    config["authorization_last4"] = target.get("last4")
+    config["authorization_brand"] = target.get("brand")
+    config["authorization_bank"] = target.get("bank")
+    config["customer_email"] = target.get("customer_email")
     config["updated_at"] = get_utc_now().isoformat()
-    saved = _normalize_auto_billing_config(_upsert_auto_billing_config(g.school_id, config))
+    _upsert_auto_billing_config(g.school_id, config)
 
     return jsonify(
         {
             "message": "Default billing card updated",
-            "default_card_id": saved.get("default_card_id"),
-            "cards": [_sanitize_saved_card(c) for c in (saved.get("cards") or [])],
+            "default_card_id": card_id,
+            "cards": [_sanitize_saved_card(c) for c in (config.get("cards") or [])],
         }
     ), 200
 
@@ -11220,19 +11443,34 @@ def remove_saved_card(card_id):
     if len(retained) == len(cards):
         return jsonify({"message": "Card not found"}), 404
 
-    if not retained:
+    if retained:
+        if not any(c.get("is_default") for c in retained):
+            retained[0]["is_default"] = True
+        default_card = next((c for c in retained if c.get("is_default")), retained[0])
+        config["default_card_id"] = default_card.get("card_id")
+        config["authorization_code"] = default_card.get("authorization_code")
+        config["authorization_last4"] = default_card.get("last4")
+        config["authorization_brand"] = default_card.get("brand")
+        config["authorization_bank"] = default_card.get("bank")
+        config["customer_email"] = default_card.get("customer_email")
+    else:
         config["enabled"] = False
+        config["default_card_id"] = None
+        config["authorization_code"] = None
+        config["authorization_last4"] = None
+        config["authorization_brand"] = None
+        config["authorization_bank"] = None
 
     config["cards"] = retained
     config["updated_at"] = get_utc_now().isoformat()
-    saved = _normalize_auto_billing_config(_upsert_auto_billing_config(g.school_id, config))
+    _upsert_auto_billing_config(g.school_id, config)
 
     return jsonify(
         {
             "message": "Card removed successfully",
-            "cards": [_sanitize_saved_card(c) for c in (saved.get("cards") or [])],
-            "default_card_id": saved.get("default_card_id"),
-            "enabled": bool(saved.get("enabled", False)),
+            "cards": [_sanitize_saved_card(c) for c in (config.get("cards") or [])],
+            "default_card_id": config.get("default_card_id"),
+            "enabled": bool(config.get("enabled", False)),
         }
     ), 200
 
@@ -11617,6 +11855,16 @@ def activate_academic_term(term_id):
                                     logger.info(
                                         f"Auto-billing successful for school {g.school_id}: ₵{term_cost} ({reference})"
                                     )
+                                    _append_billing_timeline_event(
+                                        g.school_id,
+                                        event_type="auto_charge_success",
+                                        status="success",
+                                        title="Automatic term billing succeeded",
+                                        details=f"Charged saved card for {term.name} {term.academic_year}.",
+                                        amount=term_cost,
+                                        reference=reference,
+                                        due_date=billing_due_date.isoformat() if billing_due_date else None,
+                                    )
                                 else:
                                     payment_result = initialize_termly_payment(
                                         email=proprietor.email,
@@ -11638,6 +11886,18 @@ def activate_academic_term(term_id):
                                         status="Pending"
                                     )
                                     db.session.add(ledger_entry)
+                                    _append_billing_timeline_event(
+                                        g.school_id,
+                                        event_type="manual_payment_link_created",
+                                        status="pending",
+                                        title="Manual payment required",
+                                        details="No active auto-billing card was available. Payment link generated.",
+                                        amount=term_cost,
+                                        reference=reference,
+                                        due_date=billing_due_date.isoformat() if billing_due_date else None,
+                                        next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
+                                        metadata={"payment_link": payment_link},
+                                    )
                                 
                                 # Update school next_billing_date
                                 if billing_due_date:
@@ -11706,9 +11966,31 @@ def activate_academic_term(term_id):
                             
                             except PaystackError as e:
                                 logger.error(f"Paystack error during term activation billing: {str(e)}")
+                                safe_due = locals().get("billing_due_date")
+                                _append_billing_timeline_event(
+                                    g.school_id,
+                                    event_type="auto_charge_failed",
+                                    status="failed",
+                                    title="Automatic term billing failed",
+                                    details=str(e),
+                                    amount=term_cost,
+                                    due_date=safe_due.isoformat() if safe_due else None,
+                                    next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
+                                )
                                 # Continue anyway - activation succeeds even if billing fails
                             except Exception as e:
                                 logger.error(f"Error processing billing for term activation: {str(e)}")
+                                safe_due = locals().get("billing_due_date")
+                                _append_billing_timeline_event(
+                                    g.school_id,
+                                    event_type="billing_processing_error",
+                                    status="failed",
+                                    title="Billing processing error",
+                                    details=str(e),
+                                    amount=term_cost,
+                                    due_date=safe_due.isoformat() if safe_due else None,
+                                    next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
+                                )
                                 # Continue anyway
                         else:
                             logger.warning(f"No proprietor email found for billing notification")
@@ -12826,6 +13108,24 @@ def paystack_verify_payment(reference):
             if not plan_name and not card_setup_only:
                 return jsonify({"message": "Invalid transaction metadata"}), 400
 
+            if not card_setup_only and _is_subscription_reference_processed(reference, school.id):
+                _append_billing_timeline_event(
+                    school.id,
+                    event_type="payment_verify_duplicate",
+                    status="ignored",
+                    title="Duplicate payment verification ignored",
+                    details="A repeated verify request was received and ignored safely.",
+                    reference=reference,
+                )
+                return jsonify(
+                    {
+                        "status": "success",
+                        "message": "Payment was already processed earlier.",
+                        "registration_flow": False,
+                        "data": {"reference": reference, "idempotent": True},
+                    }
+                ), 200
+
             amount_paid = transaction.get('amount', 0) / 100  # Convert pesewas to Cedis
 
             if card_setup_only:
@@ -12837,7 +13137,26 @@ def paystack_verify_payment(reference):
                 )
 
                 if not saved_card:
+                    _append_billing_timeline_event(
+                        school.id,
+                        event_type="card_setup_missing_reusable",
+                        status="warning",
+                        title="Card setup completed without reusable token",
+                        details="Payment succeeded but Paystack did not return reusable authorization.",
+                        amount=amount_paid,
+                        reference=reference,
+                    )
                     return jsonify({"message": "Payment succeeded but no reusable card authorization was returned."}), 200
+
+                _append_billing_timeline_event(
+                    school.id,
+                    event_type="card_saved",
+                    status="success",
+                    title="Billing card saved",
+                    details=f"{saved_card.get('brand') or 'Card'} ending with {saved_card.get('last4') or '----'} saved for recurring billing.",
+                    amount=amount_paid,
+                    reference=reference,
+                )
 
                 return jsonify(
                     {
@@ -12857,6 +13176,17 @@ def paystack_verify_payment(reference):
                 amount_paid,
                 reference=reference,
                 metadata=metadata
+            )
+
+            _append_billing_timeline_event(
+                school.id,
+                event_type="subscription_payment_verified",
+                status="success",
+                title="Subscription payment verified",
+                details=f"Payment for {plan_name} processed successfully.",
+                amount=amount_paid,
+                reference=reference,
+                due_date=school.next_billing_date.isoformat() if school.next_billing_date else None,
             )
 
             authorization = transaction.get("authorization") or {}
@@ -12980,6 +13310,18 @@ def paystack_subscription_webhook():
             if not school:
                 logger.error(f"School {school_id} not found for webhook payment")
                 return jsonify({"message": "School not found"}), 404
+
+            if not card_setup_only and _is_subscription_reference_processed(reference, school_id):
+                _append_billing_timeline_event(
+                    school_id,
+                    event_type="webhook_duplicate_ignored",
+                    status="ignored",
+                    title="Duplicate webhook ignored",
+                    details="A duplicate Paystack webhook event was ignored safely.",
+                    reference=reference,
+                )
+                logger.info(f"Duplicate webhook ignored: school={school_id}, ref={reference}")
+                return jsonify({"message": "OK"}), 200
             
             from backend.paystack_integration import process_payment_confirmation, PaystackError
             
@@ -12990,6 +13332,15 @@ def paystack_subscription_webhook():
                         transaction.get("authorization") or {},
                         (transaction.get("customer") or {}).get("email"),
                     )
+                    _append_billing_timeline_event(
+                        school_id,
+                        event_type="card_saved",
+                        status="success",
+                        title="Billing card saved",
+                        details="Card authorization saved from webhook event.",
+                        amount=amount_paid,
+                        reference=reference,
+                    )
                     logger.info(f"Webhook card setup processed for school {school_id}, reference {reference}")
                     return jsonify({"message": "OK"}), 200
 
@@ -12999,10 +13350,30 @@ def paystack_subscription_webhook():
                     transaction.get("authorization") or {},
                     (transaction.get("customer") or {}).get("email"),
                 )
+                _append_billing_timeline_event(
+                    school_id,
+                    event_type="subscription_payment_webhook",
+                    status="success",
+                    title="Subscription payment received",
+                    details=f"Webhook payment captured for {plan_name} plan.",
+                    amount=amount_paid,
+                    reference=reference,
+                    due_date=school.next_billing_date.isoformat() if school.next_billing_date else None,
+                )
                 logger.info(f"Webhook payment processed: school {school_id}, plan {plan_name}, reference {reference}")
                 return jsonify({"message": "OK"}), 200
                 
             except PaystackError as e:
+                _append_billing_timeline_event(
+                    school_id,
+                    event_type="subscription_payment_failed",
+                    status="failed",
+                    title="Subscription payment processing failed",
+                    details=str(e),
+                    amount=amount_paid,
+                    reference=reference,
+                    next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
+                )
                 logger.error(f"Error processing webhook payment for school {school_id}: {str(e)}")
                 return jsonify({"message": "Processing error"}), 500
         
@@ -13028,8 +13399,20 @@ def paystack_subscription_webhook():
             invoice_data = event.get('data', {})
             customer_email = invoice_data.get('customer', {}).get('email')
             amount = invoice_data.get('amount', 0) / 100
+            school_id = (invoice_data.get('metadata') or {}).get('school_id')
             
             logger.error(f"Payment failed for {customer_email}, amount: ₵{amount}")
+            if school_id:
+                _append_billing_timeline_event(
+                    school_id,
+                    event_type="invoice_payment_failed",
+                    status="failed",
+                    title="Automatic billing attempt failed",
+                    details=f"Paystack invoice payment failed for {customer_email or 'customer'}.",
+                    amount=amount,
+                    reference=invoice_data.get("reference"),
+                    next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
+                )
             # TODO: Send payment failure notification email to proprietor
             return jsonify({"message": "OK"}), 200
         

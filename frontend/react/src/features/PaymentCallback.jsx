@@ -31,8 +31,13 @@ export default function PaymentCallback() {
         const res = await axios.get(`/api/paystack/verify/${paymentRef}`, { headers });
 
         if (res.data.status === 'success') {
+          const isCardSetup = Boolean(res.data?.data?.card && !res.data?.data?.plan_name);
           setStatus('success');
-          setMessage('Payment successful! Your subscription has been upgraded.');
+          setMessage(
+            isCardSetup
+              ? 'Card saved successfully for recurring pay-as-you-go billing.'
+              : 'Payment successful! Your subscription has been updated.'
+          );
           setDetails(res.data.data);
           const isRegistrationFlow = Boolean(res.data.registration_flow || searchParams.get('onboarding') === 'registration');
           
@@ -105,12 +110,21 @@ export default function PaymentCallback() {
             
             {details && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-left mb-4">
-                <p className="text-sm text-green-800">
-                  <strong>Plan:</strong> {details.plan_name}
-                </p>
-                <p className="text-sm text-green-800">
-                  <strong>Amount:</strong> GH₵ {(details.amount / 100).toLocaleString()}
-                </p>
+                {details.plan_name && (
+                  <p className="text-sm text-green-800">
+                    <strong>Plan:</strong> {details.plan_name}
+                  </p>
+                )}
+                {typeof details.amount === 'number' && (
+                  <p className="text-sm text-green-800">
+                    <strong>Amount:</strong> GH₵ {Number(details.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                )}
+                {details.card && (
+                  <p className="text-sm text-green-800">
+                    <strong>Saved Card:</strong> {details.card.brand || 'Card'} •••• {details.card.last4 || '----'}
+                  </p>
+                )}
                 <p className="text-sm text-green-800">
                   <strong>Reference:</strong> {details.reference}
                 </p>

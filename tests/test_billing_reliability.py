@@ -1,0 +1,269 @@
+import hashlib
+import hmac
+import json
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from flask_jwt_extended import create_access_token
+
+from backend.middleware import get_billing_status_info
+
+
+@pytest.fixture()
+def proprietor_headers(app, test_school, test_proprietor):
+    with app.app_context():
+        token = create_access_token(identity=str(test_proprietor.id))
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-School-ID": test_school.id,
+        "Content-Type": "application/json",
+    }
+
+
+def test_paystack_verify_idempotent(client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch):
+    from backend.api.models import add_ledger_entry
+
+    reference = "PSK-VERIFY-001"
+
+    def fake_verify_payment(ref):
+        return {
+            "status": "success",
+            "amount": 25000,
+            "reference": ref,
+            "metadata": {
+                "plan_name": "Basic",
+                "school_id": test_school.id,
+            },
+            "authorization": {
+                "reusable": True,
+                "authorization_code": "AUTH_test_001",
+                "last4": "4242",
+                "brand": "visa",
+                "bank": "TEST",
+                "signature": "sig-001",
+            },
+            "customer": {"email": test_proprietor.email},
+        }
+
+    def fake_process_payment_confirmation(school_id, plan_name, amount_paid_cedis, reference=None, metadata=None):
+        add_ledger_entry(
+            school_id=school_id,
+            tx_type="subscription",
+            tx_ref=reference,
+            amount=float(amount_paid_cedis),
+            source="paystack",
+            metadata={"status": "Completed", "plan_name": plan_name},
+        )
+        db.session.commit()
+        return {
+            "plan_name": plan_name,
+            "amount": amount_paid_cedis,
+            "reference": reference,
+        }
+
+    monkeypatch.setattr("backend.paystack_integration.verify_payment", fake_verify_payment)
+    monkeypatch.setattr(
+        "backend.paystack_integration.process_payment_confirmation",
+        fake_process_payment_confirmation,
+    )
+
+    first = client.get(f"/api/paystack/verify/{reference}", headers=proprietor_headers)
+    assert first.status_code == 200
+    first_data = first.get_json()
+    assert first_data["status"] == "success"
+
+    second = client.get(f"/api/paystack/verify/{reference}", headers=proprietor_headers)
+    assert second.status_code == 200
+    second_data = second.get_json()
+    assert second_data["status"] == "success"
+    assert second_data["data"].get("idempotent") is True
+
+
+def test_card_management_flow(client, db, test_school, proprietor_headers):
+    from backend.api.models import PlatformSetting
+
+    setting = PlatformSetting(
+        setting_key=f"auto_billing:{test_school.id}",
+        setting_value={
+            "enabled": True,
+            "cards": [
+                {
+                    "card_id": "card-1",
+                    "authorization_code": "AUTH_A",
+                    "last4": "1111",
+                    "brand": "visa",
+                    "bank": "BANK-A",
+                    "customer_email": "owner@test.edu",
+                    "is_default": True,
+                    "added_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                {
+                    "card_id": "card-2",
+                    "authorization_code": "AUTH_B",
+                    "last4": "2222",
+                    "brand": "mastercard",
+                    "bank": "BANK-B",
+                    "customer_email": "owner@test.edu",
+                    "is_default": False,
+                    "added_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            ],
+        },
+    )
+    db.session.add(setting)
+    db.session.commit()
+
+    listed = client.get("/api/school/subscription/cards", headers=proprietor_headers)
+    assert listed.status_code == 200
+    listed_payload = listed.get_json()
+    assert listed_payload["cards_count"] == 2
+    target_card_id = listed_payload["cards"][1]["card_id"]
+
+    updated = client.post(
+        "/api/school/subscription/cards/default",
+        data=json.dumps({"card_id": target_card_id}),
+        headers=proprietor_headers,
+    )
+    assert updated.status_code == 200
+    updated_payload = updated.get_json()
+    assert updated_payload["default_card_id"] == target_card_id
+    assert any(c["card_id"] == target_card_id and c.get("is_default") for c in updated_payload["cards"])
+
+    remove_card_id = listed_payload["cards"][0]["card_id"]
+    removed = client.delete(f"/api/school/subscription/cards/{remove_card_id}", headers=proprietor_headers)
+    assert removed.status_code == 200
+    assert len(removed.get_json()["cards"]) == 1
+
+    unsubscribed = client.post(
+        "/api/school/subscription/auto-billing/unsubscribe",
+        data=json.dumps({}),
+        headers=proprietor_headers,
+    )
+    assert unsubscribed.status_code == 200
+    assert unsubscribed.get_json()["enabled"] is False
+
+
+def test_overdue_transition_and_restricted_write_access(client, db, test_school, proprietor_headers):
+    test_school.subscription_plan = "Basic"
+    test_school.next_billing_date = datetime.now(timezone.utc) - timedelta(days=10)
+    test_school.subscription_status = "Active"
+    db.session.commit()
+
+    status_info = get_billing_status_info(test_school)
+    assert status_info["status"] == "Overdue"
+
+    # Overdue schools still have read-only access.
+    readonly = client.get("/api/school/fees", headers=proprietor_headers)
+    assert readonly.status_code in [200, 404]
+
+    # Overdue schools cannot perform write operations on protected business routes.
+    blocked = client.post(
+        "/api/school/fees",
+        data=json.dumps({"tuition_fee": 100}),
+        headers=proprietor_headers,
+    )
+    assert blocked.status_code == 402
+    payload = blocked.get_json()
+    assert payload["error"] == "billing_restriction"
+
+
+def test_paystack_webhook_duplicate_event_protection(client, db, test_school, monkeypatch):
+    from backend.api.models import add_ledger_entry
+
+    secret = "test-secret-paystack"
+    monkeypatch.setenv("PAYSTACK_SECRET_KEY", secret)
+
+    call_counter = {"count": 0}
+
+    def fake_process_payment_confirmation(school_id, plan_name, amount_paid_cedis, reference=None, metadata=None):
+        call_counter["count"] += 1
+        add_ledger_entry(
+            school_id=school_id,
+            tx_type="subscription",
+            tx_ref=reference,
+            amount=float(amount_paid_cedis),
+            source="paystack",
+            metadata={"status": "Completed", "plan_name": plan_name},
+        )
+        db.session.commit()
+        return {"status": "success", "reference": reference}
+
+    monkeypatch.setattr(
+        "backend.paystack_integration.process_payment_confirmation",
+        fake_process_payment_confirmation,
+    )
+
+    payload = {
+        "event": "charge.success",
+        "data": {
+            "reference": "PSK-WEBHOOK-001",
+            "status": "success",
+            "amount": 30000,
+            "metadata": {
+                "school_id": test_school.id,
+                "plan_name": "Basic",
+            },
+            "customer": {"email": "proprietor@test.edu"},
+            "authorization": {
+                "reusable": True,
+                "authorization_code": "AUTH_webhook",
+                "signature": "sig-webhook",
+                "last4": "1234",
+                "brand": "visa",
+            },
+        },
+    }
+
+    raw = json.dumps(payload).encode("utf-8")
+    signature = hmac.new(secret.encode(), raw, hashlib.sha512).hexdigest()
+
+    first = client.post(
+        "/api/paystack/webhook",
+        data=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Paystack-Signature": signature,
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/paystack/webhook",
+        data=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Paystack-Signature": signature,
+        },
+    )
+    assert second.status_code == 200
+    assert call_counter["count"] == 1
+
+
+def test_billing_timeline_and_statement_endpoints(client, db, test_school, proprietor_headers):
+    from backend.api.models import add_ledger_entry
+
+    add_ledger_entry(
+        school_id=test_school.id,
+        tx_type="subscription",
+        tx_ref="STMT-001",
+        amount=120.0,
+        source="paystack",
+        metadata={"status": "Completed", "plan_name": "Basic"},
+    )
+    db.session.commit()
+
+    timeline = client.get("/api/school/subscription/billing-timeline", headers=proprietor_headers)
+    assert timeline.status_code == 200
+    assert "events" in timeline.get_json()
+
+    recon = client.get("/api/school/subscription/ledger/reconciliation", headers=proprietor_headers)
+    assert recon.status_code == 200
+    recon_payload = recon.get_json()
+    assert "chain_check" in recon_payload
+
+    statement = client.get("/api/school/subscription/statement/download?format=csv", headers=proprietor_headers)
+    assert statement.status_code == 200
+    assert statement.headers.get("Content-Type", "").startswith("text/csv")
+    assert b"tx_ref" in statement.data

@@ -243,7 +243,7 @@ export default function SubscriptionManager() {
         <div className="mb-8">
           <h1 className="text-3xl font-black text-slate-800 mb-2">Subscription & Billing</h1>
           <p className="text-slate-600">
-            💡 <strong>Termly Billing:</strong> Schools operate on 3 terms per academic year. We bill per student per term to align with your cash flow.
+            💡 <strong>Pay-as-you-go recurring billing:</strong> Paid plans charge base fee first, then termly overage from active students using your saved recurring card (or manual link fallback).
           </p>
         </div>
 

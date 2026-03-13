@@ -4,9 +4,12 @@ import { AlertTriangle, TrendingUp, Calendar, DollarSign, Zap, CheckCircle, XCir
 
 export default function BillingVisibility() {
   const [billingData, setBillingData] = useState(null);
+  const [timeline, setTimeline] = useState([]);
+  const [recon, setRecon] = useState(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const fetchBillingVisibility = async () => {
     try {
@@ -14,12 +17,49 @@ export default function BillingVisibility() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id') 
       };
-      const res = await axios.get('/api/school/subscription/billing-visibility', { headers });
-      setBillingData(res.data);
+      const [visibilityRes, timelineRes, reconRes] = await Promise.all([
+        axios.get('/api/school/subscription/billing-visibility', { headers }),
+        axios.get('/api/school/subscription/billing-timeline?limit=8', { headers }),
+        axios.get('/api/school/subscription/ledger/reconciliation', { headers }),
+      ]);
+
+      setBillingData(visibilityRes.data);
+      setTimeline(timelineRes.data?.events || []);
+      setRecon(reconRes.data || null);
     } catch (err) {
       console.error("Failed to fetch billing visibility:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadStatement = async () => {
+    setDownloading(true);
+    try {
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+
+      const res = await axios.get('/api/school/subscription/statement/download?format=csv', {
+        headers,
+        responseType: 'blob'
+      });
+
+      const blob = new Blob([res.data], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `billing_statement_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download statement:', err);
+      alert('❌ Failed to download billing statement. Please try again.');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -150,10 +190,17 @@ export default function BillingVisibility() {
           <div>
             <h3 className="text-lg font-bold text-slate-800 mb-1">Active Student Meter</h3>
             <p className="text-sm text-slate-500">
-              Real-time count of enrolled students
+              Real-time active students that drive your pay-as-you-go bill
             </p>
           </div>
           <div className="flex gap-2">
+            <button
+              onClick={handleDownloadStatement}
+              disabled={downloading}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-lg text-sm font-semibold transition-colors"
+            >
+              {downloading ? 'Downloading...' : 'Download Statement'}
+            </button>
             <button
               onClick={handleSendUsageReport}
               disabled={sendingReport}
@@ -274,7 +321,7 @@ export default function BillingVisibility() {
 
         <div className="mb-4 bg-blue-50 border border-blue-200 p-3 rounded-lg">
           <p className="text-xs text-blue-800">
-            Signup for paid plans charges only the base fee. Overage is calculated from actual active students and billed later in your subscription cycle.
+            Paid signup charges only the base fee. Overage is pay-as-you-go based on active students and billed in your recurring cycle.
           </p>
         </div>
 
@@ -340,6 +387,55 @@ export default function BillingVisibility() {
             <p className="text-xs text-blue-800">
               🔒 <strong>Grandfathered Pricing:</strong> Your rates are locked at version {pricing.version}
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* Billing Timeline */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-slate-800">Billing Timeline</h3>
+          {recon?.chain_check && (
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${recon.chain_check.valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              Ledger {recon.chain_check.valid ? 'Verified' : 'Needs Review'}
+            </span>
+          )}
+        </div>
+
+        {timeline.length === 0 ? (
+          <p className="text-sm text-slate-500">No billing events yet. Timeline updates after billing attempts, payments, and retries.</p>
+        ) : (
+          <div className="space-y-3">
+            {timeline.map((event) => (
+              <div key={event.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">{event.title}</p>
+                    <p className="text-xs text-slate-600 mt-0.5">{event.details}</p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {event.created_at ? new Date(event.created_at).toLocaleString() : 'Unknown time'}
+                      {event.reference ? ` • Ref: ${event.reference}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      event.status === 'success' ? 'bg-green-100 text-green-700' :
+                      event.status === 'failed' ? 'bg-red-100 text-red-700' :
+                      event.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                      'bg-slate-200 text-slate-700'
+                    }`}>
+                      {(event.status || 'info').toUpperCase()}
+                    </span>
+                    {typeof event.amount === 'number' && (
+                      <p className="text-xs font-semibold text-slate-700 mt-1">GH₵ {Number(event.amount).toFixed(2)}</p>
+                    )}
+                    {event.next_retry_at && (
+                      <p className="text-[11px] text-amber-700 mt-1">Next retry: {new Date(event.next_retry_at).toLocaleString()}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
