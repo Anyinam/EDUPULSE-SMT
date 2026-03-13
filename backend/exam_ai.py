@@ -5,26 +5,43 @@ from typing import Any, Dict, List
 import requests
 
 
+def _difficulty_verbs(level: str) -> List[str]:
+    level = (level or "medium").lower()
+    if level == "easy":
+        return ["define", "identify", "list", "state"]
+    if level == "hard":
+        return ["analyze", "evaluate", "justify", "compare"]
+    return ["explain", "apply", "differentiate", "solve"]
+
+
 def _fallback_questions(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     topic = payload.get("topic") or "General Revision"
     question_type = (payload.get("question_type") or "mcq").lower()
     difficulty = payload.get("difficulty") or "medium"
     teacher_instructions = (payload.get("teacher_instructions") or "").strip()
+    class_name = payload.get("class_name") or "Selected Class"
+    subject_name = payload.get("subject_name") or "General Subject"
+    exam_type = payload.get("exam_type") or "Class Test"
     count = int(payload.get("count") or 5)
     count = max(1, min(count, 20))
+
+    verbs = _difficulty_verbs(difficulty)
+    section = "A"
 
     questions: List[Dict[str, Any]] = []
     for index in range(count):
         number = index + 1
+        verb = verbs[index % len(verbs)]
+
         if question_type == "essay":
             questions.append(
                 {
                     "type": "essay",
-                    "question": f"{number}. Explain {topic} and give two practical examples suitable for your class level.",
+                    "question": f"{number}. {verb.capitalize()} the concept of {topic} in {subject_name} and provide two classroom-relevant examples for {class_name}.",
                     "marks": 10,
-                    "section": "A",
+                    "section": section,
                     "difficulty": difficulty,
-                    "marking_guide": "Award marks for concept accuracy, examples, and clear explanation.",
+                    "marking_guide": "Award marks for correctness (4), depth of explanation (3), examples/application (2), and clarity/organization (1).",
                     "teacher_instructions": teacher_instructions,
                 }
             )
@@ -32,30 +49,31 @@ def _fallback_questions(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             questions.append(
                 {
                     "type": "short",
-                    "question": f"{number}. State one key principle of {topic} and apply it to a real-life situation.",
+                    "question": f"{number}. {verb.capitalize()} one key principle of {topic} and apply it to a practical {subject_name} scenario.",
                     "marks": 5,
-                    "section": "A",
+                    "section": section,
                     "difficulty": difficulty,
-                    "marking_guide": "Award marks for correct principle and valid application.",
+                    "marking_guide": "Award marks for principle accuracy (2), valid application (2), and clear expression (1).",
                     "teacher_instructions": teacher_instructions,
                 }
             )
         else:
+            stem = f"{number}. Which option best answers this {subject_name} question on {topic} for {class_name}?"
             questions.append(
                 {
                     "type": "mcq",
-                    "question": f"{number}. Which statement best describes {topic}?",
+                    "question": stem,
                     "options": [
-                        "A complete and correct interpretation",
-                        "A partially correct interpretation",
-                        "An incorrect interpretation",
+                        f"Correctly applies {topic} to the given context",
+                        f"Partially applies {topic} but misses a key condition",
+                        f"Uses an incorrect rule unrelated to {topic}",
                         "None of the above",
                     ],
                     "correct_answer": "A",
                     "marks": 2,
-                    "section": "A",
+                    "section": section,
                     "difficulty": difficulty,
-                    "marking_guide": "Correct option: A",
+                    "marking_guide": "Correct option: A. Credit only exact option unless teacher rubric allows equivalent wording.",
                     "teacher_instructions": teacher_instructions,
                 }
             )
@@ -100,7 +118,9 @@ def generate_exam_questions(payload: Dict[str, Any]) -> Dict[str, Any]:
         "These teacher instructions are high priority and must be followed unless unsafe or impossible. "
         "Return ONLY JSON array. Each item must include: "
         "type, question, marks, section, difficulty, marking_guide. "
-        "If type is mcq, include options (array of 4) and correct_answer (A/B/C/D)."
+        "If type is mcq, include options (array of exactly 4 strings) and correct_answer (A/B/C/D). "
+        "Questions must be curriculum-appropriate, unambiguous, and non-repetitive. "
+        "Do not include placeholders, meta text, or markdown."
     )
 
     request_payload = {

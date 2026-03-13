@@ -54,7 +54,7 @@ export default function ExamPapers() {
     topic: '',
     difficulty: 'medium',
     question_type: 'mcq',
-    count: 5,
+    count: '5',
     teacher_instructions: ''
   });
   const [aiGeneratedPrompt, setAiGeneratedPrompt] = useState('');
@@ -498,11 +498,10 @@ export default function ExamPapers() {
           <h2>${paperData.title}</h2>
           <p><strong>Class:</strong> ${paperData.class_name} | <strong>Subject:</strong> ${paperData.subject_name}</p>
           <p><strong>Term:</strong> ${paperData.academic_term} ${paperData.academic_year} | <strong>Duration:</strong> ${paperData.duration_minutes} minutes | <strong>Total Marks:</strong> ${paperData.total_marks}</p>
-          <div style="margin-top: 16px; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px;">
-            <p><strong>Name:</strong> ____________________________</p>
-            <p><strong>Student ID:</strong> _____________________</p>
-            <p><strong>Date:</strong> ____________________________</p>
-            <p><strong>Signature:</strong> ______________________</p>
+          <div style="margin-top: 16px; text-align: left; font-size: 14px; max-width: 420px;">
+            <p style="margin: 0 0 6px 0;"><strong>Name:</strong> ____________________________</p>
+            <p style="margin: 0 0 6px 0;"><strong>Student ID:</strong> _____________________</p>
+            <p style="margin: 0;"><strong>Date:</strong> ____________________________</p>
           </div>
         </div>
         
@@ -534,7 +533,10 @@ export default function ExamPapers() {
       return;
     }
 
-    const promptText = `You are an experienced ${paperData.subject_name || 'school subject'} teacher. Create ${aiPrompt.count} ${aiPrompt.question_type.toUpperCase()} exam questions for ${paperData.class_name || 'the selected class'} on the topic: ${aiPrompt.topic || 'general revision'}.
+    const parsedCount = Number.parseInt(String(aiPrompt.count || '').trim(), 10);
+    const safeCount = Number.isFinite(parsedCount) ? Math.min(20, Math.max(1, parsedCount)) : 5;
+
+    const promptText = `You are an experienced ${paperData.subject_name || 'school subject'} teacher. Create ${safeCount} ${aiPrompt.question_type.toUpperCase()} exam questions for ${paperData.class_name || 'the selected class'} on the topic: ${aiPrompt.topic || 'general revision'}.
 
 Requirements:
 - Difficulty level: ${aiPrompt.difficulty}
@@ -560,7 +562,7 @@ ${aiPrompt.teacher_instructions || 'None'}`;
         topic: aiPrompt.topic,
         difficulty: aiPrompt.difficulty,
         question_type: aiPrompt.question_type,
-        count: aiPrompt.count,
+        count: safeCount,
         teacher_instructions: aiPrompt.teacher_instructions,
         class_name: paperData.class_name,
         subject_name: paperData.subject_name,
@@ -1183,8 +1185,15 @@ ${aiPrompt.teacher_instructions || 'None'}`;
                 <input
                   type="number"
                   value={aiPrompt.count}
-                  onChange={(e) => setAiPrompt({ ...aiPrompt, count: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => setAiPrompt({ ...aiPrompt, count: e.target.value })}
+                  onBlur={(e) => {
+                    const parsed = Number.parseInt(String(e.target.value || '').trim(), 10);
+                    const clamped = Number.isFinite(parsed) ? Math.min(20, Math.max(1, parsed)) : 5;
+                    setAiPrompt((prev) => ({ ...prev, count: String(clamped) }));
+                  }}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  inputMode="numeric"
+                  step="1"
                   min="1"
                   max="20"
                 />
