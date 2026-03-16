@@ -267,3 +267,123 @@ def test_billing_timeline_and_statement_endpoints(client, db, test_school, propr
     assert statement.status_code == 200
     assert statement.headers.get("Content-Type", "").startswith("text/csv")
     assert b"tx_ref" in statement.data
+
+
+def test_prorated_admission_charge_uses_fixed_120_days(client, app, db, test_school, test_proprietor):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm, LedgerEntry, Student
+    from backend.routes import calculate_prorated_admission_charge
+
+    with app.app_context():
+        today = date.today()
+        term = AcademicTerm(
+            school_id=test_school.id,
+            name="Term 1",
+            academic_year="2025/2026",
+            start_date=today - timedelta(days=60),
+            end_date=today + timedelta(days=60),
+            is_active=True,
+            created_by=test_proprietor.id,
+        )
+        db.session.add(term)
+
+        # Ensure exactly 30 active students so the 31st triggers overage.
+        existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
+        to_add = max(0, 30 - existing)
+        for idx in range(to_add):
+            db.session.add(
+                Student(
+                    school_id=test_school.id,
+                    first_name=f"Extra{idx}",
+                    surname="Test",
+                    name=f"Extra {idx}",
+                    student_code=f"EX{idx:04d}",
+                    current_class="JHS 1",
+                )
+            )
+        db.session.commit()
+
+        result = calculate_prorated_admission_charge(test_school, 1, "Basic")
+        assert result["prorated_charge"] > 0
+
+        entry = (
+            LedgerEntry.query.filter_by(school_id=test_school.id, tx_type="subscription_prorated")
+            .order_by(LedgerEntry.id.desc())
+            .first()
+        )
+        assert entry is not None
+        meta = entry.meta or {}
+        assert meta.get("status") == "Pending"
+        assert meta.get("days_in_term") == 120
+
+        # remaining_days = 61 (inclusive) when end_date = today+60
+        expected = round((61 / 120) * 12, 2)
+        assert entry.amount == expected
+
+
+def test_overage_auto_charge_creates_settlement_entry(client, app, db, test_school, monkeypatch):
+    from datetime import date
+
+    from backend.api.models import LedgerEntry, PlatformSetting
+    from backend.overage_billing_job import process_pending_overage_invoices, SETTLEMENT_TYPE
+    from backend.api.models import add_ledger_entry
+
+    with app.app_context():
+        db.session.add(
+            PlatformSetting(
+                setting_key=f"auto_billing:{test_school.id}",
+                setting_value={
+                    "enabled": True,
+                    "cards": [
+                        {
+                            "card_id": "card-1",
+                            "authorization_code": "AUTH_TEST",
+                            "customer_email": "owner@test.edu",
+                            "is_default": True,
+                            "added_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ],
+                },
+            )
+        )
+        db.session.commit()
+
+        invoice_ref = "PRO-TEST-INV-001"
+        add_ledger_entry(
+            school_id=test_school.id,
+            tx_type="subscription_prorated",
+            tx_ref=invoice_ref,
+            amount=25.0,
+            source="system",
+            metadata={
+                "status": "Pending",
+                "kind": "admission_overage_proration",
+                "due_date": (date.today() - timedelta(days=1)).isoformat(),
+            },
+        )
+        db.session.commit()
+
+        def fake_charge_authorization(email, amount_cents, authorization_code, metadata=None):
+            assert email
+            assert amount_cents == 2500
+            assert authorization_code == "AUTH_TEST"
+            return {
+                "status": "success",
+                "reference": "PSK-CHG-001",
+                "authorization": {"last4": "4242"},
+            }
+
+        monkeypatch.setattr("backend.paystack_integration.charge_authorization", fake_charge_authorization)
+
+        result = process_pending_overage_invoices(now=datetime.now(timezone.utc))
+        assert result["charged"] == 1
+
+        settlement = (
+            LedgerEntry.query.filter_by(school_id=test_school.id, tx_type=SETTLEMENT_TYPE)
+            .order_by(LedgerEntry.id.desc())
+            .first()
+        )
+        assert settlement is not None
+        assert (settlement.meta or {}).get("invoice_tx_ref") == invoice_ref

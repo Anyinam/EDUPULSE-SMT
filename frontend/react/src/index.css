@@ -20,3 +20,15 @@
 @utility card {
   @apply bg-white p-6 rounded-xl shadow-lg border border-gray-100;
 }
+
+/* Remove spinner arrows from specific number inputs */
+.no-spinner {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

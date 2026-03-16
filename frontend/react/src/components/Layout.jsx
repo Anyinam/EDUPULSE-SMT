@@ -9,9 +9,20 @@ export default function Layout() {
   const location = useLocation();
   const HELP_BADGE_KEY = 'help_center_seen';
   const role = localStorage.getItem('role');
-  const roles = JSON.parse(localStorage.getItem('roles') || '[]');
+  const safeJsonParse = (rawValue, fallback) => {
+    try {
+      if (rawValue === null || rawValue === undefined || rawValue === '' || rawValue === 'undefined') {
+        return fallback;
+      }
+      return JSON.parse(rawValue);
+    } catch (err) {
+      return fallback;
+    }
+  };
+
+  const roles = safeJsonParse(localStorage.getItem('roles'), []);
   const { branding } = useBranding({ refreshOnMount: true });
-  const modules = JSON.parse(localStorage.getItem('enabled_modules')) || { canteen: true, admissions: true, finance: true, hr: true, inventory: true };
+  const modules = safeJsonParse(localStorage.getItem('enabled_modules'), null) || { canteen: true, admissions: true, finance: true, hr: true, inventory: true };
   const assignedClass = localStorage.getItem('assigned_class');
 
   const hasRole = (r) => roles.includes(r) || role === r;

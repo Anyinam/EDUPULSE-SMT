@@ -455,7 +455,15 @@ export default function ExamPapers() {
   
   const printPaper = () => {
     const printWindow = window.open('', '_blank');
+    let lastSection = null;
     const questionsHtml = paperData.questions.map((q, idx) => {
+      let sectionHeading = '';
+      const currentSection = (q.section || '').toString().trim();
+      if (currentSection && currentSection !== lastSection) {
+        sectionHeading = `<div class="section-heading">SECTION ${currentSection.toUpperCase()}</div>`;
+        lastSection = currentSection;
+      }
+
       let questionHtml = `<div style="margin-bottom: 20px;">
         <p><strong>Question ${idx + 1} (${q.marks} marks)</strong></p>
         <p>${q.question}</p>`;
@@ -475,7 +483,7 @@ export default function ExamPapers() {
       }
       
       questionHtml += '</div>';
-      return questionHtml;
+      return `${sectionHeading}${questionHtml}`;
     }).join('');
     
     printWindow.document.write(`
@@ -489,6 +497,7 @@ export default function ExamPapers() {
           .header h1 { margin: 0; font-size: 24px; }
           .header h2 { margin: 10px 0; font-size: 18px; }
           .instructions { background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #3b82f6; }
+          .section-heading { text-align: center; font-weight: 700; margin: 18px 0 10px 0; letter-spacing: 0.08em; }
           @media print { body { padding: 20px; } }
         </style>
       </head>
@@ -557,46 +566,9 @@ ${aiPrompt.teacher_instructions || 'None'}`;
 
     setAiGeneratedPrompt(promptText);
 
-    try {
-      const payload = {
-        topic: aiPrompt.topic,
-        difficulty: aiPrompt.difficulty,
-        question_type: aiPrompt.question_type,
-        count: safeCount,
-        teacher_instructions: aiPrompt.teacher_instructions,
-        class_name: paperData.class_name,
-        subject_name: paperData.subject_name,
-        exam_type: paperData.exam_type
-      };
-
-      const res = await axios.post('/api/exams/generate-questions', payload, getAuthHeaders());
-      const generated = Array.isArray(res.data?.questions) ? res.data.questions : [];
-
-      if (generated.length > 0) {
-        const prepared = generated.map((q, idx) => ({
-          id: Date.now() + idx,
-          type: q.type || aiPrompt.question_type,
-          question: q.question || '',
-          options: Array.isArray(q.options) ? q.options : ['', '', '', ''],
-          correct_answer: q.correct_answer || '',
-          marks: Number(q.marks || (aiPrompt.question_type === 'mcq' ? 2 : 5)),
-          section: q.section || 'A'
-        }));
-
-        setPaperData((prev) => ({
-          ...prev,
-          questions: [...prev.questions, ...prepared],
-          total_marks: (prev.total_marks || 0) + prepared.reduce((sum, q) => sum + (Number(q.marks) || 0), 0)
-        }));
-
-        alert(`✅ Added ${prepared.length} AI-generated question(s). Provider: ${res.data?.provider || 'unknown'}`);
-      } else {
-        alert('AI did not return usable questions. You can still use the generated prompt manually.');
-      }
-    } catch (err) {
-      console.error('AI generation failed', err);
-      alert('AI generation failed. You can still use the generated prompt manually.');
-    }
+    // NOTE: We intentionally do not auto-generate and insert questions.
+    // The prompt is the reliable output that teachers can paste into any AI chat of their choice.
+    alert('✅ Prompt generated. Copy it and paste into your preferred AI chat to generate high-quality questions.');
   };
 
   const copyAiPrompt = async () => {
@@ -1191,7 +1163,7 @@ ${aiPrompt.teacher_instructions || 'None'}`;
                     const clamped = Number.isFinite(parsed) ? Math.min(20, Math.max(1, parsed)) : 5;
                     setAiPrompt((prev) => ({ ...prev, count: String(clamped) }));
                   }}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="no-spinner w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                   inputMode="numeric"
                   step="1"
                   min="1"
@@ -1229,7 +1201,7 @@ ${aiPrompt.teacher_instructions || 'None'}`;
                 onClick={generateAiQuestions}
                 className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold"
               >
-                Generate Questions
+                Generate Prompt
               </button>
             </div>
           </div>

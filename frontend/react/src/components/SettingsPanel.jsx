@@ -80,20 +80,32 @@ export default function SettingsPanel() {
     { name: 'Charcoal', hex: '#1f2937' }
   ];
 
+  const safeJsonParse = (rawValue, fallback) => {
+    try {
+      if (rawValue === null || rawValue === undefined || rawValue === '' || rawValue === 'undefined') {
+        return fallback;
+      }
+      return JSON.parse(rawValue);
+    } catch (err) {
+      return fallback;
+    }
+  };
+
   useEffect(() => {
-    const branding = JSON.parse(localStorage.getItem('branding')) || {};
-    setSettings({
-      school_name: branding.name || '',
-      school_motto: branding.motto || '',
-      logo_url: branding.logo || '',
-      primary_color: branding.theme_color || '#1e3a8a',
-      school_email: branding.email || '',
-      school_phone: branding.phone || '',
-      school_address: branding.address || '',
-      school_website: branding.website || '',
-      country_code: branding.country_code || 'GH',
-      anniversary_date: branding.anniversary_date || ''
-    });
+    const branding = safeJsonParse(localStorage.getItem('branding'), {});
+    setSettings((prev) => ({
+      ...prev,
+      school_name: branding.name || prev.school_name || '',
+      school_motto: branding.motto || prev.school_motto || '',
+      logo_url: branding.logo || prev.logo_url || '',
+      primary_color: branding.theme_color || prev.primary_color || '#1e3a8a',
+      school_email: branding.email || prev.school_email || '',
+      school_phone: branding.phone || prev.school_phone || '',
+      school_address: branding.address || prev.school_address || '',
+      school_website: branding.website || prev.school_website || '',
+      country_code: branding.country_code || prev.country_code || 'GH',
+      anniversary_date: branding.anniversary_date || prev.anniversary_date || ''
+    }));
 
     // Get subscription plan from backend to ensure it's always up-to-date
     const fetchSubscriptionPlan = async () => {
@@ -1368,7 +1380,12 @@ export default function SettingsPanel() {
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm font-bold text-slate-800 mb-2">📝 HTML Template Tips:</p>
               <ul className="text-xs text-slate-700 space-y-1 ml-4 list-disc">
-                <li>Use placeholder variables like <code className="bg-slate-200 px-1 rounded">{{student_name}}</code>, <code className="bg-slate-200 px-1 rounded">{{school_name}}</code>, <code className="bg-slate-200 px-1 rounded">{{total_score}}</code></li>
+                <li>
+                  Use placeholder variables like{' '}
+                  <code className="bg-slate-200 px-1 rounded">{'{{student_name}}'}</code>,{' '}
+                  <code className="bg-slate-200 px-1 rounded">{'{{school_name}}'}</code>,{' '}
+                  <code className="bg-slate-200 px-1 rounded">{'{{total_score}}'}</code>
+                </li>
                 <li>Include <code className="bg-slate-200 px-1 rounded">@media print</code> for print-friendly styling</li>
                 <li>Use inline CSS or link to external resources</li>
                 <li>Template should be a complete HTML5 document</li>

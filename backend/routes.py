@@ -538,12 +538,14 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
     term_start = active_term.start_date
     term_end = active_term.end_date
     
+    days_in_term = 120  # ~4 months (fixed term length for billing projection)
     if term_end and term_start:
-        total_days = (term_end - term_start).days + 1
-        remaining_days = max(1, (term_end - today).days + 1)
-        proration_factor = remaining_days / max(1, total_days)
+        remaining_days = max(0, (term_end - today).days + 1)
+        proration_factor = remaining_days / float(days_in_term)
+        proration_factor = max(0.0, min(1.0, proration_factor))
     else:
         # If dates missing, charge full overage
+        remaining_days = days_in_term
         proration_factor = 1.0
     
     # Calculate pro-rated overage charge
@@ -557,7 +559,7 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
     result['prorated_charge'] = overage_charge
     result['charge_reason'] = f'{students_over_included} student(s) above threshold × ₵{per_student_rate} × {proration_factor:.1%} pro-ration'
     
-    # Record in ledger
+    # Record pending invoice in tamper-evident ledger + timeline
     try:
         proprietor = User.query.filter_by(
             school_id=school.id,
@@ -565,17 +567,51 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
         ).first()
         
         from datetime import datetime as dt
-        invoice_number = f"PRO-{school.id}-{dt.now().strftime('%Y%m%d%H%M%S')}"
-        
-        ledger_entry = LedgerEntry(
+        from backend.api.models import add_ledger_entry
+
+        invoice_number = f"PRO-{school.id}-{dt.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+        due_at = get_utc_now() + timedelta(days=30)
+
+        add_ledger_entry(
             school_id=school.id,
             tx_type='subscription_prorated',
             tx_ref=invoice_number,
-            description=f'Pro-rated subscription fee for mid-term student admission(s)',
-            amount=overage_charge,
-            status='Pending'
+            amount=float(overage_charge),
+            source='system',
+            metadata={
+                'status': 'Pending',
+                'kind': 'admission_overage_proration',
+                'term_id': getattr(active_term, 'id', None),
+                'term_name': getattr(active_term, 'name', None),
+                'academic_year': getattr(active_term, 'academic_year', None),
+                'num_new_students': int(num_new_students),
+                'students_over_included': int(students_over_included),
+                'per_student_rate': float(per_student_rate),
+                'days_remaining': int(remaining_days),
+                'days_in_term': int(days_in_term),
+                'proration_factor': round(float(proration_factor), 6),
+                'due_date': due_at.date().isoformat(),
+                'created_reason': 'mid_term_admission',
+            },
         )
-        db.session.add(ledger_entry)
+
+        _append_billing_timeline_event(
+            school_id=school.id,
+            event_type='overage_invoice',
+            status='pending',
+            title='Mid-term overage invoice created',
+            details=f"Invoice {invoice_number}: {students_over_included} student(s) above included threshold (pro-rated).",
+            amount=float(overage_charge),
+            reference=invoice_number,
+            due_date=due_at.date().isoformat(),
+            metadata={
+                'students_over_included': int(students_over_included),
+                'per_student_rate': float(per_student_rate),
+                'days_remaining': int(remaining_days),
+                'days_in_term': int(days_in_term),
+            },
+        )
+
         db.session.commit()
         
         # Send notification email
@@ -592,10 +628,10 @@ Invoice Number:  {invoice_number}
 New Students:    {num_new_students}
 Students Over Threshold: {students_over_included}
 Rate per Student: ₵{per_student_rate}
-Pro-ration Factor: {proration_factor:.1%} ({remaining_days}/{total_days} days remaining)
+Pro-ration Factor: {proration_factor:.1%} ({remaining_days}/{days_in_term} days remaining)
 Pro-Rated Charge: ₵{overage_charge:.2f}
 
-This amount will be added to your next subscription billing cycle.
+This amount will be billed after the grace period unless settled earlier.
 
 If you have questions, contact support@edupulse.com
 
@@ -5935,7 +5971,10 @@ def bank_transfer_webhook():
 def get_live_feed():
     """Remote oversight for the traveling proprietor."""
     try:
-        start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        now = datetime.now(timezone.utc)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        last_30_days = now - timedelta(days=30)
+        last_365_days = now - timedelta(days=365)
 
         recent_logs = (
             db.session.query(AuditLog)
@@ -5951,7 +5990,32 @@ def get_live_feed():
             .filter(
                 Payment.school_id == g.school_id,
                 Payment.status == "Confirmed",
+                Payment.date_paid.isnot(None),
                 Payment.date_paid >= start_of_day,
+            )
+            .scalar()
+            or 0
+        )
+
+        monthly_revenue = (
+            db.session.query(db.func.sum(Payment.amount))
+            .filter(
+                Payment.school_id == g.school_id,
+                Payment.status == "Confirmed",
+                Payment.date_paid.isnot(None),
+                Payment.date_paid >= last_30_days,
+            )
+            .scalar()
+            or 0
+        )
+
+        yearly_revenue = (
+            db.session.query(db.func.sum(Payment.amount))
+            .filter(
+                Payment.school_id == g.school_id,
+                Payment.status == "Confirmed",
+                Payment.date_paid.isnot(None),
+                Payment.date_paid >= last_365_days,
             )
             .scalar()
             or 0
@@ -6017,6 +6081,58 @@ def get_live_feed():
             .all()
         )
 
+        # Billing notice: surface pending overage invoices (for dashboard visibility).
+        billing_notice = None
+        try:
+            pending_invoices = (
+                LedgerEntry.query.filter(
+                    LedgerEntry.school_id == g.school_id,
+                    LedgerEntry.tx_type.in_(["subscription_prorated"]),
+                )
+                .order_by(LedgerEntry.created_at.desc())
+                .limit(20)
+                .all()
+            )
+
+            def _invoice_due_at(entry):
+                meta = entry.meta or {}
+                due_str = meta.get("due_date")
+                if isinstance(due_str, str) and due_str:
+                    try:
+                        due_date = datetime.fromisoformat(due_str).date()
+                        return datetime.combine(due_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+                    except Exception:
+                        pass
+                created_at = entry.created_at
+                if created_at is None:
+                    return now + timedelta(days=30)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                return created_at + timedelta(days=30)
+
+            due_entries = []
+            for entry in pending_invoices:
+                meta = entry.meta or {}
+                if meta.get("status") != "Pending":
+                    continue
+                due_at = _invoice_due_at(entry)
+                if now >= due_at:
+                    due_entries.append((entry, due_at))
+
+            if due_entries:
+                entry, due_at = sorted(due_entries, key=lambda t: t[1])[0]
+                billing_notice = {
+                    "level": "warning",
+                    "title": "Billing action required",
+                    "message": f"A subscription overage invoice is due (Ref: {entry.tx_ref}, Amount: GH₵ {float(entry.amount or 0):.2f}). Resolve to avoid plan downgrade.",
+                    "redirect_to": "/proprietor?tab=subscription",
+                    "invoice_tx_ref": entry.tx_ref,
+                    "amount": float(entry.amount or 0),
+                    "due_date": due_at.date().isoformat(),
+                }
+        except Exception:
+            billing_notice = None
+
         return jsonify(
             {
                 "logs": [
@@ -6032,6 +6148,8 @@ def get_live_feed():
                 ],
                 "stats": {
                     "today_revenue": today_revenue,
+                    "monthly_revenue": monthly_revenue,
+                    "yearly_revenue": yearly_revenue,
                     "critical_risk_students": len(critical_students),
                     "canteen_count": canteen_count,
                     "pending_cash": len(pending_list),
@@ -6064,6 +6182,7 @@ def get_live_feed():
                     }
                     for i in low_stock_items
                 ],
+                "billing_notice": billing_notice,
             }
         )
     except Exception as e:
@@ -6901,52 +7020,10 @@ def bulk_admit_students():
             return jsonify({"message": "No selected file"}), 400
 
         if file:
-            # Read CSV file from memory with BOM-safe decoding.
-            raw_csv_text = file.stream.read().decode("utf-8-sig", errors="replace")
-            raw_csv_text = raw_csv_text.replace("\r\n", "\n").replace("\r", "\n")
-
-            # Recover if unexpected terminal/control noise appears before the CSV header.
-            lines = raw_csv_text.split("\n")
-            header_start_index = 0
-            for i, line in enumerate(lines):
-                lowered = (line or "").lower()
-                if "first_name" in lowered and "surname" in lowered:
-                    header_start_index = i
-                    break
-
-            cleaned_csv_text = "\n".join(lines[header_start_index:])
-            stream = StringIO(cleaned_csv_text, newline=None)
+            # Read CSV file from memory
+            # Use utf-8-sig to transparently strip BOM from CSV headers.
+            stream = StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
             csv_input = csv.DictReader(stream)
-
-            if not csv_input.fieldnames:
-                return jsonify({"message": "CSV header not found. Please use the template columns."}), 400
-
-            def normalize_csv_key(key):
-                key = (str(key or "").strip().lstrip("\ufeff")).lower()
-                key = re.sub(r"[^a-z0-9_]", "", key)
-
-                aliases = {
-                    "firstname": "first_name",
-                    "lastname": "surname",
-                    "class": "class_assigned",
-                    "classassigned": "class_assigned",
-                    "dateofbirth": "date_of_birth",
-                    "dob": "date_of_birth",
-                    "guardian": "guardian_name",
-                    "guardianname": "guardian_name",
-                    "parentemail": "parent_email",
-                    "parentphone": "parent_phone",
-                    "phone": "parent_phone",
-                    "surname": "surname",
-                    "firstname_": "first_name",
-                }
-                if key in aliases:
-                    return aliases[key]
-                if key.endswith("firstname"):
-                    return "first_name"
-                if key.endswith("lastname"):
-                    return "surname"
-                return key
 
             school = School.query.get(g.school_id)
             limit = get_plan_limits(get_effective_plan(school))
@@ -6966,12 +7043,55 @@ def bulk_admit_students():
             warnings = []
             uploaded_names_guardians = set()  # Track (name, guardian) pairs in THIS upload
 
+            def _normalize_csv_key(key):
+                k = str(key or "").strip().lstrip("\ufeff").lower()
+                # Normalize common separators and strip punctuation.
+                k = re.sub(r"[^a-z0-9_\s-]", "", k)
+                k = k.replace("-", "_").replace(" ", "_")
+                k = re.sub(r"_+", "_", k).strip("_")
+                return k
+
+            # Map common header variants to the canonical keys used by the API.
+            _ALIASES = {
+                "first_name": ["first", "firstname", "given_name", "givenname", "forename", "student_first_name"],
+                "surname": [
+                    "last_name",
+                    "last",
+                    "lastname",
+                    "family_name",
+                    "familyname",
+                    "student_last_name",
+                    "second_name",
+                ],
+                "name": ["full_name", "fullname", "student_name"],
+                "class_assigned": ["class", "grade", "level", "current_class", "class_name", "classassigned"],
+                "student_code": ["studentcode", "student_id", "studentid", "admission_no", "admission_number", "index_no"],
+                "guardian_name": ["guardian", "guardianname", "parent_name", "parentname"],
+                "parent_email": ["parentemail", "guardian_email", "guardianemail", "email"],
+                "parent_phone": ["parentphone", "guardian_phone", "guardianphone", "phone", "phone_number"],
+                "date_of_birth": ["dob", "birth_date", "birthdate", "dateofbirth"],
+                "gender": ["sex"],
+            }
+
+            def _get_str(row_dict, canonical_key):
+                keys_to_try = [canonical_key] + _ALIASES.get(canonical_key, [])
+                for k in keys_to_try:
+                    val = row_dict.get(k)
+                    if val is None:
+                        continue
+                    s = str(val).strip()
+                    if s:
+                        return s
+                return ""
+
             for idx, row in enumerate(csv_input, start=1):
                 # Normalize header keys to tolerate spaces/case/BOM variations.
-                normalized_row = {
-                    (normalize_csv_key(k) if k is not None else ""): (v or "")
-                    for k, v in row.items()
-                }
+                normalized_row = {}
+                for k, v in (row or {}).items():
+                    nk = _normalize_csv_key(k)
+                    if not nk:
+                        continue
+                    normalized_row[nk] = "" if v is None else str(v)
 
                 if current_count >= limit:
                     errors.append(
@@ -6980,9 +7100,9 @@ def bulk_admit_students():
                     break
 
                 # Basic Validation - support both old format (name) and new format (first_name, surname)
-                first_name = (normalized_row.get("first_name") or "").strip()
-                surname = (normalized_row.get("surname") or "").strip()
-                name = (normalized_row.get("name") or "").strip()
+                first_name = _get_str(normalized_row, "first_name")
+                surname = _get_str(normalized_row, "surname")
+                name = _get_str(normalized_row, "name")
                 
                 # If name is provided, split it; otherwise use first_name and surname
                 if name and not first_name and not surname:
@@ -6994,7 +7114,7 @@ def bulk_admit_students():
                     errors.append(f"Row {idx}: Missing first_name and/or surname")
                     continue
 
-                student_code = (normalized_row.get("student_code") or "").strip().upper()
+                student_code = _get_str(normalized_row, "student_code").upper()
                 if not student_code:
                     while True:
                         candidate = generate_student_code(prefix, next_index)
@@ -7010,15 +7130,15 @@ def bulk_admit_students():
                     )
                     continue
 
-                class_assigned = (normalized_row.get("class_assigned") or "Class 1").strip()
+                class_assigned = _get_str(normalized_row, "class_assigned") or "Class 1"
                 if class_assigned not in VALID_GRADES:
                     errors.append(
                         f"Row {idx}: Invalid class_assigned '{class_assigned}'"
                     )
                     continue
 
-                gender = (normalized_row.get("gender") or "").strip()  # Male, Female, Other
-                raw_dob = (normalized_row.get("date_of_birth") or "").strip()
+                gender = _get_str(normalized_row, "gender")  # Male, Female, Other
+                raw_dob = _get_str(normalized_row, "date_of_birth")
                 date_of_birth = None
                 if raw_dob:
                     try:
@@ -7028,9 +7148,9 @@ def bulk_admit_students():
                             f"Row {idx}: Invalid date_of_birth '{raw_dob}'. Use YYYY-MM-DD"
                         )
                         continue
-                guardian_name = (normalized_row.get("guardian_name") or "").strip()
-                parent_email = (normalized_row.get("parent_email") or "").strip()
-                parent_phone = (normalized_row.get("parent_phone") or "").strip()
+                guardian_name = _get_str(normalized_row, "guardian_name")
+                parent_email = _get_str(normalized_row, "parent_email")
+                parent_phone = _get_str(normalized_row, "parent_phone")
                 full_name = f"{first_name} {surname}".strip()
 
 # Check for same name existing in database (warning, allow duplicates)
@@ -8883,6 +9003,11 @@ def bulk_upload_staff():
 def get_finance_dashboard():
     """Finance Dashboard Summary - Payment statistics and overview."""
     try:
+        now = datetime.now(timezone.utc)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        last_30_days = now - timedelta(days=30)
+        last_365_days = now - timedelta(days=365)
+
         # Get all students for the school
         students = Student.query.filter_by(school_id=g.school_id).all()
 
@@ -8895,6 +9020,42 @@ def get_finance_dashboard():
         total_collected = sum(p.amount for p in payments) if payments else 0
         outstanding_balance = (
             sum(s.total_tuition_owed for s in students) if students else 0
+        )
+
+        daily_revenue = (
+            db.session.query(db.func.sum(Payment.amount))
+            .filter(
+                Payment.school_id == g.school_id,
+                Payment.status == "Confirmed",
+                Payment.date_paid.isnot(None),
+                Payment.date_paid >= start_of_day,
+            )
+            .scalar()
+            or 0
+        )
+
+        monthly_revenue = (
+            db.session.query(db.func.sum(Payment.amount))
+            .filter(
+                Payment.school_id == g.school_id,
+                Payment.status == "Confirmed",
+                Payment.date_paid.isnot(None),
+                Payment.date_paid >= last_30_days,
+            )
+            .scalar()
+            or 0
+        )
+
+        yearly_revenue = (
+            db.session.query(db.func.sum(Payment.amount))
+            .filter(
+                Payment.school_id == g.school_id,
+                Payment.status == "Confirmed",
+                Payment.date_paid.isnot(None),
+                Payment.date_paid >= last_365_days,
+            )
+            .scalar()
+            or 0
         )
 
         # Count students with paid vs unpaid balances
@@ -8942,6 +9103,9 @@ def get_finance_dashboard():
 
         return jsonify(
             {
+                "daily_revenue": daily_revenue,
+                "monthly_revenue": monthly_revenue,
+                "yearly_revenue": yearly_revenue,
                 "total_collected": total_collected,
                 "outstanding_balance": outstanding_balance,
                 "paid_count": paid_count,

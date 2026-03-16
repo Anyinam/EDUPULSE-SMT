@@ -88,6 +88,22 @@ export default function FinanceDashboard() {
         <PaymentEntry students={students} onSuccess={refreshData} />
       </div>
 
+      {/* Revenue Snapshot */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-emerald-500">
+          <p className="text-gray-500 text-xs font-bold uppercase">Daily Revenue</p>
+          <p className="text-3xl font-black text-emerald-700">₵{Number(stats.daily_revenue || 0).toFixed(2)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-blue-500">
+          <p className="text-gray-500 text-xs font-bold uppercase">Revenue (Last 30 Days)</p>
+          <p className="text-3xl font-black text-blue-700">₵{Number(stats.monthly_revenue || 0).toFixed(2)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-indigo-500">
+          <p className="text-gray-500 text-xs font-bold uppercase">Revenue (Last 365 Days)</p>
+          <p className="text-3xl font-black text-indigo-700">₵{Number(stats.yearly_revenue || 0).toFixed(2)}</p>
+        </div>
+      </div>
+
       {/* Finance Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-blue-500">

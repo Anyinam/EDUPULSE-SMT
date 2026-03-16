@@ -1,4 +1,4 @@
-]633;E;docker compose down -v && docker compose up --build;349b856a-9201-4175-8ad6-d9294b0ff4dd]633;Cfirst_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone
+first_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone
 Kwame,Asante,Male,2011-02-02,JHS 1,Kwame Asante Senior,guardian001@example.com,+233501200001
 Ama,Osei,Female,2012-03-03,JHS 2,Ama Osei Senior,guardian002@example.com,+233501200002
 Kofi,Mensah,Male,2013-04-04,JHS 3,Kofi Mensah Senior,guardian003@example.com,+233501200003

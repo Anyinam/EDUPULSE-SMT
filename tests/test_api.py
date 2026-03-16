@@ -361,6 +361,33 @@ class TestPaymentEndpoints:
 class TestAdmissionsEndpoints:
     """Test admissions endpoints."""
 
+    def test_bulk_admit_header_variants(self, client, app):
+        """Accept common human-readable CSV headers in bulk admissions."""
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import User
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        csv_content = (
+            "First Name,Surname,Class Assigned,Gender,Guardian Name,Parent Email\n"
+            "Ada,Lovelace,JHS 1,Female,Charles Babbage,ada.parent@example.com\n"
+        )
+        data = {"file": (io.BytesIO(csv_content.encode("utf-8")), "students.csv")}
+        response = client.post(
+            "/api/admissions/bulk-upload",
+            data=data,
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        assert "Successfully admitted" in payload.get("message", "")
+        assert "1" in payload.get("message", "")
+        assert not payload.get("errors")
+
     def test_bulk_admit_invalid_class(self, client, app):
         """Reject invalid class_assigned in bulk admissions."""
         with app.app_context():

@@ -36,6 +36,7 @@ export default function ProprietorPanel() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [attendanceStats, setAttendanceStats] = useState(null);
   const [pendingExamCount, setPendingExamCount] = useState(0);
+  const [billingNotice, setBillingNotice] = useState(null);
   const [lastDashboardRefresh, setLastDashboardRefresh] = useState(null);
   const { branding } = useBranding();
   const plan = localStorage.getItem('subscription_plan') || 'Free Tier';
@@ -52,6 +53,7 @@ export default function ProprietorPanel() {
       setCriticalStudents(res.data.critical_list || []);
       setPendingPayments(res.data.pending_payments || []);
       setStats(res.data.stats || { today_revenue: 0, canteen_count: 0 });
+      setBillingNotice(res.data.billing_notice || null);
       
       // Fetch all students for payment dropdown (simplified for demo)
       const studentsRes = await axios.get('/api/proprietor/students', { headers });
@@ -183,6 +185,23 @@ export default function ProprietorPanel() {
 
         {activeTab === 'dashboard' ? (
           <div className="space-y-8">
+            {billingNotice && (
+              <div className={`rounded-xl border px-4 py-3 ${billingNotice.level === 'error' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className={`text-sm font-bold ${billingNotice.level === 'error' ? 'text-red-900' : 'text-amber-900'}`}>{billingNotice.title || 'Billing Notice'}</p>
+                    <p className={`mt-1 text-xs ${billingNotice.level === 'error' ? 'text-red-800' : 'text-amber-800'}`}>{billingNotice.message}</p>
+                  </div>
+                  <button
+                    onClick={() => { window.location.href = billingNotice.redirect_to || '/proprietor?tab=subscription'; }}
+                    className={`${billingNotice.level === 'error' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'} text-white text-sm font-bold px-4 py-2 rounded-lg`}
+                  >
+                    Resolve Now
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Attendance Summary Section */}
             {attendanceStats && (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -321,9 +340,19 @@ export default function ProprietorPanel() {
                   </div>
                 </div>
                 
-                <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-green-500">
-                  <p className="text-slate-400 font-bold uppercase text-xs mb-2">Confirmed Revenue (Today)</p>
-                  <h3 className="text-5xl font-black text-green-600">GH₵ {stats.today_revenue.toLocaleString()}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-green-500">
+                    <p className="text-slate-400 font-bold uppercase text-xs mb-2">Confirmed Revenue (Today)</p>
+                    <h3 className="text-4xl font-black text-green-600">GH₵ {Number(stats.today_revenue || 0).toLocaleString()}</h3>
+                  </div>
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-blue-500">
+                    <p className="text-slate-400 font-bold uppercase text-xs mb-2">Confirmed Revenue (Last 30 Days)</p>
+                    <h3 className="text-4xl font-black text-blue-700">GH₵ {Number(stats.monthly_revenue || 0).toLocaleString()}</h3>
+                  </div>
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-indigo-500">
+                    <p className="text-slate-400 font-bold uppercase text-xs mb-2">Confirmed Revenue (Last 365 Days)</p>
+                    <h3 className="text-4xl font-black text-indigo-700">GH₵ {Number(stats.yearly_revenue || 0).toLocaleString()}</h3>
+                  </div>
                 </div>
 
                 <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-orange-500">
