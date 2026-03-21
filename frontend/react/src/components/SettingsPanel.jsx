@@ -23,7 +23,6 @@ export default function SettingsPanel() {
   const [fees, setFees] = useState({
     tuition_fee: 0,
     feeding_fee: 0,
-    uniform_fee: 0,
     transport_fee: 0,
     terminal_report_fee: 0,
     other_fees: {}
@@ -37,6 +36,7 @@ export default function SettingsPanel() {
   const [previewTemplate, setPreviewTemplate] = useState(null);
   const [showTemplatePreview, setShowTemplatePreview] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState('sample1');
+  const [activeTemplateConfig, setActiveTemplateConfig] = useState({});
   const [templateMessage, setTemplateMessage] = useState('');
   const [customTemplateUpload, setCustomTemplateUpload] = useState({
     templateName: '',
@@ -186,7 +186,6 @@ export default function SettingsPanel() {
         setFees({
           tuition_fee: res.data.tuition_fee || 0,
           feeding_fee: res.data.feeding_fee || 0,
-          uniform_fee: res.data.uniform_fee || 0,
           transport_fee: res.data.transport_fee || 0,
           terminal_report_fee: res.data.terminal_report_fee || 0,
           other_fees: res.data.other_fees || {}
@@ -309,6 +308,7 @@ export default function SettingsPanel() {
       };
       const res = await axios.get('/api/school/template', { headers });
       setActiveTemplate(res.data.template_id || 'sample1');
+      setActiveTemplateConfig(res.data.template_config || {});
     } catch (err) {
       console.error('Failed to load active template');
     }
@@ -322,6 +322,7 @@ export default function SettingsPanel() {
       };
       const response = await axios.post('/api/school/template', { template_id: templateId }, { headers });
       setActiveTemplate(templateId);
+      setActiveTemplateConfig(response.data.template_config || activeTemplateConfig);
       setTemplateMessage(`✅ Template ${templateId} is now active`);
       setTimeout(() => setTemplateMessage(''), 3000);
     } catch (err) {
@@ -395,6 +396,38 @@ export default function SettingsPanel() {
 
 
 
+
+  const getCustomTemplateSrcDoc = () => {
+    if (!activeTemplateConfig || activeTemplateConfig.type !== 'html') {
+      return '<!doctype html><html><body><p>No custom template available</p></body></html>';
+    }
+
+    const cssStyles = activeTemplateConfig.css ? `<style>${activeTemplateConfig.css}</style>` : '';
+    const background = activeTemplateConfig.background_image
+      ? `style="background-image: url(${activeTemplateConfig.background_image}); background-size: cover; background-repeat: no-repeat;"
+`      : '';
+
+    return `<!doctype html><html><head><meta charset="utf-8">${cssStyles}</head><body ${background}>${activeTemplateConfig.html || '<p>No HTML content</p>'}</body></html>`;
+  };
+
+  const handleViewBankDetails = async () => {
+    const pwd = prompt('Enter your password to view full bank details');
+    if (!pwd) return;
+    try {
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+      const res = await axios.post('/api/school/branding/bank/view', { password: pwd }, { headers });
+      const data = res.data || {};
+      setSettings((prev) => ({ ...prev, bank_name: data.bank_name, bank_account: data.bank_account, bank_account_name: data.bank_account_name, bank_branch: data.bank_branch }));
+      setTemplateMessage('✅ Bank details revealed');
+      setTimeout(() => setTemplateMessage(''), 3000);
+    } catch (err) {
+      setTemplateMessage(`❌ ${err.response?.data?.message || 'Unable to reveal bank details'}`);
+      setTimeout(() => setTemplateMessage(''), 4000);
+    }
+  };
 
   const handleChange = (e) => {
     setSettings({ ...settings, [e.target.name]: e.target.value });
@@ -481,7 +514,6 @@ export default function SettingsPanel() {
       await axios.post('/api/school/fees', {
         tuition_fee: fees.tuition_fee,
         feeding_fee: fees.feeding_fee,
-        uniform_fee: fees.uniform_fee,
         transport_fee: fees.transport_fee,
         terminal_report_fee: fees.terminal_report_fee,
         other_fees: fees.other_fees
@@ -579,7 +611,18 @@ export default function SettingsPanel() {
       : 'bg-green-100 text-green-800';
 
   return (
-    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 max-w-3xl">
+    <>
+      <style>{`
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
+      `}</style>
+      <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 max-w-3xl">
       <h2 className="text-2xl font-bold text-slate-800 mb-6">System Branding & Settings</h2>
       <form onSubmit={handleSave} className="space-y-6">
         <div>
@@ -759,36 +802,48 @@ export default function SettingsPanel() {
               <div className="space-y-3">
                 <div>
                   <label className="text-sm font-bold text-slate-700">Bank Name</label>
-                  <input
-                    type="text"
-                    name="bank_name"
-                    value={settings.bank_name || ''}
-                    onChange={handleChange}
-                    className="w-full p-2 border rounded mt-1 bg-white"
-                    placeholder="e.g., Fidelity Bank Ghana"
-                  />
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      name="bank_name"
+                      value={settings.bank_name || ''}
+                      onChange={handleChange}
+                      className="w-full p-2 border rounded mt-1 bg-white"
+                      placeholder="e.g., Fidelity Bank Ghana"
+                      disabled={typeof settings.bank_name === 'string' && settings.bank_name.includes('***')}
+                    />
+                    <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700">Account Number</label>
-                  <input
-                    type="text"
-                    name="bank_account"
-                    value={settings.bank_account || ''}
-                    onChange={handleChange}
-                    className="w-full p-2 border rounded mt-1 bg-white"
-                    placeholder="School bank account number"
-                  />
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      name="bank_account"
+                      value={settings.bank_account || ''}
+                      onChange={handleChange}
+                      className="w-full p-2 border rounded mt-1 bg-white"
+                      placeholder="School bank account number"
+                      disabled={typeof settings.bank_account === 'string' && settings.bank_account.startsWith('****')}
+                    />
+                    <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700">Account Holder Name</label>
-                  <input
-                    type="text"
-                    name="bank_account_name"
-                    value={settings.bank_account_name || ''}
-                    onChange={handleChange}
-                    className="w-full p-2 border rounded mt-1 bg-white"
-                    placeholder="Name on bank account"
-                  />
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      name="bank_account_name"
+                      value={settings.bank_account_name || ''}
+                      onChange={handleChange}
+                      className="w-full p-2 border rounded mt-1 bg-white"
+                      placeholder="Name on bank account"
+                      disabled={typeof settings.bank_account_name === 'string' && settings.bank_account_name.includes('***')}
+                    />
+                    <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700">Branch (Optional)</label>
@@ -972,21 +1027,6 @@ export default function SettingsPanel() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Uniform Fee</label>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-600 font-semibold">GH₵</span>
-                <input
-                  type="number"
-                  value={fees.uniform_fee}
-                  onChange={(e) => setFees((prev) => ({ ...prev, uniform_fee: parseFloat(e.target.value) || 0 }))}
-                  className="flex-1 p-3 border rounded-lg bg-slate-50"
-                  placeholder="0.00"
-                  step="0.01"
-                  min="0"
-                />
-              </div>
-            </div>
 
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Transport Fee (Optional)</label>
@@ -1106,10 +1146,6 @@ export default function SettingsPanel() {
               <div>
                 <p className="text-slate-600">Feeding</p>
                 <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_fee.toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-slate-600">Uniform</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {fees.uniform_fee.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Transport</p>
@@ -1304,6 +1340,35 @@ export default function SettingsPanel() {
                 </button>
               </div>
             </div>
+
+            {/* Custom template indicator (for uploaded HTML) */}
+            {activeTemplate && !['sample1','sample2','sample3','sample4','sample5','sample6','gradman_v1','parent_focus','progress_insights','compact_clear','guardian_narrative','classic_traditional'].includes(activeTemplate) && (
+              <div className="mt-4 p-4 border rounded-lg bg-indigo-50 border-indigo-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-indigo-700">📦 Uploaded Custom Template</p>
+                    <p className="text-xs text-indigo-600">Active template ID: {activeTemplate}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setPreviewTemplate('custom'); setShowTemplatePreview(true); }}
+                      className="px-3 py-1 text-xs font-bold rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      className="px-3 py-1 text-xs font-bold rounded bg-gray-300 text-gray-500 cursor-not-allowed"
+                    >
+                      Active
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <p className="text-xs text-slate-500 mt-4">💡 Click template to preview • Click "Set as Active" button to activate</p>
           </div>
         </div>
@@ -1551,6 +1616,8 @@ export default function SettingsPanel() {
                 {previewTemplate === 'sample3' && '📄 Sample 3 - Modern Design'}
                 {previewTemplate === 'sample4' && '📄 Sample 4 - Detailed Narrative'}
                 {previewTemplate === 'sample5' && '📄 Sample 5 - Traditional Style'}
+                {previewTemplate === 'sample6' && '📄 Sample 6 - Classic Terminal Report'}
+                {previewTemplate === 'custom' && '📄 Custom Uploaded Template'}
               </h3>
               <button 
                 onClick={() => setShowTemplatePreview(false)}
@@ -1561,50 +1628,71 @@ export default function SettingsPanel() {
             </div>
             
             <div className="p-8 bg-gray-50">
-              {/* Sample Report Preview */}
-              <div className="bg-white p-8 shadow-lg" style={{ minHeight: '500px' }}>
-                {/* Header */}
-                <div className="text-center mb-6 border-b-4 border-blue-800 pb-4">
-                  <div className="mb-2">
-                    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-3xl mx-auto">
-                      🏫
+              {previewTemplate === 'sample6' && (
+                <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-bold text-slate-800 mb-2">Auto-filled by the system when grades are finalized</p>
+                  <div className="flex flex-wrap gap-2 text-xs text-slate-700">
+                    {['School name', 'Student name', 'Student code', 'Class', 'Academic term', 'Academic year', 'Subject scores', 'Grades', 'Term average', 'Class position', 'Attendance %', 'Total attendance'].map((item) => (
+                      <span key={item} className="rounded-full bg-white px-3 py-1 border border-slate-200">{item}</span>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">Usually still entered manually: conduct, attitude, interest, teacher remarks, academic remark, promotion decision, and signature blocks unless already stored in the report workflow.</p>
+                </div>
+              )}
+
+              {/* Custom Review for Uploaded Template */}
+              {previewTemplate === 'custom' ? (
+                <div className="bg-white p-4 shadow-lg" style={{ minHeight: '600px' }}>
+                  <iframe
+                    title="Custom Template Preview"
+                    style={{ width: '100%', minHeight: '650px', border: '1px solid #d1d5db' }}
+                    srcDoc={getCustomTemplateSrcDoc()}
+                  />
+                </div>
+              ) : (
+                <div className="bg-white p-8 shadow-lg" style={{ minHeight: '500px' }}>
+                  {/* Header */}
+                  <div className="text-center mb-6 border-b-4 border-blue-800 pb-4">
+                    <div className="mb-2">
+                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-3xl mx-auto">
+                        🏫
+                      </div>
+                    </div>
+                    <h1 className="text-3xl font-bold text-blue-900 uppercase">{settings.school_name || 'SAMPLE SCHOOL NAME'}</h1>
+                    <p className="text-sm italic text-gray-600 mt-1">{settings.school_motto || 'Excellence in Education'}</p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      {settings.school_email || 'info@school.edu'} | {settings.school_phone || '+233 XX XXX XXXX'}
+                    </p>
+                  </div>
+
+                  {/* Report Title */}
+                  <div className="text-center mb-4">
+                    <h2 className="text-xl font-bold text-slate-800 uppercase">Terminal Report Card</h2>
+                    <p className="text-sm text-slate-600">Academic Year: 2024/2025 - Term 1</p>
+                  </div>
+
+                  {/* Student Information */}
+                  <div className="grid grid-cols-2 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
+                    <div>
+                      <p className="text-xs text-slate-600">Student Name:</p>
+                      <p className="font-bold text-slate-800">John Doe (Sample)</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-600">Student ID:</p>
+                      <p className="font-bold text-slate-800">STU-2024-001</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-600">Class:</p>
+                      <p className="font-bold text-slate-800">Grade 10A</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-600">Position:</p>
+                      <p className="font-bold text-slate-800">2nd / 45</p>
                     </div>
                   </div>
-                  <h1 className="text-3xl font-bold text-blue-900 uppercase">{settings.school_name || 'SAMPLE SCHOOL NAME'}</h1>
-                  <p className="text-sm italic text-gray-600 mt-1">{settings.school_motto || 'Excellence in Education'}</p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    {settings.school_email || 'info@school.edu'} | {settings.school_phone || '+233 XX XXX XXXX'}
-                  </p>
-                </div>
 
-                {/* Report Title */}
-                <div className="text-center mb-4">
-                  <h2 className="text-xl font-bold text-slate-800 uppercase">Terminal Report Card</h2>
-                  <p className="text-sm text-slate-600">Academic Year: 2024/2025 - Term 1</p>
-                </div>
-
-                {/* Student Information */}
-                <div className="grid grid-cols-2 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
-                  <div>
-                    <p className="text-xs text-slate-600">Student Name:</p>
-                    <p className="font-bold text-slate-800">John Doe (Sample)</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-600">Student ID:</p>
-                    <p className="font-bold text-slate-800">STU-2024-001</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-600">Class:</p>
-                    <p className="font-bold text-slate-800">Grade 10A</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-600">Position:</p>
-                    <p className="font-bold text-slate-800">2nd / 45</p>
-                  </div>
-                </div>
-
-                {/* Performance Summary */}
-                <div className="mb-6">
+                  {/* Performance Summary */}
+                  <div className="mb-6">
                   <h3 className="font-bold text-slate-700 mb-2 border-b pb-1">Academic Performance</h3>
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100">
@@ -1687,19 +1775,21 @@ export default function SettingsPanel() {
                   <p>Generated on {new Date().toLocaleDateString()}</p>
                 </div>
               </div>
+              )}
             </div>
 
             <div className="sticky bottom-0 bg-white border-t p-4">
-              <button 
-                onClick={() => setShowTemplatePreview(false)}
-                className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700"
-              >
-                Close Preview
-              </button>
+                <button
+                  onClick={() => setShowTemplatePreview(false)}
+                  className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700"
+                >
+                  Close Preview
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
     </div>
+    </>
   );
-}
+ }

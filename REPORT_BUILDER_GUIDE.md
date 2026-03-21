@@ -38,6 +38,43 @@
    - Attendance % (e.g., 95.5)
    - Total Attendance (e.g., 160 days)
 
+### Auto-Filled Fields From Grades
+
+When finalized subject grades already exist, the report builder auto-fills these fields:
+
+- Student name
+- Student code
+- Class name
+- Academic term and academic year context
+- Subject rows
+  - Subject name
+  - Class score
+  - Exam score
+  - Total score
+  - Grade
+  - Subject remark if one was saved with the grade
+- Out-of-students value for the selected class
+- Existing attendance and class position values if a report for the same term/year already exists
+
+For the Sample 6 terminal report, the template also expects these common school/report fields to be populated automatically when available:
+
+- School name and logo
+- School address/contact
+- Term average
+- Overall position
+- Attendance percentage
+- Total attendance
+
+These items are typically still completed manually by the homeroom teacher or approver unless your workflow already stores them:
+
+- Interest
+- Conduct
+- Attitude
+- Class teacher remark
+- Academic remark
+- Promotion status / promoted-to field
+- Signature blocks
+
 7. **Add Teacher Remarks**
    - Enter your comments about the student's overall performance
    - This will appear on the printed report card

@@ -33,21 +33,21 @@ PLAN_FEATURES = {
         "max_classes": 1,
         "max_students": 50,
         "max_staff": 3,
-        "report_templates": ["gradman_v1"],  # Only basic template
+        "report_templates": ["gradman_v1"],
         "features": {
-            "attendance": "view_only",  # Can view but not edit
-            "feeding": "view_only",  # Can view but not edit
-            "lesson_notes": False,  # Cannot access
-            "exam_papers": False,  # Premium only
-            "grade_entry": False,  # Cannot edit grades
-            "grade_viewing": True,  # Can view grades
-            "report_generation": True,  # Can generate reports (limited templates)
-            "ai_analysis": False,  # No AI features
-            "ai_narratives": False,  # No grade narratives
-            "payment_tracking": False,  # No payment features
-            "advanced_analytics": False,  # No advanced analytics
-            "html_templates": False,  # Cannot upload HTML
-            "bulk_operations": False,  # No bulk attendance/feeding
+            "attendance": "view_only",
+            "feeding": "view_only",
+            "lesson_notes": False,
+            "exam_papers": False,
+            "grade_entry": False,
+            "grade_viewing": True,
+            "report_generation": True,
+            "ai_analysis": False,
+            "ai_narratives": False,
+            "payment_tracking": False,
+            "advanced_analytics": False,
+            "html_templates": False,
+            "bulk_operations": False,
         },
         "description": "Basic attendance & viewing for up to 50 students",
         "price": "Free (Up to 50 students)",
@@ -63,38 +63,40 @@ PLAN_FEATURES = {
             "progress_insights",
             "compact_clear",
             "guardian_narrative",
+            "classic_traditional",
         ],
         "features": {
-            "attendance": "full_access",  # Full read/write
-            "feeding": "full_access",  # Full read/write
-            "lesson_notes": True,  # Can create and manage
-            "exam_papers": False,  # Premium only
-            "grade_entry": True,  # Can enter and edit grades
+            "attendance": "full_access",
+            "feeding": "full_access",
+            "lesson_notes": True,
+            "exam_papers": False,
+            "grade_entry": True,
             "grade_viewing": True,
             "report_generation": True,
-            "ai_analysis": "basic",  # Basic AI feedback on lesson notes
-            "ai_narratives": False,  # No grade narratives (Premium feature)
-            "payment_tracking": True,  # Basic payment recording
-            "advanced_analytics": False,  # No advanced analytics
-            "html_templates": False,  # Cannot upload HTML
-            "bulk_operations": True,  # Can do bulk operations
+            "ai_analysis": "basic",
+            "ai_narratives": False,
+            "payment_tracking": True,
+            "advanced_analytics": False,
+            "html_templates": False,
+            "bulk_operations": True,
         },
         "description": "Full operations with up to 200 students, 5 classes",
         "price": "200 GHS base + 12 GHS/student above 25/term",
         "price_range": "10-15 GHS/student/term",
         "billing_cycle": "per term (3 terms/year)",
-        "example_cost": "100 students: 200 + (75 × 12) = 1,100 GHS per term",
+        "example_cost": "100 students: 200 + (75 x 12) = 1,100 GHS per term",
     },
     "Premium": {
-        "max_classes": float("inf"),  # Unlimited
-        "max_students": float("inf"),  # Unlimited
-        "max_staff": float("inf"),  # Unlimited
+        "max_classes": float("inf"),
+        "max_students": float("inf"),
+        "max_staff": float("inf"),
         "report_templates": [
             "gradman_v1",
             "parent_focus",
             "progress_insights",
             "compact_clear",
             "guardian_narrative",
+            "classic_traditional",
         ],
         "features": {
             "attendance": "full_access",
@@ -104,18 +106,18 @@ PLAN_FEATURES = {
             "grade_entry": True,
             "grade_viewing": True,
             "report_generation": True,
-            "ai_analysis": "full",  # Full AI analysis & scoring
-            "ai_narratives": True,  # AI-generated grade narratives
-            "payment_tracking": True,  # Full payment reconciliation
-            "advanced_analytics": True,  # Full analytics dashboard
-            "html_templates": True,  # Can upload custom HTML templates
+            "ai_analysis": "full",
+            "ai_narratives": True,
+            "payment_tracking": True,
+            "advanced_analytics": True,
+            "html_templates": True,
             "bulk_operations": True,
         },
         "description": "Unlimited access to all features with AI-powered insights",
         "price": "510 GHS base + 17 GHS/student above 30/term",
         "price_range": "15-20 GHS/student/term",
         "billing_cycle": "per term (3 terms/year)",
-        "example_cost": "100 students: 510 + (70 × 17) = 1,700 GHS per term",
+        "example_cost": "100 students: 510 + (70 x 17) = 1,700 GHS per term",
     },
 }
 
@@ -126,20 +128,9 @@ def calculate_term_cost(plan_name, num_students):
     return breakdown["total"]
 
 
-def get_term_cost_breakdown(plan_name, num_students):
-    """Return transparent term billing breakdown for a subscription plan.
 
-    Returns:
-        {
-            "base_fee": float,
-            "included_students": int,
-            "billable_students": int,
-            "per_student_rate": float,
-            "student_overage_cost": float,
-            "convenience_fee": float,
-            "total": float,
-        }
-    """
+def get_term_cost_breakdown(plan_name, num_students):
+    """Return transparent term billing breakdown for a subscription plan."""
     pricing = PRICING.get(plan_name, {})
 
     if plan_name == "Free Tier" or not pricing:
@@ -172,79 +163,83 @@ def get_term_cost_breakdown(plan_name, num_students):
     }
 
 
+
 def calculate_annual_cost(plan_name, num_students):
     """Calculate the annual cost (3 terms) based on plan and number of students."""
     return calculate_term_cost(plan_name, num_students) * 3
 
 
+
 def get_plan_limit(plan_name, limit_type):
-    """Get a specific limit for a plan"""
+    """Get a specific limit for a plan."""
     plan = PLAN_FEATURES.get(plan_name, PLAN_FEATURES["Free Tier"])
     return plan.get(f"max_{limit_type}", 0)
 
 
+
 def has_feature(plan_name, feature_name):
-    """Check if plan has a feature enabled"""
+    """Check if plan has a feature enabled."""
     plan = PLAN_FEATURES.get(plan_name, PLAN_FEATURES["Free Tier"])
     feature_value = plan.get("features", {}).get(feature_name, False)
-    # Return True if feature is enabled (True, 'basic', 'full_access', 'view_only')
     return feature_value not in [False, None]
 
 
+
 def get_feature_level(plan_name, feature_name):
-    """Get the access level for a feature (False, 'view_only', 'basic', 'full_access', 'full', True)"""
+    """Get the access level for a feature."""
     plan = PLAN_FEATURES.get(plan_name, PLAN_FEATURES["Free Tier"])
     return plan.get("features", {}).get(feature_name, False)
 
 
+
 def can_access_report_template(plan_name, template_id):
-    """Check if plan can access a specific report template"""
+    """Check if plan can access a specific report template."""
     plan = PLAN_FEATURES.get(plan_name, PLAN_FEATURES["Free Tier"])
     return template_id in plan.get("report_templates", [])
 
 
+
 def get_all_accessible_templates(plan_name):
-    """Get all report templates accessible to a plan"""
+    """Get all report templates accessible to a plan."""
     plan = PLAN_FEATURES.get(plan_name, PLAN_FEATURES["Free Tier"])
     return plan.get("report_templates", [])
 
 
-# Feature matrix display
 FEATURE_MATRIX_DISPLAY = {
     "Free Tier": {
         "max_classes": "1 Class",
         "max_students": "100 Students",
-        "attendance": "❌ View Only",
-        "feeding": "❌ View Only",
-        "grade_entry": "❌ Not Available",
-        "lesson_notes": "❌ Not Available",
-        "report_generation": "✅ (1 Template)",
-        "ai_features": "❌ Not Available",
-        "payment_tracking": "❌ Not Available",
-        "html_templates": "❌ Not Available",
+        "attendance": "No Edit Access",
+        "feeding": "No Edit Access",
+        "grade_entry": "Not Available",
+        "lesson_notes": "Not Available",
+        "report_generation": "1 Template",
+        "ai_features": "Not Available",
+        "payment_tracking": "Not Available",
+        "html_templates": "Not Available",
     },
     "Basic": {
         "max_classes": "5 Classes",
         "max_students": "200 Students",
-        "attendance": "✅ Full Access",
-        "feeding": "✅ Full Access",
-        "grade_entry": "✅ Full Access",
-        "lesson_notes": "✅ Full Access",
-        "report_generation": "✅ (5 Templates)",
-        "ai_features": "⚡ Basic AI Feedback",
-        "payment_tracking": "✅ Basic Tracking",
-        "html_templates": "❌ Not Available",
+        "attendance": "Full Access",
+        "feeding": "Full Access",
+        "grade_entry": "Full Access",
+        "lesson_notes": "Full Access",
+        "report_generation": "6 Templates",
+        "ai_features": "Basic AI Feedback",
+        "payment_tracking": "Basic Tracking",
+        "html_templates": "Not Available",
     },
     "Premium": {
-        "max_classes": "♾️ Unlimited",
-        "max_students": "♾️ Unlimited",
-        "attendance": "✅ Full Access",
-        "feeding": "✅ Full Access",
-        "grade_entry": "✅ Full Access",
-        "lesson_notes": "✅ Full Access",
-        "report_generation": "✅ (All Templates)",
-        "ai_features": "⚡⚡ Full AI Suite",
-        "payment_tracking": "✅ Full Reconciliation",
-        "html_templates": "✅ Custom Upload",
+        "max_classes": "Unlimited",
+        "max_students": "Unlimited",
+        "attendance": "Full Access",
+        "feeding": "Full Access",
+        "grade_entry": "Full Access",
+        "lesson_notes": "Full Access",
+        "report_generation": "All Templates",
+        "ai_features": "Full AI Suite",
+        "payment_tracking": "Full Reconciliation",
+        "html_templates": "Custom Upload",
     },
 }

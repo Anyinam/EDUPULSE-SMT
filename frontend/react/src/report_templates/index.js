@@ -3,6 +3,7 @@ import parentFocus from './parent_focus.json';
 import progressInsights from './progress_insights.json';
 import compactClear from './compact_clear.json';
 import guardianNarrative from './guardian_narrative.json';
+import classicTraditional from './classic_traditional.json';
 
 const reportTemplates = [
   {
@@ -34,6 +35,12 @@ const reportTemplates = [
     name: guardianNarrative.name,
     description: guardianNarrative.description,
     config: guardianNarrative.config
+  },
+  {
+    id: classicTraditional.id,
+    name: classicTraditional.name,
+    description: classicTraditional.description,
+    config: classicTraditional.config
   }
 ];
 

@@ -202,6 +202,38 @@ def multi_tenant_guard(f):
         # This ensures all DB queries are filtered by this ID
         g.school_id = school_id
 
+        # 4. Tenant binding (defense-in-depth): If a JWT is present, ensure it belongs
+        # to the tenant specified by X-School-ID. This closes gaps where routes have
+        # @jwt_required() but do not use @role_required().
+        try:
+            verify_jwt_in_request(optional=True)
+            identity = get_jwt_identity()
+        except Exception:
+            # Token was provided but is invalid/expired.
+            return jsonify({"message": "Authentication required"}), 401
+
+        if identity is not None:
+            try:
+                user = User.query.get(int(identity))
+            except Exception:
+                user = None
+
+            if not user:
+                return jsonify({"message": "Authentication required"}), 401
+
+            # Cache user for downstream decorators/handlers.
+            g.current_user = user
+
+            if str(user.school_id) != str(g.school_id):
+                return (
+                    jsonify(
+                        {
+                            "message": "Access denied: User does not belong to this school organization."
+                        }
+                    ),
+                    403,
+                )
+
         restriction = enforce_school_billing_access(school)
         if restriction:
             return restriction
@@ -227,7 +259,9 @@ def role_required(*allowed_roles):
                 return jsonify({"message": "Authentication required"}), 401
 
             user_id = get_jwt_identity()
-            user = User.query.get(int(user_id))
+            user = getattr(g, "current_user", None)
+            if not user or str(user.id) != str(user_id):
+                user = User.query.get(int(user_id))
 
             # Allow access if DEV_MODE is enabled in settings.py, otherwise enforce role(s)
             user_roles = []

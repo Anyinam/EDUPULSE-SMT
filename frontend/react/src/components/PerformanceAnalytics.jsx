@@ -92,6 +92,21 @@ export default function PerformanceAnalytics({
     };
   }, [data]);
 
+  const scoreBandRows = useMemo(() => {
+    const bands = data?.score_bands || {};
+    const total = Object.values(bands).reduce((sum, count) => sum + Number(count || 0), 0);
+    return ['80-100', '70-79', '65-69', '50-64', '0-49'].map((band) => ({
+      band,
+      count: Number(bands[band] || 0),
+      percentage: total > 0 ? ((Number(bands[band] || 0) / total) * 100).toFixed(1) : '0.0',
+    }));
+  }, [data]);
+
+  const topSubjectTrend = useMemo(() => {
+    if (!data?.subject_trends?.length) return null;
+    return [...data.subject_trends].sort((a, b) => (b.delta || -999) - (a.delta || -999))[0];
+  }, [data]);
+
   const onViewClick = async () => {
     await fetchData();
     setActiveView('visualization');
@@ -208,6 +223,9 @@ export default function PerformanceAnalytics({
           <h3 className="text-lg font-bold text-slate-800">📊 {title}</h3>
           {data?.compare_term && (
             <p className="text-xs text-slate-500">Comparing with {data.compare_term} {data.compare_year}</p>
+          )}
+          {data?.same_term_previous_year && (
+            <p className="text-xs text-slate-500">Year-on-year cohort benchmark against {data.same_term_previous_year}</p>
           )}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -357,6 +375,13 @@ export default function PerformanceAnalytics({
               <p className="text-xs font-semibold text-indigo-700 uppercase">Classes</p>
               <p className="text-2xl font-black text-indigo-900">{data.classes.length}</p>
             </div>
+            <div className="bg-cyan-50 border border-cyan-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-cyan-700 uppercase">Best Subject Lift</p>
+              <p className="text-sm font-bold text-cyan-900">{topSubjectTrend?.subject || 'N/A'}</p>
+              <p className="text-lg font-black text-cyan-900">
+                {topSubjectTrend?.delta !== null && topSubjectTrend?.delta !== undefined ? `${topSubjectTrend.delta >= 0 ? '+' : ''}${topSubjectTrend.delta}%` : 'No baseline'}
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -424,6 +449,132 @@ export default function PerformanceAnalytics({
                   );
                 })}
               </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="border border-slate-200 rounded-lg p-4">
+              <h4 className="font-bold text-slate-800 mb-3">Same-Term Year-over-Year Class Comparison</h4>
+              <div className="space-y-3">
+                {(data.year_over_year_classes || []).map((row) => {
+                  const current = Number(row.current_average || 0);
+                  const previous = Number(row.previous_year_average || 0);
+                  return (
+                    <div key={`yoy-${row.class_name}`} className="border border-slate-100 rounded-lg p-3 bg-slate-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-bold text-slate-800">{row.class_name}</p>
+                        <p className={`text-xs font-bold ${row.delta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {row.delta !== null && row.delta !== undefined ? `${row.delta >= 0 ? '+' : ''}${row.delta}% vs ${data.same_term_previous_year}` : 'No prior-year data'}
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600">Current</span>
+                            <span className="font-bold text-slate-800">{current}%</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-600 rounded-full" style={{ width: `${Math.max(3, Math.min(100, current))}%` }} />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600">{data.same_term_previous_year}</span>
+                            <span className="font-bold text-slate-800">{row.previous_year_average !== null && row.previous_year_average !== undefined ? `${previous}%` : 'N/A'}</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.max(3, Math.min(100, previous || 0))}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-lg p-4">
+              <h4 className="font-bold text-slate-800 mb-3">Score Distribution Bands</h4>
+              <div className="space-y-3">
+                {scoreBandRows.map((row) => (
+                  <div key={row.band}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="font-semibold text-slate-700">{row.band}</span>
+                      <span className="font-bold text-slate-800">{row.count} students ({row.percentage}%)</span>
+                    </div>
+                    <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${row.band === '80-100' ? 'bg-green-600' : row.band === '70-79' ? 'bg-blue-600' : row.band === '65-69' ? 'bg-amber-500' : row.band === '50-64' ? 'bg-orange-500' : 'bg-red-500'}`}
+                        style={{ width: `${row.percentage}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-slate-200 rounded-lg p-4">
+            <h4 className="font-bold text-slate-800 mb-3">Subject Performance Trends</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {(data.subject_trends || []).map((subject) => (
+                <div key={subject.subject} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-bold text-slate-800">{subject.subject}</p>
+                    <span className={`text-xs font-bold ${subject.delta !== null && subject.delta !== undefined ? (subject.delta >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'}`}>
+                      {subject.delta !== null && subject.delta !== undefined ? `${subject.delta >= 0 ? '+' : ''}${subject.delta}%` : 'New'}
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-1 text-xs text-slate-600">
+                    <p>Current average: <span className="font-bold text-slate-800">{subject.current_average}%</span></p>
+                    <p>{data.same_term_previous_year}: <span className="font-bold text-slate-800">{subject.previous_average !== null && subject.previous_average !== undefined ? `${subject.previous_average}%` : 'N/A'}</span></p>
+                    <p>Entries analysed: <span className="font-bold text-slate-800">{subject.count}</span></p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border border-slate-200 rounded-lg p-4">
+            <h4 className="font-bold text-slate-800 mb-3">Cohort Migration Comparison</h4>
+            <p className="text-xs text-slate-500 mb-4">Tracks the same students as they move from one class level to the next, for example {data?.same_term_previous_year || 'last year'} JHS 1 into {data?.academic_year || 'current year'} JHS 2.</p>
+            <div className="space-y-3">
+              {(data.cohort_migration_comparisons || []).length === 0 && (
+                <p className="text-sm text-slate-500">No cohort migration data is available yet for the selected term and year.</p>
+              )}
+              {(data.cohort_migration_comparisons || []).map((row) => (
+                <div key={`cohort-${row.from_class}-${row.to_class}`} className="border border-slate-100 rounded-lg p-3 bg-slate-50">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">{row.from_class} {row.from_year} {'->'} {row.to_class} {row.to_year}</p>
+                      <p className="text-xs text-slate-500">Matched students: {row.matched_students}</p>
+                    </div>
+                    <p className={`text-sm font-bold ${row.delta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {row.delta >= 0 ? '+' : ''}{row.delta}% progression
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-600">{row.from_class} average</span>
+                        <span className="font-bold text-slate-800">{row.previous_average}%</span>
+                      </div>
+                      <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.max(3, Math.min(100, row.previous_average || 0))}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-600">{row.to_class} average</span>
+                        <span className="font-bold text-slate-800">{row.current_average}%</span>
+                      </div>
+                      <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${Math.max(3, Math.min(100, row.current_average || 0))}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

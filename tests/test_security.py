@@ -13,6 +13,63 @@ from flask import Flask
 class TestAuthenticationSecurity:
     """Tests for authentication endpoint security."""
 
+    def test_login_requires_mfa_when_globally_enabled(
+        self, client, test_school, test_teacher, mock_email, monkeypatch
+    ):
+        """When MFA_REQUIRED is enabled, even non-enrolled users must complete OTP."""
+        import backend.routes as routes
+
+        monkeypatch.setattr(routes, "MFA_REQUIRED", True)
+        monkeypatch.setattr(routes.secrets, "randbelow", lambda _: 123456)
+
+        payload = {
+            "school_code": test_school.id,
+            "username": test_teacher.username,
+            "password": "TeacherPass123",
+        }
+
+        response = client.post(
+            "/api/login",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        body = json.loads(response.data)
+        assert body.get("message") == "2fa_required"
+        assert body.get("token")
+        assert body.get("delivery") == "email"
+        mock_email.assert_called()
+
+        # Complete verification and ensure the user is marked enrolled.
+        verify = client.post(
+            "/api/2fa/verify",
+            data=json.dumps({"token": body["token"], "code": "123456"}),
+            content_type="application/json",
+        )
+        assert verify.status_code == 200
+
+        from backend.api.models import User
+
+        refreshed = User.query.get(test_teacher.id)
+        assert refreshed.two_fa_enabled is True
+
+    def test_cannot_disable_mfa_when_globally_required(
+        self, client, auth_headers, monkeypatch
+    ):
+        import backend.routes as routes
+
+        monkeypatch.setattr(routes, "MFA_REQUIRED", True)
+
+        response = client.post(
+            "/api/2fa/disable",
+            data=json.dumps({}),
+            content_type="application/json",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+
     def test_login_sql_injection_prevention(self, client, test_school):
         """Test that SQL injection attempts are blocked."""
         malicious_payload = {
@@ -174,6 +231,50 @@ class TestMultiTenantIsolation:
         response = client.get("/api/students", headers=headers)
 
         assert response.status_code in [400, 401, 403]
+
+    def test_jwt_cannot_override_tenant_header(self, client, db, app):
+        """JWT identity must be bound to the requested X-School-ID tenant."""
+        from backend.api.models import School, Student, User
+
+        school1 = School(id="SCHOOL-101", name="School 101", subscription_plan="Premium")
+        school2 = School(id="SCHOOL-202", name="School 202", subscription_plan="Premium")
+        db.session.add_all([school1, school2])
+
+        user2 = User(
+            username="tenant2_user",
+            school_id=school2.id,
+            role="teacher",
+            email="tenant2_user@test.edu",
+        )
+        user2.set_password("Pass123456")
+        db.session.add(user2)
+
+        student1 = Student(
+            school_id=school1.id,
+            first_name="Alice",
+            surname="Tenant1",
+            name="Alice Tenant1",
+            student_code="A101",
+            current_class="JHS 1",
+        )
+        db.session.add(student1)
+        db.session.commit()
+
+        from flask_jwt_extended import create_access_token
+
+        with app.app_context():
+            token2 = create_access_token(identity=str(user2.id))
+
+        # Attempt to read a tenant-1 resource while presenting a tenant-2 JWT.
+        response = client.get(
+            f"/api/students/{student1.id}/reports",
+            headers={
+                "Authorization": f"Bearer {token2}",
+                "X-School-ID": school1.id,
+            },
+        )
+
+        assert response.status_code == 403
 
 
 class TestInputValidation:

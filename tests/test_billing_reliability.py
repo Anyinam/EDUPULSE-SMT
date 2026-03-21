@@ -315,11 +315,95 @@ def test_prorated_admission_charge_uses_fixed_120_days(client, app, db, test_sch
         assert entry is not None
         meta = entry.meta or {}
         assert meta.get("status") == "Pending"
-        assert meta.get("days_in_term") == 120
+        assert meta.get("days_in_term") == 121
 
         # remaining_days = 61 (inclusive) when end_date = today+60
-        expected = round((61 / 120) * 12, 2)
+        days_in_term = meta.get("days_in_term")
+        expected = round((61 / float(days_in_term)) * 12, 2)
         assert entry.amount == expected
+
+
+def test_prorated_admission_charge_uses_actual_term_length(client, app, db, test_school, test_proprietor):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm, LedgerEntry, Student
+    from backend.routes import calculate_prorated_admission_charge
+
+    with app.app_context():
+        today = date.today()
+        term = AcademicTerm(
+            school_id=test_school.id,
+            name="Term 1",
+            academic_year="2025/2026",
+            start_date=today - timedelta(days=45),
+            end_date=today + timedelta(days=75),
+            is_active=True,
+            created_by=test_proprietor.id,
+        )
+        db.session.add(term)
+
+        # Set exactly 30 students so first overage scenario can be checked
+        existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
+        to_add = max(0, 30 - existing)
+        for idx in range(to_add):
+            db.session.add(
+                Student(
+                    school_id=test_school.id,
+                    first_name=f"Extra{idx}",
+                    surname="Test",
+                    name=f"Extra {idx}",
+                    student_code=f"EX{idx:04d}",
+                    current_class="JHS 1",
+                )
+            )
+        db.session.commit()
+
+        result = calculate_prorated_admission_charge(test_school, 1, "Premium")
+        assert result["prorated_charge"] > 0
+
+        # verify days_in_term is taken from actual term dates not fixed 120
+        entry = (
+            LedgerEntry.query.filter_by(school_id=test_school.id, tx_type="subscription_prorated")
+            .order_by(LedgerEntry.id.desc())
+            .first()
+        )
+        assert entry is not None
+        meta = entry.meta or {}
+        assert meta.get("days_in_term") == 121
+
+
+def test_profile_has_two_factor_status(client, app, db, test_school, test_proprietor, proprietor_headers):
+    response = client.get("/api/profile", headers=proprietor_headers)
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "two_fa_enabled" in data
+    assert "two_fa_method" in data
+    assert "mfa_required" in data
+
+
+def test_school_fees_uniform_status_is_zero(client, app, db, test_school, test_proprietor, proprietor_headers):
+    response = client.get("/api/school/fees", headers=proprietor_headers)
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data.get("uniform_fee") == 0.0
+
+
+def test_staff_add_includes_email_sent_fallback(client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch):
+    def fake_email(*args, **kwargs):
+        raise Exception("SMTP connection failed")
+
+    monkeypatch.setattr("backend.routes.send_email_notification", fake_email)
+
+    payload = {
+        "username": "teacher_x",
+        "email": "teacherx@example.com",
+        "role": "teacher"
+    }
+    response = client.post("/api/staff/add", json=payload, headers=proprietor_headers)
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result.get("email_sent") is False
+    assert "Failed to send welcome email" in result.get("message", "")
 
 
 def test_overage_auto_charge_creates_settlement_entry(client, app, db, test_school, monkeypatch):

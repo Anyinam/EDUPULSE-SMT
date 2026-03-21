@@ -17,6 +17,12 @@ MAX_CONTENT_LENGTH_MB = int(os.getenv("MAX_CONTENT_LENGTH_MB", "10"))
 AUTH_LOCKOUT_ATTEMPTS = int(os.getenv("AUTH_LOCKOUT_ATTEMPTS", "10"))
 AUTH_LOCKOUT_WINDOW_MIN = int(os.getenv("AUTH_LOCKOUT_WINDOW_MIN", "15"))
 AUTH_LOCKOUT_DURATION_MIN = int(os.getenv("AUTH_LOCKOUT_DURATION_MIN", "15"))
+
+# MFA
+# Default: enabled in production, disabled in dev/testing unless explicitly set.
+_env = os.getenv("FLASK_ENV", "development").lower()
+_default_mfa_required = "True" if _env == "production" else "False"
+MFA_REQUIRED = os.getenv("MFA_REQUIRED", _default_mfa_required).lower() == "true"
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 CSP_POLICY = os.getenv(
     "CSP_POLICY",

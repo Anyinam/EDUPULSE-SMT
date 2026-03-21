@@ -69,6 +69,7 @@ from backend.settings import (
     AUTH_LOCKOUT_ATTEMPTS,
     AUTH_LOCKOUT_DURATION_MIN,
     AUTH_LOCKOUT_WINDOW_MIN,
+    MFA_REQUIRED,
 )
 from backend.subscription_features import (
     FEATURE_MATRIX_DISPLAY,
@@ -526,7 +527,7 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
     # Check if new students push over included threshold
     old_billable = max(0, current_active_students - included_students)
     new_billable = max(0, new_total - included_students)
-    students_over_included = new_billable - old_billable
+    students_over_included = max(0, new_billable - old_billable)
     
     if students_over_included <= 0:
         # All new students fall within included threshold
@@ -538,13 +539,15 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
     term_start = active_term.start_date
     term_end = active_term.end_date
     
-    days_in_term = 120  # ~4 months (fixed term length for billing projection)
-    if term_end and term_start:
+    # Prefer actual academic term length and remaining interval for transparent billing.
+    if term_start and term_end:
+        days_in_term = max(1, (term_end - term_start).days + 1)
         remaining_days = max(0, (term_end - today).days + 1)
         proration_factor = remaining_days / float(days_in_term)
         proration_factor = max(0.0, min(1.0, proration_factor))
     else:
         # If dates missing, charge full overage
+        days_in_term = 120
         remaining_days = days_in_term
         proration_factor = 1.0
     
@@ -1348,9 +1351,10 @@ def login():
         # Check if using temporary password that needs to be changed
         requires_password_reset = user.is_temp_password
 
-        if user.two_fa_enabled:
+        requires_mfa = MFA_REQUIRED or user.two_fa_enabled
+        if requires_mfa:
             if not user.email:
-                return jsonify({"message": "2FA email not configured"}), 400
+                return jsonify({"message": "MFA is required but no email is set for this account."}), 400
             code = f"{secrets.randbelow(1000000):06d}"
             twofa = TwoFactorToken(
                 user_id=user.id,
@@ -1652,7 +1656,12 @@ def verify_two_factor():
         .order_by(TwoFactorToken.created_at.desc())
         .first()
     )
-    if not twofa or twofa.expires_at < now:
+
+    expires_at = getattr(twofa, "expires_at", None) if twofa else None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if not twofa or not expires_at or expires_at < now:
         return jsonify({"message": "Code expired."}), 401
 
     if twofa.attempts >= 5:
@@ -1665,6 +1674,12 @@ def verify_two_factor():
 
     twofa.consumed = True
     user.last_login_at = get_utc_now()
+
+    # Treat successful verification as enrollment (keeps state consistent in mandatory MFA mode).
+    if not user.two_fa_enabled:
+        user.two_fa_enabled = True
+        user.two_fa_method = user.two_fa_method or "email"
+
     db.session.commit()
 
     access_token = create_access_token(identity=str(user.id))
@@ -1723,6 +1738,8 @@ def enable_two_factor():
 @jwt_required()
 def disable_two_factor():
     """Disable 2FA for the current user."""
+    if MFA_REQUIRED:
+        return jsonify({"message": "MFA is mandatory and cannot be disabled."}), 403
     user = User.query.get(int(get_jwt_identity()))
     if not user:
         return jsonify({"message": "User not found."}), 404
@@ -1914,6 +1931,9 @@ def get_profile():
             "email": user.email,
             "role": user.role,
             "profile_picture": user.profile_picture or "",
+            "two_fa_enabled": bool(user.two_fa_enabled),
+            "two_fa_method": user.two_fa_method or "email",
+            "mfa_required": MFA_REQUIRED,
         }
     )
 
@@ -6027,10 +6047,17 @@ def get_live_feed():
         ).count()
 
         # Fetch actual student objects for the intervention list
+        # Include students who have unpaid tuition past 30 days OR present but unpaid feeding
+        overdue_cutoff = now - timedelta(days=30)
         critical_students = (
-            Student.query.filter_by(
-                school_id=g.school_id, is_present=True, feeding_paid=False
+            Student.query.filter(
+                Student.school_id == g.school_id,
+                or_(
+                    and_(Student.total_tuition_owed > 0, Student.tuition_deadline.isnot(None), Student.tuition_deadline <= overdue_cutoff),
+                    and_(Student.is_present == True, Student.feeding_paid == False),
+                ),
             )
+            .order_by(Student.total_tuition_owed.desc())
             .limit(5)
             .all()
         )
@@ -6159,7 +6186,15 @@ def get_live_feed():
                 },
                 "pending_payments": pending_list,
                 "critical_list": [
-                    {"id": s.id, "name": s.name, "parent_phone": s.parent_phone}
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "parent_name": s.parent_name,
+                        "parent_phone": s.parent_phone,
+                        "parent_email": s.parent_email,
+                        "total_tuition_owed": float(s.total_tuition_owed or 0),
+                        "tuition_deadline": s.tuition_deadline.isoformat() if s.tuition_deadline else None,
+                    }
                     for s in critical_students
                 ],
                 "recent_payments": [
@@ -8850,18 +8885,31 @@ def add_staff():
         email=email,
     )
 
+    email_sent = False
+    email_error = None
+
     try:
         if template_subject and template_body:
             send_email_notification(email, template_subject, template_body)
+            email_sent = True
     except Exception as e:
-        logger.error(f"Failed to send staff welcome email: {e}")
+        email_error = str(e)
+        logger.error(f"Failed to send staff welcome email: {email_error}")
+
+    status_message = "Staff member added successfully."
+    if email_sent:
+        status_message += " Welcome email sent with login credentials."
+    else:
+        status_message += " Failed to send welcome email. Please verify SMTP configuration."
 
     return jsonify(
         {
-            "message": "Staff member added successfully. Welcome email sent with login credentials.",
+            "message": status_message,
             "username": data["username"],
             "email": email,
             "password_expires_in_days": 30,
+            "email_sent": email_sent,
+            "email_error": email_error,
         }
     )
 
@@ -9445,6 +9493,38 @@ def get_class_performance():
                 return year_str
 
         prev_year = academic_year if term_index > 0 else _prev_year(academic_year)
+        same_term_prev_year = _prev_year(academic_year)
+
+        def _score_band(value):
+            score = float(value or 0)
+            if score >= 80:
+                return "80-100"
+            if score >= 70:
+                return "70-79"
+            if score >= 65:
+                return "65-69"
+            if score >= 50:
+                return "50-64"
+            return "0-49"
+
+        def _subject_key(item):
+            return (item.get("subject") or item.get("subject_name") or "General").strip()
+
+        def _subject_total(item):
+            raw = item.get("total")
+            if raw is None:
+                raw = item.get("total_score")
+            try:
+                return float(raw or 0)
+            except Exception:
+                return 0.0
+
+        def _previous_class(class_name):
+            try:
+                index = VALID_GRADES.index(class_name)
+            except ValueError:
+                return None
+            return VALID_GRADES[index - 1] if index > 0 else None
 
         current_stats = (
             db.session.query(
@@ -9478,6 +9558,153 @@ def get_class_performance():
         )
 
         prev_map = {c: float(a or 0) for c, a in prev_stats}
+
+        same_term_prev_year_stats = (
+            db.session.query(
+                ReportCard.class_name,
+                func.avg(ReportCard.term_average).label("avg_score"),
+                func.count(ReportCard.id).label("count"),
+            )
+            .filter(
+                ReportCard.school_id == g.school_id,
+                ReportCard.academic_term == academic_term,
+                ReportCard.academic_year == same_term_prev_year,
+                ReportCard.term_average.isnot(None),
+            )
+            .group_by(ReportCard.class_name)
+            .all()
+        )
+        same_term_prev_year_map = {
+            class_name: {
+                "average": round(float(avg_score or 0), 2),
+                "count": int(count or 0),
+            }
+            for class_name, avg_score, count in same_term_prev_year_stats
+        }
+
+        current_reports = ReportCard.query.filter(
+            ReportCard.school_id == g.school_id,
+            ReportCard.academic_term == academic_term,
+            ReportCard.academic_year == academic_year,
+        ).all()
+        prev_year_reports = ReportCard.query.filter(
+            ReportCard.school_id == g.school_id,
+            ReportCard.academic_term == academic_term,
+            ReportCard.academic_year == same_term_prev_year,
+        ).all()
+
+        score_bands = {
+            "80-100": 0,
+            "70-79": 0,
+            "65-69": 0,
+            "50-64": 0,
+            "0-49": 0,
+        }
+        for report in current_reports:
+            score_bands[_score_band(report.term_average)] += 1
+
+        current_subjects = {}
+        for report in current_reports:
+            for item in report.subject_grades or []:
+                subject_name = _subject_key(item)
+                bucket = current_subjects.setdefault(subject_name, {"total": 0.0, "count": 0})
+                bucket["total"] += _subject_total(item)
+                bucket["count"] += 1
+
+        prev_subjects = {}
+        for report in prev_year_reports:
+            for item in report.subject_grades or []:
+                subject_name = _subject_key(item)
+                bucket = prev_subjects.setdefault(subject_name, {"total": 0.0, "count": 0})
+                bucket["total"] += _subject_total(item)
+                bucket["count"] += 1
+
+        subject_trends = []
+        for subject_name, aggregate in current_subjects.items():
+            current_avg = aggregate["total"] / aggregate["count"] if aggregate["count"] else 0
+            previous = prev_subjects.get(subject_name)
+            previous_avg = previous["total"] / previous["count"] if previous and previous["count"] else None
+            subject_trends.append(
+                {
+                    "subject": subject_name,
+                    "current_average": round(current_avg, 2),
+                    "previous_average": round(previous_avg, 2) if previous_avg is not None else None,
+                    "delta": round(current_avg - previous_avg, 2) if previous_avg is not None else None,
+                    "count": aggregate["count"],
+                }
+            )
+        subject_trends.sort(key=lambda item: item["current_average"], reverse=True)
+
+        year_over_year_classes = []
+        for class_name, avg_score, count in current_stats:
+            current_avg = round(float(avg_score or 0), 2)
+            previous_year_class = same_term_prev_year_map.get(class_name)
+            previous_year_avg = previous_year_class.get("average") if previous_year_class else None
+            year_over_year_classes.append(
+                {
+                    "class_name": class_name,
+                    "current_average": current_avg,
+                    "previous_year_average": previous_year_avg,
+                    "delta": round(current_avg - previous_year_avg, 2) if previous_year_avg is not None else None,
+                    "current_count": int(count or 0),
+                    "previous_year_count": previous_year_class.get("count") if previous_year_class else 0,
+                }
+            )
+        year_over_year_classes.sort(key=lambda item: item["class_name"])
+
+        cohort_migration_comparisons = []
+        current_reports_by_class = {}
+        for report in current_reports:
+            current_reports_by_class.setdefault(report.class_name, []).append(report)
+
+        for class_name, reports_for_class in current_reports_by_class.items():
+            previous_class_name = _previous_class(class_name)
+            if not previous_class_name:
+                continue
+
+            matched_student_ids = [report.student_id for report in reports_for_class if report.student_id]
+            if not matched_student_ids:
+                continue
+
+            previous_cohort_reports = ReportCard.query.filter(
+                ReportCard.school_id == g.school_id,
+                ReportCard.academic_term == academic_term,
+                ReportCard.academic_year == same_term_prev_year,
+                ReportCard.class_name == previous_class_name,
+                ReportCard.student_id.in_(matched_student_ids),
+                ReportCard.term_average.isnot(None),
+            ).all()
+
+            if not previous_cohort_reports:
+                continue
+
+            previous_report_map = {report.student_id: report for report in previous_cohort_reports}
+            matched_pairs = [
+                (report, previous_report_map.get(report.student_id))
+                for report in reports_for_class
+                if report.student_id in previous_report_map and report.term_average is not None
+            ]
+            matched_pairs = [pair for pair in matched_pairs if pair[1] and pair[1].term_average is not None]
+            if not matched_pairs:
+                continue
+
+            current_average = sum(float(pair[0].term_average or 0) for pair in matched_pairs) / len(matched_pairs)
+            previous_average = sum(float(pair[1].term_average or 0) for pair in matched_pairs) / len(matched_pairs)
+
+            cohort_migration_comparisons.append(
+                {
+                    "from_class": previous_class_name,
+                    "to_class": class_name,
+                    "from_year": same_term_prev_year,
+                    "to_year": academic_year,
+                    "matched_students": len(matched_pairs),
+                    "previous_average": round(previous_average, 2),
+                    "current_average": round(current_average, 2),
+                    "delta": round(current_average - previous_average, 2),
+                }
+            )
+
+        cohort_migration_comparisons.sort(key=lambda item: VALID_GRADES.index(item["to_class"]) if item["to_class"] in VALID_GRADES else 999)
 
         results = []
         for class_name, avg_score, count in current_stats:
@@ -9519,6 +9746,10 @@ def get_class_performance():
                     "count": int(count),
                     "prev_average": round(prev_value, 2) if prev_value is not None else None,
                     "delta": round(delta, 2) if delta is not None else None,
+                    "previous_year_average": same_term_prev_year_map.get(class_name, {}).get("average"),
+                    "previous_year_delta": round(avg_value - same_term_prev_year_map.get(class_name, {}).get("average"), 2)
+                    if same_term_prev_year_map.get(class_name, {}).get("average") is not None
+                    else None,
                     "gender_breakdown": gender_breakdown,
                 }
             )
@@ -9529,7 +9760,12 @@ def get_class_performance():
                 "academic_year": academic_year,
                 "compare_term": prev_term,
                 "compare_year": prev_year,
+                "same_term_previous_year": same_term_prev_year,
                 "classes": results,
+                "year_over_year_classes": year_over_year_classes,
+                "cohort_migration_comparisons": cohort_migration_comparisons,
+                "score_bands": score_bands,
+                "subject_trends": subject_trends[:10],
             }
         )
     except Exception as e:
@@ -9563,6 +9799,31 @@ def get_school_branding():
                 "other_fees": settings.other_fees or {},
             }
 
+        def _mask_account(acct):
+            try:
+                s = str(acct or "")
+                if len(s) <= 4:
+                    return "****"
+                return "****" + s[-4:]
+            except Exception:
+                return "****"
+
+        def _mask_name(name):
+            try:
+                s = str(name or "")
+                parts = s.split()
+                if len(parts) == 0:
+                    return ""
+                if len(parts) == 1:
+                    return parts[0][0] + '***'
+                return parts[0] + ' ' + parts[-1][0] + '***'
+            except Exception:
+                return ""
+
+        masked_bank_name = _mask_name(school.bank_name)
+        masked_account = _mask_account(school.bank_account)
+        masked_account_name = _mask_name(school.bank_account_name)
+
         return jsonify(
             {
                 "school_name": school.name,
@@ -9573,9 +9834,9 @@ def get_school_branding():
                 "school_phone": school.school_phone,
                 "school_address": school.school_address,
                 "school_website": school.school_website,
-                "bank_name": school.bank_name,
-                "bank_account": school.bank_account,
-                "bank_account_name": school.bank_account_name,
+                "bank_name": masked_bank_name,
+                "bank_account": masked_account,
+                "bank_account_name": masked_account_name,
                 "bank_branch": school.bank_branch,
                 "country_code": settings.country_code if settings else "GH",
                 "fees": fees,
@@ -9586,6 +9847,39 @@ def get_school_branding():
             jsonify({"message": "Error retrieving school info", "error": str(e)}),
             500,
         )
+
+
+@api.route("/school/branding/bank/view", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster", "finance")
+@jwt_required()
+def view_school_bank_details():
+    """Return full bank details after verifying the user's password."""
+    payload = request.get_json() or {}
+    password = payload.get("password", "")
+    if not password:
+        return jsonify({"message": "Password is required"}), 400
+
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=int(user_id), school_id=g.school_id).first()
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    if not check_password_hash(user.password_hash, password):
+        return jsonify({"message": "Invalid password"}), 401
+
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    return jsonify(
+        {
+            "bank_name": school.bank_name,
+            "bank_account": school.bank_account,
+            "bank_account_name": school.bank_account_name,
+            "bank_branch": school.bank_branch,
+        }
+    )
 
 
 def _get_school_country_code(school_id):
@@ -10700,10 +10994,8 @@ def update_school_fees():
         settings.feeding_fee = (
             float(data["feeding_fee"]) if data["feeding_fee"] else 0.0
         )
-    if "uniform_fee" in data:
-        settings.uniform_fee = (
-            float(data["uniform_fee"]) if data["uniform_fee"] else 0.0
-        )
+    # Uniform fee is now managed through inventory pricing, not school fee settings.
+    settings.uniform_fee = 0.0
     if "transport_fee" in data:
         settings.transport_fee = (
             float(data["transport_fee"]) if data["transport_fee"] else 0.0
@@ -10721,7 +11013,7 @@ def update_school_fees():
         int(get_jwt_identity()),
         g.school_id,
         "FEES_UPDATE",
-        f"Updated school fees: Tuition={settings.tuition_fee}, Feeding={settings.feeding_fee}, Uniform={settings.uniform_fee}, Transport={settings.transport_fee}",
+        f"Updated school fees: Tuition={settings.tuition_fee}, Feeding={settings.feeding_fee}, Transport={settings.transport_fee}",
     )
     db.session.commit()
     return jsonify({"message": "Fees updated successfully."})
@@ -10751,7 +11043,7 @@ def get_school_fees():
         {
             "tuition_fee": settings.tuition_fee or 0.0,
             "feeding_fee": settings.feeding_fee or 0.0,
-            "uniform_fee": settings.uniform_fee or 0.0,
+            "uniform_fee": 0.0,
             "transport_fee": settings.transport_fee or 0.0,
             "terminal_report_fee": settings.terminal_report_fee or 0.0,
             "other_fees": settings.other_fees or {},
@@ -10896,11 +11188,16 @@ def set_active_template():
 
     # Validate template ID
     valid_templates = ["sample1", "sample2", "sample3", "sample4", "sample5"]
-    if template_id not in valid_templates:
+    if not template_id or not isinstance(template_id, str) or not template_id.strip():
+        return jsonify({"message": "Template ID is required"}), 400
+
+    # support custom HTML template IDs
+    is_custom_template = template_id.startswith("custom_html")
+    if template_id not in valid_templates and not is_custom_template:
         return (
             jsonify(
                 {
-                    "message": f"Invalid template ID. Must be one of: {', '.join(valid_templates)}"
+                    "message": f"Invalid template ID. Must be one of: {', '.join(valid_templates)} or custom_html*"
                 }
             ),
             400,
@@ -11058,6 +11355,7 @@ def get_subscription():
             "features_display": plan_display,
             "report_templates": plan_info.get("report_templates", []),
             "billing_visibility": billing_visibility,
+            "pending_plan": school.pending_plan,
         }
     )
 
@@ -12515,13 +12813,19 @@ def get_all_tickets():
 @jwt_required()
 def reply_ticket(ticket_id):
     """Super Admin: Reply to a ticket."""
-    # (Add super_admin check here in production)
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    if user.role != "super_admin":
+        return jsonify({"message": "Unauthorized"}), 403
+
     data = request.json
     ticket = SupportTicket.query.get_or_404(ticket_id)
 
     ticket.admin_response = data.get("response")
     ticket.status = data.get("status", "Resolved")  # Allow 'In Progress' or 'Resolved'
     db.session.commit()
+
+    log_action(user.id, ticket.school_id, "ADMIN_TICKET_REPLY", f"Super admin replied to ticket #{ticket.id}")
 
     # SEND EMAIL NOTIFICATION TO USER
     user = User.query.get(ticket.user_id)
@@ -12622,6 +12926,8 @@ def admin_broadcast():
     )
     db.session.add(alert)
     db.session.commit()
+
+    log_action(user.id, None, "ADMIN_BROADCAST", f"Broadcast sent: {data.get('message')[:80]}")
     return jsonify({"message": "System alert broadcasted."})
 
 
@@ -12662,6 +12968,8 @@ def toggle_school_status(school_id):
     school.is_active = not school.is_active
     db.session.commit()
     status = "activated" if school.is_active else "suspended"
+
+    log_action(user.id, school.id, "ADMIN_SCHOOL_STATUS", f"School {school.id} {status} by super-admin")
     return jsonify({"message": f"School {school.name} has been {status}."})
 
 
@@ -12678,6 +12986,8 @@ def update_school_modules(school_id):
     if school.settings:
         school.settings.enabled_modules = request.json.get("modules")
         db.session.commit()
+
+        log_action(user.id, school.id, "ADMIN_MODULE_UPDATE", f"Modules updated for school {school.id}: {school.settings.enabled_modules}")
     return jsonify({"message": "Modules updated."})
 
 
@@ -12698,6 +13008,8 @@ def get_global_analytics():
     )
     total_schools = School.query.count()
     total_students = Student.query.count()
+
+    log_action(user.id, None, "ADMIN_GLOBAL_ANALYTICS", "Super admin viewed global analytics")
 
     return jsonify(
         {
@@ -12725,6 +13037,8 @@ def impersonate_proprietor(school_id):
 
     access_token = create_access_token(identity=str(target_user.id))
 
+    log_action(admin_user.id, target_school.id, "ADMIN_IMPERSONATE", f"Impersonated proprietor {target_user.username} for school {school_id}")
+
     return jsonify(
         {"token": access_token, "school_id": target_school.id, "role": target_user.role}
     )
@@ -12748,6 +13062,8 @@ def grant_school_trial(school_id):
     school.trial_end_date = datetime.now(timezone.utc) + timedelta(days=30 * months)
     school.subscription_status = "Trial"
     db.session.commit()
+
+    log_action(user.id, school.id, "ADMIN_TRIAL_GRANT", f"Granted {trial_plan} trial for {months} months to school {school.id}")
 
     return jsonify(
         {
@@ -12802,6 +13118,9 @@ def download_backup():
         f"attachment; filename=edupulse_backup_{get_utc_now().strftime('%Y%m%d')}.sql"
     )
     response.headers["Content-type"] = "text/plain"
+
+    log_action(user.id, None, "ADMIN_BACKUP_DOWNLOAD", "Super admin downloaded database backup")
+
     return response
 
 

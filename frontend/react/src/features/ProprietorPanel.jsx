@@ -328,12 +328,10 @@ export default function ProprietorPanel() {
                     {criticalStudents.map(student => (
                       <div key={student.id} className="flex justify-between items-center p-4 bg-red-50 rounded-2xl border border-red-100">
                         <div>
-                          <p className="font-bold text-slate-800 text-sm">{student.name}</p>
+                          <button onClick={() => setSelectedCriticalStudent(student)} className="font-bold text-slate-800 text-sm text-left hover:underline">
+                            {student.name}
+                          </button>
                           <p className="text-[10px] text-red-500 font-bold uppercase">Deadline Passed</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <a href={`tel:${student.parent_phone}`} className="p-2 bg-white rounded-full shadow-sm hover:scale-110 transition-transform">📞</a>
-                          <button className="p-2 bg-white rounded-full shadow-sm hover:scale-110 transition-transform">📧</button>
                         </div>
                       </div>
                     ))}

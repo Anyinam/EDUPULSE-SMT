@@ -222,6 +222,12 @@ docker-compose.yml        # UPDATED: Environment variable injection
   DEBUG = False
   ```
 
+- [ ] Set REQUIRED crypto secrets (do not use defaults):
+  - `JWT_SECRET_KEY` (32+ chars)
+  - `SECRET_KEY` (32+ chars)
+  - `DATA_ENCRYPTION_KEY` (Fernet key, used for encrypted columns like staff/parent emails)
+  - `LEDGER_SECRET_KEY` (32+ chars, used for tamper-evident ledger HMAC chaining)
+
 - [ ] Database backup strategy
   ```bash
   # Regular pg_dump backups with encryption
@@ -245,6 +251,49 @@ docker-compose.yml        # UPDATED: Environment variable injection
   # Only allow your frontend domains
   CORS(app, resources={r"/api/*": {"origins": ["yourdomain.com"]}})
   ```
+
+---
+
+## ☁️ AWS EC2 (Docker VM) Security Checklist (Student + Staff Data)
+
+If you deploy EduPulse on an AWS VM (EC2) running Docker, you must secure **(1) the VM**, **(2) the network perimeter**, and **(3) the database + backups**.
+
+### 1) Network: make the database unreachable from the internet
+- Only expose **80/443** to the internet (or to an ALB).
+- Restrict SSH (22) to your IP only (or use AWS SSM Session Manager and close 22 entirely).
+- Keep Postgres private:
+  - In Docker, bind DB port to `127.0.0.1` only (already supported via `DB_BIND`).
+  - In AWS Security Groups, do **not** allow inbound 5432 from `0.0.0.0/0`.
+
+### 2) Secrets: never ship secrets inside images
+- Store production secrets in **AWS Secrets Manager** (or Parameter Store) and inject into containers at runtime.
+- Rotate keys periodically (especially `JWT_SECRET_KEY`, `DATA_ENCRYPTION_KEY`, and DB passwords).
+
+### 3) Data at rest: encrypt disks + backups
+- Ensure the EC2 root EBS volume is **encrypted**.
+- Store your Postgres data volume on encrypted EBS (default if the EBS volume is encrypted).
+- Backups:
+  - Run `pg_dump` to S3 with **SSE-KMS** encryption.
+  - Restrict S3 bucket policy to your IAM role only.
+
+### 4) App-layer encryption for PII (already in place)
+- EduPulse already encrypts key PII fields in the database using `EncryptedString`:
+  - Staff email
+  - Student parent/guardian contact fields
+- This means even if someone gets raw DB access, those encrypted columns are harder to read without `DATA_ENCRYPTION_KEY`.
+
+### 5) Tenant isolation & access control
+- Always enforce tenant binding: requests must not allow a user from School A to query School B’s data.
+- Ensure rate limiting stays enabled in production.
+- Enforce MFA for all users (recommended): set `MFA_REQUIRED=true` (defaults to enabled when `FLASK_ENV=production`).
+
+### 6) Logging + alerting (minimum viable)
+- Centralize logs (CloudWatch Agent or container log driver).
+- Alert on:
+  - repeated 401/403 bursts
+  - rate-limit (429) spikes
+  - unusual payment webhook failures
+  - database restarts / disk full
 
 ---
 
@@ -322,11 +371,9 @@ if event in SECURITY_EVENTS:
    refresh_token = create_refresh_token(...)  # 7-day expiry
    ```
 
-2. **Add Two-Factor Authentication (2FA)**
-   ```python
-   if user.has_2fa_enabled:
-       send_otp_code(user.phone)
-   ```
+2. **Make MFA mandatory for all users**
+  - Set `MFA_REQUIRED=true` in production.
+  - When mandatory, users cannot disable MFA via the API.
 
 3. **Implement database encryption at rest**
    ```sql

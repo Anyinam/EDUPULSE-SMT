@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
 export default function ProfileSettings() {
-  const [profile, setProfile] = useState({ username: '', email: '', role: '', profile_picture: '' });
+  const [profile, setProfile] = useState({ username: '', email: '', role: '', profile_picture: '', mfa_required: false });
   const [form, setForm] = useState({ email: '', password: '', profile_picture: '' });
   const [devMode, setDevMode] = useState(localStorage.getItem('dev_mode') === 'true');
   const [uploadMessage, setUploadMessage] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [mfaMessage, setMfaMessage] = useState('');
   
   const isDeveloper = (
     window.location.hostname === 'localhost' || 
@@ -109,6 +110,30 @@ export default function ProfileSettings() {
     }
   };
 
+  const handleEnable2FA = async () => {
+    setMfaMessage('');
+    try {
+      await axios.post('/api/2fa/enable', {}, getAuthHeaders());
+      setProfile((prev) => ({ ...prev, two_fa_enabled: true }));
+      setMfaMessage('✅ Two-factor authentication has been enabled.');
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to enable two-factor authentication.';
+      setMfaMessage(`❌ ${msg}`);
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    setMfaMessage('');
+    try {
+      await axios.post('/api/2fa/disable', {}, getAuthHeaders());
+      setProfile((prev) => ({ ...prev, two_fa_enabled: false }));
+      setMfaMessage('✅ Two-factor authentication has been disabled.');
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to disable two-factor authentication.';
+      setMfaMessage(`❌ ${msg}`);
+    }
+  };
+
   const toggleDevMode = () => {
     const newDevMode = !devMode;
     setDevMode(newDevMode);
@@ -152,6 +177,36 @@ export default function ProfileSettings() {
         <div className="flex-1">
           <p className="font-bold text-slate-800">{profile.username}</p>
           <p className="text-xs text-slate-500 uppercase font-bold">{profile.role}</p>
+          <div className="mt-2 flex items-center gap-3">
+            <span className="text-xs">2FA Status:</span>
+            <span className={`text-xs font-bold ${profile.two_fa_enabled ? 'text-green-700' : 'text-amber-800'}`}>
+              {profile.two_fa_enabled ? 'Enabled' : 'Disabled'}
+            </span>
+            {profile.two_fa_enabled ? (
+              <button
+                type="button"
+                onClick={handleDisable2FA}
+                className="text-xs text-blue-600 underline hover:text-blue-800"
+                disabled={profile.mfa_required}
+                title={profile.mfa_required ? 'MFA is mandatory by policy and cannot be turned off' : 'Disable 2FA'}
+              >
+                Disable
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleEnable2FA}
+                className="text-xs text-blue-600 underline hover:text-blue-800"
+              >
+                Enable
+              </button>
+            )}
+          </div>
+          {mfaMessage && (
+            <p className={`text-xs mt-1 ${mfaMessage.startsWith('✅') ? 'text-green-600' : 'text-red-600'}`}>
+              {mfaMessage}
+            </p>
+          )}
           {uploadMessage && (
             <p className={`text-xs mt-1 ${uploadMessage.includes('✅') ? 'text-green-600' : 'text-red-600'}`}>
               {uploadMessage}

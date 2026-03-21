@@ -258,6 +258,17 @@ export default function SubscriptionManager() {
           </div>
         )}
 
+        {sub?.pending_plan === 'Free Tier' && sub?.next_billing_date && (
+          <div className="mb-6 rounded-xl border border-blue-300 bg-blue-50 px-4 py-4">
+            <p className="text-sm font-semibold text-blue-900">
+              Pending downgrade to Free Tier on {new Date(sub.next_billing_date).toLocaleDateString()}.
+            </p>
+            <p className="mt-1 text-xs text-blue-800">
+              Your current paid plan remains active until the next billing date. After that, the system will switch the school to Free Tier and paid features will stop unless you renew or change plan again.
+            </p>
+          </div>
+        )}
+
         {/* Current Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">

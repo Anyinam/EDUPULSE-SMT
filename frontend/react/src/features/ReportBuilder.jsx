@@ -97,7 +97,8 @@ export default function ReportBuilder() {
           sample2: 'parent_focus',
           sample3: 'progress_insights',
           sample4: 'compact_clear',
-          sample5: 'guardian_narrative'
+          sample5: 'guardian_narrative',
+          sample6: 'classic_traditional'
         };
         const rawId = res.data.report_template_id || 'gradman_v1';
         const nextId = legacyMap[rawId] || rawId;
