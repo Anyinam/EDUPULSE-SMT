@@ -161,14 +161,19 @@ docker compose up --build
 ```
 
 ## 📁 Helpful Docs
-- `BUSINESS_OPERATIONS_INDEX.md`
+- `docs/operations/internal/BUSINESS_OPERATIONS_INDEX.md`
 - `BUSINESS_PROCESS_MODEL.md`
-- `STANDARD_OPERATING_PROCEDURES.md`
-- `ONBOARDING_CHECKLIST.md`
-- `ONBOARDING_CHECKLIST_TEMPLATE.md`
-- `ONBOARDING_CHECKLIST_EXAMPLE.md`
-- `SCHOOL_IMPLEMENTATION_GUIDE.md`
-- `SCHOOL_WELCOME_PACK.md`
+- `docs/operations/internal/STANDARD_OPERATING_PROCEDURES.md`
+- `docs/operations/internal/ONBOARDING_CHECKLIST.md`
+- `docs/operations/internal/ONBOARDING_CHECKLIST_TEMPLATE.md`
+- `docs/operations/internal/ONBOARDING_CHECKLIST_EXAMPLE.md`
+- `docs/operations/customer/SCHOOL_IMPLEMENTATION_GUIDE.md`
+- `docs/operations/customer/SCHOOL_WELCOME_PACK.md`
+- `docs/operations/customer/SCHOOL_WELCOME_EMAIL_TEMPLATE.md`
+- `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET.md`
+- `docs/operations/internal/OPERATIONS_HANDOFF.md`
+- `docs/operations/internal/INCIDENT_UPDATE_TEMPLATE.md`
+- `docs/operations/README.md`
 - `BPM_QUICK_REFERENCE.txt`
 - `PAYMENT_INTEGRATION.md`
 - `SUBSCRIPTION_FEATURES.md`
