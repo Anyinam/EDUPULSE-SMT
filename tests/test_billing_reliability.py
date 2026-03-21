@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 from datetime import datetime, timedelta, timezone
+from copy import deepcopy
 
 import pytest
 from flask_jwt_extended import create_access_token
@@ -267,6 +268,207 @@ def test_billing_timeline_and_statement_endpoints(client, db, test_school, propr
     assert statement.status_code == 200
     assert statement.headers.get("Content-Type", "").startswith("text/csv")
     assert b"tx_ref" in statement.data
+
+
+def test_paystack_reconciliation_recovers_finance_payment_after_injected_failure(
+    client,
+    db,
+    test_school,
+    test_proprietor,
+    proprietor_headers,
+    monkeypatch,
+):
+    from backend.api.models import Payment, Student
+
+    secret = "test-secret-paystack"
+    monkeypatch.setenv("PAYSTACK_SECRET_KEY", secret)
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Ama",
+        surname="Owusu",
+        name="Ama Owusu",
+        student_code="SREC001",
+        current_class="JHS 1",
+        total_tuition_owed=50.0,
+    )
+    db.session.add(student)
+    db.session.commit()
+
+    webhook_payload = {
+        "event": "charge.success",
+        "data": {
+            "id": 9001,
+            "reference": "PAY-REC-FIN-001",
+            "status": "success",
+            "amount": 5000,
+            "channel": "mobile_money",
+            "metadata": {
+                "school_id": test_school.id,
+                "student_id": student.id,
+                "payment_type": "Tuition",
+                "__failpoint__": "finance_payment_before_commit",
+            },
+            "customer": {"email": test_proprietor.email},
+            "authorization": {"reusable": False},
+        },
+    }
+
+    raw = json.dumps(webhook_payload).encode("utf-8")
+    signature = hmac.new(secret.encode(), raw, hashlib.sha512).hexdigest()
+
+    failed = client.post(
+        "/api/finance/webhook/paystack",
+        data=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Paystack-Signature": signature,
+        },
+    )
+    assert failed.status_code == 500
+    assert Payment.query.filter_by(reference_id="PAY-REC-FIN-001").first() is None
+
+    recovered_transaction = deepcopy(webhook_payload["data"])
+    recovered_transaction["metadata"].pop("__failpoint__", None)
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"status": True, "data": [recovered_transaction], "meta": {}}
+
+    monkeypatch.setattr("backend.routes.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    recovery = client.post(
+        "/api/school/subscription/ledger/reconciliation/recover",
+        headers=proprietor_headers,
+        data=json.dumps({"lookback_hours": 24}),
+    )
+    assert recovery.status_code == 200
+    summary = recovery.get_json()
+    assert summary["recovered"] == 1
+    assert "PAY-REC-FIN-001" in summary["references"]
+
+    payment = Payment.query.filter_by(reference_id="PAY-REC-FIN-001").first()
+    assert payment is not None
+    db.session.refresh(student)
+    assert student.total_tuition_owed == 0.0
+
+
+def test_paystack_reconciliation_recovers_subscription_after_injected_failure(
+    client,
+    app,
+    db,
+    test_school,
+    test_proprietor,
+    proprietor_headers,
+    monkeypatch,
+):
+    from backend.api.models import LedgerEntry
+
+    monkeypatch.setenv("PAYSTACK_SECRET_KEY", "test-secret-paystack")
+
+    transaction = {
+        "status": "success",
+        "reference": "PAY-REC-SUB-001",
+        "amount": 36000,
+        "metadata": {
+            "school_id": test_school.id,
+            "plan_name": "Basic",
+            "billing_period": "term",
+            "terms": 1,
+            "student_count": 10,
+            "__failpoint__": "subscription_payment_before_commit",
+        },
+        "customer": {"email": test_proprietor.email},
+        "authorization": {"reusable": True, "authorization_code": "AUTH_REC_001", "signature": "sig-rec-001", "last4": "7788", "brand": "visa", "bank": "TEST"},
+    }
+
+    monkeypatch.setattr("backend.paystack_integration.verify_payment", lambda reference: deepcopy(transaction))
+
+    with app.app_context():
+        token = create_access_token(identity=str(test_proprietor.id))
+
+    verify_response = client.get(
+        "/api/paystack/verify/PAY-REC-SUB-001",
+        headers={"Authorization": f"Bearer {token}", "X-School-ID": test_school.id},
+    )
+    assert verify_response.status_code == 500
+    assert LedgerEntry.query.filter_by(tx_ref="PAY-REC-SUB-001").first() is None
+
+    recovered_transaction = deepcopy(transaction)
+    recovered_transaction["metadata"].pop("__failpoint__", None)
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"status": True, "data": [recovered_transaction], "meta": {}}
+
+    monkeypatch.setattr("backend.routes.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    recovery = client.post(
+        "/api/school/subscription/ledger/reconciliation/recover",
+        headers=proprietor_headers,
+        data=json.dumps({"lookback_hours": 24}),
+    )
+    assert recovery.status_code == 200
+    summary = recovery.get_json()
+    assert summary["recovered"] == 1
+    assert "PAY-REC-SUB-001" in summary["references"]
+
+    db.session.refresh(test_school)
+    assert test_school.subscription_plan == "Basic"
+    assert LedgerEntry.query.filter_by(tx_ref="PAY-REC-SUB-001").first() is not None
+
+
+def test_admission_blocks_when_actual_active_count_hits_limit_even_if_meter_is_stale(
+    client,
+    db,
+    test_school,
+    proprietor_headers,
+    monkeypatch,
+):
+    from backend.api.models import Student
+
+    monkeypatch.setattr("backend.routes.get_plan_limits", lambda _plan_name: 25)
+
+    for index in range(25):
+        db.session.add(
+            Student(
+                school_id=test_school.id,
+                first_name=f"Existing{index}",
+                surname="Student",
+                name=f"Existing{index} Student",
+                student_code=f"EXIST{index:03d}",
+                current_class="JHS 1",
+                status="Active",
+            )
+        )
+    test_school.current_student_count = 24
+    db.session.commit()
+
+    response = client.post(
+        "/api/admissions/admit",
+        headers=proprietor_headers,
+        data=json.dumps(
+            {
+                "first_name": "Late",
+                "surname": "Applicant",
+                "class_assigned": "JHS 1",
+                "score": 84,
+            }
+        ),
+    )
+
+    assert response.status_code == 403
+    assert "Plan limit of 25 students reached" in response.get_json()["message"]
 
 
 def test_prorated_admission_charge_uses_fixed_120_days(client, app, db, test_school, test_proprietor):

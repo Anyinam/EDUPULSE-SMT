@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import requests
 import secrets
 import time
 from urllib.parse import quote
@@ -283,6 +284,24 @@ def _is_subscription_reference_processed(reference, school_id=None):
         query = query.filter_by(school_id=school_id)
     existing = query.first()
     return existing is not None
+
+
+def _count_active_students_for_billing(school_id):
+    return Student.query.filter(
+        Student.school_id == school_id,
+        Student.status.in_(["Active", "active"]),
+    ).count()
+
+
+def _lock_school_for_capacity_check(school_id):
+    bind = db.session.get_bind()
+    dialect_name = bind.dialect.name if bind and bind.dialect else ""
+
+    if dialect_name == "sqlite":
+        db.session.execute(text("BEGIN IMMEDIATE"))
+        return School.query.filter_by(id=school_id).first()
+
+    return School.query.filter_by(id=school_id).with_for_update().first()
 
 
 def _sanitize_saved_card(card):
@@ -3901,6 +3920,18 @@ def _verify_paystack_signature(raw_body):
     return True, "ok"
 
 
+def _should_inject_failpoint(metadata, failpoint_name):
+    env_failpoints = {
+        item.strip()
+        for item in (os.getenv("EDUPULSE_FAILPOINTS") or "").split(",")
+        if item.strip()
+    }
+    metadata_failpoint = ""
+    if isinstance(metadata, dict):
+        metadata_failpoint = sanitize_string(metadata.get("__failpoint__"))
+    return failpoint_name in env_failpoints or metadata_failpoint == failpoint_name
+
+
 def _apply_auto_payment_effects(student, payment_type, amount, payment_category):
     """Apply payment side effects to student and inventory."""
     if payment_type == "Tuition":
@@ -3968,47 +3999,31 @@ def _resolve_payment_from_reference(reference_code, school_id_hint=None):
     return None, None, None
 
 
-@api.route("/finance/webhook/paystack", methods=["POST"])
-def paystack_webhook():
-    """Secure Paystack webhook for MoMo/USSD/Bank/Card payments."""
-    raw_body = request.get_data() or b""
-    verified, reason = _verify_paystack_signature(raw_body)
-    if not verified:
-        logger.warning(f"Paystack webhook rejected: {reason}")
-        return jsonify({"status": "rejected", "message": reason}), 401
-
-    data = request.get_json(silent=True) or {}
-    event = (data.get("event") or "").strip()
-    payload = data.get("data") or {}
-
-    if event != "charge.success":
-        return jsonify({"status": "ignored", "event": event}), 200
-
+def _record_paystack_finance_payment(payload, event="charge.success", school_id_scope=None):
     tx_ref = sanitize_string(payload.get("reference") or str(payload.get("id") or ""))
     if not tx_ref:
-        return jsonify({"status": "error", "message": "Missing transaction reference"}), 400
+        return {"status": "error", "message": "Missing transaction reference"}, 400
 
-    # Idempotency guard
-    if Payment.query.filter_by(reference_id=tx_ref).first():
-        return jsonify({"status": "duplicate", "reference": tx_ref}), 200
+    existing_payment = Payment.query.filter_by(reference_id=tx_ref).first()
+    if existing_payment:
+        return {"status": "duplicate", "reference": tx_ref}, 200
 
     amount_minor = payload.get("amount")
     try:
-        amount = float(amount_minor or 0) / 100.0  # Paystack amounts are in pesewas
+        amount = float(amount_minor or 0) / 100.0
     except Exception:
-        return jsonify({"status": "error", "message": "Invalid payment amount"}), 400
+        return {"status": "error", "message": "Invalid payment amount"}, 400
 
     if amount <= 0:
-        return jsonify({"status": "error", "message": "Amount must be greater than zero"}), 400
+        return {"status": "error", "message": "Amount must be greater than zero"}, 400
 
     metadata = payload.get("metadata") or {}
-    school_id_hint = sanitize_string(metadata.get("school_id"))
+    school_id_hint = sanitize_string(metadata.get("school_id") or school_id_scope)
 
     student = None
     payment_type = sanitize_string(metadata.get("payment_type")) or None
     payment_category = metadata.get("payment_category") if isinstance(metadata.get("payment_category"), dict) else {}
 
-    # Resolve student by explicit metadata first
     student_id = metadata.get("student_id")
     if student_id is not None:
         try:
@@ -4027,18 +4042,16 @@ def paystack_webhook():
                 query = query.filter_by(school_id=school_id_hint)
             student = query.first()
 
-    # Resolve via reference code fallback (supports both your compact and hyphen styles)
     if not student:
         reference_code = (
             sanitize_string(metadata.get("reference_code"))
             or sanitize_string(metadata.get("payment_reference"))
             or sanitize_string(metadata.get("student_payment_code"))
+            or sanitize_string(payload.get("reference"))
         )
-        if not reference_code:
-            reference_code = sanitize_string(payload.get("reference"))
-
         resolved_student, resolved_type, resolved_category = _resolve_payment_from_reference(
-            reference_code, school_id_hint=school_id_hint
+            reference_code,
+            school_id_hint=school_id_hint,
         )
         if resolved_student:
             student = resolved_student
@@ -4048,46 +4061,36 @@ def paystack_webhook():
 
     if not student:
         logger.warning(
-            f"Paystack payment received but no student mapped. reference={tx_ref}, metadata={metadata}"
+            "Paystack reconciliation/webhook received unmapped payment. reference=%s metadata=%s",
+            tx_ref,
+            metadata,
         )
-        return jsonify({"status": "unmapped", "reference": tx_ref}), 200
+        return {"status": "unmapped", "reference": tx_ref}, 200
+
+    if school_id_scope and student.school_id != school_id_scope:
+        return {"status": "ignored", "reference": tx_ref, "message": "Payment belongs to another school"}, 200
 
     if school_id_hint and student.school_id != school_id_hint:
-        return jsonify({"status": "error", "message": "School mismatch in metadata"}), 400
+        return {"status": "error", "message": "School mismatch in metadata"}, 400
 
-    reference_payment_type = payment_type or "Tuition"  # From reference code (optional)
+    reference_payment_type = payment_type or "Tuition"
     channel = (payload.get("channel") or "").lower()
-    # All payments now processed through Paystack
-    method = "Paystack_Payment"
-
-    # Extract fee route account information - this is the SOURCE OF TRUTH for payment type
     subaccount_data = payload.get("subaccount") or {}
     subaccount_code = subaccount_data.get("subaccount_code") if isinstance(subaccount_data, dict) else None
-    
-    # CRITICAL: Resolve actual payment type from the virtual account used (DVA routing)
+
     actual_payment_type = None
     route_mismatch = False
-    
     if subaccount_code:
-        # Look up which payment type this virtual account handles
         dva_route = PaystackSubAccount.query.filter_by(
             school_id=student.school_id,
             subaccount_code=subaccount_code,
-            is_active=True
+            is_active=True,
         ).first()
-        
         if dva_route:
             actual_payment_type = dva_route.payment_type
-            # Check if parent used wrong account (reference says Tuition but paid to Uniform account)
             if reference_payment_type != actual_payment_type:
                 route_mismatch = True
-                logger.warning(
-                    f"Payment routing mismatch detected for {tx_ref}: "
-                    f"Reference code indicates '{reference_payment_type}' but payment received via '{actual_payment_type}' virtual account. "
-                    f"Recording as '{actual_payment_type}' (actual account used)."
-                )
-    
-    # Use DVA payment type if available (source of truth), otherwise fall back to reference
+
     payment_type = actual_payment_type or reference_payment_type
 
     payment = Payment(
@@ -4095,21 +4098,18 @@ def paystack_webhook():
         school_id=student.school_id,
         amount=amount,
         payment_type=payment_type,
-        method=method,
+        method="Paystack_Payment",
         reference_id=tx_ref,
         status="Confirmed",
         payment_category=payment_category or {},
     )
     db.session.add(payment)
 
-    stock_error = _apply_auto_payment_effects(
-        student, payment_type, amount, payment_category or {}
-    )
+    stock_error = _apply_auto_payment_effects(student, payment_type, amount, payment_category or {})
     if stock_error:
         db.session.rollback()
-        return jsonify({"status": "error", "message": stock_error}), 400
+        return {"status": "error", "message": stock_error}, 400
 
-    # Track split settlement details in ledger
     ledger_metadata = {
         "provider": "paystack",
         "event": event,
@@ -4118,23 +4118,19 @@ def paystack_webhook():
         "customer": payload.get("customer", {}),
         "authorization": payload.get("authorization", {}),
     }
-    
-    # Add fee route account split details if present
     if subaccount_code:
         ledger_metadata["subaccount"] = {
             "code": subaccount_code,
-            "settlement_amount": subaccount_data.get("settlement_amount", 0) / 100.0,  # Convert from kobo
+            "settlement_amount": subaccount_data.get("settlement_amount", 0) / 100.0,
             "commission": subaccount_data.get("subaccount_share", 0) / 100.0,
         }
-    
-    # Flag routing mismatches for school review and reconciliation
     if route_mismatch:
         ledger_metadata["routing_mismatch"] = {
             "detected": True,
             "reference_indicated": reference_payment_type,
             "actual_account_used": actual_payment_type,
             "resolution": "Used actual account type (DVA routing is authoritative)",
-            "requires_review": True
+            "requires_review": True,
         }
 
     add_ledger_entry(
@@ -4149,6 +4145,10 @@ def paystack_webhook():
         metadata=ledger_metadata,
     )
 
+    if _should_inject_failpoint(metadata, "finance_payment_before_commit"):
+        db.session.rollback()
+        raise RuntimeError("Injected failpoint: finance_payment_before_commit")
+
     log_action(
         user_id=None,
         school_id=student.school_id,
@@ -4157,7 +4157,189 @@ def paystack_webhook():
     )
 
     db.session.commit()
-    return jsonify({"status": "recorded", "reference": tx_ref, "student_id": student.id}), 200
+    return {"status": "recorded", "reference": tx_ref, "student_id": student.id}, 200
+
+
+def _fetch_paystack_success_transactions(start_time, end_time, page=1, per_page=50):
+    secret_key = (os.getenv("PAYSTACK_SECRET_KEY") or "").strip()
+    if not secret_key:
+        raise ValueError("PAYSTACK_SECRET_KEY not configured")
+
+    response = requests.get(
+        "https://api.paystack.co/transaction",
+        headers={"Authorization": f"Bearer {secret_key}"},
+        params={
+            "status": "success",
+            "page": page,
+            "perPage": per_page,
+            "from": start_time.isoformat(),
+            "to": end_time.isoformat(),
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("status"):
+        raise ValueError(payload.get("message") or "Paystack transaction listing failed")
+    return payload.get("data") or [], payload.get("meta") or {}
+
+
+def _recover_paystack_transaction(transaction, school_id_scope=None):
+    metadata = transaction.get("metadata") or {}
+    reference = sanitize_string(transaction.get("reference") or str(transaction.get("id") or ""))
+    school_id = sanitize_string(metadata.get("school_id") or school_id_scope)
+    plan_name = sanitize_string(metadata.get("plan_name"))
+    card_setup_only = bool(metadata.get("card_setup_only") or metadata.get("skip_subscription_update"))
+
+    if school_id_scope and school_id and school_id != school_id_scope:
+        return "ignored"
+
+    if (plan_name or card_setup_only) and school_id:
+        if not card_setup_only and _is_subscription_reference_processed(reference, school_id):
+            return "duplicate"
+
+        amount_paid = float(transaction.get("amount") or 0) / 100.0
+        if card_setup_only:
+            saved_card = _save_reusable_authorization(
+                school_id,
+                transaction.get("authorization") or {},
+                (transaction.get("customer") or {}).get("email"),
+            )
+            if saved_card:
+                _append_billing_timeline_event(
+                    school_id,
+                    event_type="card_saved_recovered",
+                    status="success",
+                    title="Billing card recovered from reconciliation",
+                    details=f"Recovered reusable authorization for card ending with {saved_card.get('last4') or '----'}.",
+                    amount=amount_paid,
+                    reference=reference,
+                )
+                return "recovered"
+            return "ignored"
+
+        from backend.paystack_integration import process_payment_confirmation
+
+        process_payment_confirmation(
+            school_id,
+            plan_name,
+            amount_paid,
+            reference=reference,
+            metadata=metadata,
+        )
+        _append_billing_timeline_event(
+            school_id,
+            event_type="subscription_payment_recovered",
+            status="success",
+            title="Subscription payment recovered",
+            details=f"Recovered missing subscription payment for {plan_name} from Paystack reconciliation.",
+            amount=amount_paid,
+            reference=reference,
+        )
+        return "recovered"
+
+    result, _status_code = _record_paystack_finance_payment(
+        transaction,
+        event="charge.success.reconciled",
+        school_id_scope=school_id_scope,
+    )
+    return result.get("status") or "ignored"
+
+
+def run_paystack_reconciliation_sweep(lookback_hours=24, school_id_scope=None, max_pages=4, per_page=50):
+    end_time = get_utc_now()
+    start_time = end_time - timedelta(hours=max(1, int(lookback_hours or 24)))
+    summary = {
+        "checked": 0,
+        "recovered": 0,
+        "duplicate": 0,
+        "ignored": 0,
+        "unmapped": 0,
+        "errors": 0,
+        "references": [],
+    }
+
+    for page in range(1, max(1, int(max_pages)) + 1):
+        transactions, meta = _fetch_paystack_success_transactions(
+            start_time,
+            end_time,
+            page=page,
+            per_page=per_page,
+        )
+        if not transactions:
+            break
+
+        for transaction in transactions:
+            summary["checked"] += 1
+            reference = sanitize_string(transaction.get("reference") or str(transaction.get("id") or ""))
+            try:
+                outcome = _recover_paystack_transaction(transaction, school_id_scope=school_id_scope)
+            except Exception as exc:
+                db.session.rollback()
+                summary["errors"] += 1
+                if school_id_scope:
+                    _append_billing_timeline_event(
+                        school_id_scope,
+                        event_type="paystack_reconciliation_failed",
+                        status="failed",
+                        title="Paystack reconciliation failed",
+                        details=str(exc),
+                        reference=reference,
+                    )
+                continue
+
+            if outcome in {"recovered", "recorded"}:
+                summary["recovered"] += 1
+                summary["references"].append(reference)
+            elif outcome == "duplicate":
+                summary["duplicate"] += 1
+            elif outcome == "unmapped":
+                summary["unmapped"] += 1
+            else:
+                summary["ignored"] += 1
+
+        if meta.get("next") is None and len(transactions) < per_page:
+            break
+
+    if school_id_scope:
+        _append_billing_timeline_event(
+            school_id_scope,
+            event_type="paystack_reconciliation_completed",
+            status="success" if summary["errors"] == 0 else "warning",
+            title="Paystack reconciliation completed",
+            details=(
+                f"Checked {summary['checked']} transaction(s); recovered {summary['recovered']}, "
+                f"duplicates {summary['duplicate']}, unmapped {summary['unmapped']}, errors {summary['errors']}."
+            ),
+            metadata=summary,
+        )
+
+    return summary
+
+
+@api.route("/finance/webhook/paystack", methods=["POST"])
+def paystack_webhook():
+    """Secure Paystack webhook for MoMo/USSD/Bank/Card payments."""
+    raw_body = request.get_data() or b""
+    verified, reason = _verify_paystack_signature(raw_body)
+    if not verified:
+        logger.warning(f"Paystack webhook rejected: {reason}")
+        return jsonify({"status": "rejected", "message": reason}), 401
+
+    data = request.get_json(silent=True) or {}
+    event = (data.get("event") or "").strip()
+    payload = data.get("data") or {}
+
+    if event != "charge.success":
+        return jsonify({"status": "ignored", "event": event}), 200
+
+    try:
+        body, status_code = _record_paystack_finance_payment(payload, event=event)
+        return jsonify(body), status_code
+    except Exception as exc:
+        db.session.rollback()
+        logger.error("Paystack finance webhook failed for ref=%s: %s", payload.get("reference"), exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
 
 
 # --- PAYSTACK FEE ROUTE ACCOUNT MANAGEMENT ---
@@ -6881,10 +7063,13 @@ def admit_student():
     if not data:
         return jsonify({"message": "No data provided"}), 400
 
-    # 1. Enforce Subscription Quota
-    school = School.query.get(g.school_id)
+    # 1. Enforce Subscription Quota inside a locked transaction.
+    school = _lock_school_for_capacity_check(g.school_id)
     limit = get_plan_limits(get_effective_plan(school))
-    if Student.query.filter_by(school_id=g.school_id).count() >= limit:
+    current_count = _count_active_students_for_billing(g.school_id)
+    school.current_student_count = current_count
+    school.last_metered_at = get_utc_now()
+    if current_count >= limit:
         return (
             jsonify(
                 {
@@ -7004,6 +7189,8 @@ def admit_student():
         is_present=True,
     )
     db.session.add(new_student)
+    school.current_student_count = current_count + 1
+    school.last_metered_at = get_utc_now()
 
     log_action(
         user_id=int(get_jwt_identity()),
@@ -7060,9 +7247,11 @@ def bulk_admit_students():
             stream = StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
             csv_input = csv.DictReader(stream)
 
-            school = School.query.get(g.school_id)
+            school = _lock_school_for_capacity_check(g.school_id)
             limit = get_plan_limits(get_effective_plan(school))
-            current_count = Student.query.filter_by(school_id=g.school_id).count()
+            current_count = _count_active_students_for_billing(g.school_id)
+            school.current_student_count = current_count
+            school.last_metered_at = get_utc_now()
             existing_codes = {
                 code
                 for (code,) in Student.query.filter_by(school_id=g.school_id)
@@ -7219,6 +7408,9 @@ def bulk_admit_students():
                 existing_codes.add(student_code)
                 current_count += 1
                 added_count += 1
+
+            school.current_student_count = current_count
+            school.last_metered_at = get_utc_now()
 
             db.session.commit()
 
@@ -9457,6 +9649,204 @@ def export_audit_events_csv():
         return output
     except Exception as e:
         return jsonify({"message": "Error exporting audit events", "error": str(e)}), 500
+def _get_or_create_school_settings():
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    if not settings:
+        settings = SchoolSettings(school_id=g.school_id)
+        db.session.add(settings)
+        db.session.flush()
+    return settings
+
+
+def _clone_json_document(value):
+    return json.loads(json.dumps(value or {}))
+
+
+def _analytics_preset_name_key(name):
+    return (name or "").strip().casefold()
+
+
+def _get_analytics_preset_config(settings):
+    report_template_config = _clone_json_document(settings.report_template_config)
+    analytics_config = report_template_config.get("analytics_presets") or {}
+    if not isinstance(analytics_config, dict):
+        analytics_config = {}
+    presets = analytics_config.get("presets") or []
+    if not isinstance(presets, list):
+        presets = []
+    default_preset_name = analytics_config.get("default_preset_name")
+    return report_template_config, analytics_config, presets, default_preset_name
+
+
+def _normalize_analytics_preset_payload(payload):
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise ValueError("Preset name is required")
+
+    filters = payload.get("filters") or {}
+    if not isinstance(filters, dict):
+        raise ValueError("Preset filters must be an object")
+
+    normalized_filters = {
+        "academicTerm": (filters.get("academicTerm") or "").strip(),
+        "academicYear": (filters.get("academicYear") or "").strip(),
+        "cohortFromClass": (filters.get("cohortFromClass") or "").strip(),
+        "cohortToClass": (filters.get("cohortToClass") or "").strip(),
+        "analysisMode": (filters.get("analysisMode") or "single-year").strip() or "single-year",
+        "activeView": (filters.get("activeView") or "visualization").strip() or "visualization",
+    }
+
+    if normalized_filters["analysisMode"] not in {"single-year", "multi-year"}:
+        normalized_filters["analysisMode"] = "single-year"
+    if normalized_filters["activeView"] not in {"overview", "visualization"}:
+        normalized_filters["activeView"] = "visualization"
+
+    return {
+        "name": name,
+        "filters": normalized_filters,
+        "is_default": bool(payload.get("is_default", False)),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.route("/analytics/presets", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def get_analytics_presets():
+    try:
+        settings = _get_or_create_school_settings()
+        _, _, presets, default_preset_name = _get_analytics_preset_config(settings)
+        return jsonify(
+            {
+                "presets": presets,
+                "default_preset_name": default_preset_name,
+            }
+        )
+    except Exception as e:
+        return jsonify({"message": "Error loading analytics presets", "error": str(e)}), 500
+
+
+@api.route("/analytics/presets", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def save_analytics_preset():
+    try:
+        payload = request.get_json(silent=True) or {}
+        preset = _normalize_analytics_preset_payload(payload)
+        preset_name_key = _analytics_preset_name_key(preset["name"])
+
+        settings = _get_or_create_school_settings()
+        report_template_config, analytics_config, presets, default_preset_name = _get_analytics_preset_config(settings)
+
+        next_presets = [
+            preset
+        ] + [
+            item for item in presets if _analytics_preset_name_key(item.get("name")) != preset_name_key
+        ]
+        next_presets = next_presets[:12]
+
+        if preset["is_default"]:
+            default_preset_name = preset["name"]
+        elif _analytics_preset_name_key(default_preset_name) == preset_name_key:
+            default_preset_name = preset["name"]
+
+        analytics_config["presets"] = next_presets
+        analytics_config["default_preset_name"] = default_preset_name
+        report_template_config["analytics_presets"] = analytics_config
+        settings.report_template_config = _clone_json_document(report_template_config)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Analytics preset saved.",
+                "preset": preset,
+                "presets": next_presets,
+                "default_preset_name": default_preset_name,
+            }
+        )
+    except ValueError as e:
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"message": "Error saving analytics preset", "error": str(e)}), 500
+
+
+@api.route("/analytics/presets/<string:preset_name>/default", methods=["PUT"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def set_default_analytics_preset(preset_name):
+    try:
+        settings = _get_or_create_school_settings()
+        report_template_config, analytics_config, presets, _ = _get_analytics_preset_config(settings)
+        matching_preset = next(
+            (
+                item
+                for item in presets
+                if _analytics_preset_name_key(item.get("name")) == _analytics_preset_name_key(preset_name)
+            ),
+            None,
+        )
+        if not matching_preset:
+            return jsonify({"message": "Preset not found"}), 404
+
+        resolved_preset_name = matching_preset.get("name")
+
+        analytics_config["presets"] = presets
+        analytics_config["default_preset_name"] = resolved_preset_name
+        report_template_config["analytics_presets"] = analytics_config
+        settings.report_template_config = _clone_json_document(report_template_config)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Default analytics preset updated.",
+                "default_preset_name": resolved_preset_name,
+                "presets": presets,
+            }
+        )
+    except Exception as e:
+        return jsonify({"message": "Error updating default analytics preset", "error": str(e)}), 500
+
+
+@api.route("/analytics/presets/<string:preset_name>", methods=["DELETE"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def delete_analytics_preset(preset_name):
+    try:
+        settings = _get_or_create_school_settings()
+        report_template_config, analytics_config, presets, default_preset_name = _get_analytics_preset_config(settings)
+        preset_name_key = _analytics_preset_name_key(preset_name)
+        removed_preset = next(
+            (item for item in presets if _analytics_preset_name_key(item.get("name")) == preset_name_key),
+            None,
+        )
+        next_presets = [
+            item for item in presets if _analytics_preset_name_key(item.get("name")) != preset_name_key
+        ]
+        if len(next_presets) == len(presets):
+            return jsonify({"message": "Preset not found"}), 404
+
+        if _analytics_preset_name_key(default_preset_name) == preset_name_key:
+            default_preset_name = next_presets[0].get("name") if next_presets else None
+
+        analytics_config["presets"] = next_presets
+        analytics_config["default_preset_name"] = default_preset_name
+        report_template_config["analytics_presets"] = analytics_config
+        settings.report_template_config = _clone_json_document(report_template_config)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Analytics preset removed.",
+                "presets": next_presets,
+                "default_preset_name": default_preset_name,
+            }
+        )
+    except Exception as e:
+        return jsonify({"message": "Error deleting analytics preset", "error": str(e)}), 500
 
 
 @api.route("/analytics/class-performance", methods=["GET"])
@@ -9468,6 +9858,8 @@ def get_class_performance():
     try:
         academic_term = request.args.get("academic_term")
         academic_year = request.args.get("academic_year")
+        cohort_from_class = request.args.get("cohort_from_class")
+        cohort_to_class = request.args.get("cohort_to_class")
 
         base_query = ReportCard.query.filter_by(school_id=g.school_id)
         if not academic_term or not academic_year:
@@ -9635,6 +10027,113 @@ def get_class_performance():
             )
         subject_trends.sort(key=lambda item: item["current_average"], reverse=True)
 
+        available_year_rows = (
+            db.session.query(ReportCard.academic_year)
+            .filter(
+                ReportCard.school_id == g.school_id,
+                ReportCard.academic_term == academic_term,
+                ReportCard.academic_year.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        available_academic_years = sorted(
+            [row[0] for row in available_year_rows if row[0]],
+        )
+
+        multi_year_stats = (
+            db.session.query(
+                ReportCard.academic_year,
+                ReportCard.class_name,
+                func.avg(ReportCard.term_average).label("avg_score"),
+                func.count(ReportCard.id).label("count"),
+            )
+            .filter(
+                ReportCard.school_id == g.school_id,
+                ReportCard.academic_term == academic_term,
+                ReportCard.term_average.isnot(None),
+            )
+            .group_by(ReportCard.academic_year, ReportCard.class_name)
+            .all()
+        )
+
+        multi_year_map = {}
+        for year_value, class_name, avg_score, count in multi_year_stats:
+            entry = multi_year_map.setdefault(class_name, [])
+            entry.append(
+                {
+                    "academic_year": year_value,
+                    "average": round(float(avg_score or 0), 2),
+                    "count": int(count or 0),
+                }
+            )
+
+        multi_year_trends = []
+        for class_name, points in multi_year_map.items():
+            ordered_points = sorted(points, key=lambda item: item["academic_year"])
+            if cohort_from_class and class_name != cohort_from_class and class_name != cohort_to_class:
+                pass
+            multi_year_trends.append(
+                {
+                    "class_name": class_name,
+                    "points": ordered_points,
+                }
+            )
+        multi_year_trends.sort(key=lambda item: VALID_GRADES.index(item["class_name"]) if item["class_name"] in VALID_GRADES else 999)
+
+        subject_multi_year_stats = (
+            db.session.query(
+                ReportCard.academic_year,
+                ReportCard.subject_grades,
+            )
+            .filter(
+                ReportCard.school_id == g.school_id,
+                ReportCard.academic_term == academic_term,
+                ReportCard.subject_grades.isnot(None),
+            )
+            .all()
+        )
+
+        subject_multi_year_map = {}
+        for year_value, subject_grades in subject_multi_year_stats:
+            if not year_value or not subject_grades:
+                continue
+            for item in subject_grades:
+                subject_name = _subject_key(item)
+                bucket = subject_multi_year_map.setdefault(subject_name, {})
+                year_bucket = bucket.setdefault(year_value, {"total": 0.0, "count": 0})
+                year_bucket["total"] += _subject_total(item)
+                year_bucket["count"] += 1
+
+        subject_multi_year_trends = []
+        for subject_name, yearly_values in subject_multi_year_map.items():
+            points = []
+            for year_value in sorted(yearly_values):
+                aggregate = yearly_values[year_value]
+                average = aggregate["total"] / aggregate["count"] if aggregate["count"] else 0
+                points.append(
+                    {
+                        "academic_year": year_value,
+                        "average": round(average, 2),
+                        "count": aggregate["count"],
+                    }
+                )
+
+            latest_average = points[-1]["average"] if points else 0
+            baseline_average = points[0]["average"] if len(points) > 1 else None
+            subject_multi_year_trends.append(
+                {
+                    "subject": subject_name,
+                    "points": points,
+                    "latest_average": latest_average,
+                    "delta": round(latest_average - baseline_average, 2) if baseline_average is not None else None,
+                }
+            )
+
+        subject_multi_year_trends.sort(
+            key=lambda item: (-(item["latest_average"] or 0), item["subject"])
+        )
+
         year_over_year_classes = []
         for class_name, avg_score, count in current_stats:
             current_avg = round(float(avg_score or 0), 2)
@@ -9706,6 +10205,15 @@ def get_class_performance():
 
         cohort_migration_comparisons.sort(key=lambda item: VALID_GRADES.index(item["to_class"]) if item["to_class"] in VALID_GRADES else 999)
 
+        if cohort_from_class:
+            cohort_migration_comparisons = [
+                item for item in cohort_migration_comparisons if item["from_class"] == cohort_from_class
+            ]
+        if cohort_to_class:
+            cohort_migration_comparisons = [
+                item for item in cohort_migration_comparisons if item["to_class"] == cohort_to_class
+            ]
+
         results = []
         for class_name, avg_score, count in current_stats:
             avg_value = float(avg_score or 0)
@@ -9761,8 +10269,13 @@ def get_class_performance():
                 "compare_term": prev_term,
                 "compare_year": prev_year,
                 "same_term_previous_year": same_term_prev_year,
+                "cohort_from_class": cohort_from_class,
+                "cohort_to_class": cohort_to_class,
+                "available_academic_years": available_academic_years,
                 "classes": results,
                 "year_over_year_classes": year_over_year_classes,
+                "multi_year_trends": multi_year_trends,
+                "subject_multi_year_trends": subject_multi_year_trends[:12],
                 "cohort_migration_comparisons": cohort_migration_comparisons,
                 "score_bands": score_bands,
                 "subject_trends": subject_trends[:10],
@@ -11660,6 +12173,25 @@ def get_subscription_ledger_reconciliation():
             },
         }
     ), 200
+
+
+@api.route("/school/subscription/ledger/reconciliation/recover", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def recover_subscription_reconciliation_gaps():
+    """Cross-check recent successful Paystack transactions and recover any missing local records."""
+    payload = request.get_json(silent=True) or {}
+    lookback_hours = payload.get("lookback_hours", 24)
+    try:
+        summary = run_paystack_reconciliation_sweep(
+            lookback_hours=lookback_hours,
+            school_id_scope=g.school_id,
+        )
+        return jsonify(summary), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"message": "Paystack reconciliation failed", "error": str(exc)}), 500
 
 
 @api.route("/school/subscription/statement/download", methods=["GET"])

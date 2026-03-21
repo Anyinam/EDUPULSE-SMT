@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import event, select
+from sqlalchemy.orm import backref
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from backend.security.crypto import EncryptedString
@@ -167,7 +168,10 @@ class AcademicTerm(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
     
     # Relationships
-    school = db.relationship("School", backref="academic_terms")
+    school = db.relationship(
+        "School",
+        backref=backref("academic_terms", cascade="all, delete-orphan", lazy=True),
+    )
     creator = db.relationship("User", foreign_keys=[created_by])
     
     __table_args__ = (

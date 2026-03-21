@@ -222,6 +222,23 @@ def scheduled_overage_auto_charge_sweep():
             result.get("failed"),
         )
 
+
+@scheduler.scheduled_job('cron', hour=2, minute=30, id='paystack_reconciliation_sweep')
+def scheduled_paystack_reconciliation_sweep():
+    """Scheduled job to recover successful Paystack transactions that never reached the local database."""
+    with app.app_context():
+        from backend.routes import run_paystack_reconciliation_sweep
+
+        result = run_paystack_reconciliation_sweep(lookback_hours=24)
+        logging.getLogger(__name__).info(
+            "Scheduled Paystack reconciliation result: checked=%s recovered=%s duplicates=%s unmapped=%s errors=%s",
+            result.get("checked"),
+            result.get("recovered"),
+            result.get("duplicate"),
+            result.get("unmapped"),
+            result.get("errors"),
+        )
+
 # Start scheduler if not already running
 if not scheduler.running:
     try:

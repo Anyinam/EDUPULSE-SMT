@@ -24,6 +24,18 @@ class PaystackError(Exception):
     pass
 
 
+def _should_inject_failpoint(metadata, failpoint_name):
+    env_failpoints = {
+        item.strip()
+        for item in (os.getenv("EDUPULSE_FAILPOINTS") or "").split(",")
+        if item.strip()
+    }
+    metadata_failpoint = ""
+    if isinstance(metadata, dict):
+        metadata_failpoint = str(metadata.get("__failpoint__") or "").strip()
+    return failpoint_name in env_failpoints or metadata_failpoint == failpoint_name
+
+
 def initialize_payment(email, amount_cents, plan_name, school_id, metadata=None):
     """
     Initialize a payment transaction with Paystack.
@@ -268,6 +280,10 @@ def process_payment_confirmation(school_id, plan_name, amount_paid_cedis, refere
                 "billing_period": billing_period
             },
         )
+
+        if _should_inject_failpoint(meta, "subscription_payment_before_commit"):
+            db.session.rollback()
+            raise PaystackError("Injected failpoint: subscription_payment_before_commit")
 
         db.session.commit()
         

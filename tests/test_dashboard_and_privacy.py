@@ -123,7 +123,7 @@ def test_class_performance_returns_cohort_migration_comparison(client, app, test
         academic_year="2024/2025",
         class_name="JHS 1",
         term_average=68.0,
-        subject_grades=[],
+        subject_grades=[{"subject": "Mathematics", "total": 68}, {"subject": "Science", "total": 70}],
         status="Approved",
     )
     current_report = ReportCard(
@@ -136,8 +136,19 @@ def test_class_performance_returns_cohort_migration_comparison(client, app, test
         subject_grades=[{"subject": "Mathematics", "total": 74}],
         status="Approved",
     )
+    historical_report = ReportCard(
+        school_id=test_school.id,
+        student_id=student.id,
+        academic_term="Term 1",
+        academic_year="2023/2024",
+        class_name="JHS 1",
+        term_average=63.0,
+        subject_grades=[{"subject": "Mathematics", "total": 63}],
+        status="Approved",
+    )
     db.session.add(previous_report)
     db.session.add(current_report)
+    db.session.add(historical_report)
     db.session.commit()
 
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
@@ -150,3 +161,135 @@ def test_class_performance_returns_cohort_migration_comparison(client, app, test
     payload = response.get_json()
     cohorts = payload.get("cohort_migration_comparisons", [])
     assert any(item["from_class"] == "JHS 1" and item["to_class"] == "JHS 2" for item in cohorts)
+    assert "2023/2024" in payload.get("available_academic_years", [])
+    assert "2024/2025" in payload.get("available_academic_years", [])
+    assert any(item["class_name"] == "JHS 2" for item in payload.get("multi_year_trends", []))
+    subject_trends = payload.get("subject_multi_year_trends", [])
+    math_trend = next(item for item in subject_trends if item["subject"] == "Mathematics")
+    assert [point["academic_year"] for point in math_trend["points"]] == ["2023/2024", "2024/2025", "2025/2026"]
+    assert math_trend["delta"] == 11.0
+
+
+def test_analytics_presets_can_be_saved_defaulted_and_deleted(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    save_response = client.post(
+        "/api/analytics/presets",
+        headers=headers,
+        data=json.dumps(
+            {
+                "name": "Board View",
+                "filters": {
+                    "academicTerm": "Term 2",
+                    "academicYear": "2025/2026",
+                    "cohortFromClass": "JHS 1",
+                    "cohortToClass": "JHS 2",
+                    "analysisMode": "multi-year",
+                    "activeView": "visualization",
+                },
+                "is_default": True,
+            }
+        ),
+    )
+
+    assert save_response.status_code == 200
+    save_payload = save_response.get_json()
+    assert save_payload["default_preset_name"] == "Board View"
+    assert save_payload["preset"]["filters"]["analysisMode"] == "multi-year"
+
+    list_response = client.get("/api/analytics/presets", headers=headers)
+    assert list_response.status_code == 200
+    list_payload = list_response.get_json()
+    assert list_payload["default_preset_name"] == "Board View"
+    assert any(item["name"] == "Board View" for item in list_payload["presets"])
+
+    second_response = client.post(
+        "/api/analytics/presets",
+        headers=headers,
+        data=json.dumps(
+            {
+                "name": "Overview Quick Check",
+                "filters": {
+                    "academicTerm": "Term 1",
+                    "academicYear": "2025/2026",
+                    "analysisMode": "single-year",
+                    "activeView": "overview",
+                },
+            }
+        ),
+    )
+    assert second_response.status_code == 200
+
+    default_response = client.put(
+        "/api/analytics/presets/Overview Quick Check/default",
+        headers=headers,
+    )
+    assert default_response.status_code == 200
+    assert default_response.get_json()["default_preset_name"] == "Overview Quick Check"
+
+    delete_response = client.delete(
+        "/api/analytics/presets/Overview Quick Check",
+        headers=headers,
+    )
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.get_json()
+    assert delete_payload["default_preset_name"] == "Board View"
+    assert all(item["name"] != "Overview Quick Check" for item in delete_payload["presets"])
+
+
+def test_analytics_presets_treat_duplicate_names_case_insensitively(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    first_response = client.post(
+        "/api/analytics/presets",
+        headers=headers,
+        data=json.dumps(
+            {
+                "name": "Board View",
+                "filters": {
+                    "academicTerm": "Term 1",
+                    "academicYear": "2025/2026",
+                    "analysisMode": "single-year",
+                    "activeView": "overview",
+                },
+            }
+        ),
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/api/analytics/presets",
+        headers=headers,
+        data=json.dumps(
+            {
+                "name": "board view",
+                "filters": {
+                    "academicTerm": "Term 2",
+                    "academicYear": "2026/2027",
+                    "analysisMode": "multi-year",
+                    "activeView": "visualization",
+                },
+                "is_default": True,
+            }
+        ),
+    )
+    assert second_response.status_code == 200
+    payload = second_response.get_json()
+    assert len(payload["presets"]) == 1
+    assert payload["presets"][0]["name"] == "board view"
+    assert payload["presets"][0]["filters"]["analysisMode"] == "multi-year"
+    assert payload["default_preset_name"] == "board view"
+
+    default_response = client.put(
+        "/api/analytics/presets/BOARD%20VIEW/default",
+        headers=headers,
+    )
+    assert default_response.status_code == 200
+    assert default_response.get_json()["default_preset_name"] == "board view"
+
+    delete_response = client.delete(
+        "/api/analytics/presets/Board%20View",
+        headers=headers,
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.get_json()["presets"] == []
