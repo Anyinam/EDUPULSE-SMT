@@ -54,6 +54,35 @@ class TestAuthenticationSecurity:
         refreshed = User.query.get(test_teacher.id)
         assert refreshed.two_fa_enabled is True
 
+    def test_login_returns_dev_code_when_2fa_email_delivery_fails_locally(
+        self, client, test_school, test_teacher, mocker, monkeypatch
+    ):
+        """Local development should not hard-block 2FA when SMTP credentials are invalid."""
+        import backend.routes as routes
+
+        monkeypatch.setattr(routes, "MFA_REQUIRED", True)
+        monkeypatch.setattr(routes.secrets, "randbelow", lambda _: 123456)
+        mocker.patch("backend.routes.send_email_notification", return_value=False)
+
+        payload = {
+            "school_code": test_school.id,
+            "username": test_teacher.username,
+            "password": "TeacherPass123",
+        }
+
+        response = client.post(
+            "/api/login",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        body = json.loads(response.data)
+        assert body.get("message") == "2fa_required"
+        assert body.get("token")
+        assert body.get("dev_code") == "123456"
+        assert "local development" in (body.get("fallback_notice") or "")
+
     def test_cannot_disable_mfa_when_globally_required(
         self, client, auth_headers, monkeypatch
     ):

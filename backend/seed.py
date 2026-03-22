@@ -65,6 +65,7 @@ def seed_everything():
             password_hash=generate_password_hash("cca2026"),
             role="proprietor",
             school_id="CCA-OFK",
+            email=(os.getenv("SEED_PROPRIETOR_EMAIL") or os.getenv("MAIL_USERNAME") or None),
         )
 
         # Homeroom Teacher (Class Administrator)

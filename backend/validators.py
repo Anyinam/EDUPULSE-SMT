@@ -19,7 +19,7 @@ class LoginSchema(Schema):
         required=True,
         validate=[
             validate.Length(min=3, max=50),
-            validate.Regexp(r"^[A-Za-z0-9_.-]+$"),
+            validate.Regexp(r"^[A-Za-z0-9_.@+-]+$"),
         ],
     )
     password = fields.Str(required=True, validate=validate.Length(min=6, max=128))

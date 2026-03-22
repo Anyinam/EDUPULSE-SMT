@@ -1314,7 +1314,7 @@ def get_registration_email_trace():
 @csrf_protect
 def login():
     """
-    Login with school code, username, and password.
+    Login with school code, username or email, and password.
     Returns JWT token with user context and school branding.
     """
     try:
@@ -1329,18 +1329,18 @@ def login():
         return jsonify({"message": "Invalid input"}), 400
 
     school_code = sanitize_string(data.get("schoolCode"))
-    username = sanitize_string(data.get("username"))
+    login_identifier = sanitize_string(data.get("username"))
     password = data.get("password")
     client_ip = get_client_ip()
 
-    lockout = check_login_lockout(school_code, username, client_ip)
+    lockout = check_login_lockout(school_code, login_identifier, client_ip)
     if lockout:
         return jsonify({"message": "Too many login attempts. Try again later."}), 429
 
     school = School.query.filter_by(id=school_code).first()
     if not school:
         logger.warning(f"Login failed: Unknown school code {school_code}")
-        record_login_failure(school_code, username, client_ip)
+        record_login_failure(school_code, login_identifier, client_ip)
         return jsonify({"message": "Invalid School Organization ID"}), 401
 
     if not school.is_active:
@@ -1350,7 +1350,18 @@ def login():
             403,
         )
 
-    user = User.query.filter_by(username=username, school_id=school.id).first()
+    user = User.query.filter_by(username=login_identifier, school_id=school.id).first()
+    if not user and "@" in (login_identifier or ""):
+        normalized_email = login_identifier.strip().lower()
+        school_users = User.query.filter_by(school_id=school.id).all()
+        user = next(
+            (
+                candidate
+                for candidate in school_users
+                if (candidate.email or "").strip().lower() == normalized_email
+            ),
+            None,
+        )
     
     # Check if temporary password has expired
     if user and user.is_temp_password and user.temp_password_expires_at:
@@ -1364,7 +1375,7 @@ def login():
             }), 401
 
     if user and check_password_hash(user.password_hash, password):
-        clear_login_attempts(school_code, username, client_ip)
+        clear_login_attempts(school_code, login_identifier, client_ip)
         user.last_login_at = get_utc_now()
         
         # Check if using temporary password that needs to be changed
@@ -1386,11 +1397,22 @@ def login():
             db.session.add(twofa)
             db.session.commit()
 
-            send_email_notification(
-                to_email=user.email,
-                subject="EduPulse SMT Login Verification Code",
-                body=f"Your verification code is: {code}\n\nThis code expires in 10 minutes.",
-            )
+            fallback_notice = None
+            dev_code = None
+            try:
+                delivery_ok = send_email_notification(
+                    to_email=user.email,
+                    subject="EduPulse SMT Login Verification Code",
+                    body=f"Your verification code is: {code}\n\nThis code expires in 10 minutes.",
+                )
+                if delivery_ok is False:
+                    fallback_notice = "Email delivery is unavailable in local development. Use the development verification code below."
+                    dev_code = code
+            except Exception as email_error:
+                logger.error(
+                    f"2FA email delivery failed for user {user.username} in school {school.id}: {email_error}"
+                )
+                return jsonify({"message": "Unable to send verification code email. Please confirm your email address and try again."}), 503
 
             pending_token = create_access_token(
                 identity=str(user.id),
@@ -1403,6 +1425,8 @@ def login():
                         "message": "2fa_required",
                         "token": pending_token,
                         "delivery": "email",
+                        "fallback_notice": fallback_notice,
+                        "dev_code": dev_code,
                     }
                 ),
                 202,
@@ -1411,7 +1435,7 @@ def login():
         access_token = create_access_token(identity=str(user.id))
 
         # Log successful login
-        log_action(user.id, school.id, "LOGIN", f"User {username} logged in")
+        log_action(user.id, school.id, "LOGIN", f"User {user.username} logged in")
 
         return jsonify(
             {
@@ -1438,9 +1462,9 @@ def login():
             }
         )
 
-    record_login_failure(school_code, username, client_ip)
+    record_login_failure(school_code, login_identifier, client_ip)
     logger.warning(
-        f"Login failed: Invalid credentials for user {username} in school {school_code}"
+        f"Login failed: Invalid credentials for identifier {login_identifier} in school {school_code}"
     )
     return jsonify({"message": "Invalid Business Credentials"}), 401
 
@@ -1538,7 +1562,7 @@ def register():
         except Exception as audit_error:
             logger.warning(f"Policy acceptance audit log failed: {audit_error}")
 
-        def _send_registration_welcome_once():
+        def _send_registration_welcome_once(subscription_plan_override=None):
             if not email:
                 return
             existing = (
@@ -1553,7 +1577,7 @@ def register():
                 return
             try:
                 login_url = os.getenv("FRONTEND_URL", "http://localhost:5173/login")
-                subscription_plan = new_school.subscription_plan or "Free Tier"
+                subscription_plan = subscription_plan_override or new_school.subscription_plan or "Free Tier"
                 welcome_subject, welcome_body = get_welcome_email(
                     username=username,
                     school_name=school_name,
@@ -1584,6 +1608,10 @@ def register():
             _send_registration_welcome_once()
             logger.info(f"New school registered: {school_id} with Free plan")
             return jsonify({"message": "School registered successfully.", "requires_payment": False})
+
+        # Paid-plan signups should still receive their credential/welcome email immediately
+        # after account creation, independent of the later payment emails.
+        _send_registration_welcome_once(subscription_plan_override=selected_plan)
 
         # Paid plans require immediate payment after registration.
         from backend.paystack_integration import PaystackError, initialize_payment
@@ -1993,7 +2021,8 @@ def update_profile():
     data = request.json
 
     if "email" in data:
-        user.email = data["email"]
+        normalized_email = (data.get("email") or "").strip().lower()
+        user.email = normalized_email or None
 
     if "password" in data and data["password"]:
         user.set_password(data["password"])

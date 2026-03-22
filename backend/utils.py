@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 
+def _is_production_env():
+    return os.getenv("FLASK_ENV", "development").lower() == "production"
+
+
 def send_email_notification(to_email, subject, body, attachments=None):
     """Send actual email notification to staff via Flask-Mail."""
     try:
@@ -30,14 +34,20 @@ def send_email_notification(to_email, subject, body, attachments=None):
 
         mail.send(msg)
         logger.info(f"Email sent to {to_email}: {subject}")
+        return True
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {str(e)}")
         logger.error(
-            f"Email config - Server: {logger.manager.loggerDict}, Port: {os.getenv('MAIL_PORT')}"
+            "Email config - Server: %s, Port: %s, Username: %s",
+            os.getenv("MAIL_SERVER"),
+            os.getenv("MAIL_PORT"),
+            os.getenv("MAIL_USERNAME"),
         )
         # Fall back to console in development
         print(f"[EMAIL] To: {to_email} | Subject: {subject}\nBody: {body}\n")
-        raise
+        if _is_production_env():
+            raise
+        return False
 
 
 def get_utc_now():

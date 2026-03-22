@@ -38,6 +38,7 @@ export default function Login() {
   const [twoFaToken, setTwoFaToken] = useState('');
   const [twoFaCode, setTwoFaCode] = useState('');
   const [twoFaStep, setTwoFaStep] = useState(false);
+  const [twoFaHint, setTwoFaHint] = useState('');
   const [helpContent, setHelpContent] = useState(DEFAULT_HELP_CONTENT);
   const [ownerKey, setOwnerKey] = useState('');
   const [ownerMessage, setOwnerMessage] = useState('');
@@ -45,6 +46,8 @@ export default function Login() {
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showRetention, setShowRetention] = useState(false);
+
+  const isDevTwoFaFallback = twoFaStep && Boolean(twoFaHint);
 
   const ownerModeEnabled = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -117,6 +120,7 @@ export default function Login() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+    setTwoFaHint('');
     try {
       // Trim whitespace to prevent copy-paste errors
       const payload = {
@@ -129,6 +133,12 @@ export default function Login() {
 
       if (res.status === 202 && res.data?.message === '2fa_required') {
         setTwoFaToken(res.data.token || '');
+        setTwoFaCode(res.data.dev_code || '');
+        setTwoFaHint(
+          res.data?.fallback_notice
+            ? `${res.data.fallback_notice}${res.data.dev_code ? ` Verification code: ${res.data.dev_code}` : ''}`
+            : ''
+        );
         setTwoFaStep(true);
         return;
       }
@@ -240,8 +250,21 @@ export default function Login() {
           <p className="text-slate-500 mb-8">
             {twoFaStep ? 'Enter the verification code sent to your email.' : 'Enter your business credentials to access the dashboard.'}
           </p>
+
+          {isDevTwoFaFallback && (
+            <div className="inline-flex items-center gap-2 mb-4 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
+              <span>Development Mode</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+              <span>Email Delivery Fallback</span>
+            </div>
+          )}
           
           {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 text-sm font-bold flex items-center gap-2">⚠️ {error}</div>}
+          {twoFaStep && twoFaHint && (
+            <div className="bg-blue-50 text-blue-700 p-4 rounded-xl mb-6 text-sm font-semibold">
+              {twoFaHint}
+            </div>
+          )}
 
           <div className="space-y-5">
             <div>
@@ -255,10 +278,10 @@ export default function Login() {
               />
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Staff Username</label>
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Staff Username Or Email</label>
               <input 
                 className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
-                placeholder="Username" 
+                placeholder="Username or email" 
                 onChange={e => setCreds({...creds, username: e.target.value})} 
                 required
                 disabled={twoFaStep}

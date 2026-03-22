@@ -95,6 +95,24 @@ class TestAuthenticationEndpoints:
         assert data["role"] == "teacher"
         assert data["school_id"] == "TEST-001"
 
+    def test_login_accepts_registered_email(self, client):
+        """Users should be able to log in with their saved email address."""
+        response = client.post(
+            "/api/login",
+            json={
+                "schoolCode": "TEST-001",
+                "username": "teacher@test.edu",
+                "password": "TeacherPass123",
+            },
+            headers={"X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert "token" in data
+        assert data["role"] == "teacher"
+        assert data["school_id"] == "TEST-001"
+
     def test_login_invalid_password(self, client):
         """Test login with invalid password."""
         response = client.post(
@@ -178,6 +196,37 @@ class TestAuthenticationEndpoints:
         assert response.status_code == 400
         data = json.loads(response.data)
         assert "already taken" in data["message"]
+
+    def test_register_paid_plan_sends_welcome_email_before_payment(self, client, mocker, mock_email):
+        """Premium registrations should still receive the welcome/credential email immediately."""
+        paystack_mock = mocker.patch("backend.paystack_integration.initialize_payment")
+        paystack_mock.return_value = {
+            "authorization_url": "https://paystack.example/checkout",
+            "reference": "pay_ref_123",
+        }
+
+        response = client.post(
+            "/api/register",
+            json={
+                "schoolCode": "PREM-001",
+                "schoolName": "Premium Test School",
+                "username": "proprietor",
+                "email": "proprietor@premium.edu",
+                "password": "PremiumPass123!",
+                "termsAccepted": True,
+                "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
+                "selectedPlan": "Premium",
+            },
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["requires_payment"] is True
+        assert data["payment_url"] == "https://paystack.example/checkout"
+        mock_email.assert_called_once()
+        paystack_mock.assert_called_once()
 
     def test_register_weak_password(self, client):
         """Test registration with weak password."""

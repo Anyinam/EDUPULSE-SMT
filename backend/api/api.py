@@ -141,12 +141,16 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(
 app.config["MAX_CONTENT_LENGTH"] = app_settings.MAX_CONTENT_LENGTH_MB * 1024 * 1024
 
 # Email Configuration
-app.config["MAIL_SERVER"] = os.getenv("MAIL_SERVER", "smtp.gmail.com")
-app.config["MAIL_PORT"] = int(os.getenv("MAIL_PORT", "587"))
+mail_username = (os.getenv("MAIL_USERNAME", "") or "").strip()
+mail_password = (os.getenv("MAIL_PASSWORD", "") or "").replace(" ", "")
+mail_default_sender = (os.getenv("MAIL_DEFAULT_SENDER", "") or "").strip()
+
+app.config["MAIL_SERVER"] = (os.getenv("MAIL_SERVER", "smtp.gmail.com") or "smtp.gmail.com").strip()
+app.config["MAIL_PORT"] = int((os.getenv("MAIL_PORT", "587") or "587").strip())
 app.config["MAIL_USE_TLS"] = os.getenv("MAIL_USE_TLS", "True").lower() == "true"
-app.config["MAIL_USERNAME"] = os.getenv("MAIL_USERNAME", "")
-app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD", "")
-app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER", "noreply@edupulse.local")
+app.config["MAIL_USERNAME"] = mail_username
+app.config["MAIL_PASSWORD"] = mail_password
+app.config["MAIL_DEFAULT_SENDER"] = mail_default_sender or mail_username or "noreply@edupulse.local"
 
 app.config["SESSION_COOKIE_SECURE"] = True  # HTTPS only in production
 app.config["SESSION_COOKIE_HTTPONLY"] = True
