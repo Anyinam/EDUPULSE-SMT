@@ -1,18 +1,18 @@
-# EduPulse School Welcome Email Template
+# EduPulse SMT School Welcome Email Template
 
-Subject: Welcome to EduPulse - Your School Implementation Plan
+Subject: Welcome to EduPulse SMT - Your School Implementation Plan
 
 Hello {{school_name}} Team,
 
-Welcome to EduPulse.
+Welcome to EduPulse SMT.
 
 We are excited to begin your school implementation and help your team move from account setup to confident daily use.
 
-## Your EduPulse Contacts
+## Your EduPulse SMT Contacts
 
-- Implementation contact: {{implementation_owner_name}}
-- Support contact: {{support_owner_name}}
-- Support email: {{support_email}}
+- Implementation contact: Daniel Asare Anyinam
+- Support contact: Daniel Asare Anyinam
+- Support email: danielasareanyinam2020@gmail.com
 - School-side owner: {{school_owner_name}}
 
 ## What We Need From Your School
@@ -25,7 +25,7 @@ To begin setup smoothly, please share the following:
 4. Student, staff, or class data files if you want import support
 5. Your preferred dates and times for kickoff training
 
-## What EduPulse Will Do
+## What EduPulse SMT Will Do
 
 Once the required inputs are complete, we will:
 
@@ -93,5 +93,5 @@ If any of these happen, we will reset the next milestone clearly with your team.
 Please reply with the requested onboarding details and your preferred kickoff availability.
 
 Best regards,
-{{sender_name}}
-EduPulse Team
+Daniel Asare Anyinam
+EduPulse SMT

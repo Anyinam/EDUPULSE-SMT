@@ -1,8 +1,8 @@
-# EduPulse Security & Hardening Guide
+# EduPulse SMT Security & Hardening Guide
 
 ## 🔒 Security Status: CRITICAL FIXES IMPLEMENTED
 
-This document outlines security vulnerabilities, fixes applied, and best practices for EduPulse.
+This document outlines security vulnerabilities, fixes applied, and best practices for EduPulse SMT.
 
 ---
 
@@ -438,7 +438,7 @@ if event in SECURITY_EVENTS:
 ## 📞 Security Contact
 
 Report security vulnerabilities responsibly:
-- **Email:** security@edupulse.edu
+- **Email:** danielasareanyinam2020@gmail.com
 - **Response Time:** 24-48 hours
 - **Disclosure:** Responsible 90-day coordinate disclosure
 

@@ -1,4 +1,4 @@
-# EduPulse Incident Update Template
+# EduPulse SMT Incident Update Template
 
 ## Purpose
 
@@ -42,7 +42,7 @@ One sentence summary of the issue.
 
 ## School-Facing Incident Update
 
-Subject: EduPulse Service Update - {{incident_summary}}
+Subject: EduPulse SMT Service Update - {{incident_summary}}
 
 Hello {{school_name}} Team,
 
@@ -69,12 +69,12 @@ We will send the next update by {{next_update_at}}.
 If you have urgent questions in the meantime, reply to this message and include the affected user or workflow.
 
 Best regards,
-{{sender_name}}
-EduPulse Team
+Daniel Asare Anyinam
+EduPulse SMT
 
 ## Resolution Update
 
-Subject: EduPulse Service Restored - {{incident_summary}}
+Subject: EduPulse SMT Service Restored - {{incident_summary}}
 
 Hello {{school_name}} Team,
 
@@ -89,5 +89,5 @@ The issue affecting {{affected_workflows_summary}} has now been resolved.
 If you still notice any problem, reply to this message with the affected workflow and user details so we can verify immediately.
 
 Best regards,
-{{sender_name}}
-EduPulse Team
+Daniel Asare Anyinam
+EduPulse SMT

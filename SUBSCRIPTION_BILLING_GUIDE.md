@@ -1,4 +1,4 @@
-# EduPulse Subscription Billing Guide
+# EduPulse SMT Subscription Billing Guide
 
 **Date:** March 2026  
 **Version:** Model A (Hybrid Base + Overage)
@@ -18,7 +18,7 @@
 
 ## Overview
 
-EduPulse uses a **hybrid subscription model** designed to align with the academic calendar in Ghana:
+EduPulse SMT uses a **hybrid subscription model** designed to align with the academic calendar in Ghana:
 
 - **Billing Cycle:** Per term (3 terms per academic year)
 - **Payment Trigger:** At the start of each term when activated
@@ -420,7 +420,7 @@ pro_rated_charge = overage_students × overage_rate × pro_ration_factor
 ## Support
 
 For billing questions or issues:
-- **Email:** support@edupulse.com
+- **Email:** danielasareanyinam2020@gmail.com
 - **Phone:** [Your support number]
 - **Dashboard:** Use the chat widget or submit a ticket
 
@@ -428,4 +428,4 @@ For billing questions or issues:
 
 **Document Version:** 1.0  
 **Last Updated:** March 5, 2026  
-**Author:** EduPulse Development Team
+**Author:** Daniel Asare Anyinam

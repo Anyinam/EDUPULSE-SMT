@@ -1,12 +1,12 @@
-# EduPulse School Welcome Pack
+# EduPulse SMT School Welcome Pack
 
 ## Purpose
 
-This pack gives a new school one place to understand what EduPulse will set up, what the school needs to provide, what the first week should look like, and how support works.
+This pack gives a new school one place to understand what EduPulse SMT will set up, what the school needs to provide, what the first week should look like, and how support works.
 
 ## Welcome
 
-Welcome to EduPulse. We are setting up your school on a platform designed to connect academic operations, reporting, payment oversight, and proprietor visibility in one system.
+Welcome to EduPulse SMT. We are setting up your school on a platform designed to connect academic operations, reporting, payment oversight, and proprietor visibility in one system.
 
 Our goal is simple: help your school move from signup to confident daily use with clear ownership on both sides.
 
@@ -16,9 +16,9 @@ Our goal is simple: help your school move from signup to confident daily use wit
 - School code: {{school_code}}
 - Selected plan: {{plan_name}}
 - Target go-live date: {{go_live_target_date}}
-- EduPulse implementation lead: {{implementation_owner_name}}
-- EduPulse support contact: {{support_owner_name}}
-- Support email: {{support_email}}
+- EduPulse SMT implementation lead: Daniel Asare Anyinam
+- EduPulse SMT support contact: Daniel Asare Anyinam
+- Support email: danielasareanyinam2020@gmail.com
 - School-side owner: {{school_owner_name}}
 
 ## What Your School Should Prepare
@@ -31,7 +31,7 @@ Please share the following so implementation can begin smoothly:
 4. Student, staff, or class data files if import help is required
 5. Preferred dates and times for kickoff training
 
-## What EduPulse Will Do
+## What EduPulse SMT Will Do
 
 Once the required inputs are complete, we will:
 
@@ -155,4 +155,4 @@ Please reply with the requested onboarding details and your preferred kickoff av
 
 ## Contact Path
 
-For onboarding, rollout, or early support questions, reply through your onboarding email thread or contact your assigned EduPulse representative.
+For onboarding, rollout, or early support questions, reply through your onboarding email thread or contact Daniel Asare Anyinam.

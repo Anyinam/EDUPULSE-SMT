@@ -1,8 +1,8 @@
-# Terms of Service
+# EduPulse SMT Terms of Service
 
 Effective Date: February 21, 2026
 
-These Terms of Service ("Terms") govern use of the EduPulse platform (the "Service") by schools and their authorized users.
+These Terms of Service ("Terms") govern use of the EduPulse SMT platform (the "Service") by schools and their authorized users.
 
 ## 1. Agreement
 
@@ -19,7 +19,7 @@ During school registration, checking the acceptance box and submitting the signu
 
 ## 2. Service Description
 
-EduPulse provides software for school management, lesson planning, grading, reporting, and related features.
+EduPulse SMT provides software for school management, lesson planning, grading, reporting, and related features.
 
 ## 3. Accounts and Access
 
@@ -60,7 +60,7 @@ Either party may terminate with notice. Upon termination, we will provide data e
 
 ## 10. Limitation of Liability
 
-To the maximum extent permitted by law, EduPulse is not liable for indirect or consequential damages. Liability is limited to fees paid in the last 12 months.
+To the maximum extent permitted by law, EduPulse SMT is not liable for indirect or consequential damages. Liability is limited to fees paid in the last 12 months.
 
 ## 11. Governing Law
 
@@ -68,5 +68,5 @@ These Terms are governed by the laws of Ghana.
 
 ## 12. Contact
 
-Email: support@edupulse.com.gh
+Email: danielasareanyinam2020@gmail.com
 Address: [Insert Registered Address]

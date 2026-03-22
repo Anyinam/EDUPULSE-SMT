@@ -1,4 +1,4 @@
-# EduPulse Onboarding Checklist Template
+# EduPulse SMT Onboarding Checklist Template
 
 ## How To Use This Template
 
@@ -22,7 +22,7 @@
 - Plan selected: {{plan_name}}
 - Estimated students: {{estimated_student_count}}
 - Target go-live date: {{go_live_target_date}}
-- Internal owner: {{implementation_owner_name}}
+- Internal owner: Daniel Asare Anyinam
 - Current status: `Lead` / `Pending Inputs` / `Setup In Progress` / `Training Scheduled` / `Activated` / `Blocked`
 
 ## Stage 1: Qualification
@@ -60,7 +60,7 @@
 - [ ] Student count reviewed for billing
 - [ ] If Free: account activated
 - [ ] If Basic/Premium: payment initialized
-- [ ] Payment confirmed in EduPulse before activation
+- [ ] Payment confirmed in EduPulse SMT before activation
 - [ ] Billing contact notified of plan status
 - [ ] Billing exception approval recorded if applicable
 - Notes:
@@ -105,7 +105,7 @@
 - [ ] Current status marked as `Activated`
 - [ ] Internal notes updated
 - [ ] Next checkpoint scheduled
-- Sign-off owner: {{signoff_owner_name}}
+- Sign-off owner: Daniel Asare Anyinam
 - Sign-off date: {{signoff_date}}
 
 ## Risk Flags
@@ -125,4 +125,4 @@ Mark any that apply before sign-off:
 - Activation date: {{activation_date}}
 - Remaining risks: {{remaining_risk_summary}}
 - Next action: {{next_action_summary}}
-- Owner: {{next_action_owner_name}}
+- Owner: Daniel Asare Anyinam

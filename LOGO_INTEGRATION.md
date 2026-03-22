@@ -1,4 +1,4 @@
-# 🚀 Neural Learn Logo Integration Guide
+# 🚀 EduPulse SMT Neural Learn Logo Integration Guide
 
 ## Quick Start (5 minutes)
 
@@ -29,7 +29,7 @@ Edit `frontend/react/public/index.html`:
     
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#667eea" />
-    <title>EduPulse - Smart Learning Platform</title>
+    <title>EduPulse SMT - Smart School Management Technology</title>
   </head>
   <body>
     <div id="root"></div>
@@ -44,7 +44,7 @@ In your main App or Navigation component:
 **Before (with graduate hat):**
 ```jsx
 // Old code
-<img src="/graduate-hat.png" alt="EduPulse" className="h-8" />
+<img src="/graduate-hat.png" alt="EduPulse SMT" className="h-8" />
 ```
 
 **After (with new Neural Learn logo):**
@@ -54,7 +54,7 @@ import { Logo } from '@/components/Logo';
 // In your navbar/header
 <div className="flex items-center gap-3">
   <Logo size="md" variant="default" />
-  <h1 className="text-xl font-bold">EduPulse</h1>
+  <h1 className="text-xl font-bold">EduPulse SMT</h1>
 </div>
 ```
 
@@ -75,7 +75,7 @@ import { Logo } from '@/components/Logo';
 <section className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
   <Logo size="2xl" variant="default" />
   <h1 className="mt-6 text-4xl font-bold text-gray-900">
-    Welcome to EduPulse
+    Welcome to EduPulse SMT
   </h1>
   <p className="mt-2 text-lg text-gray-600">
     Intelligent Lesson Planning & Progress Tracking
@@ -88,7 +88,7 @@ import { Logo } from '@/components/Logo';
 <footer className="bg-gray-900 text-white py-8">
   <div className="flex items-center gap-2 mb-4">
     <Logo size="sm" variant="light" />
-    <span className="text-sm">© 2026 EduPulse. All rights reserved.</span>
+    <span className="text-sm">© 2026 EduPulse SMT. All rights reserved.</span>
   </div>
 </footer>
 ```

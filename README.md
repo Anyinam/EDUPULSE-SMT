@@ -1,6 +1,6 @@
-# EduPulse: AI-Driven School Governance, Revenue Integrity & Subscription Intelligence
+# EduPulse SMT: AI-Driven School Governance, Revenue Integrity & Subscription Intelligence
 
-EduPulse is a multi-tenant SaaS platform for Ghanaian schools that combines academic operations, payment governance, and usage-based subscription controls in one system.
+EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines academic operations, payment governance, and usage-based subscription controls in one system.
 
 ## 🚀 Current Implementation Snapshot
 
@@ -162,17 +162,38 @@ docker compose up --build
 
 ## 📁 Helpful Docs
 - `docs/operations/internal/BUSINESS_OPERATIONS_INDEX.md`
+- `docs/operations/internal/README.md`
+- `docs/operations/internal/LEGAL_COUNSEL_DOSSIER.md`
+- `docs/operations/internal/LEGAL_COUNSEL_PACKET.md`
+- `docs/operations/internal/LAWYER_COVER_EMAIL.md`
+- `docs/operations/internal/LAWYER_EXECUTIVE_BRIEF.md`
+- `docs/operations/internal/LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
+- `docs/operations/internal/IP_ASSET_INVENTORY.md`
+- `docs/operations/internal/GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
+- `docs/operations/internal/FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
+- `docs/operations/internal/CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
+- `docs/operations/internal/CONFIDENTIALITY_NDA_TEMPLATE.md`
 - `BUSINESS_PROCESS_MODEL.md`
 - `docs/operations/internal/STANDARD_OPERATING_PROCEDURES.md`
 - `docs/operations/internal/ONBOARDING_CHECKLIST.md`
 - `docs/operations/internal/ONBOARDING_CHECKLIST_TEMPLATE.md`
 - `docs/operations/internal/ONBOARDING_CHECKLIST_EXAMPLE.md`
-- `docs/operations/customer/SCHOOL_IMPLEMENTATION_GUIDE.md`
-- `docs/operations/customer/SCHOOL_WELCOME_PACK.md`
-- `docs/operations/customer/SCHOOL_WELCOME_EMAIL_TEMPLATE.md`
-- `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET.md`
 - `docs/operations/internal/OPERATIONS_HANDOFF.md`
+- `docs/operations/internal/OPERATIONS_HANDOFF_SAMPLE.md`
 - `docs/operations/internal/INCIDENT_UPDATE_TEMPLATE.md`
+- `docs/operations/internal/INCIDENT_UPDATE_SAMPLE.md`
+- `docs/operations/customer/README.md`
+- `docs/operations/customer/SCHOOL_SEND_PACKAGE.md`
+- `docs/operations/customer/SCHOOL_IMPLEMENTATION_GUIDE.md`
+- `docs/operations/customer/SCHOOL_IMPLEMENTATION_GUIDE_SAMPLE.md`
+- `docs/operations/customer/SCHOOL_WELCOME_PACK.md`
+- `docs/operations/customer/SCHOOL_WELCOME_PACK_SAMPLE.md`
+- `docs/operations/customer/SCHOOL_WELCOME_EMAIL_TEMPLATE.md`
+- `docs/operations/customer/SCHOOL_WELCOME_EMAIL_TEMPLATE_SAMPLE.md`
+- `docs/operations/customer/ONBOARDING_EMAIL_TEMPLATE.md`
+- `docs/operations/customer/ONBOARDING_EMAIL_TEMPLATE_SAMPLE.md`
+- `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET.md`
+- `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET_SAMPLE.md`
 - `docs/operations/README.md`
 - `BPM_QUICK_REFERENCE.txt`
 - `PAYMENT_INTEGRATION.md`

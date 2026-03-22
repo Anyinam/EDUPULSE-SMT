@@ -1,17 +1,17 @@
-# Privacy Policy (Ghana - Act 843)
+# EduPulse SMT Privacy Policy (Ghana - Act 843)
 
 Effective Date: February 21, 2026
 
-This Privacy Policy explains how EduPulse Limited ("EduPulse", "we", "us") collects, uses, discloses, and protects personal data when schools, staff, students, and guardians use the EduPulse platform (the "Service").
+This Privacy Policy explains how EduPulse SMT ("EduPulse SMT", "we", "us") collects, uses, discloses, and protects personal data when schools, staff, students, and guardians use the EduPulse SMT platform (the "Service").
 
 This policy is designed to comply with Ghana's Data Protection Act, 2012 (Act 843).
 
-When a school completes registration on EduPulse, that registration action confirms acceptance of this Privacy Policy and the Data Retention and Deletion Policy as part of onboarding.
+When a school completes registration on EduPulse SMT, that registration action confirms acceptance of this Privacy Policy and the Data Retention and Deletion Policy as part of onboarding.
 
 ## 1. Who We Are
 
-Controller: EduPulse Limited
-Contact: privacy@edupulse.com.gh
+Controller: EduPulse SMT
+Contact: danielasareanyinam2020@gmail.com
 Address: [Insert Registered Address]
 
 ## 2. Personal Data We Collect
@@ -35,7 +35,7 @@ We process personal data to:
 - Meet legal and regulatory requirements.
 - Manage subscriptions, billing, and receipts.
 
-For student data, the school is the primary data controller and EduPulse acts as a data processor on the school's behalf.
+For student data, the school is the primary data controller and EduPulse SMT acts as a data processor on the school's behalf.
 
 ## 4. Data Sharing
 
@@ -69,11 +69,11 @@ Individuals have rights to:
 - Request deletion (subject to legal obligations)
 - Object to certain processing
 
-Requests can be sent to privacy@edupulse.com.gh. We will respond within the statutory period.
+Requests can be sent to danielasareanyinam2020@gmail.com. We will respond within the statutory period.
 
 ## 8. Children and Minors
 
-EduPulse is used by schools. Student data is processed under the school's authority and for educational purposes only.
+EduPulse SMT is used by schools. Student data is processed under the school's authority and for educational purposes only.
 
 ## 9. Cross-Border Transfers
 
@@ -87,6 +87,6 @@ We may update this policy. Material changes will be communicated to schools.
 
 For questions or complaints:
 
-Email: privacy@edupulse.com.gh
+Email: danielasareanyinam2020@gmail.com
 Phone: [Insert Phone]
 Address: [Insert Registered Address]

@@ -1,12 +1,12 @@
-# 🏢 EduPulse Business Process Model
+# 🏢 EduPulse SMT Business Process Model
 
 ## Executive Overview
 
-EduPulse operates a **Freemium SaaS** model with three pricing tiers designed to drive conversion and retention through feature throttling and capacity limits.
+EduPulse SMT operates a **Freemium SaaS** model with three pricing tiers designed to drive conversion and retention through feature throttling and capacity limits.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    EDUPULSE BUSINESS MODEL                      │
+│                  EDUPULSE SMT BUSINESS MODEL                    │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ACQUISITION → ONBOARDING → ACTIVATION → MONETIZATION → RETENTION

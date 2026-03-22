@@ -1,4 +1,4 @@
-# EduPulse Onboarding Checklist Example
+# EduPulse SMT Onboarding Checklist Example
 
 ## Purpose
 
@@ -8,15 +8,17 @@ This is a filled example showing the standard expected level of detail for one s
 
 - School name: Bright Future Academy
 - School code: BFA-ACC
-- Proprietor / decision maker: Mrs. Evelyn Mensah
-- Decision maker role: Proprietor
-- Phone: +233 24 555 0147
-- Email: evelyn.mensah@brightfuture.edu.gh
-- Billing contact: Mr. Daniel Ofori, bursar@brightfuture.edu.gh
+- School owner name: Mrs. Evelyn Mensah
+- School owner role: Proprietor
+- School owner email: evelyn.mensah@brightfuture.edu.gh
+- School owner phone: +233 24 555 0147
+- Billing contact name: Mr. Daniel Ofori
+- Billing contact email: bursar@brightfuture.edu.gh
+- Billing contact phone: +233 24 555 0182
 - Plan selected: Premium
 - Estimated students: 185
 - Target go-live date: April 7, 2026
-- Internal owner: Implementation Lead
+- Internal owner: Daniel Asare Anyinam
 - Current status: `Training Scheduled`
 
 ## Stage 1: Qualification
@@ -57,7 +59,7 @@ This is a filled example showing the standard expected level of detail for one s
 - [x] Student count reviewed for billing
 - [ ] If Free: account activated
 - [x] If Basic/Premium: payment initialized
-- [x] Payment confirmed in EduPulse before activation
+- [x] Payment confirmed in EduPulse SMT before activation
 - [x] Billing contact notified of plan status
 - [ ] Billing exception approval recorded if applicable
 - Notes:
@@ -106,7 +108,7 @@ This is a filled example showing the standard expected level of detail for one s
 - [ ] Current status marked as `Activated`
 - [ ] Internal notes updated
 - [ ] Next checkpoint scheduled
-- Sign-off owner: Head of Operations
+- Sign-off owner: Daniel Asare Anyinam
 - Sign-off date:
 
 ## Risk Flags
@@ -126,4 +128,4 @@ Mark any that apply before sign-off:
 - Activation date:
 - Remaining risks: Finance workflow validation still pending before full activation sign-off.
 - Next action: Run bursar-led finance workflow test and complete first-week review.
-- Owner: Implementation Lead
+- Owner: Daniel Asare Anyinam

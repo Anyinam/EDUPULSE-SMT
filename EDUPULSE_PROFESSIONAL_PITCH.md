@@ -1,7 +1,7 @@
-# EduPulse Professional Pitch (Investor / Strategic Partner / Enterprise Buyer)
+# EduPulse SMT Professional Pitch (Investor / Strategic Partner / Enterprise Buyer)
 
 ## 1) Executive Summary (30-Second Version)
-EduPulse is a multi-tenant school operations and revenue-governance platform built for Ghanaian schools. We solve two mission-critical problems: **academic execution risk** and **fee-revenue leakage**. Our monetization engine combines subscription plans with active-student metering, proactive billing visibility, and self-service controls (trial, price cap, usage reports), enabling predictable school spend and scalable recurring revenue.
+EduPulse SMT is a multi-tenant school operations and revenue-governance platform built for Ghanaian schools. We solve two mission-critical problems: **academic execution risk** and **fee-revenue leakage**. Our monetization engine combines subscription plans with active-student metering, proactive billing visibility, and self-service controls (trial, price cap, usage reports), enabling predictable school spend and scalable recurring revenue.
 
 ---
 
@@ -15,7 +15,7 @@ Schools in our target market face compounding operational breakdowns:
 ---
 
 ## 3) Solution
-EduPulse provides one integrated control layer for school execution:
+EduPulse SMT provides one integrated control layer for school execution:
 - **Academic Operations**: attendance, grade entry, report workflows, staged approvals.
 - **Revenue Integrity**: payment capture, reconciliation, finance dashboards, audit trails.
 - **Subscription Intelligence**: active-student meter, threshold alerts, overage transparency.

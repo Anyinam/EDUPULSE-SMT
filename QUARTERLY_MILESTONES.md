@@ -1,8 +1,8 @@
-# 📊 EduPulse Quarterly Milestones (2026-2027)
+# 📊 EduPulse SMT Quarterly Milestones (2026-2027)
 
 ## 🎯 Product Roadmap Overview
 
-EduPulse will scale from pilot launch → early adopter acquisition → feature maturation → vertical expansion (SHS) → geographic expansion (Nigeria) over 18 months.
+EduPulse SMT will scale from pilot launch → early adopter acquisition → feature maturation → vertical expansion (SHS) → geographic expansion (Nigeria) over 18 months.
 
 ---
 

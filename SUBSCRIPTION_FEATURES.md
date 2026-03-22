@@ -1,7 +1,7 @@
-# EduPulse Subscription Feature Matrix
+# EduPulse SMT Subscription Feature Matrix
 
 ## Overview
-EduPulse offers three subscription tiers, each with specific features and resource limits. This document outlines what's included in each plan.
+EduPulse SMT offers three subscription tiers, each with specific features and resource limits. This document outlines what's included in each plan.
 
 ---
 
@@ -291,7 +291,7 @@ Yes, downgrades take effect at the next billing cycle. Data is not deleted but a
 Not currently, but contact sales for enterprise agreements.
 
 ### Can schools get discounts?
-Yes! Multi-year contracts and school networks receive discounts. Contact sales@edupulse.edu.
+Yes. Multi-year contracts and school networks can be reviewed directly with Daniel Asare Anyinam at danielasareanyinam2020@gmail.com.
 
 ### What if I need custom features?
 Contact the support team for enterprise plan options.
@@ -319,9 +319,9 @@ Contact the support team for enterprise plan options.
 ## 📞 Support & Questions
 
 For questions about features and plans:
-- **Email**: support@edupulse.edu
+- **Email**: danielasareanyinam2020@gmail.com
 - **Phone**: +233 XXX XXX XXX
-- **Documentation**: https://docs.edupulse.edu
+- **Documentation**: See the repository README and `docs/operations/`
 - **Chat**: Available in app for Premium users
 
 ---

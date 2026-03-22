@@ -1,6 +1,6 @@
-# PRIVACY POLICY
+# EDUPULSE SMT PRIVACY POLICY
 
-**EduPulse School Management System**  
+**EduPulse SMT School Management System**  
 **Effective Date:** March 1, 2026  
 **Last Updated:** February 24, 2026
 
@@ -8,25 +8,25 @@
 
 ## 1. INTRODUCTION
 
-This Privacy Policy describes how EduPulse ("we," "us," or "our") collects, uses, processes, stores, and protects personal data in accordance with the **Ghana Data Protection Act, 2012 (Act 843)** and its regulations.
+This Privacy Policy describes how EduPulse SMT ("we," "us," or "our") collects, uses, processes, stores, and protects personal data in accordance with the **Ghana Data Protection Act, 2012 (Act 843)** and its regulations.
 
-EduPulse is a cloud-based school management system that provides educational institutions in Ghana with tools for student management, attendance tracking, grade recording, financial management, and administrative operations.
+EduPulse SMT is a cloud-based school management system that provides educational institutions in Ghana with tools for student management, attendance tracking, grade recording, financial management, and administrative operations.
 
-By using EduPulse, you acknowledge that you have read and understood this Privacy Policy.
+By using EduPulse SMT, you acknowledge that you have read and understood this Privacy Policy.
 
 ---
 
 ## 2. DATA CONTROLLER INFORMATION
 
-**Company Name:** EduPulse Limited  
+**Company Name:** EduPulse SMT  
 **Registration Number:** [Insert Ghana Company Registration Number]  
 **Physical Address:** [Insert Registered Office Address in Ghana]  
-**Email:** privacy@edupulse.com.gh  
+**Email:** danielasareanyinam2020@gmail.com  
 **Phone:** +233 [Insert Contact Number]  
-**Data Protection Officer Email:** dpo@edupulse.com.gh
+**Data Protection Officer Email:** danielasareanyinam2020@gmail.com
 
 **Registration with Data Protection Commission (DPC):**  
-EduPulse is registered with the Data Protection Commission of Ghana as required under Section 17 of the Data Protection Act, 2012 (Act 843).  
+EduPulse SMT is registered with the Data Protection Commission of Ghana as required under Section 17 of the Data Protection Act, 2012 (Act 843).  
 **DPC Registration Number:** [Insert Registration Number when obtained]
 
 ---
@@ -251,7 +251,7 @@ You have the right to request:
 - Access to your personal data
 - Information about how your data is processed
 
-**How to Exercise:** Email dpo@edupulse.com.gh with subject "Data Access Request"  
+**How to Exercise:** Email danielasareanyinam2020@gmail.com with subject "Data Access Request"  
 **Response Time:** Within 21 days
 
 ### 9.2 Right to Rectification (Section 33)
@@ -260,7 +260,7 @@ You have the right to:
 - Correct inaccurate personal data
 - Complete incomplete personal data
 
-**How to Exercise:** Login to your account and update your profile, or contact dpo@edupulse.com.gh  
+**How to Exercise:** Login to your account and update your profile, or contact danielasareanyinam2020@gmail.com  
 **Response Time:** Immediate (for self-service) or within 7 days
 
 ### 9.3 Right to Erasure (Section 34)
@@ -273,14 +273,14 @@ You have the right to request deletion of your personal data when:
 
 **Limitations:** We may retain data when required by law (e.g., financial records for tax purposes)
 
-**How to Exercise:** Email dpo@edupulse.com.gh with subject "Data Deletion Request"  
+**How to Exercise:** Email danielasareanyinam2020@gmail.com with subject "Data Deletion Request"  
 **Response Time:** Within 14 days
 
 ### 9.4 Right to Object (Section 35)
 
 You have the right to object to processing based on legitimate interests or for direct marketing purposes.
 
-**How to Exercise:** Email dpo@edupulse.com.gh or click "Unsubscribe" in marketing emails  
+**How to Exercise:** Email danielasareanyinam2020@gmail.com or click "Unsubscribe" in marketing emails  
 **Response Time:** Immediate (for marketing) or within 7 days (for other objections)
 
 ### 9.5 Right to Restrict Processing (Section 36)
@@ -290,14 +290,14 @@ You have the right to restrict processing when:
 - Processing is unlawful but you don't want deletion
 - We no longer need the data but you need it for legal claims
 
-**How to Exercise:** Email dpo@edupulse.com.gh with subject "Restrict Processing Request"  
+**How to Exercise:** Email danielasareanyinam2020@gmail.com with subject "Restrict Processing Request"  
 **Response Time:** Within 7 days
 
 ### 9.6 Right to Data Portability (Section 37)
 
 You have the right to receive your data in a structured, commonly used, machine-readable format (CSV, JSON, PDF).
 
-**How to Exercise:** Login and use "Export Data" feature, or email dpo@edupulse.com.gh  
+**How to Exercise:** Login and use "Export Data" feature, or email danielasareanyinam2020@gmail.com  
 **Response Time:** Immediate (for self-service) or within 7 days  
 **Available Formats:** CSV, PDF, JSON
 
@@ -305,7 +305,7 @@ You have the right to receive your data in a structured, commonly used, machine-
 
 Where processing is based on consent, you may withdraw consent at any time.
 
-**How to Exercise:** Login to account settings or email dpo@edupulse.com.gh  
+**How to Exercise:** Login to account settings or email danielasareanyinam2020@gmail.com  
 **Effect:** Processing will cease, but lawfulness of prior processing is not affected
 
 ### 9.8 Right to Lodge a Complaint
@@ -493,7 +493,7 @@ Parents/guardians can:
 - Object to certain processing activities
 - Withdraw consent (where consent is the legal basis)
 
-**Contact:** Email dpo@edupulse.com.gh with subject "Parental Rights Request"
+**Contact:** Email danielasareanyinam2020@gmail.com with subject "Parental Rights Request"
 
 ---
 
@@ -541,7 +541,7 @@ In the event of a personal data breach:
 If you suspect unauthorized access to your account:
 1. Change your password immediately
 2. Enable two-factor authentication
-3. Report to security@edupulse.com.gh
+3. Report to danielasareanyinam2020@gmail.com
 4. Review your account activity logs
 
 ---
@@ -576,14 +576,14 @@ All previous versions of this Privacy Policy are available upon request.
 
 ### 16.1 General Inquiries
 
-**Email:** privacy@edupulse.com.gh  
+**Email:** danielasareanyinam2020@gmail.com  
 **Phone:** +233 [Insert Contact Number]  
-**Website:** https://www.edupulse.com.gh  
+**Website:** [Insert Official Website]  
 **Address:** [Insert Ghana Office Address]
 
 ### 16.2 Data Protection Officer
 
-**Email:** dpo@edupulse.com.gh  
+**Email:** danielasareanyinam2020@gmail.com  
 **Responsibilities:**
 - Oversee compliance with Data Protection Act
 - Handle data subject rights requests
@@ -592,9 +592,9 @@ All previous versions of this Privacy Policy are available upon request.
 
 ### 16.3 Support and Complaints
 
-**Technical Support:** support@edupulse.com.gh  
-**Security Issues:** security@edupulse.com.gh  
-**Billing Questions:** billing@edupulse.com.gh
+**Technical Support:** danielasareanyinam2020@gmail.com  
+**Security Issues:** danielasareanyinam2020@gmail.com  
+**Billing Questions:** danielasareanyinam2020@gmail.com
 
 **Response Times:**
 - Data subject rights requests: 7-21 days
@@ -701,14 +701,14 @@ We comply with:
 
 ## 20. ACKNOWLEDGMENT AND CONSENT
 
-By using EduPulse, you acknowledge that:
+By using EduPulse SMT, you acknowledge that:
 
 1. You have read and understood this Privacy Policy
 2. You consent to the collection, processing, and use of your personal data as described
 3. You understand your rights under the Ghana Data Protection Act, 2012 (Act 843)
-4. You can withdraw consent at any time by contacting dpo@edupulse.com.gh
+4. You can withdraw consent at any time by contacting danielasareanyinam2020@gmail.com
 
-For schools: By registering your school on EduPulse, you represent that you have obtained all necessary consents from students, parents/guardians, and staff members for the processing of their personal data through the EduPulse platform.
+For schools: By registering your school on EduPulse SMT, you represent that you have obtained all necessary consents from students, parents/guardians, and staff members for the processing of their personal data through the EduPulse SMT platform.
 
 ---
 
@@ -746,7 +746,7 @@ For schools: By registering your school on EduPulse, you represent that you have
 
 ## APPENDIX C: DATA SUBJECT RIGHTS REQUEST FORM
 
-To exercise your rights under the Ghana Data Protection Act, please complete and submit to dpo@edupulse.com.gh:
+To exercise your rights under the Ghana Data Protection Act, please complete and submit to danielasareanyinam2020@gmail.com:
 
 **Your Details:**
 - Full Name: _______________________________
@@ -775,7 +775,7 @@ _________________________________________________________________
 **Verification:**
 To protect your privacy, please provide one of the following:
 - [ ] Copy of Ghana Card (with ID number visible)
-- [ ] Screenshot of logged-in EduPulse account
+- [ ] Screenshot of logged-in EduPulse SMT account
 - [ ] Email from registered email address
 
 **Signature:** _____________________  **Date:** _____________
@@ -792,5 +792,5 @@ To protect your privacy, please provide one of the following:
 ---
 
 **Questions or Concerns?**  
-Contact our Data Protection Officer: dpo@edupulse.com.gh  
+Contact our Data Protection Officer: danielasareanyinam2020@gmail.com  
 Or lodge a complaint with: Data Protection Commission of Ghana (www.dataprotection.org.gh)

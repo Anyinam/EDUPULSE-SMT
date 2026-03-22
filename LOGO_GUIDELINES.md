@@ -1,8 +1,8 @@
-# 🧠 EduPulse Logo - Neural Learn
+# 🧠 EduPulse SMT Logo - Neural Learn
 
 ## Overview
 
-The **Neural Learn** logo is the official brand identity for EduPulse. It represents AI-enhanced learning through a visual combination of:
+The **Neural Learn** logo is the official brand identity for EduPulse SMT. It represents AI-enhanced learning through a visual combination of:
 - **Brain imagery** - Representing intelligence, learning, and knowledge
 - **Pulse circuitry** - Symbolizing real-time engagement and vitality
 - **Directional arrow** - Indicating growth and forward momentum

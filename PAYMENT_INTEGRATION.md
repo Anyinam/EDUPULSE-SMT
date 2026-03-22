@@ -1,4 +1,4 @@
-# 💰 EduPulse Payment Integration Guide
+# 💰 EduPulse SMT Payment Integration Guide
 
 ## Overview
 
@@ -42,9 +42,9 @@ School (Tenant)
 
 1. Create business account
 2. Provide:
-   - School name: "EduPulse Limited"
+  - School name: "EduPulse SMT"
    - Phone: Your business number
-   - Email: billing@edupulse.com.gh
+  - Email: danielasareanyinam2020@gmail.com
    - Bank account (Zenith/GCB)
 3. Get verified (24-48 hours)
 4. Receive API keys:

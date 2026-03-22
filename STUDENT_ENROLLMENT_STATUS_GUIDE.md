@@ -527,7 +527,7 @@ A: Just edit them again and change back to "Active". The change will be logged i
 
 ## Support
 
-**For schools**: Contact support@edupulse.com with enrollment questions
+**For schools**: Contact danielasareanyinam2020@gmail.com with enrollment questions
 
 **For developers**: Check `/api/admissions/*` endpoints in API docs
 

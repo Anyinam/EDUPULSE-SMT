@@ -272,5 +272,5 @@ This creates `StudentGrade` records with `is_finalized=True` that homeroom teach
 
 For technical issues or feature requests:
 - Create a support ticket via the Support panel
-- Email: support@edupulse.com (if configured)
+- Email: danielasareanyinam2020@gmail.com
 - Check audit logs: `AuditLog` table for `REPORT_CARD_*` actions

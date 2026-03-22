@@ -1,10 +1,10 @@
-# EduPulse Email Template System
+# EduPulse SMT Email Template System
 
-This document explains the email template architecture and how to customize emails for your school.
+This document explains the email template architecture and how to customize emails for EduPulse SMT and your school rollout.
 
 ## Overview
 
-EduPulse uses a flexible email template system that separates email content from code. All email templates are stored as text files with placeholder variables that get replaced at runtime.
+EduPulse SMT uses a flexible email template system that separates email content from code. All email templates are stored as text files with placeholder variables that get replaced at runtime.
 
 ## Template Location
 
@@ -218,11 +218,11 @@ Contact Information:
 
 ### Update Support Contact
 
-Find and replace `support@edupulse.com` with your school's support email:
+Find and replace `danielasareanyinam2020@gmail.com` with your school's support email if you are white-labeling school-specific templates:
 
 ```bash
 # In all templates
-sed -i 's/support@edupulse.com/your-email@school.edu/g' backend/email_templates/*.txt
+sed -i 's/danielasareanyinam2020@gmail.com/your-email@school.edu/g' backend/email_templates/*.txt
 ```
 
 ## Best Practices
@@ -253,7 +253,7 @@ MAIL_PORT=587
 MAIL_USE_TLS=True
 MAIL_USERNAME=your-email@gmail.com
 MAIL_PASSWORD=your-app-password
-MAIL_DEFAULT_SENDER=noreply@edupulse.edu
+MAIL_DEFAULT_SENDER=danielasareanyinam2020@gmail.com
 FRONTEND_URL=http://localhost:5173
 ```
 
@@ -354,4 +354,4 @@ For issues with email templates:
 1. Check backend logs: `docker compose logs backend`
 2. Verify template syntax
 3. Ensure environment variables are set
-4. Contact support@edupulse.com with error details
+4. Contact danielasareanyinam2020@gmail.com with error details

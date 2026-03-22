@@ -1,8 +1,8 @@
-# EduPulse Standard Operating Procedures
+# EduPulse SMT Standard Operating Procedures
 
 ## Purpose
 
-This document defines the official operating procedures for running EduPulse as a real business, not just a software product. It standardizes how the team handles onboarding, activation, billing, support, incident response, renewal, and offboarding.
+This document defines the official operating procedures for running EduPulse SMT as a real business, not just a software product. It standardizes how the team handles onboarding, activation, billing, support, incident response, renewal, and offboarding.
 
 ## Scope
 
@@ -19,7 +19,7 @@ These procedures apply to:
 ## Operating Principles
 
 1. Every school must have a named owner on both sides.
-2. No paid plan is considered active until payment is confirmed in EduPulse.
+2. No paid plan is considered active until payment is confirmed in EduPulse SMT.
 3. No production data import happens without school approval and a rollback path.
 4. Every operational promise must be tied to a ticket, email thread, or audit log.
 5. Billing exceptions must be documented; informal WhatsApp approvals are not enough.
@@ -29,11 +29,11 @@ These procedures apply to:
 
 | Role | Responsibility |
 | --- | --- |
-| Growth / Sales Lead | Qualifies the school, captures requirements, confirms decision maker |
-| Onboarding Lead | Runs kickoff, collects setup assets, coordinates training and go-live |
-| Finance / Billing Ops | Confirms plan, payment status, invoices, reconciliation, and exceptions |
-| Support Lead | Handles tickets, user issues, status updates, and closure confirmation |
-| Technical Lead | Owns bugs, incidents, data migration risks, and production fixes |
+| Daniel Asare Anyinam | Qualifies the school, captures requirements, confirms decision maker |
+| Daniel Asare Anyinam | Runs kickoff, collects setup assets, coordinates training and go-live |
+| Daniel Asare Anyinam | Confirms plan, payment status, invoices, reconciliation, and exceptions |
+| Daniel Asare Anyinam | Handles tickets, user issues, status updates, and closure confirmation |
+| Daniel Asare Anyinam | Owns bugs, incidents, data migration risks, and production fixes |
 | School Proprietor | Commercial owner for the school account |
 | School Admin / Headmaster | Day-to-day operational contact for activation and training |
 
@@ -41,7 +41,7 @@ These procedures apply to:
 
 ### Trigger
 
-A school expresses interest in joining EduPulse through direct sales, referral, marketing, or self-signup.
+A school expresses interest in joining EduPulse SMT through direct sales, referral, marketing, or self-signup.
 
 ### Objective
 

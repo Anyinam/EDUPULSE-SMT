@@ -1,8 +1,8 @@
-# EduPulse School Client Launch Packet
+# EduPulse SMT School Client Launch Packet
 
 ## Purpose
 
-This is the polished school-facing launch packet for new EduPulse customers. It combines the welcome note, rollout plan, onboarding expectations, support path, and first-week success criteria into one document with consistent placeholders.
+This is the polished school-facing launch packet for new EduPulse SMT customers. It combines the welcome note, rollout plan, onboarding expectations, support path, and first-week success criteria into one document with consistent placeholders.
 
 ## School Profile
 
@@ -10,16 +10,16 @@ This is the polished school-facing launch packet for new EduPulse customers. It 
 - School code: {{school_code}}
 - Selected plan: {{plan_name}}
 - Target go-live date: {{go_live_target_date}}
-- EduPulse implementation lead: {{implementation_owner_name}}
-- EduPulse support contact: {{support_owner_name}}
-- Support email: {{support_email}}
+- EduPulse SMT implementation lead: Daniel Asare Anyinam
+- EduPulse SMT support contact: Daniel Asare Anyinam
+- Support email: danielasareanyinam2020@gmail.com
 - School-side owner: {{school_owner_name}}
 
 ## Welcome
 
-Welcome to EduPulse.
+Welcome to EduPulse SMT.
 
-We are excited to support your school as you move from setup to confident daily use. EduPulse is built to connect academic operations, reporting, payment oversight, and proprietor visibility in one system.
+We are excited to support your school as you move from setup to confident daily use. EduPulse SMT is built to connect academic operations, reporting, payment oversight, and proprietor visibility in one system.
 
 Our implementation goal is simple: make sure your school is operational quickly, with clear ownership on both sides.
 
@@ -33,9 +33,9 @@ Please share the following so implementation can begin smoothly:
 4. Student, staff, or class data files if import help is required
 5. Preferred dates and times for kickoff training
 
-## What EduPulse Will Do
+## What EduPulse SMT Will Do
 
-Once the required inputs are complete, EduPulse will:
+Once the required inputs are complete, EduPulse SMT will:
 
 1. Create your school organization and proprietor access
 2. Confirm your plan and activation path
@@ -156,5 +156,5 @@ Implementation is considered successful when:
 Please reply with the requested onboarding details and your preferred kickoff availability.
 
 Best regards,
-{{sender_name}}
-EduPulse Team
+Daniel Asare Anyinam
+EduPulse SMT

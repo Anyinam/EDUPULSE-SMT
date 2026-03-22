@@ -55,7 +55,7 @@
                                 Dear <strong>{{proprietor_name}}</strong>,
                             </p>
                             <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 16px 0 0 0;">
-                                Here's your monthly summary of how EduPulse is helping you manage 
+                                Here's your monthly summary of how EduPulse SMT is helping you manage 
                                 <strong>{{school_name}}</strong> more effectively.
                             </p>
                         </td>
@@ -300,8 +300,8 @@
                                 <a href="{{help_center_url}}" style="color: #3b82f6; text-decoration: none;">Help Center</a>.
                             </p>
                             <p style="margin: 0; color: #94a3b8; font-size: 12px; text-align: center;">
-                                EduPulse - Empowering Ghanaian Schools<br>
-                                © 2026 EduPulse. All rights reserved.
+                                EduPulse SMT - Empowering Ghanaian Schools<br>
+                                © 2026 EduPulse SMT. All rights reserved.
                             </p>
                             <p style="margin: 12px 0 0 0; color: #cbd5e1; font-size: 11px; text-align: center;">
                                 <a href="{{unsubscribe_url}}" style="color: #cbd5e1; text-decoration: underline;">

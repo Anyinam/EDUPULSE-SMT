@@ -1,4 +1,4 @@
-# Moved To Docs Operations
+# Moved To EduPulse SMT Docs Operations
 
 This document now lives at `docs/operations/internal/BUSINESS_OPERATIONS_INDEX.md`.
 

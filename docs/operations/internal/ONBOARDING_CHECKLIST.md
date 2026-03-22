@@ -1,20 +1,23 @@
-# EduPulse Onboarding Checklist
+# EduPulse SMT Onboarding Checklist
 
 ## Purpose
 
-This is the daily-use onboarding checklist for the EduPulse team. It converts the full SOP into a short execution sheet that can be used for each new school.
+This is the daily-use onboarding checklist for the EduPulse SMT team. It converts the full SOP into a short execution sheet that can be used for each new school.
 
 ## School Record
 
 - School name:
 - School code:
-- Proprietor / decision maker:
-- Phone:
-- Email:
+- School owner name:
+- School owner phone:
+- School owner email:
+- Billing contact name:
+- Billing contact email:
+- Billing contact phone:
 - Plan selected: `Free` / `Basic` / `Premium`
 - Estimated students:
 - Target go-live date:
-- Internal owner:
+- Internal owner: Daniel Asare Anyinam
 
 ## Stage 1: Qualification
 
@@ -47,7 +50,7 @@ This is the daily-use onboarding checklist for the EduPulse team. It converts th
 - [ ] Student count reviewed for billing
 - [ ] If Free: account activated
 - [ ] If Basic/Premium: payment initialized
-- [ ] Payment confirmed in EduPulse before activation
+- [ ] Payment confirmed in EduPulse SMT before activation
 - [ ] Billing contact notified of plan status
 
 ## Stage 5: Data Import

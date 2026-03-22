@@ -1,4 +1,4 @@
-# EduPulse Operations Handoff
+# EduPulse SMT Operations Handoff
 
 ## Purpose
 
@@ -6,13 +6,13 @@ This is the internal one-page handoff for staff running onboarding, billing, sup
 
 ## School Snapshot
 
-- School name:
-- School code:
-- Current plan:
-- Student count:
+- School name: {{school_name}}
+- School code: {{school_code}}
+- Current plan: {{plan_name}}
+- Student count: {{estimated_student_count}}
 - Stage: `Lead` / `Onboarding` / `Training` / `Active` / `At Risk` / `Offboarding`
-- Internal owner:
-- Backup owner:
+- Internal owner: Daniel Asare Anyinam
+- Backup owner: Daniel Asare Anyinam
 - Last school-facing update:
 - Next checkpoint:
 
@@ -25,15 +25,25 @@ This is the internal one-page handoff for staff running onboarding, billing, sup
 - School-side blocker:
 - Internal blocker:
 
+## School Contacts
+
+- School owner name: {{school_owner_name}}
+- School owner role: {{school_owner_role}}
+- School owner email: {{school_owner_email}}
+- School owner phone: {{school_owner_phone}}
+- Billing contact name: {{billing_contact_name}}
+- Billing contact email: {{billing_contact_email}}
+- Billing contact phone: {{billing_contact_phone}}
+
 ## Active Owners
 
 | Area | Owner | Backup | Current Action |
 | --- | --- | --- | --- |
-| Onboarding |  |  |  |
-| Billing |  |  |  |
-| Support |  |  |  |
-| Technical |  |  |  |
-| Account / Retention |  |  |  |
+| Onboarding | Daniel Asare Anyinam | Daniel Asare Anyinam |  |
+| Billing | Daniel Asare Anyinam | Daniel Asare Anyinam |  |
+| Support | Daniel Asare Anyinam | Daniel Asare Anyinam |  |
+| Technical | Daniel Asare Anyinam | Daniel Asare Anyinam |  |
+| Account / Retention | Daniel Asare Anyinam | Daniel Asare Anyinam |  |
 
 ## Immediate Checklist
 
@@ -57,11 +67,11 @@ This is the internal one-page handoff for staff running onboarding, billing, sup
 
 | Trigger | Escalation Owner | Required Output |
 | --- | --- | --- |
-| Kickoff or setup milestone likely to be missed | Head of Operations | New owner, recovery plan, next update time |
-| Paid activation blocked or payment mismatch | Finance Lead | Payment status, reconciliation path, customer update |
-| Import failure or data-quality dispute | Technical Lead | Decision on retry, rollback, or correction path |
-| Critical support issue not acknowledged in SLA | Support Lead | Assigned responder and ETA |
-| Production outage, security issue, or tenant risk | Incident Commander | Incident channel, impact summary, containment plan |
+| Kickoff or setup milestone likely to be missed | Daniel Asare Anyinam | New owner, recovery plan, next update time |
+| Paid activation blocked or payment mismatch | Daniel Asare Anyinam | Payment status, reconciliation path, customer update |
+| Import failure or data-quality dispute | Daniel Asare Anyinam | Decision on retry, rollback, or correction path |
+| Critical support issue not acknowledged in SLA | Daniel Asare Anyinam | Assigned responder and ETA |
+| Production outage, security issue, or tenant risk | Daniel Asare Anyinam | Incident channel, impact summary, containment plan |
 
 ## School-Facing Update Format
 
@@ -79,7 +89,7 @@ Use this format when handing off or escalating:
 - Current blocker:
 - Next action:
 - Due date:
-- Owner:
+- Owner: Daniel Asare Anyinam
 
 ## Closure Criteria
 

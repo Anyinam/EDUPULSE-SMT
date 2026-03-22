@@ -1,4 +1,4 @@
-# 📊 EduPulse Pricing & Feature Matrix
+# 📊 EduPulse SMT Pricing & Feature Matrix
 
 ## Subscription Plan Overview
 

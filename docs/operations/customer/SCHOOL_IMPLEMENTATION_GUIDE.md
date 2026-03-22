@@ -1,8 +1,8 @@
-# EduPulse School Implementation Guide
+# EduPulse SMT School Implementation Guide
 
 ## Purpose
 
-This guide explains, in school-facing language, what to expect when your school is being set up on EduPulse. It mirrors our internal implementation process so there is clarity on responsibilities, timing, and success milestones.
+This guide explains, in school-facing language, what to expect when your school is being set up on EduPulse SMT. It mirrors our internal implementation process so there is clarity on responsibilities, timing, and success milestones.
 
 ## School Profile
 
@@ -10,14 +10,14 @@ This guide explains, in school-facing language, what to expect when your school 
 - School code: {{school_code}}
 - Selected plan: {{plan_name}}
 - Target go-live date: {{go_live_target_date}}
-- EduPulse implementation lead: {{implementation_owner_name}}
-- EduPulse support contact: {{support_owner_name}}
-- Support email: {{support_email}}
+- EduPulse SMT implementation lead: Daniel Asare Anyinam
+- EduPulse SMT support contact: Daniel Asare Anyinam
+- Support email: danielasareanyinam2020@gmail.com
 - School-side owner: {{school_owner_name}}
 
-## What EduPulse Will Help You Set Up
+## What EduPulse SMT Will Help You Set Up
 
-EduPulse helps your school run academic operations, reporting, payment oversight, and subscription control in one place. During implementation, our goal is to move your school from account creation to confident daily use.
+EduPulse SMT helps your school run academic operations, reporting, payment oversight, and subscription control in one place. During implementation, our goal is to move your school from account creation to confident daily use.
 
 ## What Your School Should Prepare
 
@@ -29,7 +29,7 @@ Please share the following so implementation can begin smoothly:
 4. Student, staff, or class data files if you want us to assist with import
 5. Preferred dates and times for admin training
 
-## What EduPulse Will Do
+## What EduPulse SMT Will Do
 
 Once the required inputs are complete, we will:
 
@@ -55,7 +55,7 @@ We confirm:
 
 We create:
 
-- Your school organization in EduPulse
+- Your school organization in EduPulse SMT
 - Your school code
 - Your first proprietor login
 - Your initial tenant and security configuration
@@ -174,7 +174,7 @@ If any of these happen, we will reset the next milestone clearly with your team.
 
 ## After Go-Live
 
-After implementation, EduPulse continues with:
+After implementation, EduPulse SMT continues with:
 
 - First-week follow-up
 - Ongoing support
@@ -187,4 +187,4 @@ Please reply with the requested onboarding details and your preferred kickoff av
 
 ## Contact Path
 
-For onboarding and implementation questions, reply through your existing EduPulse onboarding thread or your assigned support contact.
+For onboarding and implementation questions, reply through your existing EduPulse SMT onboarding thread or contact Daniel Asare Anyinam.

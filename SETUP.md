@@ -1,4 +1,4 @@
-# EduPulse Setup & Installation Guide
+# EduPulse SMT Setup & Installation Guide
 
 ## 📋 Prerequisites
 
@@ -386,7 +386,7 @@ For issues or questions:
 1. Check [SECURITY.md](./SECURITY.md) for security-related setup
 2. Review logs for error messages
 3. Check GitHub issues or create new one
-4. Contact: support@edupulse.edu
+4. Contact: danielasareanyinam2020@gmail.com
 
 ---
 
