@@ -59,6 +59,13 @@ export default function SettingsPanel() {
     customer_code: '',
     preferred_bank: ''
   });
+  const [bankDetailsVisible, setBankDetailsVisible] = useState(false);
+  const [maskedBankSnapshot, setMaskedBankSnapshot] = useState({
+    bank_name: '',
+    bank_account: '',
+    bank_account_name: '',
+    bank_branch: ''
+  });
 
   // Color palette options for easy tenant selection
   const colorPalette = [
@@ -90,6 +97,8 @@ export default function SettingsPanel() {
       return fallback;
     }
   };
+
+  const isMaskedBankValue = (value = '') => typeof value === 'string' && value.includes('***');
 
   useEffect(() => {
     const branding = safeJsonParse(localStorage.getItem('branding'), {});
@@ -155,6 +164,13 @@ export default function SettingsPanel() {
           country_code: data.country_code || prev.country_code,
           anniversary_date: data.anniversary_date || prev.anniversary_date,
         }));
+        setMaskedBankSnapshot({
+          bank_name: data.bank_name || '',
+          bank_account: data.bank_account || '',
+          bank_account_name: data.bank_account_name || '',
+          bank_branch: data.bank_branch || ''
+        });
+        setBankDetailsVisible(false);
       } catch (err) {
         console.error('Failed to load school settings:', err);
       }
@@ -421,6 +437,7 @@ export default function SettingsPanel() {
       const res = await axios.post('/api/school/branding/bank/view', { password: pwd }, { headers });
       const data = res.data || {};
       setSettings((prev) => ({ ...prev, bank_name: data.bank_name, bank_account: data.bank_account, bank_account_name: data.bank_account_name, bank_branch: data.bank_branch }));
+      setBankDetailsVisible(true);
       setTemplateMessage('✅ Bank details revealed');
       setTimeout(() => setTemplateMessage(''), 3000);
     } catch (err) {
@@ -493,7 +510,7 @@ export default function SettingsPanel() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id')
       };
-      await axios.post('/api/school/settings', {
+      const settingsPayload = {
         name: settings.school_name,
         motto: settings.school_motto,
         logo_url: settings.logo_url,
@@ -503,12 +520,23 @@ export default function SettingsPanel() {
         school_address: settings.school_address,
         school_website: settings.school_website,
         country_code: settings.country_code,
-        anniversary_date: settings.anniversary_date,
-        bank_name: settings.bank_name,
-        bank_account: settings.bank_account,
-        bank_account_name: settings.bank_account_name,
-        bank_branch: settings.bank_branch
-      }, { headers });
+        anniversary_date: settings.anniversary_date
+      };
+
+      if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
+        settingsPayload.bank_name = settings.bank_name;
+      }
+      if (bankDetailsVisible || settings.bank_account !== maskedBankSnapshot.bank_account) {
+        settingsPayload.bank_account = settings.bank_account;
+      }
+      if (bankDetailsVisible || settings.bank_account_name !== maskedBankSnapshot.bank_account_name) {
+        settingsPayload.bank_account_name = settings.bank_account_name;
+      }
+      if (bankDetailsVisible || settings.bank_branch !== maskedBankSnapshot.bank_branch) {
+        settingsPayload.bank_branch = settings.bank_branch;
+      }
+
+      await axios.post('/api/school/settings', settingsPayload, { headers });
       
       // Save fees separately
       await axios.post('/api/school/fees', {
@@ -532,11 +560,7 @@ export default function SettingsPanel() {
         address: settings.school_address,
         website: settings.school_website,
         country_code: settings.country_code,
-        anniversary_date: settings.anniversary_date,
-        bank_name: settings.bank_name,
-        bank_account: settings.bank_account,
-        bank_account_name: settings.bank_account_name,
-        bank_branch: settings.bank_branch
+        anniversary_date: settings.anniversary_date
       };
       localStorage.setItem('branding', JSON.stringify(newBranding));
       
@@ -793,12 +817,13 @@ export default function SettingsPanel() {
         {/* Payment Account Details Section */}
         <div className="border-t pt-6 mt-8">
           <h3 className="text-lg font-bold text-slate-800 mb-4">💳 Payment Account Details</h3>
-          <p className="text-sm text-slate-600 mb-6">Parents pay via Paystack payment gateway. Bank account details below are optional for manual transfers. Leave empty if not needed.</p>
+          <p className="text-sm text-slate-600 mb-6">Parents pay via Paystack payment gateway. Bank account details below are hidden after save and require password re-entry to view again.</p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Bank Transfer Section */}
             <div className="border rounded-lg p-4 bg-green-50">
               <h4 className="font-bold text-slate-800 mb-3">🏦 Bank Account</h4>
+              <p className="text-xs text-slate-600 mb-3">Saved bank details stay masked until you click View and re-enter your password.</p>
               <div className="space-y-3">
                 <div>
                   <label className="text-sm font-bold text-slate-700">Bank Name</label>
@@ -810,7 +835,7 @@ export default function SettingsPanel() {
                       onChange={handleChange}
                       className="w-full p-2 border rounded mt-1 bg-white"
                       placeholder="e.g., Fidelity Bank Ghana"
-                      disabled={typeof settings.bank_name === 'string' && settings.bank_name.includes('***')}
+                      disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_name)}
                     />
                     <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
                   </div>
@@ -825,7 +850,7 @@ export default function SettingsPanel() {
                       onChange={handleChange}
                       className="w-full p-2 border rounded mt-1 bg-white"
                       placeholder="School bank account number"
-                      disabled={typeof settings.bank_account === 'string' && settings.bank_account.startsWith('****')}
+                      disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_account)}
                     />
                     <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
                   </div>
@@ -840,7 +865,7 @@ export default function SettingsPanel() {
                       onChange={handleChange}
                       className="w-full p-2 border rounded mt-1 bg-white"
                       placeholder="Name on bank account"
-                      disabled={typeof settings.bank_account_name === 'string' && settings.bank_account_name.includes('***')}
+                      disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_account_name)}
                     />
                     <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
                   </div>
@@ -854,6 +879,7 @@ export default function SettingsPanel() {
                     onChange={handleChange}
                     className="w-full p-2 border rounded mt-1 bg-white"
                     placeholder="Bank branch name"
+                    disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_branch)}
                   />
                 </div>
               </div>
@@ -865,6 +891,9 @@ export default function SettingsPanel() {
               <p className="text-xs text-slate-600 mb-3">
                 Create one dedicated virtual account per fee type. Parents can transfer to these account numbers directly.
               </p>
+              <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                Test Paystack secret keys usually keep dedicated routes in fallback mode. You need live Paystack keys before real virtual account numbers will consistently appear.
+              </div>
 
               <div className="space-y-3">
                 <div>
@@ -940,7 +969,7 @@ export default function SettingsPanel() {
                     </div>
                   )}
                   {paystackRouteMessage && (
-                    <p className={`text-xs mt-2 ${paystackRouteMessage.startsWith('✅') ? 'text-green-700' : 'text-red-600'}`}>
+                    <p className={`text-xs mt-2 ${paystackRouteMessage.startsWith('✅') ? 'text-green-700' : paystackRouteMessage.startsWith('⚠️') ? 'text-amber-800' : 'text-red-600'}`}>
                       {paystackRouteMessage}
                     </p>
                   )}
@@ -978,6 +1007,7 @@ export default function SettingsPanel() {
                               </div>
                               <p className="text-slate-600">Acct: {route.virtual_bank_account || 'Not set'}</p>
                               <p className="text-slate-600">Bank: {route.virtual_bank_name || route.momo_provider || 'Not set'}</p>
+                              <p className="text-slate-600">Convenience Fee: {Number(route.percentage_charge || 0).toFixed(2)}%</p>
                             </div>
                           );
                         })}
@@ -1337,6 +1367,37 @@ export default function SettingsPanel() {
                   }`}
                 >
                   {activeTemplate === 'sample5' ? '✓ Currently Active' : 'Set as Active'}
+                </button>
+              </div>
+              <div className={`border-2 rounded-2xl p-4 transition-all ${
+                  activeTemplate === 'sample6' || activeTemplate === 'classic_traditional'
+                    ? 'border-slate-700 bg-slate-100 ring-2 ring-slate-400'
+                    : 'border-slate-300 bg-slate-50'
+                }`}
+              >
+                <div
+                  onClick={() => {
+                    setPreviewTemplate('sample6');
+                    setShowTemplatePreview(true);
+                  }}
+                  className="cursor-pointer hover:opacity-80 transition-opacity"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-bold text-slate-900">📄 Sample 6</p>
+                    {(activeTemplate === 'sample6' || activeTemplate === 'classic_traditional') && <span className="text-xs bg-slate-700 text-white px-2 py-1 rounded-full">ACTIVE</span>}
+                  </div>
+                  <p className="text-xs text-slate-700 mb-3">Classic terminal report layout with formal summary blocks and signature-ready structure</p>
+                </div>
+                <button
+                  onClick={() => handleTemplateSelect('sample6')}
+                  disabled={activeTemplate === 'sample6' || activeTemplate === 'classic_traditional'}
+                  className={`w-full mt-2 px-3 py-2 rounded-lg text-sm font-bold transition-all ${
+                    activeTemplate === 'sample6' || activeTemplate === 'classic_traditional'
+                      ? 'bg-slate-200 text-slate-700 cursor-not-allowed'
+                      : 'bg-slate-700 text-white hover:bg-slate-800'
+                  }`}
+                >
+                  {activeTemplate === 'sample6' || activeTemplate === 'classic_traditional' ? '✓ Currently Active' : 'Set as Active'}
                 </button>
               </div>
             </div>

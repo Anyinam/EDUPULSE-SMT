@@ -93,10 +93,12 @@ def get_password_reset_email(user_name, reset_link):
     return render_email_template('password_reset_email', variables)
 
 
-def get_staff_welcome_email(staff_name, school_name, username, temporary_password, 
-                           assigned_role, login_url, expiry_days=30, 
-                           role_description=None, role_permissions=None, 
-                           headmaster_name=None, headmaster_email=None, email=None):
+def get_staff_welcome_email(staff_name, school_name, username, temporary_password,
+                           assigned_role, login_url, expiry_days=30,
+                           role_description=None, role_permissions=None,
+                           headmaster_name=None, headmaster_email=None, email=None,
+                           school_id=None, support_contact_name=None,
+                           support_contact_email=None, support_contact_phone=None):
     """Generate welcome email for new staff member."""
     variables = {
         'staff_name': staff_name,
@@ -112,6 +114,10 @@ def get_staff_welcome_email(staff_name, school_name, username, temporary_passwor
         'role_permissions': role_permissions or '',
         'headmaster_name': headmaster_name or '',
         'headmaster_email': headmaster_email or '',
+        'school_id': school_id or '',
+        'support_contact_name': support_contact_name or headmaster_name or '',
+        'support_contact_email': support_contact_email or headmaster_email or '',
+        'support_contact_phone': support_contact_phone or '',
     }
     return render_email_template('staff_welcome_email', variables)
 

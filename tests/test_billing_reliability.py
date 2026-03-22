@@ -608,6 +608,81 @@ def test_staff_add_includes_email_sent_fallback(client, app, db, test_school, te
     assert "Failed to send welcome email" in result.get("message", "")
 
 
+def test_staff_add_welcome_email_includes_school_id_and_support_details(
+    client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch
+):
+    captured = {}
+
+    def fake_email(recipient, subject, body):
+        captured["recipient"] = recipient
+        captured["subject"] = subject
+        captured["body"] = body
+        return True
+
+    monkeypatch.setattr("backend.routes.send_email_notification", fake_email)
+
+    payload = {
+        "username": "teacher_mail",
+        "email": "teachermail@example.com",
+        "role": "teacher"
+    }
+    headers = {**proprietor_headers, "Origin": "https://school.edupulse.test"}
+    response = client.post("/api/staff/add", json=payload, headers=headers)
+
+    assert response.status_code == 200
+    assert captured["recipient"] == payload["email"]
+    assert test_school.id in captured["body"]
+    assert "Organization ID" in captured["body"]
+    assert "School Support" in captured["body"]
+    assert "school.edupulse.test/login" in captured["body"]
+    assert "Record subject scores" in captured["body"]
+    assert "{{school_id}}" not in captured["body"]
+
+
+def test_resend_staff_invite_rotates_temp_password_and_sends_email(
+    client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch
+):
+    from backend.api.models import User
+
+    staff = User(
+        username="teacher_resend",
+        school_id=test_school.id,
+        role="teacher",
+        roles=["teacher"],
+        email="teacherresend@example.com",
+        is_temp_password=False,
+    )
+    staff.set_password("ExistingPass123")
+    db.session.add(staff)
+    db.session.commit()
+
+    old_hash = staff.password_hash
+    captured = {}
+
+    def fake_email(recipient, subject, body):
+        captured["recipient"] = recipient
+        captured["subject"] = subject
+        captured["body"] = body
+        return True
+
+    monkeypatch.setattr("backend.routes.send_email_notification", fake_email)
+
+    headers = {**proprietor_headers, "Origin": "https://school.edupulse.test"}
+    response = client.post(f"/api/staff/{staff.id}/resend-invite", json={}, headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["email_sent"] is True
+
+    refreshed = User.query.get(staff.id)
+    assert refreshed.is_temp_password is True
+    assert refreshed.password_hash != old_hash
+    assert refreshed.temp_password_expires_at is not None
+    assert captured["recipient"] == staff.email
+    assert test_school.id in captured["body"]
+    assert "Temporary Password" in captured["body"]
+
+
 def test_overage_auto_charge_creates_settlement_entry(client, app, db, test_school, monkeypatch):
     from datetime import date
 

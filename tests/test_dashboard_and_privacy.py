@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import School, Student, User, db
+from backend.api.models import School, SchoolSettings, Student, User, db
 from backend.api.models import ReportCard
 
 
@@ -65,6 +65,23 @@ def test_subscription_returns_pending_plan_for_scheduled_downgrade(client, app, 
     payload = response.get_json()
     assert payload["subscription_plan"] == "Premium"
     assert payload["pending_plan"] == "Free Tier"
+    assert payload["next_billing_date"] == test_school.next_billing_date.strftime("%Y-%m-%d")
+
+
+def test_subscription_handles_naive_trial_date_and_returns_alias(client, app, test_school, test_proprietor):
+    test_school.subscription_plan = "Premium"
+    test_school.trial_plan = "Premium"
+    test_school.trial_end_date = datetime.utcnow() + timedelta(days=5)
+    test_school.next_billing_date = datetime.now(timezone.utc) + timedelta(days=7)
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/school/subscription", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["next_billing_date"] == test_school.next_billing_date.strftime("%Y-%m-%d")
+    assert payload["trial"]["active"] is True
 
 
 
@@ -83,6 +100,12 @@ def test_bank_details_are_masked_and_password_reveal_returns_full_values(client,
     assert "EduPulse School Account" != branding_payload["bank_account_name"]
 
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    settings_response = client.get("/api/school/settings", headers=headers)
+    assert settings_response.status_code == 200
+    settings_payload = settings_response.get_json()
+    assert settings_payload["bank_details_masked"] is True
+    assert settings_payload["bank_account"].startswith("****")
+    assert settings_payload["bank_name"] != "Fidelity Bank Ghana"
 
     bad_response = client.post(
         "/api/school/branding/bank/view",
@@ -102,6 +125,34 @@ def test_bank_details_are_masked_and_password_reveal_returns_full_values(client,
     assert revealed["bank_account"] == "1234567890"
     assert revealed["bank_account_name"] == "EduPulse School Account"
     assert revealed["bank_branch"] == "Kumasi Main"
+
+
+def test_payment_codes_include_convenience_fee_breakdown_and_cash_alternative(client, app, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if not settings:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    settings.feeding_fee = 0.0
+    settings.transport_fee = 0.0
+    settings.other_fees = {}
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(f"/api/students/{test_students[0].id}/payment-codes", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition + Terminal Report")
+    assert tuition_code["base_amount"] == 100.0
+    assert tuition_code["cash_amount"] == 100.0
+    assert tuition_code["convenience_fee_percent"] == 2.0
+    assert tuition_code["convenience_fee_amount"] == 2.0
+    assert tuition_code["total_amount"] == 102.0
+    assert "cash at the school office" in tuition_code["instructions"].lower()
+    assert "convenience fee" in payload["note"].lower()
 
 
 def test_class_performance_returns_cohort_migration_comparison(client, app, test_school, test_proprietor):

@@ -143,35 +143,7 @@ export default function Login() {
         return;
       }
       
-      // Store Business Credentials & Branding (Requirement 1 & 2)
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('school_id', res.data.school_id);
-      const roles = Array.isArray(res.data.roles) ? res.data.roles : [res.data.role].filter(Boolean);
-      localStorage.setItem('role', res.data.role);
-      localStorage.setItem('roles', JSON.stringify(roles));
-      localStorage.setItem('assigned_class', res.data.assigned_class || '');
-      localStorage.setItem('subscription_plan', res.data.subscription_plan);
-      localStorage.setItem('enabled_modules', JSON.stringify(res.data.enabled_modules || {}));
-      localStorage.setItem('branding', JSON.stringify(res.data.branding));
-      localStorage.setItem('branding_school_id', res.data.school_id);
-
-      // Redirect based on Multi-level Access Control (Requirement 5)
-      let target = '/teacher';
-      if (roles.includes('proprietor')) {
-        target = '/proprietor';
-      } else if (roles.includes('headmaster')) {
-        target = '/headmaster';
-      } else if (roles.includes('finance')) {
-        target = '/finance';
-      } else if (roles.includes('inventory_manager')) {
-        target = '/inventory';
-      } else if (roles.includes('kitchen')) {
-        target = '/kitchen';
-      } else if ((roles.includes('homeroom') || roles.includes('teacher')) && res.data.assigned_class) {
-        // Homeroom Teachers get their specific dashboard
-        target = '/homeroom';
-      }
-      window.location.href = target;
+      persistAuthAndRedirect(res.data);
     } catch (err) {
       // Display specific error from backend if available
       const msg = err.response?.data?.message || 'Invalid School Code or Business Credentials';
@@ -188,36 +160,58 @@ export default function Login() {
         code: twoFaCode.trim()
       });
 
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('school_id', res.data.school_id);
-      const roles = Array.isArray(res.data.roles) ? res.data.roles : [res.data.role].filter(Boolean);
-      localStorage.setItem('role', res.data.role);
-      localStorage.setItem('roles', JSON.stringify(roles));
-      localStorage.setItem('assigned_class', res.data.assigned_class || '');
-      localStorage.setItem('subscription_plan', res.data.subscription_plan);
-      localStorage.setItem('enabled_modules', JSON.stringify(res.data.enabled_modules || {}));
-      localStorage.setItem('branding', JSON.stringify(res.data.branding));
-      localStorage.setItem('branding_school_id', res.data.school_id);
-
-      let target = '/teacher';
-      if (roles.includes('proprietor')) {
-        target = '/proprietor';
-      } else if (roles.includes('headmaster')) {
-        target = '/headmaster';
-      } else if (roles.includes('finance')) {
-        target = '/finance';
-      } else if (roles.includes('inventory_manager')) {
-        target = '/inventory';
-      } else if (roles.includes('kitchen')) {
-        target = '/kitchen';
-      } else if ((roles.includes('homeroom') || roles.includes('teacher')) && res.data.assigned_class) {
-        target = '/homeroom';
-      }
-      window.location.href = target;
+      persistAuthAndRedirect(res.data);
     } catch (err) {
       const msg = err.response?.data?.message || 'Invalid verification code';
       setError(msg);
     }
+  };
+
+  const resolveTarget = (roles, assignedClass) => {
+    if (roles.includes('proprietor')) {
+      return '/proprietor';
+    }
+    if (roles.includes('headmaster')) {
+      return '/headmaster';
+    }
+    if (roles.includes('finance')) {
+      return '/finance';
+    }
+    if (roles.includes('inventory_manager')) {
+      return '/inventory';
+    }
+    if (roles.includes('kitchen')) {
+      return '/kitchen';
+    }
+    if ((roles.includes('homeroom') || roles.includes('teacher')) && assignedClass) {
+      return '/homeroom';
+    }
+    return '/teacher';
+  };
+
+  const persistAuthAndRedirect = (authData) => {
+    localStorage.setItem('token', authData.token);
+    localStorage.setItem('school_id', authData.school_id);
+    const roles = Array.isArray(authData.roles) ? authData.roles : [authData.role].filter(Boolean);
+    localStorage.setItem('role', authData.role);
+    localStorage.setItem('roles', JSON.stringify(roles));
+    localStorage.setItem('assigned_class', authData.assigned_class || '');
+    localStorage.setItem('subscription_plan', authData.subscription_plan);
+    localStorage.setItem('enabled_modules', JSON.stringify(authData.enabled_modules || {}));
+    localStorage.setItem('branding', JSON.stringify(authData.branding));
+    localStorage.setItem('branding_school_id', authData.school_id);
+
+    const target = resolveTarget(roles, authData.assigned_class);
+    localStorage.setItem('post_login_target', target);
+
+    if (authData.requires_password_reset) {
+      localStorage.setItem('requires_password_reset', 'true');
+      window.location.href = '/first-login-password';
+      return;
+    }
+
+    localStorage.removeItem('requires_password_reset');
+    window.location.href = target;
   };
 
   return (

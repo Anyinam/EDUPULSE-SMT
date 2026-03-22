@@ -49,6 +49,12 @@ export default function Layout() {
   };
 
   useEffect(() => {
+    const requiresPasswordReset = localStorage.getItem('requires_password_reset') === 'true';
+    if (requiresPasswordReset && location.pathname !== '/first-login-password') {
+      window.location.href = '/first-login-password';
+      return;
+    }
+
     if (location.pathname === '/help') {
       localStorage.setItem(HELP_BADGE_KEY, 'true');
       setShowHelpNewBadge(false);

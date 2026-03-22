@@ -41,6 +41,7 @@ const DEFAULT_SUBJECTS = [
 export default function StaffManagement() {
   const [staffList, setStaffList] = useState([]);
   const [editingStaffId, setEditingStaffId] = useState(null);
+  const [resendingInviteId, setResendingInviteId] = useState(null);
   const [availableClasses, setAvailableClasses] = useState(DEFAULT_CLASSES);
   const [availableSubjects, setAvailableSubjects] = useState(DEFAULT_SUBJECTS);
   const [customSubject, setCustomSubject] = useState('');
@@ -147,6 +148,28 @@ export default function StaffManagement() {
       fetchStaff();
     } catch (err) {
       alert("Failed to delete staff.");
+    }
+  };
+
+  const handleResendInvite = async (staff) => {
+    if (!staff.email) {
+      alert('This staff account does not have an email address on file.');
+      return;
+    }
+
+    if (!window.confirm(`Resend invite to ${staff.username}? This will issue a fresh temporary password and require a password change on next login.`)) {
+      return;
+    }
+
+    try {
+      setResendingInviteId(staff.id);
+      const res = await axios.post(`/api/staff/${staff.id}/resend-invite`, {}, getAuthHeaders());
+      alert(res.data?.message || 'Staff invite resent successfully.');
+      fetchStaff();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to resend staff invite.');
+    } finally {
+      setResendingInviteId(null);
     }
   };
 
@@ -577,6 +600,13 @@ export default function StaffManagement() {
                     </div>
                   ) : (
                     <div className="flex gap-4">
+                      <button
+                        onClick={() => handleResendInvite(staff)}
+                        className="text-amber-700 font-bold hover:underline disabled:text-slate-400 disabled:no-underline"
+                        disabled={resendingInviteId === staff.id}
+                      >
+                        {resendingInviteId === staff.id ? 'Sending...' : 'Resend Invite'}
+                      </button>
                       <button
                         onClick={() => openEdit(staff)}
                         className="text-blue-600 font-bold hover:underline"

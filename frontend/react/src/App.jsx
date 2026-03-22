@@ -26,6 +26,7 @@ import Logout from './features/Logout';
 import Register from './features/Register';
 import HelpCenter from './features/HelpCenter';
 import AdminSupport from './features/AdminSupport';
+import FirstLoginPasswordChange from './features/FirstLoginPasswordChange';
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/payment/callback" element={<PaymentCallback />} />
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/platform-console" element={<PlatformConsole />} />
+        <Route path="/first-login-password" element={<FirstLoginPasswordChange />} />
         
         {/* Protected Routes inside Layout */}
         <Route path="/" element={<Layout />}>

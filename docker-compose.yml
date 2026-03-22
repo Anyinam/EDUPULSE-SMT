@@ -12,7 +12,6 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-edupulse_db}
       - DATABASE_HOST=db
       - DATABASE_PORT=5432
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-edupulse_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-edupulse_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY is required (32+ chars; do not use a default)}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required (32+ chars; do not use a default)}
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required (Fernet key) }

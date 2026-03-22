@@ -161,29 +161,9 @@ export default function StudentPaymentTracker() {
     const schoolAddress = branding.school_address || branding.address || '';
     const themeColor = branding.theme_color || '#3b82f6';
 
-    const summaryRows = feeTypes.map((feeType) => {
-      const summary = calculatePaymentSummary(selectedStudent, feeType);
-      if (summary.requiredAmount === 0) return '';
-      return `
-        <tr>
-          <td>${getFeeTypeLabel(feeType)}</td>
-          <td class="amount-column">GH₵ ${summary.requiredAmount.toFixed(2)}</td>
-          <td class="amount-column">GH₵ ${summary.totalPaid.toFixed(2)}</td>
-          <td class="amount-column">GH₵ ${summary.outstanding.toFixed(2)}</td>
-          <td class="amount-column">GH₵ ${summary.refundable.toFixed(2)}</td>
-        </tr>
-      `;
-    }).join('');
-
-    const totalSummary = feeTypes.reduce((acc, type) => {
-      const summary = calculatePaymentSummary(selectedStudent, type);
-      return {
-        required: acc.required + summary.requiredAmount,
-        paid: acc.paid + summary.totalPaid,
-        outstanding: acc.outstanding + summary.outstanding,
-        refundable: acc.refundable + summary.refundable,
-      };
-    }, { required: 0, paid: 0, outstanding: 0, refundable: 0 });
+    const totalVirtualRouteAmount = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.total_amount || code.amount || 0), 0);
+    const totalCashAmount = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.base_amount || code.cash_amount || 0), 0);
+    const totalConvenienceFees = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.convenience_fee_amount || 0), 0);
 
     const printWindow = window.open('', '', 'width=900,height=1200');
     const html = `
@@ -427,7 +407,9 @@ export default function StudentPaymentTracker() {
                   <th>Fee Type</th>
                   <th>Virtual Route</th>
                   <th>Reference (Backup)</th>
-                  <th class="amount-column">Amount</th>
+                  <th class="amount-column">School Fee</th>
+                  <th class="amount-column">Convenience Fee</th>
+                  <th class="amount-column">Total via Route</th>
                 </tr>
               </thead>
               <tbody>
@@ -439,44 +421,18 @@ export default function StudentPaymentTracker() {
                       ${!code.virtual_bank_account ? '<span style="color:#b91c1c;">Not configured</span>' : ''}
                     </td>
                     <td><span class="code-column">${code.reference_code || code.code}</span></td>
-                    <td class="amount-column">GH₵ ${code.amount.toFixed(2)}</td>
+                    <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
+                    <td class="amount-column">GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)}</td>
+                    <td class="amount-column">GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}</td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           </div>
 
-          <!-- Payment Summary Section -->
-          <div class="section">
-            <div class="section-title">📊 Payment Summary (Refundable Credit Included)</div>
-            <table class="payment-summary-table">
-              <thead>
-                <tr>
-                  <th>Fee Type</th>
-                  <th>Required</th>
-                  <th>Paid</th>
-                  <th>Outstanding</th>
-                  <th>Refundable</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${summaryRows || '<tr><td colspan="5">No payment summary available.</td></tr>'}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Total</td>
-                  <td class="amount-column">GH₵ ${totalSummary.required.toFixed(2)}</td>
-                  <td class="amount-column">GH₵ ${totalSummary.paid.toFixed(2)}</td>
-                  <td class="amount-column">GH₵ ${totalSummary.outstanding.toFixed(2)}</td>
-                  <td class="amount-column">GH₵ ${totalSummary.refundable.toFixed(2)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
           <!-- Important Notice -->
           <div class="important">
-            <strong>⚠️ Important:</strong> Pay each fee type with its matching virtual account. During USSD wallet-to-bank transfer, select the bank shown with that virtual account. Paystack auto-detects payment type from the route used. Reference code is backup only.
+            <strong>⚠️ Important:</strong> Each virtual-route total already includes the convenience fee. If a parent wants to avoid the convenience fee, they can pay the school fee amount by cash at the school office instead. During USSD wallet-to-bank transfer, select the bank shown with that virtual account. Reference code is backup only.
           </div>
 
           <!-- Payment Methods Section -->
@@ -488,7 +444,10 @@ export default function StudentPaymentTracker() {
                 <div class="payment-method-content">
                   ${code.virtual_bank_account ? `<p><strong>Bank Transfer (Virtual):</strong> ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}</p>` : ''}
                   ${!code.virtual_bank_account ? '<p style="color:#b91c1c;"><strong>Virtual account not configured for this fee type.</strong></p>' : ''}
-                  <p><strong>Amount:</strong> GH₵ ${code.amount.toFixed(2)}</p>
+                  <p><strong>School Fee:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
+                  <p><strong>Convenience Fee:</strong> GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)} (${Number(code.convenience_fee_percent || 0).toFixed(2)}%)</p>
+                  <p><strong>Total by Virtual Route:</strong> GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}</p>
+                  <p><strong>Cash at School Office:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                   <p><strong>Backup Reference:</strong> ${code.reference_code || code.code}</p>
                   ${code.virtual_bank_account ? `
                     <p style="margin-top: 8px;"><strong>USSD Wallet-to-Bank:</strong></p>
@@ -506,16 +465,16 @@ export default function StudentPaymentTracker() {
 
           <!-- Summary Section -->
           <div class="section">
-            <div class="section-title">📊 Fee Summary</div>
+            <div class="section-title">📊 Amount Summary</div>
             <div class="instructions">
-              <div class="instructions-title">Total Fees Breakdown:</div>
+              <div class="instructions-title">Virtual Route Totals vs Cash Office Totals:</div>
               <div class="instruction-text">
                 ${paymentCodes.payment_codes.map(code => 
-                  `• <strong>${code.fee_type}:</strong> GH₵ ${code.amount.toFixed(2)} (Virtual: <code>${code.virtual_bank_account || 'Not configured'}</code>, Ref: <code>${code.reference_code || code.code}</code>)`
+                  `• <strong>${code.fee_type}:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)} school fee + GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)} convenience fee = GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)} via route. Cash at office stays GH₵ ${Number(code.base_amount || 0).toFixed(2)}.`
                 ).join('<br>')}
               </div>
               <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
-                Total: GH₵ ${paymentCodes.payment_codes.reduce((sum, c) => sum + c.amount, 0).toFixed(2)}
+                Total via route: GH₵ ${totalVirtualRouteAmount.toFixed(2)} • Total convenience fees: GH₵ ${totalConvenienceFees.toFixed(2)} • Total by cash at school office: GH₵ ${totalCashAmount.toFixed(2)}
               </div>
             </div>
           </div>
@@ -821,6 +780,12 @@ export default function StudentPaymentTracker() {
     return feeType === 'Tuition' ? 'Tuition + Terminal Report' : feeType;
   };
 
+  const latestReceiptPayment = [...studentPayments]
+    .sort((left, right) => new Date(right.date_paid || 0) - new Date(left.date_paid || 0))[0] || null;
+  const latestReceiptSummary = latestReceiptPayment && selectedStudent
+    ? calculatePaymentSummary(selectedStudent, latestReceiptPayment.payment_type)
+    : null;
+
   return (
     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
       <div className="flex items-center justify-between mb-6">
@@ -970,9 +935,27 @@ export default function StudentPaymentTracker() {
             <div className="space-y-4">
               {/* Student Header */}
               <div className="bg-linear-to-r from-blue-50 to-slate-50 p-4 rounded-lg border border-blue-200">
-                <h3 className="text-lg font-bold text-slate-800">{selectedStudent.name}</h3>
-                <p className="text-sm text-slate-600">ID: {selectedStudent.student_code || 'N/A'} • Class: {selectedStudent.current_class || 'Not assigned'}</p>
-                {selectedStudent.parent_phone && <p className="text-sm text-slate-600">👤 {selectedStudent.parent_name || 'Guardian'} • {selectedStudent.parent_phone}</p>}
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">{selectedStudent.name}</h3>
+                    <p className="text-sm text-slate-600">ID: {selectedStudent.student_code || 'N/A'} • Class: {selectedStudent.current_class || 'Not assigned'}</p>
+                    {selectedStudent.parent_phone && <p className="text-sm text-slate-600">👤 {selectedStudent.parent_name || 'Guardian'} • {selectedStudent.parent_phone}</p>}
+                  </div>
+                  {latestReceiptPayment && latestReceiptSummary && (
+                    <div className="flex flex-col items-start gap-2 md:items-end">
+                      <button
+                        onClick={() => printPaymentReceipt(selectedStudent, latestReceiptPayment, latestReceiptSummary)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+                        title="Print latest recorded payment receipt"
+                      >
+                        🧾 Print Latest Receipt
+                      </button>
+                      <p className="text-xs text-slate-600">
+                        Latest receipt: {getFeeTypeLabel(latestReceiptPayment.payment_type || 'Payment')} • {new Date(latestReceiptPayment.date_paid).toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Payment Routes Section */}
@@ -990,10 +973,10 @@ export default function StudentPaymentTracker() {
                               const routeText = c.virtual_bank_account
                                 ? `Virtual Account ${c.virtual_bank_account}${c.virtual_bank_name ? ` (${c.virtual_bank_name})` : ''}`
                                 : 'Virtual route pending - contact school accounts office';
-                              return `${c.fee_type}: ${routeText} | Ref ${c.reference_code || c.code} (GH₵ ${c.amount.toFixed(2)})`;
+                              return `${c.fee_type}: ${routeText} | School fee GH₵ ${Number(c.base_amount || 0).toFixed(2)} + convenience fee GH₵ ${Number(c.convenience_fee_amount || 0).toFixed(2)} = GH₵ ${Number(c.total_amount || c.amount || 0).toFixed(2)} via route | Cash at school office GH₵ ${Number(c.base_amount || 0).toFixed(2)} | Ref ${c.reference_code || c.code}`;
                             })
                             .join('\n');
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStudent ID: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the matching route for each fee type.\nIf a virtual account is shown, use that for automatic processing.\nIf a virtual account is not yet available, contact the school's accounts office and include the backup reference.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStudent ID: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the matching route for each fee type. Virtual-route amounts already include the convenience fee. If a parent wants to avoid the convenience fee, they can pay the school fee amount by cash at the school office instead. If a virtual account is not yet available, contact the school's accounts office and include the backup reference.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -1018,10 +1001,14 @@ export default function StudentPaymentTracker() {
                         <div className="flex-1">
                           <p className="font-semibold text-slate-800">{code.fee_type}</p>
                           <p className="text-xs text-slate-600">Amount: GH₵ {code.amount.toFixed(2)}</p>
+                          <p className="text-xs text-slate-600">School Fee: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
+                          <p className="text-xs text-slate-600">Convenience Fee: GH₵ {Number(code.convenience_fee_amount || 0).toFixed(2)} ({Number(code.convenience_fee_percent || 0).toFixed(2)}%)</p>
+                          <p className="text-xs font-semibold text-slate-700">Total via Route: GH₵ {Number(code.total_amount || code.amount || 0).toFixed(2)}</p>
+                          <p className="text-xs text-slate-600">Cash at School Office: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs text-slate-700">
                             {code.virtual_bank_account
                               ? `🏦 Virtual Account: ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}`
-                              : '🏦 Virtual route pending: Contact school accounts office for approved payment instructions'}
+                              : '🏦 Virtual route pending: Pay by cash at the school office or contact accounts office for approved manual instructions'}
                           </p>
 
                           <p className="text-xs text-slate-600">Backup Ref: {code.reference_code || code.code}</p>
@@ -1044,7 +1031,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Example instruction: "Pay GH₵ <strong>{paymentCodes.payment_codes[0]?.amount?.toFixed(2) || '0.00'}</strong> for {paymentCodes.payment_codes[0]?.fee_type || 'Tuition'} using <strong>{paymentCodes.payment_codes[0]?.virtual_bank_account ? `virtual route ${paymentCodes.payment_codes[0]?.virtual_bank_account}` : 'school-approved payment instructions from accounts office'}</strong>. Backup ref: <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S0011'}</strong>."
+                    💬 Example instruction: "Pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong> school fee + GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.convenience_fee_amount || 0).toFixed(2)}</strong> convenience fee = GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.total_amount || paymentCodes.payment_codes[0]?.amount || 0).toFixed(2)}</strong> via <strong>{paymentCodes.payment_codes[0]?.virtual_bank_account ? `virtual route ${paymentCodes.payment_codes[0]?.virtual_bank_account}` : 'approved manual instruction from the accounts office'}</strong>. If you want to avoid the convenience fee, pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong> by cash at the school office. Backup ref: <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S0011'}</strong>."
                   </p>
                 </div>
               )}
@@ -1131,7 +1118,7 @@ export default function StudentPaymentTracker() {
                                       className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors font-bold"
                                       title="Print payment receipt"
                                     >
-                                      🧾 Receipt
+                                      🧾 Print Receipt
                                     </button>
                                   </div>
                                 </div>

@@ -8,6 +8,7 @@ import os
 import re
 import requests
 import secrets
+import string
 import time
 from urllib.parse import quote
 from datetime import date, datetime, timedelta, timezone
@@ -1309,6 +1310,138 @@ def get_registration_email_trace():
 
 
 # --- 1. AUTHENTICATION (Pillar 1: Business Credentials) ---
+def _build_auth_success_payload(user, school, requires_password_reset=False):
+    billing_status = get_billing_status_info(school)
+    return {
+        "token": create_access_token(identity=str(user.id)),
+        "requires_password_reset": requires_password_reset,
+        "role": user.role,
+        "roles": user.roles if user.roles else [user.role],
+        "assigned_class": user.assigned_class,
+        "school_id": school.id,
+        "subscription_plan": school.subscription_plan,
+        "subscription_status": billing_status.get("status"),
+        "enabled_modules": (
+            school.settings.enabled_modules if school.settings else {}
+        ),
+        "branding": {
+            "name": school.name,
+            "logo": school.logo_url,
+            "theme_color": school.primary_color,
+            "motto": school.motto,
+            "country_code": (
+                school.settings.country_code if school.settings else "GH"
+            ),
+        },
+    }
+
+
+STAFF_ROLE_EMAIL_METADATA = {
+    "teacher": {
+        "description": "Teacher access for subject teaching, score entry, lesson notes, and assigned class work.",
+        "permissions": "• Record subject scores\n• Submit lesson notes\n• View assigned classes, subjects, and timetable",
+    },
+    "homeroom": {
+        "description": "Homeroom access for class oversight, report building, attendance follow-up, and parent-facing class records.",
+        "permissions": "• Manage homeroom class records\n• Build and review terminal reports\n• Monitor class-level performance",
+    },
+    "headmaster": {
+        "description": "Headmaster access for academic oversight, approvals, staff supervision, and school-wide review.",
+        "permissions": "• Review academic performance\n• Approve workflows and reports\n• Oversee staff assignments and school operations",
+    },
+    "finance": {
+        "description": "Finance access for fee operations, payment verification, and school finance monitoring.",
+        "permissions": "• Record and verify payments\n• Use the payment tracker and finance dashboards\n• Monitor balances and payment activity",
+    },
+    "inventory_manager": {
+        "description": "Store management access for stock control, purchase logging, and issue tracking.",
+        "permissions": "• Record stock movements\n• Monitor inventory levels\n• Review inventory activity and reports",
+    },
+}
+
+
+def _get_frontend_login_url():
+    configured_url = (os.getenv("FRONTEND_URL") or "").strip()
+    origin_url = (request.headers.get("Origin") or "").strip()
+
+    base_url = configured_url
+    if origin_url and (
+        not base_url
+        or "localhost" in base_url.lower()
+        or "127.0.0.1" in base_url.lower()
+    ):
+        base_url = origin_url
+
+    if not base_url:
+        base_url = request.host_url.rstrip("/")
+
+    return f"{base_url.rstrip('/')}/login"
+
+
+def _get_staff_support_contact(school):
+    headmaster = User.query.filter_by(school_id=school.id, role="headmaster").first()
+    proprietor = User.query.filter_by(school_id=school.id, role="proprietor").first()
+    support_user = headmaster or proprietor
+
+    support_name = None
+    if support_user:
+        support_name = support_user.username
+    elif school and school.name:
+        support_name = f"{school.name} Administration"
+    else:
+        support_name = "School Administration"
+
+    return {
+        "name": support_name,
+        "email": (
+            (support_user.email if support_user and support_user.email else None)
+            or (school.school_email if school else None)
+            or "support@edupulse.com"
+        ),
+        "phone": (school.school_phone if school and school.school_phone else "+233 552 141 384"),
+    }
+
+
+def _generate_staff_temp_password(length=12):
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _send_staff_invite_email(user, school, temporary_password, expiry_days=30):
+    login_url = _get_frontend_login_url()
+    support_contact = _get_staff_support_contact(school)
+    role_email_meta = STAFF_ROLE_EMAIL_METADATA.get(user.role, {})
+    template_subject, template_body = get_staff_welcome_email(
+        staff_name=user.username,
+        school_name=school.name if school else "Your School",
+        username=user.username,
+        temporary_password=temporary_password,
+        assigned_role=user.role,
+        login_url=login_url,
+        expiry_days=expiry_days,
+        school_id=school.id if school else g.school_id,
+        role_description=role_email_meta.get("description"),
+        role_permissions=role_email_meta.get("permissions"),
+        support_contact_name=support_contact["name"],
+        support_contact_email=support_contact["email"],
+        support_contact_phone=support_contact["phone"],
+        email=user.email,
+    )
+
+    email_sent = False
+    email_error = None
+
+    try:
+        if template_subject and template_body:
+            send_email_notification(user.email, template_subject, template_body)
+            email_sent = True
+    except Exception as invite_error:
+        email_error = str(invite_error)
+        logger.error(f"Failed to send staff welcome email: {email_error}")
+
+    return email_sent, email_error
+
+
 @api.route("/login", methods=["POST"])
 @rate_limit_auth
 @csrf_protect
@@ -1432,34 +1565,15 @@ def login():
                 202,
             )
 
-        access_token = create_access_token(identity=str(user.id))
-
         # Log successful login
         log_action(user.id, school.id, "LOGIN", f"User {user.username} logged in")
 
         return jsonify(
-            {
-                "token": access_token,
-                    "requires_password_reset": requires_password_reset,
-                "role": user.role,
-                "roles": user.roles if user.roles else [user.role],
-                "assigned_class": user.assigned_class,
-                "school_id": school.id,
-                "subscription_plan": school.subscription_plan,
-                "subscription_status": get_billing_status_info(school).get("status"),
-                "enabled_modules": (
-                    school.settings.enabled_modules if school.settings else {}
-                ),
-                "branding": {
-                    "name": school.name,
-                    "logo": school.logo_url,
-                    "theme_color": school.primary_color,
-                    "motto": school.motto,
-                    "country_code": (
-                        school.settings.country_code if school.settings else "GH"
-                    ),
-                },
-            }
+            _build_auth_success_payload(
+                user,
+                school,
+                requires_password_reset=requires_password_reset,
+            )
         )
 
     record_login_failure(school_code, login_identifier, client_ip)
@@ -1729,7 +1843,6 @@ def verify_two_factor():
 
     db.session.commit()
 
-    access_token = create_access_token(identity=str(user.id))
     log_action(
         user.id,
         user.school_id,
@@ -1738,26 +1851,12 @@ def verify_two_factor():
     )
 
     school = School.query.get(user.school_id)
-    billing_status = get_billing_status_info(school)
     return jsonify(
-        {
-            "token": access_token,
-            "role": user.role,
-            "roles": user.roles if user.roles else [user.role],
-            "assigned_class": user.assigned_class,
-            "school_id": school.id,
-            "subscription_plan": school.subscription_plan,
-            "subscription_status": billing_status.get("status"),
-            "enabled_modules": (
-                school.settings.enabled_modules if school.settings else {}
-            ),
-            "branding": {
-                "name": school.name,
-                "logo": school.logo_url,
-                "theme_color": school.primary_color,
-                "motto": school.motto,
-            },
-        }
+        _build_auth_success_payload(
+            user,
+            school,
+            requires_password_reset=user.is_temp_password,
+        )
     )
 
 
@@ -3021,9 +3120,9 @@ def get_student_payment_codes(student_id):
             if fee_type == "Feeding" and student.scholarship_covers_feeding:
                 base_amount = 0.0
         
-        # Calculate convenience fee (default 2.5% or from fee route account)
+        # Calculate convenience fee (default 2.0% or from fee route account)
         route = subaccount_map.get(fee_type)
-        convenience_fee_percent = route.percentage_charge if route else 2.5
+        convenience_fee_percent = route.percentage_charge if route else DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
         convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
         total_amount = base_amount + convenience_fee_amount
 
@@ -3043,6 +3142,7 @@ def get_student_payment_codes(student_id):
                 "code": code,
                 "reference_code": code,
                 "base_amount": base_amount,
+                "cash_amount": round(base_amount, 2),
                 "convenience_fee_percent": convenience_fee_percent,
                 "convenience_fee_amount": round(convenience_fee_amount, 2),
                 "total_amount": round(total_amount, 2),
@@ -3057,13 +3157,13 @@ def get_student_payment_codes(student_id):
                     or (fee_type == "Feeding" and student.scholarship_covers_feeding)
                 ),
                 "instructions": (
-                    f"Pay GH₵ {base_amount:.2f} + {convenience_fee_percent}% convenience fee (GH₵ {convenience_fee_amount:.2f}) = GH₵ {total_amount:.2f} total for {display_name}. "
+                    f"Pay GH₵ {base_amount:.2f} school fee + {convenience_fee_percent}% convenience fee (GH₵ {convenience_fee_amount:.2f}) = GH₵ {total_amount:.2f} total by virtual route for {display_name}. "
                     + (
                         "Use the dedicated Paystack virtual account for automatic processing. "
                         if has_virtual_route
-                        else "Virtual route pending setup. Contact the school's accounts office for approved payment instructions. "
+                        else "Virtual route pending setup. Pay cash at the school office or use the school's approved manual payment instructions. "
                     )
-                    + f"Reference code ({code}) remains optional backup."
+                    + f"Reference code ({code}) remains optional backup. Cash at the school office remains GH₵ {base_amount:.2f} without the convenience fee."
                 ),
             }
         )
@@ -3096,7 +3196,7 @@ def get_student_payment_codes(student_id):
             "parent_phone": student.parent_phone,
             "parent_email": student.parent_email,
             "payment_codes": codes_list,
-            "note": "Use the payment-type virtual account/shortcode where available. If a virtual route is unavailable, contact the school's accounts office for approved payment instructions.",
+            "note": "Use the payment-type virtual account or shortcode where available. Virtual-route totals include the convenience fee. If a virtual route is unavailable, parents may pay cash at the school office or use the school's approved manual payment instructions.",
         }
     )
 
@@ -3160,7 +3260,7 @@ def get_student_payments(student_id):
 
         payment_list = []
         for payment in payments:
-            convenience_fee_percent = 2.5
+            convenience_fee_percent = DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
             gross_amount = float(payment.amount or 0)
             base_amount = round(
                 gross_amount / (1 + (convenience_fee_percent / 100)), 2
@@ -4409,6 +4509,17 @@ def _call_paystack_api(endpoint, method="GET", data=None):
         return None, str(e)
 
 
+def _get_paystack_secret_key_mode():
+    secret_key = (os.getenv("PAYSTACK_SECRET_KEY") or "").strip().lower()
+    if secret_key.startswith("sk_test_"):
+        return "test"
+    if secret_key.startswith("sk_live_"):
+        return "live"
+    if secret_key:
+        return "unknown"
+    return "unconfigured"
+
+
 def _get_subaccount_for_payment(school_id, payment_type):
     """Resolve a valid Paystack split route code for a given payment type.
 
@@ -4497,9 +4608,10 @@ def create_paystack_subaccount():
     data = request.get_json() or {}
     
     payment_type = sanitize_string(data.get("payment_type"))
-    percentage_charge = data.get("percentage_charge", 2.5)  # Default 2.5% platform fee
+    percentage_charge = data.get("percentage_charge", DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT)  # Default 2.0% platform fee
     customer_code = sanitize_string(data.get("customer_code") or data.get("customer"))
     preferred_bank = sanitize_string(data.get("preferred_bank") or data.get("provider"))
+    key_mode = _get_paystack_secret_key_mode()
     
     # Validate required fields
     if not payment_type or payment_type not in ["Tuition", "Feeding", "Uniform", "Transport", "Other"]:
@@ -4567,11 +4679,16 @@ def create_paystack_subaccount():
         )
         db.session.commit()
 
+        fallback_message = "Payment route created. Virtual account setup is pending; parents can use the school's saved bank account meanwhile."
+        if key_mode == "test":
+            fallback_message = "Payment route saved in fallback mode. Paystack test keys do not provide a usable live virtual account number here, so parents should pay cash at the school office or use the school's approved manual instructions until live keys are configured."
+
         return jsonify({
-            "message": "Payment route created. Virtual account setup is pending; parents can use the school's saved bank account meanwhile.",
+            "message": fallback_message,
             "subaccount": fallback_route.to_dict(),
             "fee_route_account": fallback_route.to_dict(),
             "mode": "manual_fallback",
+            "gateway_mode": key_mode,
         }), 201
 
     account_data = result.get("dedicated_account") if isinstance(result, dict) and isinstance(result.get("dedicated_account"), dict) else result
@@ -4611,11 +4728,16 @@ def create_paystack_subaccount():
         )
         db.session.commit()
 
+        fallback_message = "Payment route created. Virtual account setup is pending; parents can use the school's saved bank account meanwhile."
+        if key_mode == "test":
+            fallback_message = "Payment route saved in fallback mode. Paystack test keys do not provide a usable live virtual account number here, so parents should pay cash at the school office or use the school's approved manual instructions until live keys are configured."
+
         return jsonify({
-            "message": "Payment route created. Virtual account setup is pending; parents can use the school's saved bank account meanwhile.",
+            "message": fallback_message,
             "subaccount": fallback_route.to_dict(),
             "fee_route_account": fallback_route.to_dict(),
             "mode": "manual_fallback",
+            "gateway_mode": key_mode,
         }), 201
 
     # Keep legacy table compatibility: store deterministic route identifier in subaccount_code field (historical name).
@@ -4652,6 +4774,7 @@ def create_paystack_subaccount():
         "message": f"Dedicated virtual account created for {payment_type}. Parents can pay to this virtual account.",
         "subaccount": subaccount.to_dict(),
         "fee_route_account": subaccount.to_dict(),
+        "gateway_mode": key_mode,
         "dedicated_account": {
             "customer": customer_code,
             "preferred_bank": preferred_bank,
@@ -4706,9 +4829,13 @@ def get_paystack_dedicated_account_providers():
     """Get supported dedicated-account providers from Paystack."""
     country = sanitize_string(request.args.get("country") or "ghana").lower()
     endpoint = f"/dedicated_account/available_providers?country={country}"
+    key_mode = _get_paystack_secret_key_mode()
 
     result, error = _call_paystack_api(endpoint)
     if error:
+        warning = "Provider list is temporarily unavailable. Using default provider options."
+        if key_mode == "test":
+            warning += " Paystack test keys usually do not return real dedicated virtual account numbers, so fallback mode is expected until live keys are configured."
         fallback_providers = [
             {
                 "name": "Titan Paystack",
@@ -4721,7 +4848,8 @@ def get_paystack_dedicated_account_providers():
         return jsonify(
             {
                 "providers": fallback_providers,
-                "warning": "Provider list is temporarily unavailable. Using default provider options.",
+                "warning": warning,
+                "gateway_mode": key_mode,
             }
         ), 200
 
@@ -9038,9 +9166,6 @@ def replace_teacher_assignments(teacher_id, classes, subjects):
 @role_required("proprietor")
 def add_staff():
     """Adds a new staff member to the tenant."""
-    import secrets
-    import string
-
     data = request.json
 
     # Email is now required for staff accounts
@@ -9060,9 +9185,7 @@ def add_staff():
     if not roles:
         roles = [primary_role]
 
-    # Generate temporary password (12 characters: letters + digits + special chars)
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-    temp_password = "".join(secrets.choice(alphabet) for _ in range(12))
+    temp_password = _generate_staff_temp_password()
 
     # Set temp password expiry to 30 days from now
     temp_expires = datetime.now(timezone.utc) + timedelta(days=30)
@@ -9093,29 +9216,13 @@ def add_staff():
         )
         db.session.commit()
 
-    # Send email with credentials and instructions
     school = School.query.get(g.school_id)
-    template_subject, template_body = get_staff_welcome_email(
-        staff_name=data["username"],
-        school_name=school.name if school else "Your School",
-        username=data["username"],
-        temporary_password=temp_password,
-        assigned_role=primary_role,
-        login_url=os.getenv("FRONTEND_URL", "http://localhost:5173/login"),
+    email_sent, email_error = _send_staff_invite_email(
+        new_user,
+        school,
+        temp_password,
         expiry_days=30,
-        email=email,
     )
-
-    email_sent = False
-    email_error = None
-
-    try:
-        if template_subject and template_body:
-            send_email_notification(email, template_subject, template_body)
-            email_sent = True
-    except Exception as e:
-        email_error = str(e)
-        logger.error(f"Failed to send staff welcome email: {email_error}")
 
     status_message = "Staff member added successfully."
     if email_sent:
@@ -9128,6 +9235,58 @@ def add_staff():
             "message": status_message,
             "username": data["username"],
             "email": email,
+            "password_expires_in_days": 30,
+            "email_sent": email_sent,
+            "email_error": email_error,
+        }
+    )
+
+
+@api.route("/staff/<int:user_id>/resend-invite", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def resend_staff_invite(user_id):
+    """Issue a fresh temporary password and resend the staff invite email."""
+    user = User.query.filter_by(id=user_id, school_id=g.school_id).first_or_404()
+    if user.role == "proprietor":
+        return jsonify({"message": "Cannot resend invite for proprietor accounts."}), 400
+
+    if not user.email:
+        return jsonify({"message": "This staff account has no email address on file."}), 400
+
+    temp_password = _generate_staff_temp_password()
+    user.password_hash = generate_password_hash(temp_password)
+    user.is_temp_password = True
+    user.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+
+    school = School.query.get(g.school_id)
+    email_sent, email_error = _send_staff_invite_email(
+        user,
+        school,
+        temp_password,
+        expiry_days=30,
+    )
+
+    log_action(
+        int(get_jwt_identity()),
+        g.school_id,
+        "STAFF_INVITE_RESENT",
+        f"Resent invite to user {user.username}",
+    )
+    db.session.commit()
+
+    status_message = "Staff invite resent successfully."
+    if email_sent:
+        status_message += " A fresh temporary password was emailed to the staff member."
+    else:
+        status_message += " Failed to send welcome email. Please verify SMTP configuration."
+
+    return jsonify(
+        {
+            "message": status_message,
+            "username": user.username,
+            "email": user.email,
             "password_expires_in_days": 30,
             "email_sent": email_sent,
             "email_error": email_error,
@@ -10341,30 +10500,7 @@ def get_school_branding():
                 "other_fees": settings.other_fees or {},
             }
 
-        def _mask_account(acct):
-            try:
-                s = str(acct or "")
-                if len(s) <= 4:
-                    return "****"
-                return "****" + s[-4:]
-            except Exception:
-                return "****"
-
-        def _mask_name(name):
-            try:
-                s = str(name or "")
-                parts = s.split()
-                if len(parts) == 0:
-                    return ""
-                if len(parts) == 1:
-                    return parts[0][0] + '***'
-                return parts[0] + ' ' + parts[-1][0] + '***'
-            except Exception:
-                return ""
-
-        masked_bank_name = _mask_name(school.bank_name)
-        masked_account = _mask_account(school.bank_account)
-        masked_account_name = _mask_name(school.bank_account_name)
+        masked_bank_fields = _masked_bank_fields_for_school(school)
 
         return jsonify(
             {
@@ -10376,10 +10512,10 @@ def get_school_branding():
                 "school_phone": school.school_phone,
                 "school_address": school.school_address,
                 "school_website": school.school_website,
-                "bank_name": masked_bank_name,
-                "bank_account": masked_account,
-                "bank_account_name": masked_account_name,
-                "bank_branch": school.bank_branch,
+                "bank_name": masked_bank_fields["bank_name"],
+                "bank_account": masked_bank_fields["bank_account"],
+                "bank_account_name": masked_bank_fields["bank_account_name"],
+                "bank_branch": masked_bank_fields["bank_branch"],
                 "country_code": settings.country_code if settings else "GH",
                 "fees": fees,
             }
@@ -10427,6 +10563,43 @@ def view_school_bank_details():
 def _get_school_country_code(school_id):
     settings = SchoolSettings.query.filter_by(school_id=school_id).first()
     return (settings.country_code if settings and settings.country_code else "GH").upper()
+
+
+DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT = 2.0
+
+
+def _mask_bank_account_value(account_number):
+    try:
+        value = str(account_number or "").strip()
+        if not value:
+            return ""
+        if len(value) <= 4:
+            return "****"
+        return "****" + value[-4:]
+    except Exception:
+        return "****"
+
+
+def _mask_bank_text_value(value):
+    try:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        parts = text.split()
+        if len(parts) == 1:
+            return parts[0][0] + "***"
+        return parts[0] + " " + parts[-1][0] + "***"
+    except Exception:
+        return ""
+
+
+def _masked_bank_fields_for_school(school):
+    return {
+        "bank_name": _mask_bank_text_value(school.bank_name),
+        "bank_account": _mask_bank_account_value(school.bank_account),
+        "bank_account_name": _mask_bank_text_value(school.bank_account_name),
+        "bank_branch": _mask_bank_text_value(school.bank_branch),
+    }
 
 
 def _get_holiday_status(school_id, target_date):
@@ -11358,7 +11531,7 @@ def get_inventory_transactions():
 @role_required("proprietor")
 @jwt_required()
 def get_school_settings():
-    """Returns school settings including saved bank account details for review/edit."""
+    """Returns school settings with bank details masked until password re-entry."""
     school = School.query.get(g.school_id)
     if not school:
         return jsonify({"message": "School not found"}), 404
@@ -11384,6 +11557,8 @@ def get_school_settings():
 
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
 
+    masked_bank_fields = _masked_bank_fields_for_school(school)
+
     return jsonify(
         {
             "name": school.name,
@@ -11394,10 +11569,11 @@ def get_school_settings():
             "school_phone": school.school_phone,
             "school_address": school.school_address,
             "school_website": school.school_website,
-            "bank_name": school.bank_name,
-            "bank_account": school.bank_account,
-            "bank_account_name": school.bank_account_name,
-            "bank_branch": school.bank_branch,
+            "bank_name": masked_bank_fields["bank_name"],
+            "bank_account": masked_bank_fields["bank_account"],
+            "bank_account_name": masked_bank_fields["bank_account_name"],
+            "bank_branch": masked_bank_fields["bank_branch"],
+            "bank_details_masked": True,
             "country_code": settings.country_code if settings and settings.country_code else "GH",
             "anniversary_date": settings.anniversary_date.isoformat() if settings and settings.anniversary_date else None,
         }
@@ -11445,24 +11621,34 @@ def update_school_settings():
         school.school_website = data["school_website"]
         changed_fields.append("school_website")
 
+    masked_bank_fields = _masked_bank_fields_for_school(school)
+
     # Payment account details
     bank_fields_changed = []
     if "bank_name" in data:
-        school.bank_name = data["bank_name"]
-        changed_fields.append("bank_name")
-        bank_fields_changed.append("bank_name")
+        incoming_bank_name = data["bank_name"]
+        if incoming_bank_name != masked_bank_fields["bank_name"]:
+            school.bank_name = incoming_bank_name
+            changed_fields.append("bank_name")
+            bank_fields_changed.append("bank_name")
     if "bank_account" in data:
-        school.bank_account = data["bank_account"]
-        changed_fields.append("bank_account")
-        bank_fields_changed.append("bank_account")
+        incoming_bank_account = data["bank_account"]
+        if incoming_bank_account != masked_bank_fields["bank_account"]:
+            school.bank_account = incoming_bank_account
+            changed_fields.append("bank_account")
+            bank_fields_changed.append("bank_account")
     if "bank_account_name" in data:
-        school.bank_account_name = data["bank_account_name"]
-        changed_fields.append("bank_account_name")
-        bank_fields_changed.append("bank_account_name")
+        incoming_account_name = data["bank_account_name"]
+        if incoming_account_name != masked_bank_fields["bank_account_name"]:
+            school.bank_account_name = incoming_account_name
+            changed_fields.append("bank_account_name")
+            bank_fields_changed.append("bank_account_name")
     if "bank_branch" in data:
-        school.bank_branch = data["bank_branch"]
-        changed_fields.append("bank_branch")
-        bank_fields_changed.append("bank_branch")
+        incoming_bank_branch = data["bank_branch"]
+        if incoming_bank_branch != masked_bank_fields["bank_branch"]:
+            school.bank_branch = incoming_bank_branch
+            changed_fields.append("bank_branch")
+            bank_fields_changed.append("bank_branch")
 
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     if not settings:
@@ -11824,6 +12010,14 @@ def get_subscription():
     effective_plan = get_effective_plan(school)
     plan_info = PLAN_FEATURES.get(effective_plan, PLAN_FEATURES["Free Tier"])
     plan_display = FEATURE_MATRIX_DISPLAY.get(effective_plan, {})
+    trial_end_date = school.trial_end_date
+    if trial_end_date and trial_end_date.tzinfo is None:
+        trial_end_date = trial_end_date.replace(tzinfo=timezone.utc)
+    next_billing_date = (
+        school.next_billing_date.strftime("%Y-%m-%d")
+        if school.next_billing_date
+        else None
+    )
 
     max_students = plan_info.get("max_students", 50)
     max_classes = plan_info.get("max_classes", 1)
@@ -11850,11 +12044,8 @@ def get_subscription():
             "subscription_plan": effective_plan,  # Explicit alias for clarity
             "status": billing_status.get("status", school.subscription_status),
             "billing_status": billing_status,
-            "next_billing": (
-                school.next_billing_date.strftime("%Y-%m-%d")
-                if school.next_billing_date
-                else "N/A"
-            ),
+            "next_billing": next_billing_date or "N/A",
+            "next_billing_date": next_billing_date,
             "enabled_modules": enabled_modules,  # Include for frontend refresh
             "price": plan_info.get("price", "Free"),
             "price_range": plan_info.get("price_range"),
@@ -11883,21 +12074,21 @@ def get_subscription():
             "trial": {
                 "plan": school.trial_plan,
                 "end_date": (
-                    school.trial_end_date.strftime("%Y-%m-%d")
-                    if school.trial_end_date
+                    trial_end_date.strftime("%Y-%m-%d")
+                    if trial_end_date
                     else None
                 ),
                 "active": bool(
                     school.trial_plan
-                    and school.trial_end_date
-                    and datetime.now(timezone.utc) < school.trial_end_date
+                    and trial_end_date
+                    and datetime.now(timezone.utc) < trial_end_date
                 ),
             },
             "features": plan_info.get("features", {}),
             "features_display": plan_display,
             "report_templates": plan_info.get("report_templates", []),
             "billing_visibility": billing_visibility,
-            "pending_plan": school.pending_plan,
+            "pending_plan": getattr(school, "pending_plan", None),
         }
     )
 

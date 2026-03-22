@@ -7,21 +7,32 @@ import BillingControlPanel from '../components/BillingControlPanel';
 
 export default function SubscriptionManager() {
   const [sub, setSub] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [billingPeriod, setBillingPeriod] = useState('term');
   const [prorateInfo, setProrateInfo] = useState(null);
   const [billingRestriction, setBillingRestriction] = useState(null);
 
   useEffect(() => {
     const fetchSub = async () => {
+      setLoading(true);
+      setLoadError('');
       try {
         const headers = { 
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'X-School-ID': localStorage.getItem('school_id') 
         };
         const res = await axios.get('/api/school/subscription', { headers });
-        setSub(res.data);
+        setSub({
+          ...res.data,
+          next_billing_date: res.data?.next_billing_date || res.data?.next_billing || null,
+        });
       } catch (err) {
-        console.error("Failed to fetch subscription");
+        console.error('Failed to fetch subscription', err);
+        setSub(null);
+        setLoadError(err.response?.data?.message || 'Failed to load subscription details.');
+      } finally {
+        setLoading(false);
       }
     };
     fetchSub();
@@ -142,11 +153,26 @@ export default function SubscriptionManager() {
     }
   };
 
-  if (!sub) return (
+  if (loading) return (
     <div className="flex items-center justify-center h-96">
       <div className="text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
         <p className="text-slate-600">Loading subscription details...</p>
+      </div>
+    </div>
+  );
+
+  if (!sub) return (
+    <div className="flex items-center justify-center h-96">
+      <div className="max-w-md rounded-2xl border border-red-200 bg-red-50 p-6 text-center shadow-sm">
+        <p className="text-lg font-bold text-red-900 mb-2">Subscription details unavailable</p>
+        <p className="text-sm text-red-700 mb-4">{loadError || 'The subscription page could not be loaded.'}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700"
+        >
+          Retry
+        </button>
       </div>
     </div>
   );

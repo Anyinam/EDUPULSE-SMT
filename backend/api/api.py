@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 from flask_mail import Mail, Message
+from sqlalchemy.engine import URL
 from werkzeug.security import check_password_hash, generate_password_hash
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -71,10 +72,36 @@ CORS(
     max_age=3600,
 )
 
-# Configure database - use TEST_DATABASE_URL in testing, DATABASE_URL in production
-db_url = os.getenv("TEST_DATABASE_URL") or os.getenv(
-    "DATABASE_URL", "sqlite:///edupulse.db"
-)
+def _build_database_url() -> str:
+    test_database_url = (os.getenv("TEST_DATABASE_URL") or "").strip()
+    if test_database_url:
+        return test_database_url
+
+    database_host = (os.getenv("DATABASE_HOST") or "").strip()
+    database_port = (os.getenv("DATABASE_PORT") or "5432").strip()
+    postgres_user = (os.getenv("POSTGRES_USER") or "").strip()
+    postgres_password = os.getenv("POSTGRES_PASSWORD") or ""
+    postgres_db = (os.getenv("POSTGRES_DB") or "").strip()
+
+    if database_host and postgres_user and postgres_db:
+        return URL.create(
+            drivername="postgresql+psycopg2",
+            username=postgres_user,
+            password=postgres_password,
+            host=database_host,
+            port=int(database_port or "5432"),
+            database=postgres_db,
+        ).render_as_string(hide_password=False)
+
+    raw_database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if raw_database_url:
+        return raw_database_url
+
+    return "sqlite:///edupulse.db"
+
+
+# Configure database - use TEST_DATABASE_URL in testing, component-based PostgreSQL in Docker, DATABASE_URL otherwise.
+db_url = _build_database_url()
 
 raw_database_url = os.getenv("DATABASE_URL", "")
 is_strict_env = (os.getenv("FLASK_ENV", "development").lower() == "production")

@@ -10,6 +10,7 @@ Your staff account has been created with the following details:
 • Email: {{email}}
 • Role: {{role}}
 • School: {{school_name}}
+• Organization ID: {{school_id}}
 • Login URL: {{login_url}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -42,7 +43,8 @@ Your staff account has been created with the following details:
 
 • Dashboard Help: Click the "?" icon in the top menu
 • Email Support: support@edupulse.com
-• Contact Headmaster: {{headmaster_name}} ({{headmaster_email}})
+• School Support: {{support_contact_name}} ({{support_contact_email}})
+• Support Phone: {{support_contact_phone}}
 
 Welcome aboard! 🎓
 

@@ -54,6 +54,114 @@ class TestAuthenticationSecurity:
         refreshed = User.query.get(test_teacher.id)
         assert refreshed.two_fa_enabled is True
 
+    def test_2fa_verify_returns_full_auth_context(
+        self, client, test_school, test_teacher, mock_email, monkeypatch
+    ):
+        """2FA completion should return the same auth context the app stores after normal login."""
+        import backend.routes as routes
+
+        monkeypatch.setattr(routes, "MFA_REQUIRED", True)
+        monkeypatch.setattr(routes.secrets, "randbelow", lambda _: 123456)
+
+        response = client.post(
+            "/api/login",
+            data=json.dumps(
+                {
+                    "school_code": test_school.id,
+                    "username": test_teacher.username,
+                    "password": "TeacherPass123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        pending = json.loads(response.data)
+
+        verify = client.post(
+            "/api/2fa/verify",
+            data=json.dumps({"token": pending["token"], "code": "123456"}),
+            content_type="application/json",
+        )
+
+        assert verify.status_code == 200
+        body = json.loads(verify.data)
+        assert body["school_id"] == test_school.id
+        assert body["role"] == test_teacher.role
+        assert body["roles"] == [test_teacher.role]
+        assert "subscription_plan" in body
+        assert "subscription_status" in body
+        assert isinstance(body["enabled_modules"], dict)
+        assert body["enabled_modules"]
+        assert body["requires_password_reset"] is False
+        assert body["branding"]["name"] == test_school.name
+        assert body["branding"]["country_code"] == "GH"
+
+    def test_login_marks_temp_password_accounts_for_forced_change(
+        self, client, test_school, test_teacher, monkeypatch
+    ):
+        import backend.routes as routes
+        from datetime import datetime, timedelta, timezone
+
+        monkeypatch.setattr(routes, "MFA_REQUIRED", False)
+        test_teacher.is_temp_password = True
+        test_teacher.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        routes.db.session.commit()
+
+        response = client.post(
+            "/api/login",
+            data=json.dumps(
+                {
+                    "school_code": test_school.id,
+                    "username": test_teacher.username,
+                    "password": "TeacherPass123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        body = json.loads(response.data)
+        assert body["requires_password_reset"] is True
+
+    def test_2fa_verify_preserves_temp_password_reset_requirement(
+        self, client, test_school, test_teacher, mock_email, monkeypatch
+    ):
+        import backend.routes as routes
+        from datetime import datetime, timedelta, timezone
+
+        monkeypatch.setattr(routes, "MFA_REQUIRED", True)
+        monkeypatch.setattr(routes.secrets, "randbelow", lambda _: 123456)
+
+        test_teacher.is_temp_password = True
+        test_teacher.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        routes.db.session.commit()
+
+        response = client.post(
+            "/api/login",
+            data=json.dumps(
+                {
+                    "school_code": test_school.id,
+                    "username": test_teacher.username,
+                    "password": "TeacherPass123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        pending = json.loads(response.data)
+
+        verify = client.post(
+            "/api/2fa/verify",
+            data=json.dumps({"token": pending["token"], "code": "123456"}),
+            content_type="application/json",
+        )
+
+        assert verify.status_code == 200
+        body = json.loads(verify.data)
+        assert body["requires_password_reset"] is True
+
     def test_login_returns_dev_code_when_2fa_email_delivery_fails_locally(
         self, client, test_school, test_teacher, mocker, monkeypatch
     ):
