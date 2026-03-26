@@ -2,6 +2,21 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import TimetableManager from './TimetableManager';
 import TermManagementPanel from './TermManagementPanel';
+import reportTemplates from '../report_templates';
+import { buildTemplateHtml } from '../utils/reportTemplate';
+
+const TEMPLATE_ALIAS_TO_CANONICAL = {
+  sample1: 'gradman_v1',
+  sample2: 'parent_focus',
+  sample3: 'progress_insights',
+  sample4: 'compact_clear',
+  sample5: 'guardian_narrative',
+  sample6: 'classic_traditional'
+};
+
+const TEMPLATE_CANONICAL_TO_ALIAS = Object.fromEntries(
+  Object.entries(TEMPLATE_ALIAS_TO_CANONICAL).map(([alias, canonical]) => [canonical, alias])
+);
 
 export default function SettingsPanel() {
   const [settings, setSettings] = useState({
@@ -18,7 +33,8 @@ export default function SettingsPanel() {
     bank_account_name: '',
     bank_branch: '',
     country_code: 'GH',
-    anniversary_date: ''
+    anniversary_date: '',
+    next_term_reopen_date: ''
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
@@ -113,7 +129,8 @@ export default function SettingsPanel() {
       school_address: branding.address || prev.school_address || '',
       school_website: branding.website || prev.school_website || '',
       country_code: branding.country_code || prev.country_code || 'GH',
-      anniversary_date: branding.anniversary_date || prev.anniversary_date || ''
+      anniversary_date: branding.anniversary_date || prev.anniversary_date || '',
+      next_term_reopen_date: prev.next_term_reopen_date || ''
     }));
 
     // Get subscription plan from backend to ensure it's always up-to-date
@@ -163,6 +180,7 @@ export default function SettingsPanel() {
           bank_branch: data.bank_branch || '',
           country_code: data.country_code || prev.country_code,
           anniversary_date: data.anniversary_date || prev.anniversary_date,
+          next_term_reopen_date: data.next_term_reopen_date || '',
         }));
         setMaskedBankSnapshot({
           bank_name: data.bank_name || '',
@@ -322,9 +340,10 @@ export default function SettingsPanel() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id')
       };
-      const res = await axios.get('/api/school/template', { headers });
-      setActiveTemplate(res.data.template_id || 'sample1');
-      setActiveTemplateConfig(res.data.template_config || {});
+      const res = await axios.get('/api/school/report-template', { headers });
+      const canonicalId = res.data.report_template_id || 'gradman_v1';
+      setActiveTemplate(TEMPLATE_CANONICAL_TO_ALIAS[canonicalId] || canonicalId);
+      setActiveTemplateConfig(res.data.report_template_config || {});
     } catch (err) {
       console.error('Failed to load active template');
     }
@@ -336,9 +355,14 @@ export default function SettingsPanel() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id')
       };
-      const response = await axios.post('/api/school/template', { template_id: templateId }, { headers });
+      const canonicalId = TEMPLATE_ALIAS_TO_CANONICAL[templateId] || templateId;
+      const response = await axios.post(
+        '/api/school/report-template',
+        { report_template_id: canonicalId },
+        { headers }
+      );
       setActiveTemplate(templateId);
-      setActiveTemplateConfig(response.data.template_config || activeTemplateConfig);
+      setActiveTemplateConfig(response.data.report_template_config || activeTemplateConfig);
       setTemplateMessage(`✅ Template ${templateId} is now active`);
       setTimeout(() => setTemplateMessage(''), 3000);
     } catch (err) {
@@ -425,6 +449,55 @@ export default function SettingsPanel() {
 
     return `<!doctype html><html><head><meta charset="utf-8">${cssStyles}</head><body ${background}>${activeTemplateConfig.html || '<p>No HTML content</p>'}</body></html>`;
   };
+
+  const formatDisplayDate = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
+  const previewTemplateCanonicalId = TEMPLATE_ALIAS_TO_CANONICAL[previewTemplate] || previewTemplate;
+  const previewTemplateDefinition = reportTemplates.find((template) => template.id === previewTemplateCanonicalId);
+  const previewReopeningDate = formatDisplayDate(settings.next_term_reopen_date) || '4 May 2026';
+  const previewTemplateData = {
+    school_name: settings.school_name || 'M. A. Bediako Adventist Preparatory School',
+    school_logo: settings.logo_url || '',
+    school_motto: settings.school_motto || 'Excellence in Education',
+    school_email: settings.school_email || 'mabaps1974@yahoo.com',
+    school_phone: settings.school_phone || '03220 80310',
+    school_contact: `${settings.school_email || 'mabaps1974@yahoo.com'} | ${settings.school_phone || '03220 80310'}`,
+    student_name: 'John Doe (Sample)',
+    student_code: 'STU-2024-001',
+    class_name: 'Basic 6C',
+    academic_term: 'Term One',
+    academic_year: '2024/2025',
+    term_average: '87.3',
+    overall_position: '2nd',
+    out_of_students: '45',
+    attendance_percentage: '96%',
+    total_attendance: '68/70',
+    reopening_date: previewReopeningDate,
+    homeroom_teacher_remarks: 'John has shown excellent performance this term. Keep up the good work!',
+    headmaster_remarks: 'Outstanding academic achievement. Continue to strive for excellence.',
+    proprietor_remarks: 'A model student. Well done!',
+    ai_performance_analysis: 'John demonstrates strong consistency across core subjects with very good attendance and positive classroom habits.',
+    strengths: 'Excellent literacy skills, strong class participation, and dependable homework completion.',
+    weaknesses: 'Needs to speak up more during oral drills and improve speed in Mathematics problem solving.',
+    subject_grades: [
+      { subject: 'English Language', class_score: '24', exam_score: '43', total: '67', grade: 'P', position: '4th', remarks: 'Approaching Proficiency' },
+      { subject: 'Mathematics', class_score: '25', exam_score: '45', total: '70', grade: 'AP', position: '3rd', remarks: 'Proficient' },
+      { subject: 'Science', class_score: '23', exam_score: '41', total: '64', grade: 'D', position: '6th', remarks: 'Developing' },
+      { subject: 'Creative Arts', class_score: '27', exam_score: '44', total: '71', grade: 'AP', position: '2nd', remarks: 'Strong practical work' }
+    ]
+  };
+  const previewTemplateHtml = previewTemplateDefinition?.config?.type === 'html'
+    ? buildTemplateHtml({ templateConfig: previewTemplateDefinition.config, data: previewTemplateData })
+    : '';
 
   const handleViewBankDetails = async () => {
     const pwd = prompt('Enter your password to view full bank details');
@@ -520,7 +593,8 @@ export default function SettingsPanel() {
         school_address: settings.school_address,
         school_website: settings.school_website,
         country_code: settings.country_code,
-        anniversary_date: settings.anniversary_date
+        anniversary_date: settings.anniversary_date,
+        next_term_reopen_date: settings.next_term_reopen_date
       };
 
       if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
@@ -1211,6 +1285,20 @@ export default function SettingsPanel() {
         <p className="text-sm text-slate-600 mb-4">
           Choose which template layout to use for terminal reports. Click a template to preview it, then click "Set as Active" to activate.
         </p>
+
+        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <label className="block text-sm font-bold text-slate-700 mb-2">Next Term Reopen Date</label>
+          <input
+            type="date"
+            name="next_term_reopen_date"
+            value={settings.next_term_reopen_date}
+            onChange={handleChange}
+            className="w-full md:w-72 p-3 border rounded-lg bg-white"
+          />
+          <p className="text-xs text-slate-500 mt-2">
+            Set this once and it will automatically appear on every terminal report template.
+          </p>
+        </div>
         
         {templateMessage && (
           <div className={`mb-4 p-3 rounded-lg ${
@@ -1693,7 +1781,7 @@ export default function SettingsPanel() {
                 <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-sm font-bold text-slate-800 mb-2">Auto-filled by the system when grades are finalized</p>
                   <div className="flex flex-wrap gap-2 text-xs text-slate-700">
-                    {['School name', 'Student name', 'Student code', 'Class', 'Academic term', 'Academic year', 'Subject scores', 'Grades', 'Term average', 'Class position', 'Attendance %', 'Total attendance'].map((item) => (
+                    {['School name', 'Student name', 'Student code', 'Class', 'Academic term', 'Academic year', 'Subject scores', 'Grades', 'Term average', 'Class position', 'Attendance %', 'Total attendance', 'Next term reopen date'].map((item) => (
                       <span key={item} className="rounded-full bg-white px-3 py-1 border border-slate-200">{item}</span>
                     ))}
                   </div>
@@ -1708,6 +1796,13 @@ export default function SettingsPanel() {
                     title="Custom Template Preview"
                     style={{ width: '100%', minHeight: '650px', border: '1px solid #d1d5db' }}
                     srcDoc={getCustomTemplateSrcDoc()}
+                  />
+                </div>
+              ) : previewTemplateHtml ? (
+                <div className="bg-white p-4 shadow-lg" style={{ minHeight: '600px' }}>
+                  <div
+                    className="report-template-preview"
+                    dangerouslySetInnerHTML={{ __html: previewTemplateHtml }}
                   />
                 </div>
               ) : (
@@ -1749,6 +1844,10 @@ export default function SettingsPanel() {
                     <div>
                       <p className="text-xs text-slate-600">Position:</p>
                       <p className="font-bold text-slate-800">2nd / 45</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-600">Next Term Reopens:</p>
+                      <p className="font-bold text-slate-800">{previewReopeningDate}</p>
                     </div>
                   </div>
 

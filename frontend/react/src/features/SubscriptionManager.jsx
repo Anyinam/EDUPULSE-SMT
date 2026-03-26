@@ -13,6 +13,12 @@ export default function SubscriptionManager() {
   const [prorateInfo, setProrateInfo] = useState(null);
   const [billingRestriction, setBillingRestriction] = useState(null);
 
+  const PLAN_ORDER = {
+    'Free Tier': 0,
+    'Basic': 1,
+    'Premium': 2,
+  };
+
   useEffect(() => {
     const fetchSub = async () => {
       setLoading(true);
@@ -84,9 +90,13 @@ export default function SubscriptionManager() {
   };
 
   const handleUpgrade = async (plan, cost) => {
-    // Free Tier: Direct downgrade (no payment required)
-    if (plan === 'Free Tier') {
-      if (!window.confirm('Downgrade to Free Tier? You will lose premium features.')) return;
+    const currentRank = PLAN_ORDER[sub?.plan] ?? 0;
+    const nextRank = PLAN_ORDER[plan] ?? 0;
+    const isDowngrade = nextRank < currentRank;
+
+    if (isDowngrade) {
+      const confirmLabel = plan === 'Free Tier' ? 'Downgrade to Free Tier' : `Switch to ${plan}`;
+      if (!window.confirm(`${confirmLabel}? Your paid features will be reduced immediately.`)) return;
       try {
         const headers = { 
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -107,10 +117,10 @@ export default function SubscriptionManager() {
           }
         }
         
-        alert("Plan downgraded successfully!");
+        alert(`Plan changed to ${plan} successfully.`);
         window.location.reload();  // Full reload to update all components
       } catch (err) {
-        alert("Downgrade failed.");
+        alert(err.response?.data?.message || 'Plan change failed.');
       }
       return;
     }
@@ -388,6 +398,12 @@ export default function SubscriptionManager() {
           {plans.map((plan) => {
             const isCurrentPlan = sub.plan === plan.name;
             const displayCost = billingPeriod === 'term' ? plan.termCost : plan.annualCost;
+            const currentRank = PLAN_ORDER[sub.plan] ?? 0;
+            const targetRank = PLAN_ORDER[plan.name] ?? 0;
+            const isUpgrade = targetRank > currentRank;
+            const isDowngrade = targetRank < currentRank;
+            const shouldShowProration = !isCurrentPlan && isUpgrade && prorateInfo && plan.name !== 'Free Tier';
+            const actionAmount = shouldShowProration ? displayCost * prorateInfo.prorateRatio : displayCost;
             
             return (
               <div
@@ -464,7 +480,7 @@ export default function SubscriptionManager() {
                 </ul>
 
                 {/* Proration Banner - Only show if applicable */}
-                {!isCurrentPlan && prorateInfo && plan.name !== 'Free Tier' && (
+                {shouldShowProration && (
                   <div className="mb-6 bg-amber-50 border border-amber-300 rounded-lg p-3">
                     <div className="flex items-start gap-2">
                       <Tag className="text-amber-600 shrink-0 mt-0.5" size={16} />
@@ -492,7 +508,11 @@ export default function SubscriptionManager() {
                         : 'border-2 border-slate-300 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
-                    {plan.name === 'Free Tier' ? 'Switch to Free' : `Pay GH₵ ${(displayCost * (prorateInfo ? prorateInfo.prorateRatio : 1)).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`}
+                    {isDowngrade
+                      ? plan.name === 'Free Tier'
+                        ? 'Switch to Free'
+                        : `Switch to ${plan.name}`
+                      : `Pay GH₵ ${actionAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`}
                   </button>
                 )}
               </div>

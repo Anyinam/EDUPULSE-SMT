@@ -639,6 +639,34 @@ def test_staff_add_welcome_email_includes_school_id_and_support_details(
     assert "{{school_id}}" not in captured["body"]
 
 
+def test_staff_add_rejects_duplicate_email_in_same_school(
+    client, app, db, test_school, test_proprietor, proprietor_headers
+):
+    from backend.api.models import User
+
+    existing_staff = User(
+        username="anyinam111",
+        school_id=test_school.id,
+        role="teacher",
+        roles=["teacher"],
+        email="DaniYinam11@gmail.com",
+    )
+    existing_staff.set_password("ExistingPass123")
+    db.session.add(existing_staff)
+    db.session.commit()
+
+    payload = {
+        "username": "daniel2",
+        "email": "  daniyinam11@gmail.com  ",
+        "role": "teacher",
+    }
+
+    response = client.post("/api/staff/add", json=payload, headers=proprietor_headers)
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "Email address is already assigned to another staff member in this school."
+
+
 def test_resend_staff_invite_rotates_temp_password_and_sends_email(
     client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch
 ):

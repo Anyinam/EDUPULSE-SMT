@@ -49,6 +49,9 @@ def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test
     assert student_payload["parent_phone"] == "+233501111111"
     assert student_payload["parent_email"] == "ama@example.com"
     assert student_payload["total_tuition_owed"] == 450.0
+    assert student_payload["intervention_summary"] == "Overdue tuition"
+    assert student_payload["intervention_reasons"][0]["code"] == "overdue_tuition"
+    assert "31 day" in student_payload["intervention_reasons"][0]["detail"]
 
 
 

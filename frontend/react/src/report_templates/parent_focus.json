@@ -66,6 +66,14 @@
         "type": "grading_scale"
       },
       {
+        "id": "next_term_reopening",
+        "label": "Next Term",
+        "type": "summary",
+        "fields": [
+          { "key": "reopening_date", "label": "School Reopens" }
+        ]
+      },
+      {
         "id": "teacher_remarks",
         "label": "Teacher Comment",
         "type": "remarks",

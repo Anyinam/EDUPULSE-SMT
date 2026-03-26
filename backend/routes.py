@@ -138,6 +138,13 @@ from .middleware import (
 )
 
 logger = logging.getLogger(__name__)
+STARTUP_WHATSAPP_ENABLED = False
+
+
+def _whatsapp_feature_disabled_response():
+    return jsonify({
+        "message": "WhatsApp messaging is currently disabled for this startup phase. Use print, export, or copy-based sharing instead."
+    }), 403
 
 from backend.holiday_utils import get_national_holidays
 api = Blueprint("api", __name__)
@@ -690,6 +697,9 @@ def get_client_ip():
 @jwt_required()
 def send_whatsapp_test_message():
     """Send a test WhatsApp message for current school proprietor."""
+    if not STARTUP_WHATSAPP_ENABLED:
+        return _whatsapp_feature_disabled_response()
+
     user_id = int(get_jwt_identity())
     payload = request.get_json(silent=True) or {}
 
@@ -1359,6 +1369,127 @@ STAFF_ROLE_EMAIL_METADATA = {
     },
 }
 
+LEGACY_REPORT_TEMPLATE_ID_MAP = {
+    "sample1": "gradman_v1",
+    "sample2": "parent_focus",
+    "sample3": "progress_insights",
+    "sample4": "compact_clear",
+    "sample5": "guardian_narrative",
+    "sample6": "classic_traditional",
+}
+
+CANONICAL_REPORT_TEMPLATE_ID_MAP = {
+    canonical: legacy for legacy, canonical in LEGACY_REPORT_TEMPLATE_ID_MAP.items()
+}
+
+GLOBAL_REPORT_SETTINGS_KEY = "__global_report_settings__"
+
+
+def _normalize_report_template_id(template_id):
+    normalized = (template_id or "").strip()
+    return LEGACY_REPORT_TEMPLATE_ID_MAP.get(normalized, normalized)
+
+
+def _to_legacy_report_template_id(template_id):
+    normalized = _normalize_report_template_id(template_id)
+    return CANONICAL_REPORT_TEMPLATE_ID_MAP.get(normalized, normalized)
+
+
+def _get_report_global_settings(settings):
+    raw_config = settings.report_template_config if settings else {}
+    if not isinstance(raw_config, dict):
+        return {}
+    global_settings = raw_config.get(GLOBAL_REPORT_SETTINGS_KEY)
+    return global_settings if isinstance(global_settings, dict) else {}
+
+
+def _merge_report_template_config(existing_config, incoming_config):
+    merged = dict(incoming_config or {}) if isinstance(incoming_config, dict) else {}
+    existing_globals = {}
+    if isinstance(existing_config, dict):
+        raw_existing_globals = existing_config.get(GLOBAL_REPORT_SETTINGS_KEY)
+        if isinstance(raw_existing_globals, dict):
+            existing_globals = dict(raw_existing_globals)
+
+    incoming_globals = merged.get(GLOBAL_REPORT_SETTINGS_KEY)
+    if isinstance(incoming_globals, dict):
+        existing_globals.update(incoming_globals)
+
+    if existing_globals:
+        merged[GLOBAL_REPORT_SETTINGS_KEY] = existing_globals
+
+    return merged
+
+
+def _set_report_global_setting(settings, key, value):
+    config = settings.report_template_config if isinstance(settings.report_template_config, dict) else {}
+    config = dict(config)
+    global_settings = dict(config.get(GLOBAL_REPORT_SETTINGS_KEY) or {})
+
+    if value:
+        global_settings[key] = value
+    else:
+        global_settings.pop(key, None)
+
+    if global_settings:
+        config[GLOBAL_REPORT_SETTINGS_KEY] = global_settings
+    else:
+        config.pop(GLOBAL_REPORT_SETTINGS_KEY, None)
+
+    settings.report_template_config = config
+
+
+def _get_configured_reopening_date(settings, current_term=None, next_term=None):
+    configured_value = _get_report_global_settings(settings).get("next_term_reopen_date")
+    if configured_value:
+        return configured_value
+
+    if current_term and current_term.billing_due_date:
+        return current_term.billing_due_date.isoformat()
+
+    if next_term and next_term.start_date:
+        return next_term.start_date.isoformat()
+
+    return None
+
+
+def _build_report_term_calendar(school_id, academic_term, academic_year):
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    current_term = AcademicTerm.query.filter_by(
+        school_id=school_id,
+        name=academic_term,
+        academic_year=academic_year,
+    ).first()
+
+    next_term = None
+    term_order = ["Term 1", "Term 2", "Term 3"]
+    if current_term and current_term.name in term_order:
+        current_index = term_order.index(current_term.name)
+        if current_index < len(term_order) - 1:
+            next_term = AcademicTerm.query.filter_by(
+                school_id=school_id,
+                name=term_order[current_index + 1],
+                academic_year=academic_year,
+            ).first()
+        else:
+            try:
+                year_start = int(academic_year.split("/")[0])
+                year_end = int(academic_year.split("/")[1])
+                next_academic_year = f"{year_start + 1}/{year_end + 1}"
+                next_term = AcademicTerm.query.filter_by(
+                    school_id=school_id,
+                    name="Term 1",
+                    academic_year=next_academic_year,
+                ).first()
+            except Exception:
+                next_term = None
+
+    return {
+        "term_start_date": current_term.start_date.isoformat() if current_term and current_term.start_date else None,
+        "vacation_date": current_term.end_date.isoformat() if current_term and current_term.end_date else None,
+        "reopening_date": _get_configured_reopening_date(settings, current_term=current_term, next_term=next_term),
+    }
+
 
 def _get_frontend_login_url():
     configured_url = (os.getenv("FRONTEND_URL") or "").strip()
@@ -1441,6 +1572,57 @@ def _send_staff_invite_email(user, school, temporary_password, expiry_days=30):
 
     return email_sent, email_error
 
+def _issue_two_factor_challenge(user):
+    if not user.email:
+        raise ValueError("MFA is required but no email is set for this account.")
+
+    existing_tokens = TwoFactorToken.query.filter_by(user_id=user.id, consumed=False).all()
+    for token in existing_tokens:
+        token.consumed = True
+
+    code = f"{secrets.randbelow(1000000):06d}"
+    twofa = TwoFactorToken(
+        user_id=user.id,
+        token_hash=generate_password_hash(code),
+        delivery="email",
+        attempts=0,
+        consumed=False,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    db.session.add(twofa)
+    db.session.commit()
+
+    fallback_notice = None
+    dev_code = None
+    try:
+        delivery_ok = send_email_notification(
+            to_email=user.email,
+            subject="Smart School Management Login Verification Code",
+            body=f"Your verification code is: {code}\n\nThis code expires in 10 minutes.",
+        )
+        if delivery_ok is False:
+            fallback_notice = "Email delivery is unavailable in local development. Use the development verification code below."
+            dev_code = code
+    except Exception as email_error:
+        logger.error(
+            f"2FA email delivery failed for user {user.username} in school {user.school_id}: {email_error}"
+        )
+        raise RuntimeError("Unable to send verification code email. Please confirm your email address and try again.") from email_error
+
+    pending_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={"type": "2fa_pending"},
+        expires_delta=timedelta(minutes=10),
+    )
+
+    return {
+        "message": "2fa_required",
+        "token": pending_token,
+        "delivery": "email",
+        "fallback_notice": fallback_notice,
+        "dev_code": dev_code,
+    }
+
 
 @api.route("/login", methods=["POST"])
 @rate_limit_auth
@@ -1485,16 +1667,7 @@ def login():
 
     user = User.query.filter_by(username=login_identifier, school_id=school.id).first()
     if not user and "@" in (login_identifier or ""):
-        normalized_email = login_identifier.strip().lower()
-        school_users = User.query.filter_by(school_id=school.id).all()
-        user = next(
-            (
-                candidate
-                for candidate in school_users
-                if (candidate.email or "").strip().lower() == normalized_email
-            ),
-            None,
-        )
+        user = _find_school_user_by_email(school.id, login_identifier)
     
     # Check if temporary password has expired
     if user and user.is_temp_password and user.temp_password_expires_at:
@@ -1516,52 +1689,15 @@ def login():
 
         requires_mfa = MFA_REQUIRED or user.two_fa_enabled
         if requires_mfa:
-            if not user.email:
-                return jsonify({"message": "MFA is required but no email is set for this account."}), 400
-            code = f"{secrets.randbelow(1000000):06d}"
-            twofa = TwoFactorToken(
-                user_id=user.id,
-                token_hash=generate_password_hash(code),
-                delivery="email",
-                attempts=0,
-                consumed=False,
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            )
-            db.session.add(twofa)
-            db.session.commit()
-
-            fallback_notice = None
-            dev_code = None
             try:
-                delivery_ok = send_email_notification(
-                    to_email=user.email,
-                    subject="EduPulse SMT Login Verification Code",
-                    body=f"Your verification code is: {code}\n\nThis code expires in 10 minutes.",
-                )
-                if delivery_ok is False:
-                    fallback_notice = "Email delivery is unavailable in local development. Use the development verification code below."
-                    dev_code = code
-            except Exception as email_error:
-                logger.error(
-                    f"2FA email delivery failed for user {user.username} in school {school.id}: {email_error}"
-                )
-                return jsonify({"message": "Unable to send verification code email. Please confirm your email address and try again."}), 503
+                challenge_payload = _issue_two_factor_challenge(user)
+            except ValueError as config_error:
+                return jsonify({"message": str(config_error)}), 400
+            except RuntimeError as delivery_error:
+                return jsonify({"message": str(delivery_error)}), 503
 
-            pending_token = create_access_token(
-                identity=str(user.id),
-                additional_claims={"type": "2fa_pending"},
-                expires_delta=timedelta(minutes=10),
-            )
             return (
-                jsonify(
-                    {
-                        "message": "2fa_required",
-                        "token": pending_token,
-                        "delivery": "email",
-                        "fallback_notice": fallback_notice,
-                        "dev_code": dev_code,
-                    }
-                ),
+                jsonify(challenge_payload),
                 202,
             )
 
@@ -1860,6 +1996,49 @@ def verify_two_factor():
     )
 
 
+@api.route("/2fa/resend", methods=["POST"])
+@rate_limit_auth
+@csrf_protect
+def resend_two_factor_code():
+    """Issue a fresh email OTP for an in-progress 2FA login."""
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or "").strip()
+
+    if not token:
+        return jsonify({"message": "Missing token"}), 400
+
+    try:
+        decoded = decode_token(token)
+        if decoded.get("type") != "2fa_pending":
+            return jsonify({"message": "Invalid token."}), 400
+        user_id = int(decoded.get("sub"))
+    except Exception:
+        return jsonify({"message": "Invalid or expired token."}), 400
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"message": "Invalid token."}), 400
+
+    try:
+        challenge_payload = _issue_two_factor_challenge(user)
+    except ValueError as config_error:
+        return jsonify({"message": str(config_error)}), 400
+    except RuntimeError as delivery_error:
+        return jsonify({"message": str(delivery_error)}), 503
+
+    log_action(
+        user.id,
+        user.school_id,
+        "LOGIN_2FA_RESENT",
+        f"User {user.username} requested a fresh 2FA code",
+    )
+
+    return jsonify({
+        **challenge_payload,
+        "message": "Verification code resent.",
+    })
+
+
 @api.route("/2fa/enable", methods=["POST"])
 @multi_tenant_guard
 @jwt_required()
@@ -2147,7 +2326,7 @@ def get_report_template():
         return jsonify({"message": "School settings not found"}), 404
     return jsonify(
         {
-            "report_template_id": settings.report_template_id,
+            "report_template_id": _normalize_report_template_id(settings.report_template_id),
             "report_template_config": settings.report_template_config or {},
         }
     )
@@ -2159,7 +2338,7 @@ def get_report_template():
 @jwt_required()
 def set_report_template():
     data = request.json or {}
-    template_id = data.get("report_template_id")
+    template_id = _normalize_report_template_id(data.get("report_template_id"))
     template_config = data.get("report_template_config", {})
 
     if not template_id:
@@ -2187,7 +2366,10 @@ def set_report_template():
         db.session.add(settings)
 
     settings.report_template_id = template_id
-    settings.report_template_config = template_config or {}
+    settings.report_template_config = _merge_report_template_config(
+        settings.report_template_config,
+        template_config or {},
+    )
     db.session.commit()
 
     return jsonify(
@@ -2273,8 +2455,11 @@ def upload_report_template():
         settings = SchoolSettings(school_id=g.school_id)
         db.session.add(settings)
 
-    settings.report_template_id = template_id
-    settings.report_template_config = template_config or {}
+    settings.report_template_id = _normalize_report_template_id(template_id)
+    settings.report_template_config = _merge_report_template_config(
+        settings.report_template_config,
+        template_config or {},
+    )
     db.session.commit()
 
     return jsonify(
@@ -3555,6 +3740,11 @@ def create_or_update_report_card():
             "message": "Report card saved successfully",
             "report_id": report.id,
             "report": report.to_dict(),
+            "term_calendar": _build_report_term_calendar(
+                g.school_id,
+                academic_term,
+                academic_year,
+            ),
         }
     )
 
@@ -3587,44 +3777,11 @@ def get_report_card(student_id):
         return jsonify({"message": "Report card not found"}), 404
 
     report_data = report.to_dict()
-
-    current_term = AcademicTerm.query.filter_by(
-        school_id=g.school_id,
-        name=academic_term,
-        academic_year=academic_year,
-    ).first()
-
-    next_term = None
-    term_order = ["Term 1", "Term 2", "Term 3"]
-    if current_term and current_term.name in term_order:
-        current_index = term_order.index(current_term.name)
-        if current_index < len(term_order) - 1:
-            next_term = AcademicTerm.query.filter_by(
-                school_id=g.school_id,
-                name=term_order[current_index + 1],
-                academic_year=academic_year,
-            ).first()
-        else:
-            try:
-                year_start = int(academic_year.split("/")[0])
-                year_end = int(academic_year.split("/")[1])
-                next_academic_year = f"{year_start + 1}/{year_end + 1}"
-                next_term = AcademicTerm.query.filter_by(
-                    school_id=g.school_id,
-                    name="Term 1",
-                    academic_year=next_academic_year,
-                ).first()
-            except Exception:
-                next_term = None
-
-    report_data["term_calendar"] = {
-        "term_start_date": current_term.start_date.isoformat() if current_term and current_term.start_date else None,
-        "vacation_date": current_term.end_date.isoformat() if current_term and current_term.end_date else None,
-        "reopening_date": (
-            current_term.billing_due_date.isoformat() if current_term and current_term.billing_due_date
-            else (next_term.start_date.isoformat() if next_term and next_term.start_date else None)
-        )
-    }
+    report_data["term_calendar"] = _build_report_term_calendar(
+        g.school_id,
+        academic_term,
+        academic_year,
+    )
 
     return jsonify(report_data)
 
@@ -3892,43 +4049,11 @@ def get_terminal_report(student_id):
     # Convert to dict
     report_data = report.to_dict()
 
-    current_term = AcademicTerm.query.filter_by(
-        school_id=g.school_id,
-        name=term,
-        academic_year=year,
-    ).first()
-
-    next_term = None
-    term_order = ["Term 1", "Term 2", "Term 3"]
-    if current_term and current_term.name in term_order:
-        current_index = term_order.index(current_term.name)
-        if current_index < len(term_order) - 1:
-            next_term = AcademicTerm.query.filter_by(
-                school_id=g.school_id,
-                name=term_order[current_index + 1],
-                academic_year=year,
-            ).first()
-        else:
-            try:
-                year_start = int(year.split("/")[0])
-                year_end = int(year.split("/")[1])
-                next_academic_year = f"{year_start + 1}/{year_end + 1}"
-                next_term = AcademicTerm.query.filter_by(
-                    school_id=g.school_id,
-                    name="Term 1",
-                    academic_year=next_academic_year,
-                ).first()
-            except Exception:
-                next_term = None
-
-    report_data["term_calendar"] = {
-        "term_start_date": current_term.start_date.isoformat() if current_term and current_term.start_date else None,
-        "vacation_date": current_term.end_date.isoformat() if current_term and current_term.end_date else None,
-        "reopening_date": (
-            current_term.billing_due_date.isoformat() if current_term and current_term.billing_due_date
-            else (next_term.start_date.isoformat() if next_term and next_term.start_date else None)
-        )
-    }
+    report_data["term_calendar"] = _build_report_term_calendar(
+        g.school_id,
+        term,
+        year,
+    )
     
     # Add promotion information if this is Term 3 (last term)
     if "Term 3" in term or "3" in term:
@@ -5002,6 +5127,9 @@ def initialize_paystack_payment():
 @jwt_required()
 def send_terminal_reports_whatsapp_bulk():
     """Send terminal report PDFs by class, single student, or selected students."""
+    if not STARTUP_WHATSAPP_ENABLED:
+        return _whatsapp_feature_disabled_response()
+
     user_id = int(get_jwt_identity())
     payload = request.get_json(silent=True) or {}
 
@@ -5187,6 +5315,9 @@ def send_terminal_reports_whatsapp_bulk():
 @jwt_required()
 def send_payment_reminders_whatsapp_bulk():
     """Send payment reminders via WhatsApp by class, selected students, or single student."""
+    if not STARTUP_WHATSAPP_ENABLED:
+        return _whatsapp_feature_disabled_response()
+
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
@@ -6401,6 +6532,53 @@ def get_live_feed():
             .all()
         )
 
+        critical_list = []
+        for student in critical_students:
+            reasons = []
+            tuition_deadline = student.tuition_deadline
+            if tuition_deadline and tuition_deadline.tzinfo is None:
+                tuition_deadline = tuition_deadline.replace(tzinfo=timezone.utc)
+
+            if (
+                student.total_tuition_owed and student.total_tuition_owed > 0
+                and tuition_deadline
+                and tuition_deadline <= overdue_cutoff
+            ):
+                days_overdue = max(0, (now.date() - tuition_deadline.date()).days)
+                reasons.append(
+                    {
+                        "code": "overdue_tuition",
+                        "label": "Overdue tuition",
+                        "detail": f"GH₵ {float(student.total_tuition_owed or 0):.2f} overdue for {days_overdue} day(s).",
+                    }
+                )
+
+            if student.is_present and not student.feeding_paid:
+                reasons.append(
+                    {
+                        "code": "unpaid_feeding",
+                        "label": "Present without feeding payment",
+                        "detail": "Student was marked present but feeding payment has not been cleared.",
+                    }
+                )
+
+            critical_list.append(
+                {
+                    "id": student.id,
+                    "name": student.name,
+                    "parent_name": student.parent_name,
+                    "guardian_name": student.guardian_name,
+                    "parent_phone": student.parent_phone,
+                    "parent_email": student.parent_email,
+                    "total_tuition_owed": float(student.total_tuition_owed or 0),
+                    "tuition_deadline": student.tuition_deadline.isoformat() if student.tuition_deadline else None,
+                    "current_class": student.current_class,
+                    "student_code": student.student_code,
+                    "intervention_reasons": reasons,
+                    "intervention_summary": reasons[0]["label"] if reasons else "Manual review required",
+                }
+            )
+
         # Fetch pending payments recorded by teachers
         pending_payments = (
             db.session.query(Payment, Student.name)
@@ -6524,18 +6702,7 @@ def get_live_feed():
                     "low_stock_count": len(low_stock_items),
                 },
                 "pending_payments": pending_list,
-                "critical_list": [
-                    {
-                        "id": s.id,
-                        "name": s.name,
-                        "parent_name": s.parent_name,
-                        "parent_phone": s.parent_phone,
-                        "parent_email": s.parent_email,
-                        "total_tuition_owed": float(s.total_tuition_owed or 0),
-                        "tuition_deadline": s.tuition_deadline.isoformat() if s.tuition_deadline else None,
-                    }
-                    for s in critical_students
-                ],
+                "critical_list": critical_list,
                 "recent_payments": [
                     {
                         "id": p.Payment.id,
@@ -9161,6 +9328,27 @@ def replace_teacher_assignments(teacher_id, classes, subjects):
             )
 
 
+def _normalize_email_address(email):
+    return (email or "").strip().lower()
+
+
+def _find_school_user_by_email(school_id, email, exclude_user_id=None):
+    normalized_email = _normalize_email_address(email)
+    if not normalized_email:
+        return None
+
+    school_users = User.query.filter_by(school_id=school_id).all()
+    return next(
+        (
+            candidate
+            for candidate in school_users
+            if candidate.id != exclude_user_id
+            and _normalize_email_address(candidate.email) == normalized_email
+        ),
+        None,
+    )
+
+
 @api.route("/staff/add", methods=["POST"])
 @multi_tenant_guard
 @role_required("proprietor")
@@ -9169,12 +9357,15 @@ def add_staff():
     data = request.json
 
     # Email is now required for staff accounts
-    email = data.get("email", "").strip()
+    email = _normalize_email_address(data.get("email"))
     if not email:
         return jsonify({"message": "Email is required for staff accounts."}), 400
 
     if User.query.filter_by(username=data["username"], school_id=g.school_id).first():
         return jsonify({"message": "Username already exists in this school."}), 400
+
+    if _find_school_user_by_email(g.school_id, email):
+        return jsonify({"message": "Email address is already assigned to another staff member in this school."}), 400
 
     roles = data.get("roles") if isinstance(data.get("roles"), list) else []
     primary_role = data.get("role") or (roles[0] if roles else "teacher")
@@ -10916,23 +11107,26 @@ def get_exam_papers():
             query = query.filter_by(status=status)
         
         papers = query.order_by(ExamPaper.created_at.desc()).all()
-        
-        return jsonify([{
-            "id": p.id,
-            "title": p.title,
-            "class_name": p.class_name,
-            "subject_name": p.subject_name,
-            "academic_term": p.academic_term,
-            "academic_year": p.academic_year,
-            "exam_type": p.exam_type,
-            "total_marks": p.total_marks,
-            "duration_minutes": p.duration_minutes,
-            "status": p.status,
-            "question_count": len(p.questions) if p.questions else 0,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-            "finalized_at": p.finalized_at.isoformat() if p.finalized_at else None
-        } for p in papers])
+
+        return jsonify([
+            {
+                "id": p.id,
+                "title": p.title,
+                "class_name": p.class_name,
+                "subject_name": p.subject_name,
+                "academic_term": p.academic_term,
+                "academic_year": p.academic_year,
+                "exam_type": p.exam_type,
+                "total_marks": p.total_marks,
+                "duration_minutes": p.duration_minutes,
+                "status": p.status,
+                "question_count": len(p.questions) if p.questions else 0,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+                "finalized_at": p.finalized_at.isoformat() if p.finalized_at else None,
+            }
+            for p in papers
+        ])
     except Exception as e:
         return jsonify({"message": "Error fetching exam papers", "error": str(e)}), 500
 
@@ -11332,9 +11526,17 @@ def remove_staff(user_id):
 @role_required("proprietor")
 @jwt_required()
 def update_staff(user_id):
-    """Update staff role or assigned class."""
+    """Update staff role, assigned class, or email."""
     data = request.json or {}
     user = User.query.filter_by(id=user_id, school_id=g.school_id).first_or_404()
+
+    if "email" in data:
+        email = _normalize_email_address(data.get("email"))
+        if not email:
+            return jsonify({"message": "Email is required for staff accounts."}), 400
+        if _find_school_user_by_email(g.school_id, email, exclude_user_id=user.id):
+            return jsonify({"message": "Email address is already assigned to another staff member in this school."}), 400
+        user.email = email
 
     roles = (
         data.get("roles")
@@ -11576,6 +11778,7 @@ def get_school_settings():
             "bank_details_masked": True,
             "country_code": settings.country_code if settings and settings.country_code else "GH",
             "anniversary_date": settings.anniversary_date.isoformat() if settings and settings.anniversary_date else None,
+            "next_term_reopen_date": _get_report_global_settings(settings).get("next_term_reopen_date") if settings else None,
         }
     ), 200
 
@@ -11665,6 +11868,16 @@ def update_school_settings():
         else:
             settings.anniversary_date = None
         changed_fields.append("anniversary_date")
+    if "next_term_reopen_date" in data:
+        next_term_reopen_date = (data.get("next_term_reopen_date") or "").strip()
+        if next_term_reopen_date:
+            from datetime import datetime as dt
+            try:
+                dt.strptime(next_term_reopen_date, "%Y-%m-%d").date()
+            except ValueError:
+                return jsonify({"message": "Invalid next_term_reopen_date format. Use YYYY-MM-DD."}), 400
+        _set_report_global_setting(settings, "next_term_reopen_date", next_term_reopen_date or None)
+        changed_fields.append("next_term_reopen_date")
     if "whatsapp_daily_limit" in data:
         settings.whatsapp_daily_limit = max(5, int(data.get("whatsapp_daily_limit") or 50))
         changed_fields.append("whatsapp_daily_limit")
@@ -11896,7 +12109,7 @@ def get_active_template():
 
     return jsonify(
         {
-            "template_id": settings.report_template_id,
+            "template_id": _to_legacy_report_template_id(settings.report_template_id),
             "template_config": settings.report_template_config or {},
         }
     )
@@ -11915,7 +12128,7 @@ def set_active_template():
         return jsonify({"message": "Template ID is required"}), 400
 
     # Validate template ID
-    valid_templates = ["sample1", "sample2", "sample3", "sample4", "sample5"]
+    valid_templates = ["sample1", "sample2", "sample3", "sample4", "sample5", "sample6"]
     if not template_id or not isinstance(template_id, str) or not template_id.strip():
         return jsonify({"message": "Template ID is required"}), 400
 
@@ -11931,6 +12144,8 @@ def set_active_template():
             400,
         )
 
+    template_id = _normalize_report_template_id(template_id)
+
     # Get or create school settings
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
 
@@ -11941,7 +12156,10 @@ def set_active_template():
     # Update active template
     settings.report_template_id = template_id
     if "template_config" in data:
-        settings.report_template_config = data["template_config"]
+        settings.report_template_config = _merge_report_template_config(
+            settings.report_template_config,
+            data["template_config"],
+        )
 
     log_action(
         int(get_jwt_identity()),

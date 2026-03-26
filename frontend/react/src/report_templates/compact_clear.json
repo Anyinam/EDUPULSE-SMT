@@ -54,6 +54,14 @@
           { "key": "term_average", "label": "Average" },
           { "key": "overall_position", "label": "Position", "optional": true }
         ]
+      },
+      {
+        "id": "next_term_reopening",
+        "label": "Next Term",
+        "type": "summary",
+        "fields": [
+          { "key": "reopening_date", "label": "School Reopens" }
+        ]
       }
     ]
   }

@@ -1,102 +1,16 @@
 {
   "id": "classic_traditional",
   "name": "Sample 6",
-  "description": "Classic terminal report layout with summary stats, grading scale, remarks, and signature blocks.",
+  "description": "Classic paper terminal report with ruled sections, formal grading table, remarks, and signature blocks.",
   "config": {
     "layout_version": "1.0",
+    "type": "html",
     "visibility": {
       "hide_empty_fields": true,
       "hide_empty_sections": true,
       "show_headmaster_remarks": true
     },
-    "sections": [
-      {
-        "id": "school_header",
-        "label": "School Header",
-        "type": "header",
-        "fields": [
-          { "key": "school_name", "label": "School" },
-          { "key": "school_motto", "label": "Motto", "optional": true },
-          { "key": "school_contact", "label": "Contact", "optional": true }
-        ]
-      },
-      {
-        "id": "student_identity",
-        "label": "Student Identity",
-        "type": "student_info",
-        "fields": [
-          { "key": "student_name", "label": "Student Name" },
-          { "key": "student_code", "label": "Student ID", "optional": true },
-          { "key": "class_name", "label": "Class" },
-          { "key": "academic_term", "label": "Term" },
-          { "key": "academic_year", "label": "Academic Year" }
-        ]
-      },
-      {
-        "id": "performance_summary",
-        "label": "Performance Summary",
-        "type": "summary",
-        "fields": [
-          { "key": "term_average", "label": "Average Mark" },
-          { "key": "overall_position", "label": "Position in Class", "optional": true },
-          { "key": "out_of_students", "label": "Out of", "optional": true },
-          { "key": "attendance_percentage", "label": "Attendance %", "optional": true },
-          { "key": "total_attendance", "label": "Total Attendance", "optional": true }
-        ]
-      },
-      {
-        "id": "subject_table",
-        "label": "Subjects",
-        "type": "table",
-        "columns": [
-          { "key": "subject", "label": "Subject" },
-          { "key": "class_score", "label": "Class" },
-          { "key": "exam_score", "label": "Exam" },
-          { "key": "total", "label": "Total" },
-          { "key": "grade", "label": "Grade" },
-          { "key": "position", "label": "Position", "optional": true },
-          { "key": "remarks", "label": "Remarks", "optional": true }
-        ]
-      },
-      {
-        "id": "grading_scale",
-        "label": "Grading Scale",
-        "type": "grading_scale"
-      },
-      {
-        "id": "teacher_remarks",
-        "label": "Class Teacher Remark",
-        "type": "remarks",
-        "fields": [
-          { "key": "homeroom_teacher_remarks", "label": "Remark", "optional": true }
-        ]
-      },
-      {
-        "id": "headmaster_remarks",
-        "label": "Headmaster Remark",
-        "type": "remarks",
-        "fields": [
-          { "key": "headmaster_remarks", "label": "Remark", "optional": true }
-        ]
-      },
-      {
-        "id": "proprietor_remarks",
-        "label": "Proprietor Remark",
-        "type": "remarks",
-        "fields": [
-          { "key": "proprietor_remarks", "label": "Remark", "optional": true }
-        ]
-      },
-      {
-        "id": "signatures",
-        "label": "Signatures",
-        "type": "signatures",
-        "fields": [
-          { "key": "class_teacher_signature", "label": "Class Teacher", "optional": true },
-          { "key": "headmaster_signature", "label": "Headmaster", "optional": true },
-          { "key": "proprietor_signature", "label": "Proprietor", "optional": true }
-        ]
-      }
-    ]
+    "css": ".report-template { font-family: 'Times New Roman', serif; color: #111827; background: #fffdf7; border: 3px double #1f2937; padding: 24px; max-width: 980px; margin: 0 auto; box-shadow: inset 0 0 0 1px rgba(31, 41, 55, 0.08); } .classic-header { text-align: center; border-bottom: 3px double #1f2937; padding-bottom: 10px; margin-bottom: 14px; } .classic-header h1 { font-size: 28px; margin: 0; letter-spacing: 0.08em; text-transform: uppercase; } .classic-header p { margin: 4px 0; font-size: 13px; } .classic-title { text-align: center; font-weight: 700; text-transform: uppercase; font-size: 15px; letter-spacing: 0.18em; margin: 10px 0 12px; } .classic-subtitle { text-align: center; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 16px; } .identity-grid, .metrics-grid, .signature-grid, .traits-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; } .identity-grid td, .metrics-grid td, .signature-grid td, .traits-table td, .traits-table th { border: 1px solid #374151; padding: 8px 10px; font-size: 13px; vertical-align: top; } .identity-grid .label, .metrics-grid .label { display: inline-block; min-width: 120px; font-weight: 700; text-transform: uppercase; font-size: 11px; } .subject-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 12px; } .subject-table th, .subject-table td { border: 1px solid #374151; padding: 6px 8px; text-align: left; } .subject-table th { background: #e5e7eb; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; } .subject-table td:nth-child(2), .subject-table td:nth-child(3), .subject-table td:nth-child(4), .subject-table td:nth-child(5), .subject-table td:nth-child(6) { text-align: center; } .metrics-grid td { width: 25%; } .classic-split { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 12px; margin-bottom: 14px; } .panel { border: 1px solid #374151; padding: 10px; min-height: 110px; background: rgba(255, 255, 255, 0.92); } .panel h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid #9ca3af; padding-bottom: 4px; } .grading-table { width: 100%; border-collapse: collapse; font-size: 11px; } .grading-table th, .grading-table td { border: 1px solid #6b7280; padding: 4px 6px; text-align: center; } .grading-table th { background: #f3f4f6; } .traits-table th { background: #f3f4f6; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; } .traits-table td { font-size: 12px; } .signature-line { margin-top: 34px; border-top: 1px solid #111827; padding-top: 4px; text-align: center; font-size: 12px; } .declaration { border: 1px solid #374151; padding: 8px 10px; font-size: 11px; margin-top: 10px; } .footer-note { margin-top: 10px; font-size: 12px; font-style: italic; } @media print { .report-template { border-width: 2px; box-shadow: none; } }",
+    "html": "<div class=\"classic-header\"><h1>{{school_name}}</h1><p>{{school_motto}}</p><p>{{school_contact}}</p></div><div class=\"classic-title\">Terminal Report Sheet</div><div class=\"classic-subtitle\">Official School Record For Parent / Guardian Review</div><table class=\"identity-grid\"><tr><td><span class=\"label\">Student Name</span> {{student_name}}</td><td><span class=\"label\">Admission No.</span> {{student_code}}</td></tr><tr><td><span class=\"label\">Class</span> {{class_name}}</td><td><span class=\"label\">Session / Term</span> {{academic_year}} / {{academic_term}}</td></tr><tr><td><span class=\"label\">Reopen Date</span> {{reopening_date}}</td><td><span class=\"label\">Attendance</span> {{attendance_percentage}} of {{total_attendance}}</td></tr></table><table class=\"metrics-grid\"><tr><td><span class=\"label\">Average Score</span> {{term_average}}</td><td><span class=\"label\">Class Position</span> {{overall_position}} out of {{out_of_students}}</td><td><span class=\"label\">Promotion</span> Next class placement subject to final approval</td><td><span class=\"label\">Term Status</span> Complete</td></tr></table>{{subject_table}}<div class=\"classic-split\"><div class=\"panel\"><h3>Affective / Conduct Record</h3><table class=\"traits-table\"><tr><th>Trait</th><th>Teacher Note</th></tr><tr><td>Punctuality</td><td>Satisfactory</td></tr><tr><td>Neatness</td><td>Good</td></tr><tr><td>Attentiveness</td><td>Consistent</td></tr><tr><td>Leadership</td><td>Developing</td></tr></table></div><div class=\"panel\"><h3>Grading Scale</h3><table class=\"grading-table\"><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>F</th></tr><tr><td>80-100</td><td>70-79</td><td>60-69</td><td>50-59</td><td>40-49</td><td>0-39</td></tr><tr><td>Excellent</td><td>Very Good</td><td>Good</td><td>Credit</td><td>Pass</td><td>Fail</td></tr></table><div class=\"declaration\">Parents are advised to keep this report carefully and present it on the reopening date.</div></div></div><div class=\"classic-split\"><div class=\"panel\"><h3>Class Teacher's Remark</h3><div>{{homeroom_teacher_remarks}}</div></div><div class=\"panel headmaster-remarks\"><h3>Headmaster's Remark</h3><div>{{headmaster_remarks}}</div></div></div><div class=\"panel\"><h3>Proprietor's Remark</h3><div>{{proprietor_remarks}}</div></div><table class=\"signature-grid\"><tr><td><div class=\"signature-line\">Class Teacher</div></td><td><div class=\"signature-line\">Headmaster</div></td><td><div class=\"signature-line\">Proprietor</div></td></tr></table><div class=\"footer-note\">This report is computer generated and remains valid when issued by {{school_name}}.</div>"
   }
 }

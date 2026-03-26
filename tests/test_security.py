@@ -191,6 +191,45 @@ class TestAuthenticationSecurity:
         assert body.get("dev_code") == "123456"
         assert "local development" in (body.get("fallback_notice") or "")
 
+    def test_2fa_resend_issues_fresh_code_for_pending_login(
+        self, client, test_school, test_teacher, mocker, monkeypatch
+    ):
+        import backend.routes as routes
+
+        monkeypatch.setattr(routes, "MFA_REQUIRED", True)
+        codes = iter([123456, 654321])
+        monkeypatch.setattr(routes.secrets, "randbelow", lambda _: next(codes))
+        mocker.patch("backend.routes.send_email_notification", return_value=False)
+
+        response = client.post(
+            "/api/login",
+            data=json.dumps(
+                {
+                    "school_code": test_school.id,
+                    "username": test_teacher.username,
+                    "password": "TeacherPass123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        pending = json.loads(response.data)
+        assert pending["dev_code"] == "123456"
+
+        resend = client.post(
+            "/api/2fa/resend",
+            data=json.dumps({"token": pending["token"]}),
+            content_type="application/json",
+        )
+
+        assert resend.status_code == 200
+        resent = json.loads(resend.data)
+        assert resent["message"] == "Verification code resent."
+        assert resent["dev_code"] == "654321"
+        assert resent["token"]
+        assert resent["token"] != pending["token"]
+
     def test_cannot_disable_mfa_when_globally_required(
         self, client, auth_headers, monkeypatch
     ):

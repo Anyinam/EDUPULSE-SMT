@@ -30,6 +30,7 @@ export default function ReportBuilder() {
   const [attendancePercentage, setAttendancePercentage] = useState('');
   const [totalAttendance, setTotalAttendance] = useState('');
   const [homeroomRemarks, setHomeroomRemarks] = useState('');
+  const [termCalendar, setTermCalendar] = useState({});
   
   // Grading scheme
   const [classScoreMax, setClassScoreMax] = useState(30);
@@ -43,6 +44,17 @@ export default function ReportBuilder() {
   
   const [branding, setBranding] = useState(() => JSON.parse(localStorage.getItem('branding')) || {});
   const primaryColor = branding.primary_color || '#1e3a8a';
+
+  const formatReportDate = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
 
   const getAuthHeaders = () => ({
     headers: {
@@ -158,6 +170,7 @@ export default function ReportBuilder() {
         
         // Load existing report data
         setReportData(res.data);
+        setTermCalendar(res.data.term_calendar || {});
         setSubjectGrades(res.data.subject_grades || []);
         setOverallPosition(res.data.overall_position || '');
         setOutOfStudents(res.data.out_of_students || '');
@@ -192,6 +205,8 @@ export default function ReportBuilder() {
       } else {
         initializeEmptyReport();
       }
+
+      setTermCalendar(data.term_calendar || {});
 
       setOutOfStudents(
         data.out_of_students !== null && data.out_of_students !== undefined
@@ -231,6 +246,7 @@ export default function ReportBuilder() {
     setTotalAttendance('');
     setHomeroomRemarks('');
     setReportData(null);
+    setTermCalendar({});
   };
 
   const handleSubjectChange = (index, field, value) => {
@@ -308,6 +324,7 @@ export default function ReportBuilder() {
       const res = await axios.post('/api/homeroom/report-builder/report', payload, getAuthHeaders());
       
       setReportData(res.data.report);
+      setTermCalendar(res.data.term_calendar || {});
       if (res.data.report?.subject_grades) {
         setSubjectGrades(res.data.report.subject_grades);
       }
@@ -460,6 +477,7 @@ export default function ReportBuilder() {
   const resolvedTotalPossible = reportData?.total_possible_marks ?? totalPossible;
   const resolvedOutOfStudents = reportData?.out_of_students || outOfStudents || (students.length ? String(students.length) : '');
   const resolvedOverallPosition = reportData?.overall_position || overallPosition || '';
+  const resolvedReopeningDate = formatReportDate(termCalendar?.reopening_date || reportData?.term_calendar?.reopening_date || '');
 
   const previewData = {
     school_name: branding.name || 'EduPulse',
@@ -481,6 +499,7 @@ export default function ReportBuilder() {
     out_of_students: resolvedOutOfStudents,
     attendance_percentage: attendancePercentage,
     total_attendance: totalAttendance,
+    reopening_date: resolvedReopeningDate,
     homeroom_teacher_remarks: homeroomRemarks,
     headmaster_remarks: reportData?.headmaster_remarks || '',
     proprietor_remarks: reportData?.proprietor_remarks || '',

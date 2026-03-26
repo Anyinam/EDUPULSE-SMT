@@ -11,20 +11,11 @@ export default function StudentPaymentTracker() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all'); // all, paid, pending, overdue
-  const [sendingBulkWhatsapp, setSendingBulkWhatsapp] = useState(false);
-  const [isPremium, setIsPremium] = useState(false);
-  const [whatsappTargetMode, setWhatsappTargetMode] = useState('class');
-  const [whatsappClassName, setWhatsappClassName] = useState('');
-  const [whatsappStudentIds, setWhatsappStudentIds] = useState([]);
-  const [whatsappResult, setWhatsappResult] = useState(null);
   const { branding } = useBranding();
 
   useEffect(() => {
     fetchStudents();
     fetchSchoolFees();
-    // Get subscription plan from localStorage
-    const subscriptionPlan = localStorage.getItem('subscription_plan');
-    setIsPremium(subscriptionPlan === 'Premium');
   }, []);
 
   const fetchStudents = async () => {
@@ -36,10 +27,6 @@ export default function StudentPaymentTracker() {
       const res = await axios.get('/api/students', { headers });
       const studentList = Array.isArray(res.data) ? res.data : res.data?.students || [];
       setStudents(studentList);
-      const classOptions = Array.from(new Set(studentList.map(s => s.current_class).filter(Boolean))).sort();
-      if (!whatsappClassName && classOptions.length > 0) {
-        setWhatsappClassName(classOptions[0]);
-      }
     } catch (err) {
       console.error('Failed to load students');
     }
@@ -92,63 +79,6 @@ export default function StudentPaymentTracker() {
     } catch (err) {
       console.error('Failed to load payment codes');
       setPaymentCodes(null);
-    }
-  };
-
-  const handleBulkWhatsappPaymentReminders = async () => {
-    if (!isPremium) {
-      alert('Bulk WhatsApp payment reminders are available for Premium plan only.');
-      return;
-    }
-
-    setSendingBulkWhatsapp(true);
-    setWhatsappResult(null);
-    try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id'),
-        'Content-Type': 'application/json'
-      };
-
-      let payload = { target_mode: whatsappTargetMode };
-
-      if (whatsappTargetMode === 'class') {
-        if (!whatsappClassName) {
-          alert('Please select a class for class-targeted sending.');
-          setSendingBulkWhatsapp(false);
-          return;
-        }
-        payload.class_name = whatsappClassName;
-      } else if (whatsappTargetMode === 'single') {
-        if (!selectedStudent?.id) {
-          alert('Select a student first for single-target sending.');
-          setSendingBulkWhatsapp(false);
-          return;
-        }
-        payload.student_ids = [selectedStudent.id];
-      } else {
-        if (whatsappStudentIds.length === 0) {
-          alert('Select one or more students.');
-          setSendingBulkWhatsapp(false);
-          return;
-        }
-        payload.student_ids = whatsappStudentIds;
-      }
-
-      const response = await axios.post('/api/proprietor/payment-tracker/whatsapp/bulk-send', payload, { headers });
-      setWhatsappResult(response.data);
-
-      if (response.data.sent_count > 0) {
-        alert(`✅ Sent: ${response.data.sent_count} | Skipped: ${response.data.skipped_count}`);
-      } else {
-        alert(`No successful sends. Check the result summary for reasons.`);
-      }
-    } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Failed to send bulk WhatsApp reminders';
-      alert(`❌ Error: ${errorMsg}`);
-      console.error('Bulk WhatsApp error:', err);
-    } finally {
-      setSendingBulkWhatsapp(false);
     }
   };
 
@@ -764,15 +694,6 @@ export default function StudentPaymentTracker() {
     return matchesSearch;
   });
 
-  const classOptionsForWhatsapp = Array.from(new Set(students.map(s => s.current_class).filter(Boolean))).sort();
-  const outstandingStudents = students.filter((student) =>
-    (student.total_tuition_owed || 0) > 0 ||
-    (student.total_feeding_owed || 0) > 0 ||
-    (student.total_transport_owed || 0) > 0 ||
-    (student.total_uniform_owed || 0) > 0
-  );
-  const classScopedOutstandingStudents = outstandingStudents;
-
   const feeTypes = ['Tuition', 'Feeding', 'Uniform', 'Transport'];
 
   // Helper function to display fee type label (includes terminal report for tuition)
@@ -788,96 +709,12 @@ export default function StudentPaymentTracker() {
 
   return (
     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-slate-800">💳 Student Payment Tracker</h2>
-        <button
-          onClick={handleBulkWhatsappPaymentReminders}
-          disabled={!isPremium || sendingBulkWhatsapp}
-          className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
-            isPremium
-              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-          }`}
-          title={isPremium ? 'Send payment reminders using selected targeting mode' : 'Premium plan required'}
-        >
-          {sendingBulkWhatsapp ? '⏳ Sending...' : '🟢 WhatsApp Payment Reminders'}
-        </button>
       </div>
 
-      <div className="mb-6 p-4 rounded-lg border bg-slate-50">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1">Target Mode</label>
-            <select
-              value={whatsappTargetMode}
-              onChange={(e) => setWhatsappTargetMode(e.target.value)}
-              className="w-full p-2 border rounded-lg bg-white"
-            >
-              <option value="class">All by Class</option>
-              <option value="single">Single Student</option>
-              <option value="selected">Select Multiple Students</option>
-            </select>
-          </div>
-
-          {whatsappTargetMode === 'class' && (
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">Class</label>
-              <select
-                value={whatsappClassName}
-                onChange={(e) => setWhatsappClassName(e.target.value)}
-                className="w-full p-2 border rounded-lg bg-white"
-              >
-                {classOptionsForWhatsapp.length === 0 ? (
-                  <option value="">No classes</option>
-                ) : (
-                  classOptionsForWhatsapp.map((cls) => (
-                    <option key={cls} value={cls}>{cls}</option>
-                  ))
-                )}
-              </select>
-            </div>
-          )}
-
-          {whatsappTargetMode === 'selected' && (
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-slate-600 mb-1">Select Students</label>
-              <select
-                multiple
-                value={whatsappStudentIds.map(String)}
-                onChange={(e) => {
-                  const values = Array.from(e.target.selectedOptions).map((option) => Number(option.value));
-                  setWhatsappStudentIds(values);
-                }}
-                className="w-full p-2 border rounded-lg bg-white h-24"
-              >
-                {classScopedOutstandingStudents.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.name} ({student.current_class || 'No Class'})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-500 mt-1">Hold Ctrl/Cmd to select multiple students.</p>
-            </div>
-          )}
-        </div>
-
-        {whatsappResult && (
-          <div className="mt-4 p-3 rounded bg-white border">
-            <p className="text-sm font-bold text-slate-800">WhatsApp Send Result</p>
-            <p className="text-xs text-slate-600 mt-1">
-              Mode: {whatsappResult.target_mode || '-'} • Attempted: {whatsappResult.attempted_count || 0} • Sent: {whatsappResult.sent_count || 0} • Skipped: {whatsappResult.skipped_count || 0}
-            </p>
-            {(whatsappResult.skipped || []).length > 0 && (
-              <div className="mt-2 text-xs text-red-700 max-h-24 overflow-y-auto">
-                {(whatsappResult.skipped || []).slice(0, 10).map((item) => (
-                  <div key={`${item.student_id}-${item.reason}`}>
-                    {item.student_name}: {item.verification_status || item.reason}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+      <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        WhatsApp payment reminders are disabled for now to keep operating costs lean. Use the payment instructions panel, print, or copy actions to share payment details with parents.
       </div>
       
       {/* Search & Filter */}

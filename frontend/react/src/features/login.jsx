@@ -39,6 +39,9 @@ export default function Login() {
   const [twoFaCode, setTwoFaCode] = useState('');
   const [twoFaStep, setTwoFaStep] = useState(false);
   const [twoFaHint, setTwoFaHint] = useState('');
+  const [resendMessage, setResendMessage] = useState('');
+  const [isResendingCode, setIsResendingCode] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [helpContent, setHelpContent] = useState(DEFAULT_HELP_CONTENT);
   const [ownerKey, setOwnerKey] = useState('');
   const [ownerMessage, setOwnerMessage] = useState('');
@@ -67,6 +70,27 @@ export default function Login() {
     };
     fetchHelpContent();
   }, []);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setResendCooldown((current) => (current > 0 ? current - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendCooldown]);
+
+  const enterTwoFaStep = (payload) => {
+    setTwoFaToken(payload.token || '');
+    setTwoFaCode(payload.dev_code || '');
+    setTwoFaHint(
+      payload?.fallback_notice
+        ? `${payload.fallback_notice}${payload.dev_code ? ` Verification code: ${payload.dev_code}` : ''}`
+        : ''
+    );
+    setResendMessage('');
+    setResendCooldown(30);
+    setTwoFaStep(true);
+  };
 
   const updateFaq = (index, field, value) => {
     setHelpContent((prev) => ({
@@ -121,6 +145,7 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setTwoFaHint('');
+    setResendMessage('');
     try {
       // Trim whitespace to prevent copy-paste errors
       const payload = {
@@ -132,14 +157,7 @@ export default function Login() {
       const res = await axios.post('/api/login', payload);
 
       if (res.status === 202 && res.data?.message === '2fa_required') {
-        setTwoFaToken(res.data.token || '');
-        setTwoFaCode(res.data.dev_code || '');
-        setTwoFaHint(
-          res.data?.fallback_notice
-            ? `${res.data.fallback_notice}${res.data.dev_code ? ` Verification code: ${res.data.dev_code}` : ''}`
-            : ''
-        );
-        setTwoFaStep(true);
+        enterTwoFaStep(res.data);
         return;
       }
       
@@ -164,6 +182,30 @@ export default function Login() {
     } catch (err) {
       const msg = err.response?.data?.message || 'Invalid verification code';
       setError(msg);
+    }
+  };
+
+  const handleResend2faCode = async () => {
+    if (!twoFaToken || resendCooldown > 0 || isResendingCode) return;
+
+    setError('');
+    setResendMessage('');
+    try {
+      setIsResendingCode(true);
+      const res = await axios.post('/api/2fa/resend', { token: twoFaToken });
+      setTwoFaCode(res.data.dev_code || '');
+      setTwoFaToken(res.data.token || twoFaToken);
+      setTwoFaHint(
+        res.data?.fallback_notice
+          ? `${res.data.fallback_notice}${res.data.dev_code ? ` Verification code: ${res.data.dev_code}` : ''}`
+          : ''
+      );
+      setResendMessage(res.data.message || 'Verification code resent.');
+      setResendCooldown(30);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Unable to resend verification code.');
+    } finally {
+      setIsResendingCode(false);
     }
   };
 
@@ -259,6 +301,11 @@ export default function Login() {
               {twoFaHint}
             </div>
           )}
+          {twoFaStep && resendMessage && (
+            <div className="bg-green-50 text-green-700 p-4 rounded-xl mb-6 text-sm font-semibold">
+              {resendMessage}
+            </div>
+          )}
 
           <div className="space-y-5">
             <div>
@@ -305,6 +352,21 @@ export default function Login() {
                     onChange={e => setTwoFaCode(e.target.value)}
                     required
                   />
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={handleResend2faCode}
+                      disabled={resendCooldown > 0 || isResendingCode}
+                      className="font-bold text-blue-600 hover:underline disabled:text-slate-400 disabled:no-underline"
+                    >
+                      {isResendingCode
+                        ? 'Resending...'
+                        : resendCooldown > 0
+                        ? `Resend Code in ${resendCooldown}s`
+                        : 'Resend Code'}
+                    </button>
+                    <span className="text-slate-400">Code expires in 10 minutes</span>
+                  </div>
                 </div>
               )}
             </div>
