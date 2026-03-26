@@ -197,6 +197,48 @@ class TestAuthenticationEndpoints:
         data = json.loads(response.data)
         assert "already taken" in data["message"]
 
+    def test_register_duplicate_proprietor_email(self, client):
+        """Test registration with duplicate proprietor email."""
+        response = client.post(
+            "/api/register",
+            json={
+                "schoolCode": "NEW-EMAIL",
+                "schoolName": "Duplicate Email School",
+                "username": "freshowner",
+                "email": "TEACHER@TEST.EDU",
+                "password": "DuplicatePass123!",
+                "termsAccepted": True,
+                "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
+            },
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "email already exists" in data["message"].lower()
+
+    def test_register_duplicate_proprietor_username(self, client):
+        """Test registration with duplicate proprietor username."""
+        response = client.post(
+            "/api/register",
+            json={
+                "schoolCode": "NEW-USER",
+                "schoolName": "Duplicate Username School",
+                "username": "teacher1",
+                "email": "fresh-owner@example.com",
+                "password": "DuplicatePass123!",
+                "termsAccepted": True,
+                "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
+            },
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "username already taken" in data["message"].lower()
+
     def test_register_paid_plan_sends_welcome_email_before_payment(self, client, mocker, mock_email):
         """Premium registrations should still receive the welcome/credential email immediately."""
         paystack_mock = mocker.patch("backend.paystack_integration.initialize_payment")

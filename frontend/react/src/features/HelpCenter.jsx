@@ -38,6 +38,13 @@ const FEATURE_GUIDES = [
   }
 ];
 
+const SECURITY_ALERTS = [
+  'EduPulse support will never call, text, or message you to ask for your bank OTP, MoMo OTP, card PIN, CVV, or full password.',
+  'Do not approve transfers, share screen-control access, or follow payment instructions from personal numbers claiming to be EduPulse staff.',
+  'Only trust payment and account actions started inside your official EduPulse dashboard or confirmed through the official support email and phone lines.',
+  'If anything feels suspicious, stop immediately, do not complete the transaction, and contact official support before taking any further step.'
+];
+
 export default function HelpCenter() {
   const [helpContent, setHelpContent] = useState(DEFAULT_HELP_CONTENT);
   const [query, setQuery] = useState('');
@@ -91,6 +98,29 @@ export default function HelpCenter() {
         <h1 className="text-3xl font-bold text-slate-800">Help Center</h1>
         <p className="text-slate-500 mt-1">Search FAQs, browse feature guides, and find tutorial updates.</p>
       </div>
+
+      <section className="mb-6 rounded-2xl border border-red-200 bg-linear-to-r from-red-50 via-amber-50 to-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 text-xl">🛡️</div>
+          <div>
+            <h2 className="text-lg font-bold text-red-900">Scam Alert</h2>
+            <p className="mt-1 text-sm text-red-800">
+              Protect your school accounts and payment setup. Verify suspicious contact before you share any sensitive information.
+            </p>
+            <ul className="mt-3 space-y-2 text-sm text-slate-700">
+              {SECURITY_ALERTS.map((alert) => (
+                <li key={alert} className="flex items-start gap-2">
+                  <span className="mt-0.5 text-red-600">•</span>
+                  <span>{alert}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm font-semibold text-slate-800">
+              Official support: <a href="mailto:support@edupulse.com" className="text-blue-700 hover:underline">support@edupulse.com</a> | <a href="tel:+233552141384" className="text-blue-700 hover:underline">+233 552 141 384</a>
+            </p>
+          </div>
+        </div>
+      </section>
 
       <div className="mb-6 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <input

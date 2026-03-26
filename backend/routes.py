@@ -1745,7 +1745,7 @@ def register():
     school_name = sanitize_string(data.get("schoolName"))
     username = sanitize_string(data.get("username"))
     password = data.get("password")
-    email = data.get("email")
+    email = _normalize_email_address(data.get("email"))
     terms_version = sanitize_string(data.get("termsVersion"))
     terms_accepted = data.get("termsAccepted") is True
     policy_version = sanitize_string(data.get("policyVersion"))
@@ -1766,6 +1766,14 @@ def register():
     if School.query.get(school_id):
         logger.warning(f"Registration failed: School ID {school_id} already exists")
         return jsonify({"message": "Organization ID already taken."}), 400
+
+    if User.query.filter_by(username=username).first():
+        logger.warning(f"Registration failed: Username {username} already exists")
+        return jsonify({"message": "Proprietor username already taken. Choose a different username."}), 400
+
+    if _find_platform_user_by_email(email):
+        logger.warning(f"Registration failed: Email {email} already exists")
+        return jsonify({"message": "An account with this email already exists. Login or reset the password instead."}), 400
 
     try:
         # 1. Create Tenant (School) - Always start with Free Tier
@@ -9342,6 +9350,23 @@ def _find_school_user_by_email(school_id, email, exclude_user_id=None):
         (
             candidate
             for candidate in school_users
+            if candidate.id != exclude_user_id
+            and _normalize_email_address(candidate.email) == normalized_email
+        ),
+        None,
+    )
+
+
+def _find_platform_user_by_email(email, exclude_user_id=None):
+    normalized_email = _normalize_email_address(email)
+    if not normalized_email:
+        return None
+
+    platform_users = User.query.all()
+    return next(
+        (
+            candidate
+            for candidate in platform_users
             if candidate.id != exclude_user_id
             and _normalize_email_address(candidate.email) == normalized_email
         ),

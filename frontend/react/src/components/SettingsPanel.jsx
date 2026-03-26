@@ -897,52 +897,54 @@ export default function SettingsPanel() {
             {/* Bank Transfer Section */}
             <div className="border rounded-lg p-4 bg-green-50">
               <h4 className="font-bold text-slate-800 mb-3">🏦 Bank Account</h4>
-              <p className="text-xs text-slate-600 mb-3">Saved bank details stay masked until you click View and re-enter your password.</p>
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-600">Saved bank details stay masked until you click View and re-enter your password.</p>
+                {!bankDetailsVisible && (
+                  <button
+                    type="button"
+                    onClick={handleViewBankDetails}
+                    className="inline-flex items-center justify-center rounded bg-indigo-600 px-3 py-1 text-sm text-white"
+                  >
+                    View Hidden Bank Details
+                  </button>
+                )}
+              </div>
               <div className="space-y-3">
                 <div>
                   <label className="text-sm font-bold text-slate-700">Bank Name</label>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      name="bank_name"
-                      value={settings.bank_name || ''}
-                      onChange={handleChange}
-                      className="w-full p-2 border rounded mt-1 bg-white"
-                      placeholder="e.g., Fidelity Bank Ghana"
-                      disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_name)}
-                    />
-                    <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
-                  </div>
+                  <input
+                    type="text"
+                    name="bank_name"
+                    value={settings.bank_name || ''}
+                    onChange={handleChange}
+                    className="w-full p-2 border rounded mt-1 bg-white"
+                    placeholder="e.g., Fidelity Bank Ghana"
+                    disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_name)}
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700">Account Number</label>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      name="bank_account"
-                      value={settings.bank_account || ''}
-                      onChange={handleChange}
-                      className="w-full p-2 border rounded mt-1 bg-white"
-                      placeholder="School bank account number"
-                      disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_account)}
-                    />
-                    <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
-                  </div>
+                  <input
+                    type="text"
+                    name="bank_account"
+                    value={settings.bank_account || ''}
+                    onChange={handleChange}
+                    className="w-full p-2 border rounded mt-1 bg-white"
+                    placeholder="School bank account number"
+                    disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_account)}
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700">Account Holder Name</label>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      name="bank_account_name"
-                      value={settings.bank_account_name || ''}
-                      onChange={handleChange}
-                      className="w-full p-2 border rounded mt-1 bg-white"
-                      placeholder="Name on bank account"
-                      disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_account_name)}
-                    />
-                    <button type="button" onClick={handleViewBankDetails} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">View</button>
-                  </div>
+                  <input
+                    type="text"
+                    name="bank_account_name"
+                    value={settings.bank_account_name || ''}
+                    onChange={handleChange}
+                    className="w-full p-2 border rounded mt-1 bg-white"
+                    placeholder="Name on bank account"
+                    disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_account_name)}
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-bold text-slate-700">Branch (Optional)</label>
