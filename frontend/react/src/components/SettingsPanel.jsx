@@ -3,7 +3,7 @@ import axios from 'axios';
 import TimetableManager from './TimetableManager';
 import TermManagementPanel from './TermManagementPanel';
 import reportTemplates from '../report_templates';
-import { buildTemplateHtml } from '../utils/reportTemplate';
+import { buildTemplateHtml, GRADE_SCALE_ROWS, formatGradingSchemeSummary, getGradeFromTotal, getRemarkFromGrade } from '../utils/reportTemplate';
 
 const TEMPLATE_ALIAS_TO_CANONICAL = {
   sample1: 'gradman_v1',
@@ -17,6 +17,261 @@ const TEMPLATE_ALIAS_TO_CANONICAL = {
 const TEMPLATE_CANONICAL_TO_ALIAS = Object.fromEntries(
   Object.entries(TEMPLATE_ALIAS_TO_CANONICAL).map(([alias, canonical]) => [canonical, alias])
 );
+
+const PREVIEW_TEMPLATE_THEMES = {
+  default: {
+    modalCanvas: 'bg-white p-8 shadow-lg',
+    sectionGap: 'space-y-6',
+    headerWrap: 'text-center mb-2 border-b-4 border-blue-800 pb-4',
+    logoShell: 'bg-blue-100 text-blue-900',
+    titleClass: 'text-3xl font-bold text-blue-900 uppercase',
+    mottoClass: 'mt-1 text-sm italic text-gray-600',
+    contactClass: 'mt-2 text-xs text-gray-500',
+    studentCard: 'grid grid-cols-2 gap-4 rounded-lg bg-blue-50 p-4 text-xs',
+    academicTitleClass: 'text-xl font-bold uppercase text-slate-800',
+    academicMetaClass: 'text-sm text-slate-600',
+    summaryCard: 'rounded-lg bg-blue-50 p-4',
+    summaryTitle: 'mb-3 border-b pb-1 font-bold text-slate-700',
+    summaryLabel: 'font-bold text-slate-700',
+    summaryValue: 'font-bold text-slate-800',
+    tableTitle: 'mb-2 border-b pb-1 font-bold text-slate-700',
+    tableHead: 'bg-slate-100',
+    tableRow: 'border-b',
+    tableGrade: 'font-bold text-green-700',
+    tableTotal: 'font-bold',
+    scaleHead: 'bg-slate-50',
+    scaleText: 'text-slate-700',
+    insightWrap: 'rounded-lg bg-slate-50 p-4',
+    insightTitle: 'mb-3 border-b pb-1 font-bold text-slate-700',
+    insightCard: 'rounded border border-slate-200 bg-white p-3',
+    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-slate-500',
+    insightText: 'text-sm text-slate-700',
+    signatureWrap: 'mt-8 border-t pt-4',
+    signatureLine: 'mt-8 border-t border-slate-400 pt-1',
+    signatureText: 'text-xs font-bold text-slate-700',
+    genericCard: 'rounded-lg border p-4',
+    genericTitle: 'mb-2 text-sm font-bold text-gray-700',
+    genericText: 'grid grid-cols-1 gap-2 text-xs text-gray-600 md:grid-cols-2',
+    genericLabel: 'font-semibold text-gray-700',
+    remarkTones: {
+      teacher_remarks: 'rounded border-l-4 border-yellow-400 bg-yellow-50 p-3',
+      headmaster_remarks: 'rounded border-l-4 border-orange-400 bg-orange-50 p-3',
+      proprietor_remarks: 'rounded border-l-4 border-cyan-400 bg-cyan-50 p-3',
+      ai_analysis: 'rounded border-l-4 border-purple-400 bg-purple-50 p-3',
+      default: 'rounded border-l-4 border-slate-300 bg-slate-50 p-3'
+    }
+  },
+  gradman_v1: {
+    modalCanvas: 'bg-white p-8 shadow-lg',
+    sectionGap: 'space-y-6',
+    headerWrap: 'text-center mb-2 border-b-4 border-blue-900 pb-5',
+    logoShell: 'bg-blue-100 text-blue-900',
+    titleClass: 'text-3xl font-black tracking-tight text-blue-900 uppercase',
+    mottoClass: 'mt-1 text-sm italic text-slate-600',
+    contactClass: 'mt-2 text-xs text-slate-500',
+    studentCard: 'grid grid-cols-2 gap-4 rounded-xl border border-blue-100 bg-blue-50 p-5 text-xs',
+    academicTitleClass: 'text-2xl font-extrabold uppercase text-slate-900',
+    academicMetaClass: 'text-sm text-slate-600',
+    summaryCard: 'rounded-xl border border-blue-100 bg-white p-4 shadow-sm',
+    summaryTitle: 'mb-3 border-b border-blue-100 pb-1 font-bold uppercase tracking-wide text-blue-900',
+    summaryLabel: 'font-bold text-slate-700',
+    summaryValue: 'font-bold text-slate-900',
+    tableTitle: 'mb-2 border-b border-blue-100 pb-1 font-bold uppercase tracking-wide text-blue-900',
+    tableHead: 'bg-blue-50',
+    tableRow: 'border-b border-slate-200',
+    tableGrade: 'font-bold text-blue-700',
+    tableTotal: 'font-bold text-slate-900',
+    scaleHead: 'bg-blue-50',
+    scaleText: 'text-slate-700',
+    insightWrap: 'rounded-xl border border-slate-200 bg-slate-50 p-4',
+    insightTitle: 'mb-3 border-b border-blue-100 pb-1 font-bold uppercase tracking-wide text-blue-900',
+    insightCard: 'rounded-lg border border-blue-100 bg-white p-3',
+    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-blue-700',
+    insightText: 'text-sm text-slate-700',
+    signatureWrap: 'mt-10 border-t border-slate-200 pt-4',
+    signatureLine: 'mt-8 border-t border-slate-500 pt-1',
+    signatureText: 'text-xs font-bold uppercase tracking-wide text-slate-700',
+    genericCard: 'rounded-xl border border-slate-200 p-4',
+    genericTitle: 'mb-2 text-sm font-bold uppercase tracking-wide text-blue-900',
+    genericText: 'grid grid-cols-1 gap-2 text-xs text-slate-600 md:grid-cols-2',
+    genericLabel: 'font-semibold text-slate-800',
+    remarkTones: {
+      teacher_remarks: 'rounded-xl border-l-4 border-yellow-400 bg-yellow-50 p-3',
+      headmaster_remarks: 'rounded-xl border-l-4 border-orange-400 bg-orange-50 p-3',
+      proprietor_remarks: 'rounded-xl border-l-4 border-cyan-400 bg-cyan-50 p-3',
+      ai_analysis: 'rounded-xl border-l-4 border-indigo-400 bg-indigo-50 p-3',
+      default: 'rounded-xl border-l-4 border-slate-300 bg-slate-50 p-3'
+    }
+  },
+  parent_focus: {
+    modalCanvas: 'bg-emerald-50 p-8 shadow-lg',
+    sectionGap: 'space-y-5',
+    headerWrap: 'mb-2 rounded-3xl bg-white px-6 pb-5 pt-4 text-left shadow-sm',
+    logoShell: 'bg-emerald-100 text-emerald-800',
+    titleClass: 'text-3xl font-black text-emerald-900 uppercase',
+    mottoClass: 'mt-1 text-sm italic text-emerald-700',
+    contactClass: 'mt-2 text-xs text-emerald-800',
+    studentCard: 'grid grid-cols-2 gap-4 rounded-3xl bg-white p-5 text-xs shadow-sm',
+    academicTitleClass: 'text-xl font-black uppercase text-emerald-900',
+    academicMetaClass: 'text-sm text-emerald-700',
+    summaryCard: 'rounded-3xl bg-emerald-100 p-4',
+    summaryTitle: 'mb-3 border-b border-emerald-200 pb-1 font-bold text-emerald-900',
+    summaryLabel: 'font-bold text-emerald-900',
+    summaryValue: 'font-bold text-emerald-950',
+    tableTitle: 'mb-2 font-bold text-emerald-900',
+    tableHead: 'bg-emerald-100',
+    tableRow: 'border-b border-emerald-100',
+    tableGrade: 'font-bold text-emerald-700',
+    tableTotal: 'font-bold text-emerald-950',
+    scaleHead: 'bg-white',
+    scaleText: 'text-emerald-900',
+    insightWrap: 'rounded-3xl bg-white p-4 shadow-sm',
+    insightTitle: 'mb-3 border-b border-emerald-100 pb-1 font-bold text-emerald-900',
+    insightCard: 'rounded-2xl bg-emerald-50 p-3',
+    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-emerald-700',
+    insightText: 'text-sm text-emerald-950',
+    signatureWrap: 'mt-8 rounded-3xl bg-white p-4 shadow-sm',
+    signatureLine: 'mt-8 border-t border-emerald-300 pt-1',
+    signatureText: 'text-xs font-bold text-emerald-900',
+    genericCard: 'rounded-3xl bg-white p-4 shadow-sm',
+    genericTitle: 'mb-2 text-sm font-bold text-emerald-900',
+    genericText: 'grid grid-cols-1 gap-2 text-xs text-emerald-800 md:grid-cols-2',
+    genericLabel: 'font-semibold text-emerald-900',
+    remarkTones: {
+      teacher_remarks: 'rounded-3xl border border-emerald-200 bg-white p-4',
+      headmaster_remarks: 'rounded-3xl border border-lime-200 bg-lime-50 p-4',
+      proprietor_remarks: 'rounded-3xl border border-teal-200 bg-teal-50 p-4',
+      ai_analysis: 'rounded-3xl border border-sky-200 bg-sky-50 p-4',
+      default: 'rounded-3xl border border-emerald-200 bg-white p-4'
+    }
+  },
+  progress_insights: {
+    modalCanvas: 'bg-slate-900 p-8 shadow-lg',
+    sectionGap: 'space-y-5',
+    headerWrap: 'mb-2 rounded-3xl bg-linear-to-r from-violet-600 via-indigo-600 to-sky-600 px-6 pb-5 pt-4 text-white shadow-lg',
+    logoShell: 'bg-white/20 text-white',
+    titleClass: 'text-3xl font-black uppercase tracking-tight text-white',
+    mottoClass: 'mt-1 text-sm italic text-blue-100',
+    contactClass: 'mt-2 text-xs text-blue-100',
+    studentCard: 'grid grid-cols-2 gap-4 rounded-3xl bg-slate-800 p-5 text-xs text-slate-100 shadow-lg',
+    academicTitleClass: 'text-xl font-black uppercase text-white',
+    academicMetaClass: 'text-sm text-blue-100',
+    summaryCard: 'rounded-3xl border border-white/10 bg-slate-800 p-4 text-slate-100',
+    summaryTitle: 'mb-3 border-b border-white/10 pb-1 font-bold uppercase tracking-wide text-sky-300',
+    summaryLabel: 'font-bold text-sky-200',
+    summaryValue: 'font-bold text-white',
+    tableTitle: 'mb-2 border-b border-white/10 pb-1 font-bold uppercase tracking-wide text-violet-200',
+    tableHead: 'bg-slate-800 text-sky-100',
+    tableRow: 'border-b border-white/10 text-slate-100',
+    tableGrade: 'font-bold text-lime-300',
+    tableTotal: 'font-bold text-white',
+    scaleHead: 'bg-slate-800 text-sky-100',
+    scaleText: 'text-slate-100',
+    insightWrap: 'rounded-3xl border border-white/10 bg-slate-800 p-4',
+    insightTitle: 'mb-3 border-b border-white/10 pb-1 font-bold uppercase tracking-wide text-violet-200',
+    insightCard: 'rounded-2xl bg-slate-700 p-3',
+    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-fuchsia-200',
+    insightText: 'text-sm text-slate-100',
+    signatureWrap: 'mt-8 rounded-3xl border border-white/10 bg-slate-800 p-4',
+    signatureLine: 'mt-8 border-t border-slate-500 pt-1',
+    signatureText: 'text-xs font-bold text-sky-100',
+    genericCard: 'rounded-3xl border border-white/10 bg-slate-800 p-4',
+    genericTitle: 'mb-2 text-sm font-bold uppercase tracking-wide text-sky-300',
+    genericText: 'grid grid-cols-1 gap-2 text-xs text-slate-200 md:grid-cols-2',
+    genericLabel: 'font-semibold text-sky-100',
+    remarkTones: {
+      teacher_remarks: 'rounded-3xl border border-yellow-400/30 bg-yellow-400/10 p-4',
+      headmaster_remarks: 'rounded-3xl border border-orange-400/30 bg-orange-400/10 p-4',
+      proprietor_remarks: 'rounded-3xl border border-cyan-400/30 bg-cyan-400/10 p-4',
+      ai_analysis: 'rounded-3xl border border-violet-400/30 bg-violet-400/10 p-4',
+      default: 'rounded-3xl border border-white/10 bg-slate-800 p-4'
+    }
+  },
+  compact_clear: {
+    modalCanvas: 'bg-white p-6 shadow-lg',
+    sectionGap: 'space-y-3',
+    headerWrap: 'mb-1 border-b border-slate-300 pb-3 text-left',
+    logoShell: 'bg-slate-200 text-slate-700',
+    titleClass: 'text-2xl font-bold uppercase tracking-tight text-slate-900',
+    mottoClass: 'mt-1 text-xs italic text-slate-500',
+    contactClass: 'mt-2 text-[11px] text-slate-500',
+    studentCard: 'grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px]',
+    academicTitleClass: 'text-lg font-bold uppercase text-slate-900',
+    academicMetaClass: 'text-xs text-slate-500',
+    summaryCard: 'rounded-lg border border-slate-200 bg-white p-3',
+    summaryTitle: 'mb-2 border-b border-slate-200 pb-1 text-sm font-bold uppercase tracking-wide text-slate-700',
+    summaryLabel: 'font-semibold text-slate-700',
+    summaryValue: 'font-bold text-slate-900',
+    tableTitle: 'mb-1 text-sm font-bold uppercase tracking-wide text-slate-700',
+    tableHead: 'bg-slate-100',
+    tableRow: 'border-b border-slate-200',
+    tableGrade: 'font-bold text-slate-800',
+    tableTotal: 'font-bold text-slate-900',
+    scaleHead: 'bg-slate-100',
+    scaleText: 'text-slate-700',
+    insightWrap: 'rounded-lg border border-slate-200 bg-white p-3',
+    insightTitle: 'mb-2 border-b border-slate-200 pb-1 text-sm font-bold uppercase tracking-wide text-slate-700',
+    insightCard: 'rounded border border-slate-200 bg-slate-50 p-3',
+    insightLabel: 'mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500',
+    insightText: 'text-sm text-slate-700',
+    signatureWrap: 'mt-6 border-t border-slate-200 pt-3',
+    signatureLine: 'mt-6 border-t border-slate-400 pt-1',
+    signatureText: 'text-[11px] font-bold text-slate-700',
+    genericCard: 'rounded-lg border border-slate-200 p-3',
+    genericTitle: 'mb-2 text-sm font-bold uppercase tracking-wide text-slate-700',
+    genericText: 'grid grid-cols-1 gap-2 text-xs text-slate-600 md:grid-cols-2',
+    genericLabel: 'font-semibold text-slate-700',
+    remarkTones: {
+      teacher_remarks: 'rounded-lg border-l-2 border-slate-400 bg-slate-50 p-3',
+      headmaster_remarks: 'rounded-lg border-l-2 border-slate-500 bg-slate-50 p-3',
+      proprietor_remarks: 'rounded-lg border-l-2 border-slate-600 bg-slate-50 p-3',
+      ai_analysis: 'rounded-lg border-l-2 border-slate-700 bg-slate-50 p-3',
+      default: 'rounded-lg border-l-2 border-slate-400 bg-slate-50 p-3'
+    }
+  },
+  guardian_narrative: {
+    modalCanvas: 'bg-rose-50 p-8 shadow-lg',
+    sectionGap: 'space-y-5',
+    headerWrap: 'mb-2 rounded-[28px] border border-rose-200 bg-white px-6 pb-5 pt-4 text-center shadow-sm',
+    logoShell: 'bg-rose-100 text-rose-700',
+    titleClass: 'text-3xl font-black uppercase tracking-tight text-rose-900',
+    mottoClass: 'mt-1 text-sm italic text-rose-700',
+    contactClass: 'mt-2 text-xs text-rose-700',
+    studentCard: 'grid grid-cols-2 gap-4 rounded-[28px] border border-rose-200 bg-white p-5 text-xs shadow-sm',
+    academicTitleClass: 'text-xl font-black uppercase text-rose-900',
+    academicMetaClass: 'text-sm text-rose-700',
+    summaryCard: 'rounded-[28px] border border-rose-200 bg-white p-4 shadow-sm',
+    summaryTitle: 'mb-3 border-b border-rose-100 pb-1 font-bold text-rose-900',
+    summaryLabel: 'font-bold text-rose-900',
+    summaryValue: 'font-bold text-slate-900',
+    tableTitle: 'mb-2 border-b border-rose-100 pb-1 font-bold text-rose-900',
+    tableHead: 'bg-rose-100',
+    tableRow: 'border-b border-rose-100',
+    tableGrade: 'font-bold text-rose-700',
+    tableTotal: 'font-bold text-slate-900',
+    scaleHead: 'bg-white',
+    scaleText: 'text-rose-900',
+    insightWrap: 'rounded-[28px] border border-rose-200 bg-white p-4 shadow-sm',
+    insightTitle: 'mb-3 border-b border-rose-100 pb-1 font-bold text-rose-900',
+    insightCard: 'rounded-2xl bg-rose-50 p-3',
+    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-rose-700',
+    insightText: 'text-sm text-slate-700',
+    signatureWrap: 'mt-8 rounded-[28px] border border-rose-200 bg-white p-4 shadow-sm',
+    signatureLine: 'mt-8 border-t border-rose-300 pt-1',
+    signatureText: 'text-xs font-bold text-rose-900',
+    genericCard: 'rounded-[28px] border border-rose-200 bg-white p-4 shadow-sm',
+    genericTitle: 'mb-2 text-sm font-bold text-rose-900',
+    genericText: 'grid grid-cols-1 gap-2 text-xs text-slate-600 md:grid-cols-2',
+    genericLabel: 'font-semibold text-rose-900',
+    remarkTones: {
+      teacher_remarks: 'rounded-[28px] border border-yellow-200 bg-yellow-50 p-4',
+      headmaster_remarks: 'rounded-[28px] border border-orange-200 bg-orange-50 p-4',
+      proprietor_remarks: 'rounded-[28px] border border-cyan-200 bg-cyan-50 p-4',
+      ai_analysis: 'rounded-[28px] border border-rose-200 bg-rose-100 p-4',
+      default: 'rounded-[28px] border border-rose-200 bg-white p-4'
+    }
+  }
+};
 
 export default function SettingsPanel() {
   const [settings, setSettings] = useState({
@@ -464,6 +719,29 @@ export default function SettingsPanel() {
   const previewTemplateCanonicalId = TEMPLATE_ALIAS_TO_CANONICAL[previewTemplate] || previewTemplate;
   const previewTemplateDefinition = reportTemplates.find((template) => template.id === previewTemplateCanonicalId);
   const previewReopeningDate = formatDisplayDate(settings.next_term_reopen_date) || '4 May 2026';
+  const previewScoreTotals = [
+    { subject: 'English Language', total: 67, position: '4th' },
+    { subject: 'Mathematics', total: 70, position: '3rd' },
+    { subject: 'Science', total: 64, position: '6th' },
+    { subject: 'Creative Arts', total: 71, position: '2nd' }
+  ].map((row) => {
+    const total = Number(row.total) || 0;
+    const classScore = Math.round((total * classScoreMax) / 100);
+    const examScore = total - classScore;
+    const grade = getGradeFromTotal(total);
+    return {
+      ...row,
+      class_score: String(classScore),
+      exam_score: String(examScore),
+      total: String(total),
+      grade,
+      remarks: getRemarkFromGrade(grade)
+    };
+  });
+  const previewTermAverage = previewScoreTotals.length
+    ? (previewScoreTotals.reduce((sum, row) => sum + (Number(row.total) || 0), 0) / previewScoreTotals.length).toFixed(1)
+    : '0.0';
+  const previewGradingSchemeSummary = formatGradingSchemeSummary(classScoreMax, examScoreMax);
   const previewTemplateData = {
     school_name: settings.school_name || 'M. A. Bediako Adventist Preparatory School',
     school_logo: settings.logo_url || '',
@@ -476,11 +754,14 @@ export default function SettingsPanel() {
     class_name: 'Basic 6C',
     academic_term: 'Term One',
     academic_year: '2024/2025',
-    term_average: '87.3',
+    term_average: previewTermAverage,
     overall_position: '2nd',
     out_of_students: '45',
     attendance_percentage: '96%',
     total_attendance: '68/70',
+    class_score_max: String(classScoreMax),
+    exam_score_max: String(examScoreMax),
+    grading_scheme_summary: previewGradingSchemeSummary,
     reopening_date: previewReopeningDate,
     homeroom_teacher_remarks: 'John has shown excellent performance this term. Keep up the good work!',
     headmaster_remarks: 'Outstanding academic achievement. Continue to strive for excellence.',
@@ -488,16 +769,394 @@ export default function SettingsPanel() {
     ai_performance_analysis: 'John demonstrates strong consistency across core subjects with very good attendance and positive classroom habits.',
     strengths: 'Excellent literacy skills, strong class participation, and dependable homework completion.',
     weaknesses: 'Needs to speak up more during oral drills and improve speed in Mathematics problem solving.',
-    subject_grades: [
-      { subject: 'English Language', class_score: '24', exam_score: '43', total: '67', grade: 'P', position: '4th', remarks: 'Approaching Proficiency' },
-      { subject: 'Mathematics', class_score: '25', exam_score: '45', total: '70', grade: 'AP', position: '3rd', remarks: 'Proficient' },
-      { subject: 'Science', class_score: '23', exam_score: '41', total: '64', grade: 'D', position: '6th', remarks: 'Developing' },
-      { subject: 'Creative Arts', class_score: '27', exam_score: '44', total: '71', grade: 'AP', position: '2nd', remarks: 'Strong practical work' }
-    ]
+    subject_grades: previewScoreTotals
   };
   const previewTemplateHtml = previewTemplateDefinition?.config?.type === 'html'
     ? buildTemplateHtml({ templateConfig: previewTemplateDefinition.config, data: previewTemplateData })
     : '';
+  const previewTemplateSectionConfig = previewTemplateDefinition?.config?.type === 'html'
+    ? null
+    : previewTemplateDefinition?.config?.sections
+      ? previewTemplateDefinition.config
+      : null;
+  const previewTheme = PREVIEW_TEMPLATE_THEMES[previewTemplateCanonicalId] || PREVIEW_TEMPLATE_THEMES.default;
+  const previewHideEmptyFields = Boolean(previewTemplateSectionConfig?.visibility?.hide_empty_fields);
+  const previewHideEmptySections = Boolean(previewTemplateSectionConfig?.visibility?.hide_empty_sections);
+
+  const isPreviewEmptyValue = (value) => {
+    if (value === null || value === undefined) return true;
+    if (Array.isArray(value)) return value.length === 0;
+    if (typeof value === 'string') return value.trim() === '';
+    return false;
+  };
+
+  const getPreviewFieldValue = (fieldKey) => {
+    const value = previewTemplateData[fieldKey];
+    if (isPreviewEmptyValue(value)) return '';
+    return String(value);
+  };
+
+  const filterPreviewFields = (fields = []) => (
+    previewHideEmptyFields
+      ? fields.filter((field) => !isPreviewEmptyValue(previewTemplateData[field.key]))
+      : fields
+  );
+
+  const renderTemplateCardThumbnail = (templateAlias) => {
+    const canonicalId = TEMPLATE_ALIAS_TO_CANONICAL[templateAlias] || templateAlias;
+    const templateDefinition = reportTemplates.find((template) => template.id === canonicalId);
+    const templateTheme = PREVIEW_TEMPLATE_THEMES[canonicalId] || PREVIEW_TEMPLATE_THEMES.default;
+    const templateSections = templateDefinition?.config?.sections || [];
+    const tableSection = templateSections.find((section) => section.type === 'table');
+    const summarySection = templateSections.find((section) => section.type === 'summary');
+    const insightsSection = templateSections.find((section) => section.type === 'insights');
+    const remarksCount = templateSections.filter((section) => section.type === 'remarks' || section.type === 'analysis').length;
+    const signatureCount = templateSections.find((section) => section.type === 'signatures')?.fields?.length || 0;
+    const thumbnailRows = Math.min(3, previewTemplateData.subject_grades.length || 3);
+    const tableColumns = Math.min(4, tableSection?.columns?.length || 3);
+    const summaryFields = Math.min(4, summarySection?.fields?.length || 2);
+
+    return (
+      <div className="mb-3 overflow-hidden rounded-xl border border-white/60 bg-white/80 shadow-sm">
+        <div className={`${templateTheme.modalCanvas} origin-top-left scale-[0.22]`} style={{ width: '455%', height: 172, transformOrigin: 'top left' }}>
+          <div className={templateTheme.sectionGap}>
+            <div className={templateTheme.headerWrap}>
+              <div className="mb-2 flex justify-center">
+                <div className={`flex h-12 w-12 items-center justify-center rounded-full text-lg ${templateTheme.logoShell}`}>🏫</div>
+              </div>
+              <h4 className={templateTheme.titleClass}>{previewTemplateData.school_name}</h4>
+              <p className={templateTheme.mottoClass}>{previewTemplateData.school_motto}</p>
+            </div>
+
+            <div className="text-center">
+              <p className={templateTheme.academicTitleClass}>Terminal Report Card</p>
+              <p className={templateTheme.academicMetaClass}>{previewTemplateData.academic_year} - {previewTemplateData.academic_term}</p>
+            </div>
+
+            <div className={templateTheme.studentCard}>
+              <div>
+                <p className="mb-1 text-slate-500">Student</p>
+                <p className={templateTheme.summaryValue}>{previewTemplateData.student_name}</p>
+              </div>
+              <div>
+                <p className="mb-1 text-slate-500">Class</p>
+                <p className={templateTheme.summaryValue}>{previewTemplateData.class_name}</p>
+              </div>
+            </div>
+
+            {summarySection && (
+              <div className={templateTheme.summaryCard}>
+                <p className={templateTheme.summaryTitle}>{summarySection.label}</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {Array.from({ length: summaryFields }).map((_, index) => (
+                    <div key={`${templateAlias}-summary-${index}`} className="flex items-center gap-2">
+                      <span className={templateTheme.summaryLabel}>•</span>
+                      <span className={templateTheme.summaryValue}>Metric</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {insightsSection && (
+              <div className={templateTheme.insightWrap}>
+                <p className={templateTheme.insightTitle}>{insightsSection.label}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={templateTheme.insightCard}>
+                    <p className={templateTheme.insightLabel}>Strengths</p>
+                    <p className={templateTheme.insightText}>Strong literacy and class focus.</p>
+                  </div>
+                  <div className={templateTheme.insightCard}>
+                    <p className={templateTheme.insightLabel}>Needs</p>
+                    <p className={templateTheme.insightText}>Faster maths problem solving.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tableSection && (
+              <div>
+                <p className={templateTheme.tableTitle}>{tableSection.label}</p>
+                <div className={`grid gap-px overflow-hidden rounded-lg ${templateTheme.tableHead}`} style={{ gridTemplateColumns: `repeat(${tableColumns}, minmax(0, 1fr))` }}>
+                  {tableSection.columns.slice(0, tableColumns).map((column) => (
+                    <div key={`${templateAlias}-${column.key}-head`} className="bg-inherit px-2 py-1 text-[10px] font-bold uppercase tracking-wide">
+                      {column.label}
+                    </div>
+                  ))}
+                  {Array.from({ length: thumbnailRows }).flatMap((_, rowIndex) => (
+                    tableSection.columns.slice(0, tableColumns).map((column, columnIndex) => (
+                      <div
+                        key={`${templateAlias}-${rowIndex}-${column.key}`}
+                        className={`px-2 py-1 text-[10px] ${templateTheme.tableRow} ${columnIndex === tableColumns - 1 ? templateTheme.tableGrade : column.key === 'total' ? templateTheme.tableTotal : ''}`}
+                      >
+                        {column.key === 'subject' ? previewTemplateData.subject_grades[rowIndex]?.subject || 'Subject' : '...'}
+                      </div>
+                    ))
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {remarksCount > 0 && (
+              <div className="grid gap-2">
+                {Array.from({ length: Math.min(2, remarksCount) }).map((_, index) => (
+                  <div
+                    key={`${templateAlias}-remark-${index}`}
+                    className={index === 0 ? templateTheme.remarkTones.teacher_remarks : templateTheme.remarkTones.ai_analysis || templateTheme.remarkTones.default}
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-700">Narrative</p>
+                    <p className="text-[10px] text-slate-600">Short comment preview block.</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {signatureCount > 0 && (
+              <div className={templateTheme.signatureWrap}>
+                <div className={`grid gap-3`} style={{ gridTemplateColumns: `repeat(${Math.min(3, signatureCount)}, minmax(0, 1fr))` }}>
+                  {Array.from({ length: Math.min(3, signatureCount) }).map((_, index) => (
+                    <div key={`${templateAlias}-signature-${index}`} className="text-center">
+                      <div className={templateTheme.signatureLine}>
+                        <p className={templateTheme.signatureText}>Sign</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPreviewSection = (section) => {
+    if (!section) return null;
+
+    if (section.type === 'header') {
+      return (
+        <div key={section.id} className={previewTheme.headerWrap}>
+          {previewTemplateData.school_logo ? (
+            <div className="mb-2">
+              <img
+                src={previewTemplateData.school_logo}
+                alt="School Logo"
+                className="mx-auto h-16 w-16 object-contain"
+              />
+            </div>
+          ) : (
+            <div className="mb-2 flex justify-center">
+              <div className={`flex h-16 w-16 items-center justify-center rounded-full text-3xl ${previewTheme.logoShell}`}>
+                🏫
+              </div>
+            </div>
+          )}
+          <h1 className={previewTheme.titleClass}>{previewTemplateData.school_name}</h1>
+          {previewTemplateData.school_motto && (
+            <p className={previewTheme.mottoClass}>{previewTemplateData.school_motto}</p>
+          )}
+          {(previewTemplateData.school_email || previewTemplateData.school_phone) && (
+            <p className={previewTheme.contactClass}>
+              {previewTemplateData.school_email || ''}
+              {previewTemplateData.school_email && previewTemplateData.school_phone ? ' | ' : ''}
+              {previewTemplateData.school_phone || ''}
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    if (section.type === 'student_info') {
+      const fields = filterPreviewFields(section.fields || []);
+      if (fields.length === 0 && previewHideEmptySections) return null;
+
+      const academicFields = fields.filter((field) => field.key === 'academic_term' || field.key === 'academic_year');
+      const identityFields = fields.filter((field) => field.key !== 'academic_term' && field.key !== 'academic_year');
+
+      return (
+        <div key={section.id} className="space-y-4">
+          {academicFields.length > 0 && (
+            <div className="text-center">
+              <h2 className={previewTheme.academicTitleClass}>Terminal Report Card</h2>
+              <p className={previewTheme.academicMetaClass}>
+                Academic Year: {previewTemplateData.academic_year} - {previewTemplateData.academic_term}
+              </p>
+            </div>
+          )}
+          {identityFields.length > 0 && (
+            <div className={previewTheme.studentCard}>
+              {identityFields.map((field) => (
+                <div key={field.key}>
+                  <p className="mb-1 text-slate-600">{field.label}:</p>
+                  <p className={previewTheme.summaryValue}>{getPreviewFieldValue(field.key)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (section.type === 'summary') {
+      const fields = filterPreviewFields(section.fields || []);
+      if (fields.length === 0 && previewHideEmptySections) return null;
+
+      return (
+        <div key={section.id} className={previewTheme.summaryCard}>
+          <h3 className={previewTheme.summaryTitle}>{section.label}</h3>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            {fields.map((field) => (
+              <div key={field.key}>
+                <span className={previewTheme.summaryLabel}>{field.label}:</span>{' '}
+                <span className={previewTheme.summaryValue}>{getPreviewFieldValue(field.key)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (section.type === 'table') {
+      const rows = previewTemplateData.subject_grades || [];
+      if (rows.length === 0 && previewHideEmptySections) return null;
+
+      return (
+        <div key={section.id} className="mb-6">
+          <h3 className={previewTheme.tableTitle}>{section.label}</h3>
+          <table className="w-full text-sm">
+            <thead className={previewTheme.tableHead}>
+              <tr>
+                {section.columns.map((column) => (
+                  <th key={column.key} className="p-2 text-left">{column.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={`${section.id}-${index}`} className={previewTheme.tableRow}>
+                  {section.columns.map((column) => (
+                    <td key={column.key} className="p-2">
+                      {column.key === 'grade' ? (
+                        <span className={previewTheme.tableGrade}>{row[column.key] ?? ''}</span>
+                      ) : column.key === 'total' ? (
+                        <span className={previewTheme.tableTotal}>{row[column.key] ?? ''}</span>
+                      ) : (
+                        row[column.key] ?? ''
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    if (section.type === 'grading_scale') {
+      return (
+        <div key={section.id} className="mb-6">
+          <h3 className={previewTheme.tableTitle}>{section.label}</h3>
+          <p className={`mb-2 text-xs ${previewTheme.scaleText}`}>{previewGradingSchemeSummary}</p>
+          <table className="w-full text-xs">
+            <thead className={previewTheme.scaleHead}>
+              <tr className="uppercase text-slate-500">
+                <th className="p-2 text-left">Grade</th>
+                <th className="p-2 text-left">Range</th>
+                <th className="p-2 text-left">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {GRADE_SCALE_ROWS.map((row) => (
+                <tr key={row.grade} className="border-t">
+                  <td className={`p-2 font-bold ${previewTheme.scaleText}`}>{row.grade}</td>
+                  <td className={`p-2 ${previewTheme.scaleText}`}>{row.range}</td>
+                  <td className={`p-2 ${previewTheme.scaleText}`}>{row.remark}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    if (section.type === 'remarks' || section.type === 'analysis') {
+      const fields = filterPreviewFields(section.fields || []);
+      if (fields.length === 0 && previewHideEmptySections) return null;
+
+      const toneBySection = {
+        teacher_remarks: previewTheme.remarkTones.teacher_remarks,
+        headmaster_remarks: previewTheme.remarkTones.headmaster_remarks,
+        proprietor_remarks: previewTheme.remarkTones.proprietor_remarks,
+        ai_analysis: previewTheme.remarkTones.ai_analysis
+      };
+      const tone = toneBySection[section.id] || previewTheme.remarkTones.default;
+
+      return (
+        <div key={section.id} className={tone}>
+          <p className="mb-1 text-xs font-bold text-slate-700">{section.label}:</p>
+          {fields.map((field) => (
+            <p key={field.key} className="text-sm italic text-slate-600">{getPreviewFieldValue(field.key)}</p>
+          ))}
+        </div>
+      );
+    }
+
+    if (section.type === 'insights') {
+      const fields = filterPreviewFields(section.fields || []);
+      if (fields.length === 0 && previewHideEmptySections) return null;
+
+      return (
+        <div key={section.id} className={previewTheme.insightWrap}>
+          <h3 className={previewTheme.insightTitle}>{section.label}</h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            {fields.map((field) => (
+              <div key={field.key} className={previewTheme.insightCard}>
+                <p className={previewTheme.insightLabel}>{field.label}</p>
+                <p className={previewTheme.insightText}>{getPreviewFieldValue(field.key)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (section.type === 'signatures') {
+      const fields = section.fields || [];
+      if (fields.length === 0 && previewHideEmptySections) return null;
+
+      return (
+        <div key={section.id} className={previewTheme.signatureWrap}>
+          <div className="grid grid-cols-3 gap-4">
+            {fields.map((field) => (
+              <div key={field.key} className="text-center">
+                <div className={previewTheme.signatureLine}>
+                  <p className={previewTheme.signatureText}>{field.label}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const fields = filterPreviewFields(section.fields || []);
+    if (fields.length === 0 && previewHideEmptySections) return null;
+
+    return (
+      <div key={section.id} className={previewTheme.genericCard}>
+        <p className={previewTheme.genericTitle}>{section.label}</p>
+        <div className={previewTheme.genericText}>
+          {fields.map((field) => (
+            <div key={field.key} className="flex items-start gap-2">
+              <span className={previewTheme.genericLabel}>{field.label}:</span>
+              <span>{getPreviewFieldValue(field.key)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const handleViewBankDetails = async () => {
     const pwd = prompt('Enter your password to view full bank details');
@@ -1313,8 +1972,8 @@ export default function SettingsPanel() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-2">Available Templates</label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className={`border-2 rounded-2xl p-4 transition-all ${
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div className={`border-2 rounded-2xl p-3 md:p-4 transition-all ${
                   activeTemplate === 'sample1' ? 'border-blue-600 bg-blue-100 ring-2 ring-blue-400' : 'border-blue-200 bg-blue-50'
                 }`}
               >
@@ -1325,16 +1984,17 @@ export default function SettingsPanel() {
                   }}
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-blue-900">📄 Sample 1</p>
-                    {activeTemplate === 'sample1' && <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">ACTIVE</span>}
+                  {renderTemplateCardThumbnail('sample1')}
+                  <div className="mb-1.5 flex items-start justify-between gap-2">
+                    <p className="font-bold text-blue-900 text-sm md:text-base">📄 Sample 1</p>
+                    {activeTemplate === 'sample1' && <span className="shrink-0 rounded-full bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">ACTIVE</span>}
                   </div>
-                  <p className="text-xs text-blue-700 mb-3">Professional layout with centered header and detailed sections</p>
+                  <p className="mb-2 text-[11px] leading-5 text-blue-700 md:text-xs">Professional layout with centered header and detailed sections</p>
                 </div>
                 <button
                   onClick={() => handleTemplateSelect('sample1')}
                   disabled={activeTemplate === 'sample1'}
-                  className={`w-full mt-2 px-3 py-2 rounded-lg text-sm font-bold transition-all ${
+                  className={`w-full mt-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
                     activeTemplate === 'sample1' 
                       ? 'bg-blue-200 text-blue-800 cursor-not-allowed' 
                       : 'bg-blue-600 text-white hover:bg-blue-700'
@@ -1343,7 +2003,7 @@ export default function SettingsPanel() {
                   {activeTemplate === 'sample1' ? '✓ Currently Active' : 'Set as Active'}
                 </button>
               </div>
-              <div className={`border-2 rounded-2xl p-4 transition-all ${
+              <div className={`border-2 rounded-2xl p-3 md:p-4 transition-all ${
                   activeTemplate === 'sample2' ? 'border-green-600 bg-green-100 ring-2 ring-green-400' : 'border-green-200 bg-green-50'
                 }`}
               >
@@ -1354,11 +2014,12 @@ export default function SettingsPanel() {
                   }}
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-green-900">📄 Sample 2</p>
-                    {activeTemplate === 'sample2' && <span className="text-xs bg-green-600 text-white px-2 py-1 rounded-full">ACTIVE</span>}
+                  {renderTemplateCardThumbnail('sample2')}
+                  <div className="mb-1.5 flex items-start justify-between gap-2">
+                    <p className="font-bold text-green-900 text-sm md:text-base">📄 Sample 2</p>
+                    {activeTemplate === 'sample2' && <span className="shrink-0 rounded-full bg-green-600 px-2 py-1 text-[10px] font-bold text-white">ACTIVE</span>}
                   </div>
-                  <p className="text-xs text-green-700 mb-3">Compact single-page format with emphasis on grades</p>
+                  <p className="mb-2 text-[11px] leading-5 text-green-700 md:text-xs">Compact single-page format with emphasis on grades</p>
                 </div>
                 <button
                   onClick={() => handleTemplateSelect('sample2')}
@@ -1372,7 +2033,7 @@ export default function SettingsPanel() {
                   {activeTemplate === 'sample2' ? '✓ Currently Active' : 'Set as Active'}
                 </button>
               </div>
-              <div className={`border-2 rounded-2xl p-4 transition-all ${
+              <div className={`border-2 rounded-2xl p-3 md:p-4 transition-all ${
                   activeTemplate === 'sample3' ? 'border-purple-600 bg-purple-100 ring-2 ring-purple-400' : 'border-purple-200 bg-purple-50'
                 }`}
               >
@@ -1383,11 +2044,12 @@ export default function SettingsPanel() {
                   }}
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-purple-900">📄 Sample 3</p>
-                    {activeTemplate === 'sample3' && <span className="text-xs bg-purple-600 text-white px-2 py-1 rounded-full">ACTIVE</span>}
+                  {renderTemplateCardThumbnail('sample3')}
+                  <div className="mb-1.5 flex items-start justify-between gap-2">
+                    <p className="font-bold text-purple-900 text-sm md:text-base">📄 Sample 3</p>
+                    {activeTemplate === 'sample3' && <span className="shrink-0 rounded-full bg-purple-600 px-2 py-1 text-[10px] font-bold text-white">ACTIVE</span>}
                   </div>
-                  <p className="text-xs text-purple-700 mb-3">Modern design with visual progress indicators</p>
+                  <p className="mb-2 text-[11px] leading-5 text-purple-700 md:text-xs">Modern design with visual progress indicators</p>
                 </div>
                 <button
                   onClick={() => handleTemplateSelect('sample3')}
@@ -1401,7 +2063,7 @@ export default function SettingsPanel() {
                   {activeTemplate === 'sample3' ? '✓ Currently Active' : 'Set as Active'}
                 </button>
               </div>
-              <div className={`border-2 rounded-2xl p-4 transition-all ${
+              <div className={`border-2 rounded-2xl p-3 md:p-4 transition-all ${
                   activeTemplate === 'sample4' ? 'border-amber-600 bg-amber-100 ring-2 ring-amber-400' : 'border-amber-200 bg-amber-50'
                 }`}
               >
@@ -1412,11 +2074,12 @@ export default function SettingsPanel() {
                   }}
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-amber-900">📄 Sample 4</p>
-                    {activeTemplate === 'sample4' && <span className="text-xs bg-amber-600 text-white px-2 py-1 rounded-full">ACTIVE</span>}
+                  {renderTemplateCardThumbnail('sample4')}
+                  <div className="mb-1.5 flex items-start justify-between gap-2">
+                    <p className="font-bold text-amber-900 text-sm md:text-base">📄 Sample 4</p>
+                    {activeTemplate === 'sample4' && <span className="shrink-0 rounded-full bg-amber-600 px-2 py-1 text-[10px] font-bold text-white">ACTIVE</span>}
                   </div>
-                  <p className="text-xs text-amber-700 mb-3">Detailed narrative report with extensive remarks section</p>
+                  <p className="mb-2 text-[11px] leading-5 text-amber-700 md:text-xs">Detailed narrative report with extensive remarks section</p>
                 </div>
                 <button
                   onClick={() => handleTemplateSelect('sample4')}
@@ -1430,7 +2093,7 @@ export default function SettingsPanel() {
                   {activeTemplate === 'sample4' ? '✓ Currently Active' : 'Set as Active'}
                 </button>
               </div>
-              <div className={`border-2 rounded-2xl p-4 transition-all ${
+              <div className={`border-2 rounded-2xl p-3 md:p-4 transition-all ${
                   activeTemplate === 'sample5' ? 'border-pink-600 bg-pink-100 ring-2 ring-pink-400' : 'border-pink-200 bg-pink-50'
                 }`}
               >
@@ -1441,11 +2104,12 @@ export default function SettingsPanel() {
                   }}
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-pink-900">📄 Sample 5</p>
-                    {activeTemplate === 'sample5' && <span className="text-xs bg-pink-600 text-white px-2 py-1 rounded-full">ACTIVE</span>}
+                  {renderTemplateCardThumbnail('sample5')}
+                  <div className="mb-1.5 flex items-start justify-between gap-2">
+                    <p className="font-bold text-pink-900 text-sm md:text-base">📄 Sample 5</p>
+                    {activeTemplate === 'sample5' && <span className="shrink-0 rounded-full bg-pink-600 px-2 py-1 text-[10px] font-bold text-white">ACTIVE</span>}
                   </div>
-                  <p className="text-xs text-pink-700 mb-3">Traditional style with signature blocks and official formatting</p>
+                  <p className="mb-2 text-[11px] leading-5 text-pink-700 md:text-xs">Traditional style with signature blocks and official formatting</p>
                 </div>
                 <button
                   onClick={() => handleTemplateSelect('sample5')}
@@ -1459,7 +2123,7 @@ export default function SettingsPanel() {
                   {activeTemplate === 'sample5' ? '✓ Currently Active' : 'Set as Active'}
                 </button>
               </div>
-              <div className={`border-2 rounded-2xl p-4 transition-all ${
+              <div className={`border-2 rounded-2xl p-3 md:p-4 transition-all ${
                   activeTemplate === 'sample6' || activeTemplate === 'classic_traditional'
                     ? 'border-slate-700 bg-slate-100 ring-2 ring-slate-400'
                     : 'border-slate-300 bg-slate-50'
@@ -1472,11 +2136,12 @@ export default function SettingsPanel() {
                   }}
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-slate-900">📄 Sample 6</p>
-                    {(activeTemplate === 'sample6' || activeTemplate === 'classic_traditional') && <span className="text-xs bg-slate-700 text-white px-2 py-1 rounded-full">ACTIVE</span>}
+                  {renderTemplateCardThumbnail('sample6')}
+                  <div className="mb-1.5 flex items-start justify-between gap-2">
+                    <p className="font-bold text-slate-900 text-sm md:text-base">📄 Sample 6</p>
+                    {(activeTemplate === 'sample6' || activeTemplate === 'classic_traditional') && <span className="shrink-0 rounded-full bg-slate-700 px-2 py-1 text-[10px] font-bold text-white">ACTIVE</span>}
                   </div>
-                  <p className="text-xs text-slate-700 mb-3">Classic terminal report layout with formal summary blocks and signature-ready structure</p>
+                  <p className="mb-2 text-[11px] leading-5 text-slate-700 md:text-xs">Classic terminal report layout with formal summary blocks and signature-ready structure</p>
                 </div>
                 <button
                   onClick={() => handleTemplateSelect('sample6')}
@@ -1806,6 +2471,12 @@ export default function SettingsPanel() {
                     className="report-template-preview"
                     dangerouslySetInnerHTML={{ __html: previewTemplateHtml }}
                   />
+                </div>
+              ) : previewTemplateSectionConfig?.sections?.length ? (
+                <div className={previewTheme.modalCanvas} style={{ minHeight: '600px' }}>
+                  <div className={previewTheme.sectionGap}>
+                    {previewTemplateSectionConfig.sections.map((section) => renderPreviewSection(section))}
+                  </div>
                 </div>
               ) : (
                 <div className="bg-white p-8 shadow-lg" style={{ minHeight: '500px' }}>

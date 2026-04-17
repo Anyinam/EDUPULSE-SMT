@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import School, SchoolSettings, Student, User, db
+from backend.api.models import AcademicTerm, Payment, School, SchoolSettings, Student, User, db
 from backend.api.models import ReportCard
 
 
@@ -30,8 +30,8 @@ def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test
         parent_name="Ama Mensah",
         parent_phone="+233501111111",
         parent_email="ama@example.com",
-        is_present=False,
-        feeding_paid=True,
+        is_present=True,
+        feeding_paid=False,
     )
     db.session.add(overdue_student)
     db.session.commit()
@@ -49,9 +49,305 @@ def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test
     assert student_payload["parent_phone"] == "+233501111111"
     assert student_payload["parent_email"] == "ama@example.com"
     assert student_payload["total_tuition_owed"] == 450.0
-    assert student_payload["intervention_summary"] == "Overdue tuition"
-    assert student_payload["intervention_reasons"][0]["code"] == "overdue_tuition"
-    assert "31 day" in student_payload["intervention_reasons"][0]["detail"]
+    assert any(reason["code"] == "overdue_tuition" for reason in student_payload["intervention_reasons"])
+    tuition_reason = next(reason for reason in student_payload["intervention_reasons"] if reason["code"] == "overdue_tuition")
+    assert "31 day" in tuition_reason["detail"]
+    assert student_payload["risk_level"] in ["High", "Critical"]
+    assert student_payload["risk_score"] >= 45
+    assert student_payload["recommended_actions"]
+    assert payload["student_rescue_agent"]["summary"]["total_flagged_students"] >= 1
+
+
+def test_student_rescue_agent_does_not_flag_tuition_just_after_reopening_without_other_behaviour_signals(client, app, test_school, test_proprietor):
+    active_term = AcademicTerm(
+        school_id=test_school.id,
+        name="Term 2",
+        academic_year="2025/2026",
+        start_date=datetime.now(timezone.utc).date() - timedelta(days=3),
+        end_date=datetime.now(timezone.utc).date() + timedelta(days=80),
+        is_active=True,
+    )
+    db.session.add(active_term)
+    db.session.flush()
+
+    calm_student = Student(
+        school_id=test_school.id,
+        first_name="Nii",
+        surname="Laryea",
+        name="Nii Laryea",
+        student_code="S908",
+        current_class="JHS 1",
+        total_tuition_owed=600.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=35),
+        parent_name="Abena Laryea",
+        parent_phone="+233505555555",
+        parent_email="abena@example.com",
+        is_present=False,
+        feeding_paid=True,
+    )
+    db.session.add(calm_student)
+    db.session.flush()
+
+    stable_report = ReportCard(
+        school_id=test_school.id,
+        student_id=calm_student.id,
+        academic_term="Term 1",
+        academic_year="2025/2026",
+        class_name="JHS 1",
+        term_average=82.0,
+        attendance_percentage=96.0,
+        overall_position="3rd",
+        out_of_students=25,
+        subject_grades=[{"subject": "Mathematics", "total": 84}],
+        status="Approved",
+    )
+    recent_payment = Payment(
+        student_id=calm_student.id,
+        school_id=test_school.id,
+        amount=150.0,
+        payment_type="Tuition",
+        method="Cash",
+        reference_id="RECENT-TUITION-1",
+        status="Confirmed",
+        date_paid=datetime.now(timezone.utc) - timedelta(days=5),
+    )
+    db.session.add_all([stable_report, recent_payment])
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/proprietor/student-rescue-agent", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    flagged_names = [item["name"] for item in payload["students"]]
+    assert "Nii Laryea" not in flagged_names
+
+
+def test_student_rescue_agent_returns_prioritized_actions(client, app, test_school, test_proprietor):
+    rescue_student = Student(
+        school_id=test_school.id,
+        first_name="Efua",
+        surname="Owusu",
+        name="Efua Owusu",
+        student_code="S902",
+        current_class="JHS 1",
+        total_tuition_owed=650.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=40),
+        parent_name="Kojo Owusu",
+        parent_phone="+233502222222",
+        parent_email="kojo@example.com",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(rescue_student)
+    db.session.flush()
+
+    current_report = ReportCard(
+        school_id=test_school.id,
+        student_id=rescue_student.id,
+        academic_term="Term 2",
+        academic_year="2025/2026",
+        class_name="JHS 1",
+        term_average=48.0,
+        attendance_percentage=66.0,
+        overall_position="18th",
+        out_of_students=25,
+        subject_grades=[{"subject": "Mathematics", "total": 44}],
+        status="Approved",
+    )
+    previous_report = ReportCard(
+        school_id=test_school.id,
+        student_id=rescue_student.id,
+        academic_term="Term 1",
+        academic_year="2025/2026",
+        class_name="JHS 1",
+        term_average=61.0,
+        attendance_percentage=74.0,
+        overall_position="12th",
+        out_of_students=25,
+        subject_grades=[{"subject": "Mathematics", "total": 60}],
+        status="Approved",
+    )
+    db.session.add_all([current_report, previous_report])
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/proprietor/student-rescue-agent", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["agent_name"] == "Student Rescue Agent"
+    assert payload["summary"]["total_flagged_students"] >= 1
+
+    student_payload = next(item for item in payload["students"] if item["name"] == "Efua Owusu")
+    assert student_payload["priority_rank"] >= 1
+    assert student_payload["risk_level"] == "Critical"
+    assert student_payload["risk_score"] >= 70
+    assert any(reason["code"] == "overdue_tuition" for reason in student_payload["intervention_reasons"])
+    assert any(reason["code"] == "unpaid_feeding" for reason in student_payload["intervention_reasons"])
+    assert any(reason["code"] == "low_academic_average" for reason in student_payload["intervention_reasons"])
+    assert any(action["code"] == "call_guardian" for action in student_payload["recommended_actions"])
+    assert student_payload["latest_report"]["trend_direction"] == "declining"
+    assert "Efua Owusu" in student_payload["contact_templates"]["email_subject"]
+    assert "Kojo Owusu" in student_payload["contact_templates"]["email_body"]
+    assert "contact the school today" in student_payload["contact_templates"]["sms_body"].lower()
+
+
+def test_student_rescue_outcome_logging_returns_recent_history(client, app, test_school, test_proprietor):
+    rescue_student = Student(
+        school_id=test_school.id,
+        first_name="Abena",
+        surname="Asare",
+        name="Abena Asare",
+        student_code="S903",
+        current_class="Class 6",
+        total_tuition_owed=520.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=34),
+        parent_name="Yaw Asare",
+        parent_phone="+233503333333",
+        parent_email="yaw@example.com",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(rescue_student)
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    log_response = client.post(
+        "/api/proprietor/student-rescue-agent/outcome",
+        headers=headers,
+        data=json.dumps(
+            {
+                "student_id": rescue_student.id,
+                "action_code": "guardian_called",
+                "notes": "Guardian promised to visit the school tomorrow.",
+            }
+        ),
+    )
+
+    assert log_response.status_code == 200
+    log_payload = log_response.get_json()
+    assert log_payload["message"] == "Rescue outcome logged."
+    assert log_payload["recent_outcomes"][0]["action_code"] == "guardian_called"
+    assert "promised to visit" in log_payload["recent_outcomes"][0]["notes"]
+
+    rescue_response = client.get("/api/proprietor/student-rescue-agent", headers=headers)
+    assert rescue_response.status_code == 200
+    rescue_payload = rescue_response.get_json()
+    student_payload = next(item for item in rescue_payload["students"] if item["name"] == "Abena Asare")
+    assert student_payload["last_outcome"]["action_code"] == "guardian_called"
+    assert student_payload["recent_outcomes"][0]["actor_name"] == test_proprietor.username
+
+
+def test_student_rescue_email_send_logs_outcome(client, app, test_school, test_proprietor, monkeypatch):
+    sent_messages = []
+
+    def fake_email(to_email, subject, body, attachments=None):
+        sent_messages.append({"to": to_email, "subject": subject, "body": body})
+        return True
+
+    monkeypatch.setattr("backend.routes.send_email_notification", fake_email)
+
+    rescue_student = Student(
+        school_id=test_school.id,
+        first_name="Mansa",
+        surname="Aidoo",
+        name="Mansa Aidoo",
+        student_code="S904",
+        current_class="Class 5",
+        total_tuition_owed=540.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=36),
+        parent_name="Esi Aidoo",
+        parent_phone="+233504444444",
+        parent_email="esi@example.com",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(rescue_student)
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.post(
+        "/api/proprietor/student-rescue-agent/send-email",
+        headers=headers,
+        data=json.dumps({"student_id": rescue_student.id}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["message"] == "Rescue email sent to esi@example.com"
+    assert sent_messages[0]["to"] == "esi@example.com"
+    assert "Mansa Aidoo" in sent_messages[0]["subject"]
+    assert payload["recent_outcomes"][0]["action_code"] == "email_sent"
+
+
+def test_student_rescue_report_groups_open_in_progress_and_resolved_cases(client, app, test_school, test_proprietor):
+    open_case = Student(
+        school_id=test_school.id,
+        first_name="Kojo",
+        surname="Poku",
+        name="Kojo Poku",
+        student_code="S905",
+        current_class="JHS 1",
+        total_tuition_owed=400.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=31),
+        parent_email="kojo.parent@example.com",
+        is_present=True,
+        feeding_paid=False,
+    )
+    in_progress_case = Student(
+        school_id=test_school.id,
+        first_name="Akosua",
+        surname="Badu",
+        name="Akosua Badu",
+        student_code="S906",
+        current_class="JHS 2",
+        total_tuition_owed=620.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=39),
+        parent_email="akosua.parent@example.com",
+        is_present=True,
+        feeding_paid=False,
+    )
+    resolved_case = Student(
+        school_id=test_school.id,
+        first_name="Yaw",
+        surname="Kusi",
+        name="Yaw Kusi",
+        student_code="S907",
+        current_class="JHS 3",
+        total_tuition_owed=580.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=42),
+        parent_email="yaw.parent@example.com",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add_all([open_case, in_progress_case, resolved_case])
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    client.post(
+        "/api/proprietor/student-rescue-agent/outcome",
+        headers=headers,
+        data=json.dumps({"student_id": in_progress_case.id, "action_code": "guardian_called", "notes": "Guardian reached."}),
+    )
+    client.post(
+        "/api/proprietor/student-rescue-agent/outcome",
+        headers=headers,
+        data=json.dumps({"student_id": resolved_case.id, "action_code": "resolved", "notes": "Fees settled."}),
+    )
+
+    report_response = client.get("/api/proprietor/student-rescue-agent/report", headers=headers)
+    assert report_response.status_code == 200
+    report_payload = report_response.get_json()
+    assert report_payload["report"]["open_cases"] >= 1
+    assert report_payload["report"]["in_progress_cases"] >= 1
+    assert report_payload["report"]["resolved_cases"] >= 1
+
+    open_only_response = client.get("/api/proprietor/student-rescue-agent/report?status=Open", headers=headers)
+    assert open_only_response.status_code == 200
+    open_students = open_only_response.get_json()["students"]
+    assert any(student["name"] == "Kojo Poku" for student in open_students)
+    assert all(student["case_status"] == "Open" for student in open_students)
 
 
 

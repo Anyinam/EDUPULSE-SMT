@@ -7,7 +7,6 @@ import { useBranding } from '../hooks/useBranding';
 
 export default function Layout() {
   const location = useLocation();
-  const HELP_BADGE_KEY = 'help_center_seen';
   const role = localStorage.getItem('role');
   const safeJsonParse = (rawValue, fallback) => {
     try {
@@ -30,7 +29,6 @@ export default function Layout() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
-  const [showHelpNewBadge, setShowHelpNewBadge] = useState(localStorage.getItem(HELP_BADGE_KEY) !== 'true');
   const [expandedMenus, setExpandedMenus] = useState({}); // Track expanded menu sections
 
   // Developer-only access check
@@ -53,11 +51,6 @@ export default function Layout() {
     if (requiresPasswordReset && location.pathname !== '/first-login-password') {
       window.location.href = '/first-login-password';
       return;
-    }
-
-    if (location.pathname === '/help') {
-      localStorage.setItem(HELP_BADGE_KEY, 'true');
-      setShowHelpNewBadge(false);
     }
   }, [location.pathname]);
 
@@ -135,6 +128,7 @@ export default function Layout() {
               {modules.finance && <li><Link to="/proprietor" className="hover:text-blue-200 pl-3">📊 Dashboard & Insights</Link></li>}
               {modules.finance && <li><Link to="/proprietor?tab=payment-tracker" className="hover:text-blue-200 pl-3">💳 Payment Tracker</Link></li>}
               {modules.finance && <li><Link to="/proprietor?tab=finance" className="hover:text-blue-200 pl-3">📈 Transaction History</Link></li>}
+              {modules.finance && <li><Link to="/proprietor?tab=rescue-activity" className="hover:text-blue-200 pl-3">🚨 Rescue Activity</Link></li>}
               {modules.finance && <li><Link to="/proprietor?tab=audit" className="hover:text-blue-200 pl-3">🔒 Audit Report</Link></li>}
               {modules.admissions && <li><Link to="/proprietor?tab=terminal-reports" className="hover:text-blue-200 pl-3">📄 Terminal Reports</Link></li>}
               {modules.hr && <li><Link to="/proprietor?tab=staff" className="hover:text-blue-200 pl-3">👥 Staff & HR</Link></li>}
@@ -202,9 +196,6 @@ export default function Layout() {
           <li>
             <Link to="/help" className="hover:text-blue-200 pl-3 inline-flex items-center gap-2">
               <span>❓ Help Center</span>
-              {showHelpNewBadge && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-blue-900">NEW</span>
-              )}
             </Link>
           </li>
           {hasRole('proprietor') && <li><Link to="/proprietor?tab=settings" className="hover:text-blue-200 pl-3">⚙️ System Settings</Link></li>}

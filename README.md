@@ -40,9 +40,24 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 
 ## 🧠 AI & Governance Features
 - AI-assisted academic insight surfaces
+- Student Rescue Agent for prioritized at-risk student intervention
 - Risk-aware governance loops for intervention workflows
 - Remote oversight feed for proprietor monitoring
 - Operational analytics to support school decision-making
+
+### Student Rescue Agent
+- Combines tuition, feeding, attendance, and academic signals into one rescue queue
+- Scores each flagged student by intervention urgency and explains the drivers
+- Uses contextual tuition-risk logic so newly reopened schools and recently paying families are not falsely escalated
+- Recommends next actions such as guardian contact, payment-plan follow-up, or academic support
+- Powers the proprietor dashboard intervention view and live-feed prioritization
+- Sends rescue emails directly from the proprietor dashboard
+- Provides a dedicated Rescue Activity Center page for intervention operations
+- Includes ready-to-send guardian contact templates for call, SMS/WhatsApp, email, and meeting brief
+- Allows the rescue email subject and body to be edited before sending
+- Logs intervention outcomes so leadership can track what action has already been taken on each case
+- Includes case-status reporting for open, in-progress, and resolved rescue work
+- WhatsApp sending remains intentionally deferred for now because of cost; draft copy is available, but delivery is not yet enabled
 
 ## 💳 Registration & Billing Flow (Current)
 - Tenant registration supports plan selection at onboarding.
@@ -52,6 +67,11 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - Duplicate registration welcome emails are prevented by audit-logged single-send checks.
 
 ## 🧩 API Highlights (Recent)
+- `GET /api/proprietor/student-rescue-agent`
+- `GET /api/proprietor/student-rescue-agent/contact-templates/<student_id>`
+- `GET /api/proprietor/student-rescue-agent/report`
+- `POST /api/proprietor/student-rescue-agent/outcome`
+- `POST /api/proprietor/student-rescue-agent/send-email`
 - `GET /api/school/subscription/billing-visibility`
 - `POST /api/school/subscription/meter/sync`
 - `GET /api/school/subscription/trial/status`
@@ -95,7 +115,7 @@ flowchart TD
 
     %% Proprietor lane
     F -- Proprietor --> P1[Open Proprietor Dashboard]
-    P1 --> P2[Review AI Insights + Risk Feed]
+    P1 --> P2[Review AI Insights + Student Rescue Agent]
     P2 --> P3{Intervention needed?}
     P3 -- Yes --> P4[Initiate Parent/Staff Intervention]
     P3 -- No --> P5[Continue Monitoring]
@@ -196,6 +216,7 @@ docker compose up --build
 - `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET_SAMPLE.md`
 - `docs/operations/README.md`
 - `BPM_QUICK_REFERENCE.txt`
+- `STUDENT_RESCUE_AGENT.md`
 - `PAYMENT_INTEGRATION.md`
 - `SUBSCRIPTION_FEATURES.md`
 - `REPORT_BUILDER_GUIDE.md`

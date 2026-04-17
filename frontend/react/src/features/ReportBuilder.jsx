@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import reportTemplates from '../report_templates';
-import { buildTemplateHtml } from '../utils/reportTemplate';
+import { buildTemplateHtml, formatGradingSchemeSummary, GRADE_SCALE_ROWS, getGradeFromTotal } from '../utils/reportTemplate';
 
 /**
  * Report Builder: Manual report card entry for homeroom teachers.
@@ -261,12 +261,7 @@ export default function ReportBuilder() {
       
       // Auto-assign grade based on total
       const total = classScore + examScore;
-      if (total >= 80) updated[index].grade = 'A';
-      else if (total >= 70) updated[index].grade = 'B';
-      else if (total >= 60) updated[index].grade = 'C';
-      else if (total >= 50) updated[index].grade = 'D';
-      else if (total >= 40) updated[index].grade = 'E';
-      else updated[index].grade = 'F';
+      updated[index].grade = getGradeFromTotal(total);
     }
     
     setSubjectGrades(updated);
@@ -491,6 +486,9 @@ export default function ReportBuilder() {
     class_name: currentClass,
     academic_term: academicTerm,
     academic_year: academicYear,
+    class_score_max: String(classScoreMax),
+    exam_score_max: String(examScoreMax),
+    grading_scheme_summary: formatGradingSchemeSummary(classScoreMax, examScoreMax),
     subject_grades: subjectGrades,
     total_marks_obtained: resolvedTotalMarks,
     total_possible_marks: resolvedTotalPossible,
@@ -573,18 +571,10 @@ export default function ReportBuilder() {
     }
 
     if (section.type === 'grading_scale') {
-      const gradeScale = [
-        { grade: 'A', range: '80.0 - 100%', remark: 'EXCELLENT' },
-        { grade: 'B', range: '70.0 - 79.9%', remark: 'VERY GOOD' },
-        { grade: 'C', range: '60.0 - 69.9%', remark: 'GOOD' },
-        { grade: 'D', range: '50.0 - 59.9%', remark: 'SATISFACTORY' },
-        { grade: 'E', range: '40.0 - 49.9%', remark: 'PASS' },
-        { grade: 'F', range: '0.0 - 39.9%', remark: 'FAIL/UNSATISFACTORY' }
-      ];
-
       return (
         <div key={section.id} className="mb-6">
           <h3 className="font-bold text-slate-700 mb-2 border-b pb-1">{section.label}</h3>
+          <p className="mb-2 text-xs text-slate-600">{formatGradingSchemeSummary(classScoreMax, examScoreMax)}</p>
           <table className="w-full text-xs">
             <thead className="bg-slate-50">
               <tr className="text-slate-500 uppercase">
@@ -594,7 +584,7 @@ export default function ReportBuilder() {
               </tr>
             </thead>
             <tbody>
-              {gradeScale.map((row) => (
+              {GRADE_SCALE_ROWS.map((row) => (
                 <tr key={row.grade} className="border-t">
                   <td className="p-2 font-bold text-slate-700">{row.grade}</td>
                   <td className="p-2 text-slate-700">{row.range}</td>

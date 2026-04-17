@@ -179,6 +179,593 @@ def log_action(user_id, school_id, action, details):
     db.session.commit()
 
 
+def _parse_position_value(position_text):
+    if not position_text:
+        return None
+
+    digits = "".join(ch for ch in str(position_text) if ch.isdigit())
+    if not digits:
+        return None
+
+    try:
+        return int(digits)
+    except (TypeError, ValueError):
+        return None
+
+
+def _risk_level_from_score(risk_score):
+    if risk_score >= 70:
+        return "Critical"
+    if risk_score >= 50:
+        return "High"
+    if risk_score >= 30:
+        return "Moderate"
+    return "Watch"
+
+
+def _academic_year_sort_key(academic_year):
+    text_value = str(academic_year or "")
+    match = re.match(r"^(\d{4})", text_value)
+    if not match:
+        return 0
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _academic_term_sort_key(term_name):
+    normalized = str(term_name or "").strip().lower()
+    term_order = {
+        "term 1": 1,
+        "first term": 1,
+        "1st term": 1,
+        "term 2": 2,
+        "second term": 2,
+        "2nd term": 2,
+        "term 3": 3,
+        "third term": 3,
+        "3rd term": 3,
+    }
+    return term_order.get(normalized, 0)
+
+
+def _report_sort_key(report):
+    return (
+        _academic_year_sort_key(getattr(report, "academic_year", None)),
+        _academic_term_sort_key(getattr(report, "academic_term", None)),
+        getattr(report, "id", 0) or 0,
+    )
+
+
+def _normalize_rescue_action_label(action_code):
+    labels = {
+        "guardian_called": "Guardian called",
+        "email_sent": "Email sent",
+        "payment_plan_agreed": "Payment plan agreed",
+        "academic_support_assigned": "Academic support assigned",
+        "resolved": "Marked as resolved",
+    }
+    return labels.get(action_code, str(action_code or "Outcome logged").replace("_", " ").title())
+
+
+def _parse_rescue_outcome_details(details):
+    if not details:
+        return None
+
+    try:
+        payload = json.loads(details)
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("type") != "student_rescue_outcome":
+        return None
+    return payload
+
+
+def _get_rescue_outcome_history(school_id, student_ids=None, limit=200):
+    query = AuditLog.query.filter_by(
+        school_id=school_id,
+        action="STUDENT_RESCUE_OUTCOME",
+    ).options(joinedload(AuditLog.actor)).order_by(AuditLog.timestamp.desc())
+
+    logs = query.limit(limit).all()
+    student_id_set = {int(student_id) for student_id in (student_ids or []) if str(student_id).isdigit()}
+    outcome_map = {}
+
+    for log in logs:
+        parsed = _parse_rescue_outcome_details(log.details)
+        if not parsed:
+            continue
+        student_id = parsed.get("student_id")
+        if student_id is None:
+            continue
+        if student_id_set and student_id not in student_id_set:
+            continue
+
+        outcome_map.setdefault(student_id, []).append(
+            {
+                "log_id": log.id,
+                "action_code": parsed.get("action_code"),
+                "action_label": parsed.get("action_label") or _normalize_rescue_action_label(parsed.get("action_code")),
+                "notes": parsed.get("notes") or "",
+                "created_at": log.timestamp.isoformat() if log.timestamp else None,
+                "actor_name": log.actor.username if log.actor else "Unknown",
+            }
+        )
+
+    return outcome_map
+
+
+def _build_rescue_contact_templates(student, school, reasons, recommended_actions):
+    guardian_name = student.guardian_name or student.parent_name or "Parent/Guardian"
+    top_reason = reasons[0]["label"] if reasons else "student progress concerns"
+    due_amount = float(student.total_tuition_owed or 0)
+    reason_summary = "; ".join(reason["label"] for reason in reasons[:3]) or "student progress concerns"
+    action_summary = ", ".join(action["label"] for action in recommended_actions[:2]) or "a short support discussion"
+    school_name = school.name if school else "the school"
+
+    email_subject = f"Support discussion for {student.name}"
+    email_body = (
+        f"Dear {guardian_name},\n\n"
+        f"This is {school_name}. We are reaching out regarding {student.name} in {student.current_class or 'class'} after our Student Rescue review flagged {top_reason.lower()}.\n\n"
+        f"Current concern(s): {reason_summary}.\n"
+        f"Outstanding tuition on record: GH₵ {due_amount:.2f}.\n\n"
+        f"We would like to work with you on the next step, including {action_summary}. "
+        f"Please reply to this email or contact the school office so we can agree on immediate support for {student.name}.\n\n"
+        f"Regards,\n{school_name}"
+    )
+
+    call_script = (
+        f"Hello {guardian_name}, this is {school_name}. I am calling about {student.name}. "
+        f"Our review flagged {top_reason.lower()}, and we want to agree on the fastest support step today."
+    )
+
+    sms_body = (
+        f"{school_name}: Please contact the school today about {student.name}. "
+        f"We need to discuss {top_reason.lower()} and the next support step."
+    )
+
+    meeting_brief = (
+        f"Meeting objective: align with {guardian_name} on an action plan for {student.name}. "
+        f"Discuss {reason_summary} and confirm ownership for {action_summary}."
+    )
+
+    return {
+        "email_subject": email_subject,
+        "email_body": email_body,
+        "call_script": call_script,
+        "sms_body": sms_body,
+        "meeting_brief": meeting_brief,
+        "whatsapp_status": "deferred_for_cost_control",
+    }
+
+
+def _get_case_status_from_outcomes(outcomes):
+    if not outcomes:
+        return "Open"
+
+    latest_action = outcomes[0].get("action_code")
+    if latest_action == "resolved":
+        return "Resolved"
+    return "In Progress"
+
+
+def _build_rescue_report(flagged_students, school_id):
+    now = datetime.now(timezone.utc)
+    outcome_logs = (
+        AuditLog.query.filter_by(school_id=school_id, action="STUDENT_RESCUE_OUTCOME")
+        .order_by(AuditLog.timestamp.desc())
+        .limit(500)
+        .all()
+    )
+
+    last_7_days = now - timedelta(days=7)
+    last_30_days = now - timedelta(days=30)
+
+    outcomes_last_7_days = 0
+    outcomes_last_30_days = 0
+    action_breakdown = {}
+    resolved_last_30_days = 0
+
+    for log in outcome_logs:
+        parsed = _parse_rescue_outcome_details(log.details)
+        if not parsed:
+            continue
+        action_code = parsed.get("action_code") or "unknown"
+        action_breakdown[action_code] = action_breakdown.get(action_code, 0) + 1
+        timestamp = log.timestamp
+        if timestamp and timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        if not timestamp:
+            continue
+        if timestamp >= last_7_days:
+            outcomes_last_7_days += 1
+        if timestamp >= last_30_days:
+            outcomes_last_30_days += 1
+            if action_code == "resolved":
+                resolved_last_30_days += 1
+
+    return {
+        "open_cases": sum(1 for item in flagged_students if item.get("case_status") == "Open"),
+        "in_progress_cases": sum(1 for item in flagged_students if item.get("case_status") == "In Progress"),
+        "resolved_cases": sum(1 for item in flagged_students if item.get("case_status") == "Resolved"),
+        "critical_cases": sum(1 for item in flagged_students if item.get("risk_level") == "Critical"),
+        "outcomes_last_7_days": outcomes_last_7_days,
+        "outcomes_last_30_days": outcomes_last_30_days,
+        "resolved_last_30_days": resolved_last_30_days,
+        "action_breakdown": action_breakdown,
+    }
+
+
+def _get_active_term_for_school(school_id):
+    return AcademicTerm.query.filter_by(school_id=school_id, is_active=True).first()
+
+
+def _days_since_date(target_date, now):
+    if not target_date:
+        return None
+    if isinstance(target_date, datetime):
+        target_value = target_date.date()
+    else:
+        target_value = target_date
+    return (now.date() - target_value).days
+
+
+def _get_recent_tuition_payment_summary(school_id, student_id, now):
+    tuition_payments = (
+        Payment.query.filter(
+            Payment.school_id == school_id,
+            Payment.student_id == student_id,
+            Payment.status == "Confirmed",
+            Payment.payment_type == "Tuition",
+            Payment.date_paid.isnot(None),
+        )
+        .order_by(Payment.date_paid.desc())
+        .limit(10)
+        .all()
+    )
+
+    latest_payment = tuition_payments[0].date_paid if tuition_payments else None
+    if latest_payment and latest_payment.tzinfo is None:
+        latest_payment = latest_payment.replace(tzinfo=timezone.utc)
+
+    days_since_latest = None
+    if latest_payment:
+        days_since_latest = max(0, (now - latest_payment).days)
+
+    return {
+        "confirmed_count": len(tuition_payments),
+        "latest_payment_at": latest_payment.isoformat() if latest_payment else None,
+        "days_since_latest_payment": days_since_latest,
+        "has_payment_in_last_14_days": days_since_latest is not None and days_since_latest <= 14,
+        "has_payment_in_last_30_days": days_since_latest is not None and days_since_latest <= 30,
+    }
+
+
+def _build_student_rescue_payload(school_id, limit=8):
+    now = datetime.now(timezone.utc)
+    school = School.query.get(school_id)
+    active_term = _get_active_term_for_school(school_id)
+    days_since_term_start = _days_since_date(active_term.start_date, now) if active_term and active_term.start_date else None
+    reopening_grace_days = 14
+    within_reopening_grace = days_since_term_start is not None and days_since_term_start <= reopening_grace_days
+    candidate_limit = None if limit is None else max(limit * 3, 12)
+
+    candidate_query = Student.query.filter(
+        Student.school_id == school_id,
+        or_(
+            and_(
+                Student.total_tuition_owed > 0,
+                or_(
+                    Student.tuition_deadline.is_(None),
+                    Student.tuition_deadline <= now,
+                ),
+            ),
+            and_(Student.is_present == True, Student.feeding_paid == False),
+        ),
+    ).order_by(Student.total_tuition_owed.desc(), Student.name.asc())
+    if candidate_limit is not None:
+        candidate_query = candidate_query.limit(candidate_limit)
+    candidate_students = candidate_query.all()
+
+    flagged_students = []
+
+    for student in candidate_students:
+        reasons = []
+        recommended_actions = []
+        payment_summary = _get_recent_tuition_payment_summary(school_id, student.id, now)
+        student_reports = ReportCard.query.filter_by(
+            school_id=school_id,
+            student_id=student.id,
+        ).all()
+        ordered_reports = sorted(student_reports, key=_report_sort_key)
+        latest_report = ordered_reports[-1] if ordered_reports else None
+        previous_report = None
+        if len(ordered_reports) >= 2:
+            previous_report = ordered_reports[-2]
+
+        term_average = float(latest_report.term_average or 0) if latest_report and latest_report.term_average is not None else None
+        attendance_percentage = (
+            float(latest_report.attendance_percentage or 0)
+            if latest_report and latest_report.attendance_percentage is not None
+            else None
+        )
+        trend_direction = "stable"
+        trend_delta = 0.0
+        if latest_report and previous_report and latest_report.term_average is not None and previous_report.term_average is not None:
+            trend_delta = float(latest_report.term_average or 0) - float(previous_report.term_average or 0)
+            if trend_delta <= -5:
+                trend_direction = "declining"
+            elif trend_delta >= 5:
+                trend_direction = "improving"
+
+        tuition_deadline = student.tuition_deadline
+        if tuition_deadline and tuition_deadline.tzinfo is None:
+            tuition_deadline = tuition_deadline.replace(tzinfo=timezone.utc)
+
+        risk_score = 0
+        attendance_issue = attendance_percentage is not None and attendance_percentage < 80
+        academic_issue = (
+            (term_average is not None and term_average < 60)
+            or trend_direction == "declining"
+        )
+        feeding_issue = bool(student.is_present and not student.feeding_paid)
+        support_signal_count = sum(1 for flag in [attendance_issue, academic_issue, feeding_issue] if flag)
+
+        tuition_flagged = False
+        if student.scholarship_covers_tuition:
+            tuition_flagged = False
+        elif student.total_tuition_owed and student.total_tuition_owed > 0:
+            days_overdue = 0
+            if tuition_deadline:
+                days_overdue = max(0, (now.date() - tuition_deadline.date()).days)
+
+            has_recent_tuition_payment = payment_summary["has_payment_in_last_14_days"]
+            has_recent_month_payment = payment_summary["has_payment_in_last_30_days"]
+            no_payment_history = payment_summary["confirmed_count"] == 0
+            severe_tuition_pressure = days_overdue >= 45 or float(student.total_tuition_owed or 0) >= 900
+            stalled_payment_behaviour = not has_recent_tuition_payment and (days_overdue >= 14 or no_payment_history)
+
+            if severe_tuition_pressure and not within_reopening_grace:
+                tuition_flagged = True
+            elif not within_reopening_grace and stalled_payment_behaviour and support_signal_count >= 1:
+                tuition_flagged = True
+            elif not within_reopening_grace and days_overdue >= 21 and not has_recent_month_payment and support_signal_count >= 1:
+                tuition_flagged = True
+
+            if tuition_flagged:
+                debt_score = 20 + min(18, max(days_overdue, 1) // 4)
+                if float(student.total_tuition_owed or 0) >= 500:
+                    debt_score += 8
+                if no_payment_history:
+                    debt_score += 7
+                if support_signal_count >= 2:
+                    debt_score += 5
+
+                risk_score += debt_score
+                payment_context_parts = []
+                if days_overdue > 0:
+                    payment_context_parts.append(f"overdue for {days_overdue} day(s)")
+                if payment_summary["days_since_latest_payment"] is not None:
+                    payment_context_parts.append(
+                        f"last confirmed tuition payment was {payment_summary['days_since_latest_payment']} day(s) ago"
+                    )
+                elif no_payment_history:
+                    payment_context_parts.append("no confirmed tuition payment has been recorded yet")
+                detail_suffix = "; ".join(payment_context_parts) if payment_context_parts else "payment behaviour needs attention"
+
+                reasons.append(
+                    {
+                        "code": "overdue_tuition",
+                        "label": "Tuition risk needs intervention",
+                        "detail": f"GH₵ {float(student.total_tuition_owed or 0):.2f} remains unpaid and {detail_suffix}.",
+                        "severity": min(debt_score, 58),
+                    }
+                )
+                recommended_actions.append(
+                    {
+                        "code": "call_guardian",
+                        "label": "Call guardian about tuition risk",
+                        "channel": "phone",
+                        "urgency": "today",
+                    }
+                )
+                recommended_actions.append(
+                    {
+                        "code": "send_payment_plan",
+                        "label": "Offer a structured payment plan or reminder",
+                        "channel": "finance",
+                        "urgency": "today",
+                    }
+                )
+
+        if student.is_present and not student.feeding_paid:
+            risk_score += 20
+            reasons.append(
+                {
+                    "code": "unpaid_feeding",
+                    "label": "Present without feeding payment",
+                    "detail": "Student was marked present but feeding payment has not been cleared.",
+                    "severity": 20,
+                }
+            )
+            recommended_actions.append(
+                {
+                    "code": "resolve_feeding_status",
+                    "label": "Verify feeding arrangement before next meal cycle",
+                    "channel": "operations",
+                    "urgency": "today",
+                }
+            )
+
+        if term_average is not None:
+            if term_average < 50:
+                risk_score += 25
+                reasons.append(
+                    {
+                        "code": "low_academic_average",
+                        "label": "Low academic average",
+                        "detail": f"Latest term average is {term_average:.1f}%.",
+                        "severity": 25,
+                    }
+                )
+            elif term_average < 60:
+                risk_score += 18
+                reasons.append(
+                    {
+                        "code": "low_academic_average",
+                        "label": "Weak academic average",
+                        "detail": f"Latest term average is {term_average:.1f}%.",
+                        "severity": 18,
+                    }
+                )
+            elif term_average < 70:
+                risk_score += 10
+
+        if attendance_percentage is not None:
+            if attendance_percentage < 70:
+                risk_score += 18
+                reasons.append(
+                    {
+                        "code": "attendance_drop",
+                        "label": "Low attendance",
+                        "detail": f"Attendance is {attendance_percentage:.1f}% in the latest report.",
+                        "severity": 18,
+                    }
+                )
+            elif attendance_percentage < 80:
+                risk_score += 10
+                reasons.append(
+                    {
+                        "code": "attendance_watch",
+                        "label": "Attendance needs monitoring",
+                        "detail": f"Attendance is {attendance_percentage:.1f}% in the latest report.",
+                        "severity": 10,
+                    }
+                )
+
+        if trend_direction == "declining":
+            risk_score += 10
+            reasons.append(
+                {
+                    "code": "declining_trend",
+                    "label": "Performance trend is declining",
+                    "detail": f"Term average dropped by {abs(trend_delta):.1f} point(s) from the previous report.",
+                    "severity": 10,
+                }
+            )
+            recommended_actions.append(
+                {
+                    "code": "assign_academic_support",
+                    "label": "Assign academic support or remedial follow-up",
+                    "channel": "academic",
+                    "urgency": "this_week",
+                }
+            )
+
+        if not reasons:
+            continue
+
+        risk_score = min(100, int(round(risk_score)))
+        risk_level = _risk_level_from_score(risk_score)
+
+        if not recommended_actions:
+            recommended_actions.append(
+                {
+                    "code": "manual_review",
+                    "label": "Review student file and contact class leadership",
+                    "channel": "admin",
+                    "urgency": "this_week",
+                }
+            )
+
+        seen_action_codes = set()
+        deduped_actions = []
+        for action in recommended_actions:
+            if action["code"] in seen_action_codes:
+                continue
+            seen_action_codes.add(action["code"])
+            deduped_actions.append(action)
+
+        flagged_students.append(
+            {
+                "id": student.id,
+                "name": student.name,
+                "parent_name": student.parent_name,
+                "guardian_name": student.guardian_name,
+                "parent_phone": student.parent_phone,
+                "parent_email": student.parent_email,
+                "current_class": student.current_class,
+                "student_code": student.student_code,
+                "is_present": bool(student.is_present),
+                "feeding_paid": bool(student.feeding_paid),
+                "is_on_scholarship": bool(student.is_on_scholarship),
+                "scholarship_covers_tuition": bool(student.scholarship_covers_tuition),
+                "total_tuition_owed": float(student.total_tuition_owed or 0),
+                "tuition_deadline": student.tuition_deadline.isoformat() if student.tuition_deadline else None,
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "priority_rank": 0,
+                "rescue_summary": f"{student.name} is {risk_level.lower()} risk due to {reasons[0]['label'].lower()}.",
+                "intervention_reasons": reasons,
+                "intervention_summary": reasons[0]["label"],
+                "recommended_actions": deduped_actions,
+                "contact_templates": _build_rescue_contact_templates(student, school, reasons, deduped_actions),
+                "payment_context": payment_summary,
+                "latest_report": {
+                    "term_average": term_average,
+                    "attendance_percentage": attendance_percentage,
+                    "overall_position": latest_report.overall_position if latest_report else None,
+                    "out_of_students": latest_report.out_of_students if latest_report else None,
+                    "academic_term": latest_report.academic_term if latest_report else None,
+                    "academic_year": latest_report.academic_year if latest_report else None,
+                    "trend_direction": trend_direction,
+                    "trend_delta": round(trend_delta, 1),
+                },
+            }
+        )
+
+    flagged_students.sort(key=lambda item: (-item["risk_score"], -(item["total_tuition_owed"] or 0), item["name"]))
+    if limit is not None:
+        flagged_students = flagged_students[:limit]
+
+    outcome_map = _get_rescue_outcome_history(
+        school_id,
+        student_ids=[item["id"] for item in flagged_students],
+    )
+
+    for index, student_payload in enumerate(flagged_students, start=1):
+        student_payload["priority_rank"] = index
+        student_outcomes = outcome_map.get(student_payload["id"], [])
+        student_payload["recent_outcomes"] = student_outcomes[:5]
+        student_payload["last_outcome"] = student_outcomes[0] if student_outcomes else None
+        student_payload["case_status"] = _get_case_status_from_outcomes(student_outcomes)
+
+    summary = {
+        "total_flagged_students": len(flagged_students),
+        "critical_count": sum(1 for item in flagged_students if item["risk_level"] == "Critical"),
+        "high_priority_count": sum(1 for item in flagged_students if item["risk_level"] in ["Critical", "High"]),
+        "average_risk_score": round(
+            sum(item["risk_score"] for item in flagged_students) / len(flagged_students), 1
+        )
+        if flagged_students
+        else 0,
+        "contact_queue_count": sum(
+            1 for item in flagged_students if any(action["code"] == "call_guardian" for action in item["recommended_actions"])
+        ),
+    }
+
+    return {
+        "summary": summary,
+        "report": _build_rescue_report(flagged_students, school_id),
+        "students": flagged_students,
+        "generated_at": now.isoformat(),
+    }
+
+
 def log_system_action(school_id, action, details):
     # Only log if school exists (prevent FK constraint violations for unknown schools)
     if not School.query.filter_by(id=school_id).first():
@@ -6473,6 +7060,7 @@ def get_live_feed():
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         last_30_days = now - timedelta(days=30)
         last_365_days = now - timedelta(days=365)
+        rescue_payload = _build_student_rescue_payload(g.school_id, limit=5)
 
         recent_logs = (
             db.session.query(AuditLog)
@@ -6523,69 +7111,7 @@ def get_live_feed():
         unpaid_tuition = Student.query.filter(
             Student.school_id == g.school_id, Student.total_tuition_owed > 0
         ).count()
-
-        # Fetch actual student objects for the intervention list
-        # Include students who have unpaid tuition past 30 days OR present but unpaid feeding
-        overdue_cutoff = now - timedelta(days=30)
-        critical_students = (
-            Student.query.filter(
-                Student.school_id == g.school_id,
-                or_(
-                    and_(Student.total_tuition_owed > 0, Student.tuition_deadline.isnot(None), Student.tuition_deadline <= overdue_cutoff),
-                    and_(Student.is_present == True, Student.feeding_paid == False),
-                ),
-            )
-            .order_by(Student.total_tuition_owed.desc())
-            .limit(5)
-            .all()
-        )
-
-        critical_list = []
-        for student in critical_students:
-            reasons = []
-            tuition_deadline = student.tuition_deadline
-            if tuition_deadline and tuition_deadline.tzinfo is None:
-                tuition_deadline = tuition_deadline.replace(tzinfo=timezone.utc)
-
-            if (
-                student.total_tuition_owed and student.total_tuition_owed > 0
-                and tuition_deadline
-                and tuition_deadline <= overdue_cutoff
-            ):
-                days_overdue = max(0, (now.date() - tuition_deadline.date()).days)
-                reasons.append(
-                    {
-                        "code": "overdue_tuition",
-                        "label": "Overdue tuition",
-                        "detail": f"GH₵ {float(student.total_tuition_owed or 0):.2f} overdue for {days_overdue} day(s).",
-                    }
-                )
-
-            if student.is_present and not student.feeding_paid:
-                reasons.append(
-                    {
-                        "code": "unpaid_feeding",
-                        "label": "Present without feeding payment",
-                        "detail": "Student was marked present but feeding payment has not been cleared.",
-                    }
-                )
-
-            critical_list.append(
-                {
-                    "id": student.id,
-                    "name": student.name,
-                    "parent_name": student.parent_name,
-                    "guardian_name": student.guardian_name,
-                    "parent_phone": student.parent_phone,
-                    "parent_email": student.parent_email,
-                    "total_tuition_owed": float(student.total_tuition_owed or 0),
-                    "tuition_deadline": student.tuition_deadline.isoformat() if student.tuition_deadline else None,
-                    "current_class": student.current_class,
-                    "student_code": student.student_code,
-                    "intervention_reasons": reasons,
-                    "intervention_summary": reasons[0]["label"] if reasons else "Manual review required",
-                }
-            )
+        critical_list = rescue_payload["students"]
 
         # Fetch pending payments recorded by teachers
         pending_payments = (
@@ -6702,7 +7228,7 @@ def get_live_feed():
                     "today_revenue": today_revenue,
                     "monthly_revenue": monthly_revenue,
                     "yearly_revenue": yearly_revenue,
-                    "critical_risk_students": len(critical_students),
+                    "critical_risk_students": rescue_payload["summary"]["critical_count"],
                     "canteen_count": canteen_count,
                     "pending_cash": len(pending_list),
                     "total_students": total_students,
@@ -6711,6 +7237,7 @@ def get_live_feed():
                 },
                 "pending_payments": pending_list,
                 "critical_list": critical_list,
+                "student_rescue_agent": rescue_payload,
                 "recent_payments": [
                     {
                         "id": p.Payment.id,
@@ -6736,6 +7263,174 @@ def get_live_feed():
         )
     except Exception as e:
         return jsonify({"message": "Error fetching live feed", "error": str(e)}), 500
+
+
+@api.route("/proprietor/student-rescue-agent", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_student_rescue_agent():
+    """Return prioritized intervention recommendations for at-risk students."""
+    try:
+        payload = _build_student_rescue_payload(g.school_id, limit=8)
+        payload["agent_name"] = "Student Rescue Agent"
+        payload["headline"] = "Prioritized students who need financial, attendance, or academic intervention now."
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({"message": "Error fetching student rescue agent", "error": str(e)}), 500
+
+
+@api.route("/proprietor/student-rescue-agent/contact-templates/<int:student_id>", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_student_rescue_contact_templates(student_id):
+    """Return prebuilt contact templates for a flagged rescue student."""
+    payload = _build_student_rescue_payload(g.school_id, limit=None)
+    student_payload = next((item for item in payload["students"] if item["id"] == student_id), None)
+    if not student_payload:
+        return jsonify({"message": "Student rescue case not found"}), 404
+
+    return jsonify(
+        {
+            "student_id": student_id,
+            "student_name": student_payload["name"],
+            "contact_templates": student_payload.get("contact_templates") or {},
+        }
+    )
+
+
+@api.route("/proprietor/student-rescue-agent/report", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_student_rescue_report():
+    """Return rescue reporting data for current open, in-progress, and resolved cases."""
+    payload = _build_student_rescue_payload(g.school_id, limit=None)
+    status_filter = sanitize_string(request.args.get("status"))
+    risk_level_filter = sanitize_string(request.args.get("risk_level"))
+
+    filtered_students = payload["students"]
+    if status_filter and status_filter.lower() != "all":
+        filtered_students = [
+            item for item in filtered_students if (item.get("case_status") or "").lower() == status_filter.lower()
+        ]
+    if risk_level_filter and risk_level_filter.lower() != "all":
+        filtered_students = [
+            item for item in filtered_students if (item.get("risk_level") or "").lower() == risk_level_filter.lower()
+        ]
+
+    return jsonify(
+        {
+            "report": payload.get("report") or {},
+            "students": filtered_students,
+            "generated_at": payload.get("generated_at"),
+        }
+    )
+
+
+@api.route("/proprietor/student-rescue-agent/send-email", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def send_student_rescue_email():
+    """Send the generated Student Rescue Agent email template to a guardian."""
+    payload = request.get_json(silent=True) or {}
+    student_id = payload.get("student_id")
+    if not student_id or not str(student_id).isdigit():
+        return jsonify({"message": "student_id is required"}), 400
+
+    rescue_payload = _build_student_rescue_payload(g.school_id, limit=None)
+    student_payload = next((item for item in rescue_payload["students"] if item["id"] == int(student_id)), None)
+    if not student_payload:
+        return jsonify({"message": "Student rescue case not found"}), 404
+    if not student_payload.get("parent_email"):
+        return jsonify({"message": "Parent email is not available for this student"}), 400
+
+    templates = student_payload.get("contact_templates") or {}
+    subject = sanitize_string(payload.get("subject")) or templates.get("email_subject")
+    body = payload.get("body") if isinstance(payload.get("body"), str) else templates.get("email_body")
+    if not subject or not body:
+        return jsonify({"message": "Email subject and body are required"}), 400
+
+    delivery_ok = send_email_notification(student_payload["parent_email"], subject, body)
+    if delivery_ok is False and os.getenv("FLASK_ENV", "development").lower() == "production":
+        return jsonify({"message": "Failed to send rescue email"}), 500
+
+    user_id = int(get_jwt_identity())
+    detail_payload = {
+        "type": "student_rescue_outcome",
+        "student_id": student_payload["id"],
+        "student_name": student_payload["name"],
+        "action_code": "email_sent",
+        "action_label": _normalize_rescue_action_label("email_sent"),
+        "notes": f"Rescue email sent to {student_payload['parent_email']} with subject: {subject}",
+    }
+    log_action(
+        user_id=user_id,
+        school_id=g.school_id,
+        action="STUDENT_RESCUE_OUTCOME",
+        details=json.dumps(detail_payload),
+    )
+
+    outcome_map = _get_rescue_outcome_history(g.school_id, student_ids=[student_payload["id"]], limit=10)
+    return jsonify(
+        {
+            "message": f"Rescue email sent to {student_payload['parent_email']}",
+            "student_id": student_payload["id"],
+            "recent_outcomes": outcome_map.get(student_payload["id"], [])[:5],
+        }
+    )
+
+
+@api.route("/proprietor/student-rescue-agent/outcome", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def log_student_rescue_outcome():
+    """Log a proprietor action taken on a rescue case."""
+    payload = request.get_json(silent=True) or {}
+    student_id = payload.get("student_id")
+    action_code = sanitize_string(payload.get("action_code"))
+    notes = sanitize_string(payload.get("notes"))
+
+    if not student_id or not str(student_id).isdigit():
+        return jsonify({"message": "student_id is required"}), 400
+    if not action_code:
+        return jsonify({"message": "action_code is required"}), 400
+
+    student = Student.query.filter_by(
+        id=int(student_id),
+        school_id=g.school_id,
+    ).first()
+    if not student:
+        return jsonify({"message": "Student not found"}), 404
+
+    user_id = int(get_jwt_identity())
+    detail_payload = {
+        "type": "student_rescue_outcome",
+        "student_id": student.id,
+        "student_name": student.name,
+        "action_code": action_code,
+        "action_label": _normalize_rescue_action_label(action_code),
+        "notes": notes or "",
+    }
+
+    log_action(
+        user_id=user_id,
+        school_id=g.school_id,
+        action="STUDENT_RESCUE_OUTCOME",
+        details=json.dumps(detail_payload),
+    )
+
+    outcome_map = _get_rescue_outcome_history(g.school_id, student_ids=[student.id], limit=10)
+    return jsonify(
+        {
+            "message": "Rescue outcome logged.",
+            "student_id": student.id,
+            "recent_outcomes": outcome_map.get(student.id, [])[:5],
+        }
+    )
 
 
 def _get_live_dashboard_thresholds(settings):
