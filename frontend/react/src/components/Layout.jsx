@@ -144,6 +144,7 @@ export default function Layout() {
           {hasRole('headmaster') && (
             <>
               <li><Link to="/headmaster" className="hover:text-blue-200 pl-3 transition-colors">🎓 Headmaster Dashboard</Link></li>
+              <li><Link to="/headmaster?tab=rescue-activity" className="hover:text-blue-200 pl-3 transition-colors">🚨 Rescue Activity</Link></li>
               <li><Link to="/headmaster/admissions" className="hover:text-blue-200 pl-3 transition-colors">🎓 Admissions</Link></li>
               {hasRole('homeroom') && <li><Link to="/report-builder" className="hover:text-blue-200 pl-3 transition-colors">📝 Report Builder</Link></li>}
               {hasRole('homeroom') && <li><Link to="/homeroom" className="hover:text-blue-200 pl-3 transition-colors">🏠 Homeroom Dashboard</Link></li>}

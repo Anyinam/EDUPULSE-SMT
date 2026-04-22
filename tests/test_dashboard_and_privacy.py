@@ -17,6 +17,16 @@ def _proprietor_headers(app, school_id, proprietor_id):
     }
 
 
+def _headmaster_headers(app, school_id, headmaster_id):
+    with app.app_context():
+        token = create_access_token(identity=str(headmaster_id))
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-School-ID": school_id,
+        "Content-Type": "application/json",
+    }
+
+
 def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test_school, test_proprietor):
     overdue_student = Student(
         school_id=test_school.id,
@@ -348,6 +358,51 @@ def test_student_rescue_report_groups_open_in_progress_and_resolved_cases(client
     open_students = open_only_response.get_json()["students"]
     assert any(student["name"] == "Kojo Poku" for student in open_students)
     assert all(student["case_status"] == "Open" for student in open_students)
+
+
+def test_headmaster_can_access_and_update_student_rescue_cases(client, app, test_school, test_headmaster):
+    rescue_student = Student(
+        school_id=test_school.id,
+        first_name="Selorm",
+        surname="Tetteh",
+        name="Selorm Tetteh",
+        student_code="S909",
+        current_class="JHS 2",
+        total_tuition_owed=500.0,
+        tuition_deadline=datetime.now(timezone.utc) - timedelta(days=33),
+        parent_name="Maa Tetteh",
+        parent_phone="+233506666666",
+        parent_email="maa@example.com",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(rescue_student)
+    db.session.commit()
+
+    headers = _headmaster_headers(app, test_school.id, test_headmaster.id)
+    rescue_response = client.get("/api/headmaster/student-rescue-agent", headers=headers)
+
+    assert rescue_response.status_code == 200
+    rescue_payload = rescue_response.get_json()
+    student_payload = next(item for item in rescue_payload["students"] if item["name"] == "Selorm Tetteh")
+    assert student_payload["id"] == rescue_student.id
+
+    outcome_response = client.post(
+        "/api/headmaster/student-rescue-agent/outcome",
+        headers=headers,
+        data=json.dumps(
+            {
+                "student_id": rescue_student.id,
+                "action_code": "academic_support_assigned",
+                "notes": "Headmaster assigned extra coaching for mathematics and English.",
+            }
+        ),
+    )
+
+    assert outcome_response.status_code == 200
+    outcome_payload = outcome_response.get_json()
+    assert outcome_payload["recent_outcomes"][0]["action_code"] == "academic_support_assigned"
+    assert "extra coaching" in outcome_payload["recent_outcomes"][0]["notes"]
 
 
 

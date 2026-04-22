@@ -40,18 +40,19 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 
 ## 🧠 AI & Governance Features
 - AI-assisted academic insight surfaces
-- Student Rescue Agent for prioritized at-risk student intervention
+- Student Rescue Agent for proprietor and headmaster rescue intervention workflows
 - Risk-aware governance loops for intervention workflows
 - Remote oversight feed for proprietor monitoring
 - Operational analytics to support school decision-making
 
 ### Student Rescue Agent
+- Shared rescue queue for proprietor and headmaster intervention oversight
 - Combines tuition, feeding, attendance, and academic signals into one rescue queue
 - Scores each flagged student by intervention urgency and explains the drivers
 - Uses contextual tuition-risk logic so newly reopened schools and recently paying families are not falsely escalated
 - Recommends next actions such as guardian contact, payment-plan follow-up, or academic support
-- Powers the proprietor dashboard intervention view and live-feed prioritization
-- Sends rescue emails directly from the proprietor dashboard
+- Powers the proprietor dashboard intervention view, the headmaster rescue workspace, and live-feed prioritization
+- Sends rescue emails directly from proprietor and headmaster rescue views
 - Provides a dedicated Rescue Activity Center page for intervention operations
 - Includes ready-to-send guardian contact templates for call, SMS/WhatsApp, email, and meeting brief
 - Allows the rescue email subject and body to be edited before sending
@@ -61,10 +62,36 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 
 ## 💳 Registration & Billing Flow (Current)
 - Tenant registration supports plan selection at onboarding.
-- If `Free` is selected: registration completes and user proceeds to login.
+- If `Free` is selected: registration completes immediately and user proceeds to login.
 - If `Basic` or `Premium` is selected: payment is initialized immediately at registration and user is redirected to Paystack.
 - After successful payment verification, user is redirected to login and receives one welcome email.
 - Duplicate registration welcome emails are prevented by audit-logged single-send checks.
+
+## 🏫 B2B2C Direction
+- EduPulse remains school-led B2B infrastructure, with a parent-facing access layer rather than a marketplace-style standalone B2C product.
+- The school stays the paying customer and system owner; parents become transacting users for admission, status tracking, and payments.
+- The current B2B2C implementation includes an AI Registrar MVP with public parent admissions intake, application tracking, school review actions, and parent-safe payment instructions.
+- The next major workflow expansion after this MVP is an AI Bursar for payment reconciliation and collections decision support.
+- Remote parent journeys must stay inclusive for Ghana, so web flows and low-friction payment rails such as shortcode / USSD-compatible routes remain part of the target design.
+
+### AI Employee Packaging
+- The platform remains subscription-led at the contract layer.
+- Already-shipped AI capabilities such as Student Rescue Agent remain bundled in Premium.
+- New AI Employees should be sold as optional workflow add-ons rather than forced into every school subscription.
+- The recommended default is fixed add-on pricing per school per term, not per-task charging.
+- Lower Premium add-on pricing reflects the fact that Premium already bundles adjacent analytics and governance value; it does not imply a weaker add-on.
+
+### Current vs Planned Boundaries
+- Current: school-managed admissions, public parent admission application, document upload, AI completeness checks, online-vs-school-visit admission routing, family-facing payment/status pages, payment reference parsing, Paystack fee-route DVAs where configured, staff-controlled approval workflows, Student Rescue Agent, and audited finance operations.
+- Current admissions decisioning includes status-page feedback, email updates, correction resubmission, and optional approval-only PDF delivery when a school enables it.
+- Next build: AI Bursar exception queues, richer parent balance/status visibility, and more automated admissions extraction/scoring.
+- Future only: fully autonomous admission approval, multilingual voice bots, predictive dropout automation, and pure outcome-based billing for AI employees.
+
+### Payment Architecture Direction
+- Current implementation supports one Paystack dedicated virtual route per fee type when configured by the school.
+- This works, but it is documented as a current operating model rather than the long-term default for every school.
+- The recommended medium-term design is one stable student or family payment identity, with structured references to categorize tuition, feeding, transport, uniforms, and other fee types across bank app, USSD, and manual fallback channels.
+- Shortcode and low-literacy payment paths remain strategically important and should not be removed.
 
 ## 🧩 API Highlights (Recent)
 - `GET /api/proprietor/student-rescue-agent`
@@ -72,6 +99,17 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - `GET /api/proprietor/student-rescue-agent/report`
 - `POST /api/proprietor/student-rescue-agent/outcome`
 - `POST /api/proprietor/student-rescue-agent/send-email`
+- `GET /api/students/<student_id>/payment-codes`
+- `GET /api/public/schools/<school_id>/payments/<student_code>`
+- `GET /api/public/schools/<school_id>/profile`
+- `POST /api/public/schools/<school_id>/admissions/apply`
+- `GET /api/public/schools/<school_id>/admissions/status/<status_token>`
+- `GET /api/public/schools/<school_id>/admissions/status/<status_token>/decision-pdf`
+- `POST /api/public/schools/<school_id>/admissions/status/<status_token>/resubmit`
+- `GET /api/admissions/applications`
+- `POST /api/admissions/applications/<application_id>/review`
+- `GET /api/proprietor/paystack/subaccounts`
+- `POST /api/proprietor/paystack/subaccounts/create`
 - `GET /api/school/subscription/billing-visibility`
 - `POST /api/school/subscription/meter/sync`
 - `GET /api/school/subscription/trial/status`
@@ -84,83 +122,100 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - `POST /api/school/subscription/usage-report/send`
 - `GET /api/platform/registration-email-trace`
 
-## 🔄 End-to-End Workflow (BPMN-Style with Gateways)
+## 🔄 End-to-End Workflow (Current + Implemented MVP)
 
 ```mermaid
 flowchart TD
-    S([Start]) --> A[School Onboarding]
-    A --> B{School registered?}
-    B -- No --> A
-    B -- Yes --> C[Create Proprietor Account]
-    C --> D[User Login]
-    D --> E{Auth valid + tenant context valid?}
-    E -- No --> D
-    E -- Yes --> F{Role Gateway}
+        S([Start]) --> A[School Onboarding]
+        A --> B{School registered?}
+        B -- No --> A
+        B -- Yes --> C[Create Proprietor Account]
+        C --> D[User Login]
+        D --> E{Auth valid + tenant context valid?}
+        E -- No --> D
+        E -- Yes --> F{Role Gateway}
 
-    %% Teacher lane
-    F -- Teacher --> T1[Mark Attendance]
-    T1 --> T2[Enter Grades / Lesson Notes]
-    T2 --> T3[Submit Report Data]
+        subgraph CURRENT[Current School Operations]
+            F -- Teacher --> T1[Mark Attendance]
+            T1 --> T2[Enter Grades and Lesson Notes]
+            T2 --> T3[Submit Report Data]
 
-    %% Homeroom / Headmaster lane
-    F -- Headmaster --> H1[Review Class Performance]
-    H1 --> H2{Report complete?}
-    H2 -- No --> T2
-    H2 -- Yes --> H3[Approve / Return Report]
+            F -- Headmaster --> H1[Review Class Performance]
+            H1 --> H2{Report complete?}
+            H2 -- No --> T2
+            H2 -- Yes --> H3[Approve or Return Report]
 
-    %% Finance lane
-    F -- Finance --> FN1[Record Payment / Confirm Transfer]
-    FN1 --> FN2[Reconcile Transactions]
-    FN2 --> FN3[Update Ledger + Payment Status]
+            F -- Finance --> FN1[Record Payment or Confirm Transfer]
+            FN1 --> FN2[Reconcile Transactions]
+            FN2 --> FN3[Update Ledger and Payment Status]
 
-    %% Proprietor lane
-    F -- Proprietor --> P1[Open Proprietor Dashboard]
-    P1 --> P2[Review AI Insights + Student Rescue Agent]
-    P2 --> P3{Intervention needed?}
-    P3 -- Yes --> P4[Initiate Parent/Staff Intervention]
-    P3 -- No --> P5[Continue Monitoring]
+            F -- Proprietor --> P1[Open Proprietor Dashboard]
+            P1 --> P2[Review AI Insights and Student Rescue Agent]
+            P2 --> P3{Intervention needed?}
+            P3 -- Yes --> P4[Initiate Parent or Staff Intervention]
+            P3 -- No --> P5[Continue Monitoring]
+        end
 
-    %% Subscription monetization lane
-    P1 --> M1[Open Subscription & Billing]
-    M1 --> M2[Fetch Billing Visibility]
-    M2 --> M3{Usage threshold reached?}
-    M3 -- Under 80% --> M4[Status OK]
-    M3 -- 80-99% --> M5[Warning Alert]
-    M3 -- 100%+ --> M6[Critical Alert + Overage Impact]
+        subgraph PLANNED[Implemented B2B2C Admissions MVP]
+            W1[Public Parent Admissions Entry] --> W2[Submit Application and Upload Documents]
+            W2 --> W3[AI Registrar Completeness and Extraction Check]
+            W3 --> W4{Enough data for decision?}
+            W4 -- No --> W5[Request corrections from parent]
+            W4 -- Yes --> W6{Remote test allowed?}
+            W6 -- Yes --> W7[Online Admission Test]
+            W6 -- No --> W8[Schedule school visit or in-person test]
+            W7 --> W9[School review queue]
+            W8 --> W9
+            W9 --> W10[Approve reject or request clarification]
+            W10 --> W11[Parent receives status update]
+            W11 --> W12[Family payment instructions]
+            W12 --> W13{Payment rail}
+            W13 -- Web or bank app --> W14[Structured reference or student payment identity]
+            W13 -- USSD or shortcode --> W14
+            W13 -- School office --> W15[Manual fallback]
+            W14 --> W16[AI Bursar reconciliation and exception detection]
+            W15 --> W16
+            W16 --> W17[Update student ledger and collections recommendations]
+        end
 
-    M4 --> M7{Need control actions?}
-    M5 --> M7
-    M6 --> M7
+        P1 --> M1[Open Subscription and Billing]
+        M1 --> M2[Fetch Billing Visibility]
+        M2 --> M3{Usage threshold reached?}
+        M3 -- Under 80% --> M4[Status OK]
+        M3 -- 80-99% --> M5[Warning Alert]
+        M3 -- 100%+ --> M6[Critical Alert and Overage Impact]
 
-    M7 -- Sync meter --> M8[Manual Meter Sync]
-    M7 -- Activate premium trial --> M9[Trial Activate]
-    M7 -- End trial --> M10[Trial End]
-    M7 -- Lock pricing --> M11[Grandfather Pricing Version]
-    M7 -- Set price cap --> M12[Update Price Cap]
-    M7 -- Email usage report --> M13[Send Usage Report Email]
+        M4 --> M7{Need control actions?}
+        M5 --> M7
+        M6 --> M7
+        M7 -- Sync meter --> M8[Manual Meter Sync]
+        M7 -- Activate premium trial --> M9[Trial Activate]
+        M7 -- End trial --> M10[Trial End]
+        M7 -- Lock pricing --> M11[Grandfather Pricing Version]
+        M7 -- Set price cap --> M12[Update Price Cap]
+        M7 -- Email usage report --> M13[Send Usage Report Email]
 
-    %% Payment/plan path
-    M13 --> G1{Upgrade decision?}
-    M11 --> G1
-    M12 --> G1
-    M9 --> G1
-    G1 -- Yes --> U1[Initialize Payment]
-    U1 --> U2{Payment successful?}
-    U2 -- No --> U3[Retry / Alternate Method]
-    U2 -- Yes --> U4[Apply Plan + Entitlements]
+        M13 --> G1{Upgrade decision?}
+        M11 --> G1
+        M12 --> G1
+        M9 --> G1
+        G1 -- Yes --> U1[Initialize Payment]
+        U1 --> U2{Payment successful?}
+        U2 -- No --> U3[Retry or alternate method]
+        U2 -- Yes --> U4[Apply Plan and Entitlements]
 
-    %% Continuous governance loop
-    U4 --> Z[Audit Log + Notifications]
-    FN3 --> Z
-    H3 --> Z
-    P4 --> Z
-    P5 --> Z
-    M8 --> Z
-    M10 --> Z
+        U4 --> Z[Audit Log and Notifications]
+        FN3 --> Z
+        H3 --> Z
+        P4 --> Z
+        P5 --> Z
+        M8 --> Z
+        M10 --> Z
+        W17 --> Z
 
-    Z --> R{Cycle complete for current term?}
-    R -- No --> F
-    R -- Yes --> END([Term Close + Next-Term Rollforward])
+        Z --> R{Cycle complete for current term?}
+        R -- No --> F
+        R -- Yes --> END([Term Close and Next-Term Rollforward])
 ```
 
 ## 🧱 Tech Stack
@@ -181,6 +236,7 @@ docker compose up --build
 ```
 
 ## 📁 Helpful Docs
+- `B2B2C_AI_EMPLOYEE_ROADMAP.md`
 - `docs/operations/internal/BUSINESS_OPERATIONS_INDEX.md`
 - `docs/operations/internal/README.md`
 - `docs/operations/internal/LEGAL_COUNSEL_DOSSIER.md`
@@ -194,6 +250,9 @@ docker compose up --build
 - `docs/operations/internal/CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
 - `docs/operations/internal/CONFIDENTIALITY_NDA_TEMPLATE.md`
 - `BUSINESS_PROCESS_MODEL.md`
+- `PAYSTACK_SUBACCOUNT_GUIDE.md`
+- `PAYMENT_REFERENCE_FORMAT.md`
+- `PARENT_ADMISSIONS_WORKFLOW.md`
 - `docs/operations/internal/STANDARD_OPERATING_PROCEDURES.md`
 - `docs/operations/internal/ONBOARDING_CHECKLIST.md`
 - `docs/operations/internal/ONBOARDING_CHECKLIST_TEMPLATE.md`

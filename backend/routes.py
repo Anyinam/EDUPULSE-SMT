@@ -10,6 +10,7 @@ import requests
 import secrets
 import string
 import time
+import textwrap
 from urllib.parse import quote
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO, StringIO
@@ -42,6 +43,7 @@ from backend.api.models import (
     LoginAttempt,
     PasswordReset,
     Payment,
+    ParentAdmissionApplication,
     PaystackSubAccount,
     PlatformSetting,
     PlatformUser,
@@ -92,6 +94,7 @@ from backend.email_templates import (
     get_welcome_email, 
     get_password_reset_email, 
     get_staff_welcome_email,
+    get_parent_admission_status_email,
     get_subscription_confirmation_email,
     get_subscription_upgrade_email,
     get_payment_confirmation_email,
@@ -889,11 +892,15 @@ def _count_active_students_for_billing(school_id):
 
 
 def _lock_school_for_capacity_check(school_id):
+    session = db.session()
     bind = db.session.get_bind()
     dialect_name = bind.dialect.name if bind and bind.dialect else ""
 
     if dialect_name == "sqlite":
-        db.session.execute(text("BEGIN IMMEDIATE"))
+        # SQLite cannot start BEGIN IMMEDIATE inside an already-open transaction,
+        # which is common in the test suite after fixture setup work.
+        if not session.in_transaction():
+            db.session.execute(text("BEGIN IMMEDIATE"))
         return School.query.filter_by(id=school_id).first()
 
     return School.query.filter_by(id=school_id).with_for_update().first()
@@ -1379,6 +1386,607 @@ def normalize_student_code_prefix(school_id):
 
 def generate_student_code(prefix, index):
     return f"{prefix}{index:04d}"
+
+
+def _generate_parent_admission_code(school_id):
+    prefix = normalize_student_code_prefix(school_id)[:6]
+    return f"ADM-{prefix}-{get_utc_now().strftime('%Y%m%d%H%M%S')}"
+
+
+def _infer_document_category(filename):
+    lowered = (filename or "").strip().lower()
+    if not lowered:
+        return "document"
+    if "birth" in lowered:
+        return "birth_certificate"
+    if "report" in lowered or "result" in lowered:
+        return "previous_report"
+    if "id" in lowered or "passport" in lowered:
+        return "identity_document"
+    return "document"
+
+
+def _extract_parent_admission_document_details(filename, content_type, file_bytes):
+    category = _infer_document_category(filename)
+    entry = {
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": len(file_bytes or b""),
+        "category": category,
+    }
+
+    if not file_bytes:
+        return entry
+
+    lowered_name = (filename or "").strip().lower()
+    is_image_upload = (content_type or "").startswith("image/") or lowered_name.endswith(
+        (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
+    )
+
+    if category != "previous_report" or not is_image_upload:
+        return entry
+
+    try:
+        parsed = parse_report_card_image_bytes(image_bytes=file_bytes)
+    except RuntimeError as exc:
+        entry["ocr_status"] = "unavailable"
+        entry["ocr_error"] = str(exc)
+        return entry
+    except Exception as exc:
+        logger.warning("Failed to OCR parent admission document %s: %s", filename, exc)
+        entry["ocr_status"] = "failed"
+        entry["ocr_error"] = "parse_failed"
+        return entry
+
+    subjects = parsed.get("subjects") or []
+    confidence = float(parsed.get("parse_confidence") or 0)
+    entry.update(
+        {
+            "ocr_status": "parsed",
+            "ocr_confidence": round(confidence, 2),
+            "ocr_student_code": parsed.get("student_code"),
+            "ocr_student_name": parsed.get("student_name"),
+            "ocr_term": parsed.get("term"),
+            "ocr_year": parsed.get("year"),
+            "ocr_subject_count": len(subjects),
+            "ocr_term_average": parsed.get("term_average"),
+            "ocr_overall_performance": parsed.get("overall_performance"),
+            "ocr_subjects": [
+                {
+                    "subject": item.get("subject"),
+                    "mark": item.get("mark", item.get("total_score")),
+                    "grade": item.get("grade"),
+                }
+                for item in subjects[:12]
+            ],
+        }
+    )
+    return entry
+
+
+def _get_school_admission_fee_config(settings):
+    enabled = bool(getattr(settings, "admission_fee_enabled", False)) if settings else False
+    amount = float(getattr(settings, "admission_fee_amount", 0.0) or 0.0) if settings else 0.0
+    if amount <= 0:
+        enabled = False
+    return {
+        "enabled": enabled,
+        "amount": round(amount, 2),
+        "currency": settings.currency if settings and settings.currency else "GH₵",
+        "label": "Admission Fee",
+    }
+
+
+def _get_enabled_modules(settings):
+    modules = getattr(settings, "enabled_modules", None) if settings else None
+    return modules if isinstance(modules, dict) else {}
+
+
+def _has_ai_employee_addon(settings, addon_key):
+    return bool(_get_enabled_modules(settings).get(addon_key, False))
+
+
+def _get_public_school_profile_payload(school, settings):
+    return {
+        "school_id": school.id,
+        "school_name": school.name,
+        "logo_url": school.logo_url,
+        "theme_color": school.primary_color or "#1e3a8a",
+        "motto": school.motto,
+        "school_email": school.school_email,
+        "school_phone": school.school_phone,
+        "school_address": school.school_address,
+        "school_website": school.school_website,
+        "country_code": settings.country_code if settings and settings.country_code else "GH",
+        "admission_fee": _get_school_admission_fee_config(settings),
+    }
+
+
+def _can_expose_parent_decision_pdf(settings):
+    pdf_policy = _get_parent_admission_pdf_policy(settings)
+    return pdf_policy["enabled"] and _has_ai_employee_addon(settings, "ai_registrar_addon")
+
+
+def _build_staff_parent_decision_document_payload(application, settings, school_id):
+    if application.status != "Approved" or not _can_expose_parent_decision_pdf(settings):
+        return None
+    decision_path = _build_parent_decision_pdf_path(school_id, application.status_token)
+    return {
+        "available": True,
+        "download_path": decision_path,
+        "download_url": _build_parent_public_url(decision_path),
+        "delivery_mode": _get_parent_admission_pdf_policy(settings)["delivery_mode"],
+    }
+
+
+def _build_parent_status_path(school_id, status_token):
+    return f"/apply/{school_id}/status/{status_token}"
+
+
+def _build_parent_payment_path(school_id, student_code):
+    return f"/pay/{school_id}/{student_code}"
+
+
+def _build_parent_decision_pdf_path(school_id, status_token):
+    return f"/api/public/schools/{school_id}/admissions/status/{quote(status_token)}/decision-pdf"
+
+
+def _build_parent_public_url(path):
+    configured = (os.getenv("PARENT_PORTAL_BASE_URL") or "").strip()
+    origin = configured or request.headers.get("Origin") or request.host_url.rstrip("/")
+    return f"{origin.rstrip('/')}{path}"
+
+
+def _get_parent_admission_pdf_policy(settings):
+    delivery_mode = (getattr(settings, "approval_pdf_delivery_mode", None) or "email_link").strip()
+    if delivery_mode not in {"status_page_only", "email_link", "email_attachment"}:
+        delivery_mode = "email_link"
+
+    return {
+        "enabled": bool(getattr(settings, "approval_pdf_enabled", False)) if settings else False,
+        "delivery_mode": delivery_mode,
+        "include_payment_summary": bool(getattr(settings, "approval_pdf_include_payment_summary", True)) if settings else True,
+        "include_required_items": bool(getattr(settings, "approval_pdf_include_required_items", True)) if settings else True,
+        "required_items": (getattr(settings, "approval_pdf_required_items", None) or "").strip() if settings else "",
+    }
+
+
+def _build_parent_admission_decision_pdf_bytes(application, school, settings, payment_url=None):
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+    except Exception as exc:
+        raise RuntimeError(f"PDF engine unavailable: {exc}")
+
+    policy = _get_parent_admission_pdf_policy(settings)
+    fee_config = _get_school_admission_fee_config(settings)
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    page_width, page_height = A4
+    left = 40
+    y = page_height - 50
+
+    def ensure_space(required=80):
+        nonlocal y
+        if y <= required:
+            pdf.showPage()
+            y = page_height - 50
+            pdf.setFont("Helvetica", 10)
+
+    def write_wrapped(text, font_name="Helvetica", font_size=10, gap=14):
+        nonlocal y
+        pdf.setFont(font_name, font_size)
+        for raw_line in str(text or "").splitlines() or [""]:
+            for line in textwrap.wrap(raw_line, width=95) or [""]:
+                ensure_space()
+                pdf.drawString(left, y, line)
+                y -= gap
+
+    student_name = f"{application.first_name} {application.surname}".strip()
+    decision_date = application.reviewed_at or get_utc_now()
+
+    pdf.setTitle(f"Admission Decision - {student_name}")
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(left, y, school.name or "EduPulse School")
+    y -= 24
+
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawString(left, y, "Admission Decision")
+    y -= 20
+
+    write_wrapped(f"Learner: {student_name}", "Helvetica", 11)
+    write_wrapped(f"Application code: {application.application_code}", "Helvetica", 11)
+    write_wrapped(f"Decision: {application.status}", "Helvetica", 11)
+    write_wrapped(f"Class offered: {application.preferred_class or '-'}", "Helvetica", 11)
+    write_wrapped(f"Decision date: {decision_date.strftime('%Y-%m-%d')}", "Helvetica", 11)
+    y -= 6
+
+    write_wrapped("School Notes", "Helvetica-Bold", 12)
+    write_wrapped(application.reviewer_notes or "Approved by the school admissions team.")
+    y -= 6
+
+    if application.ai_summary:
+        write_wrapped("Admission Summary", "Helvetica-Bold", 12)
+        write_wrapped(application.ai_summary)
+        y -= 6
+
+    if policy["include_required_items"] and policy["required_items"]:
+        write_wrapped("Items Needed After Approval", "Helvetica-Bold", 12)
+        write_wrapped(policy["required_items"])
+        y -= 6
+
+    if policy["include_payment_summary"] and payment_url:
+        write_wrapped("Payment Guidance", "Helvetica-Bold", 12)
+        guidance = [
+            "Use the school payment instructions page to view the approved payment channels and structured references.",
+            f"Payment link: {payment_url}",
+        ]
+        if fee_config["enabled"]:
+            guidance.append(f"School-configured admission fee: {fee_config['currency']} {fee_config['amount']:.2f}")
+        write_wrapped(" ".join(guidance))
+        y -= 6
+
+    write_wrapped("School Contact", "Helvetica-Bold", 12)
+    write_wrapped(f"Email: {school.school_email or '-'}")
+    write_wrapped(f"Phone: {school.school_phone or '-'}")
+    write_wrapped(f"Address: {school.school_address or '-'}")
+    y -= 8
+    write_wrapped("This document reflects a school-approved admission decision.", "Helvetica-Oblique", 10)
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+def _build_parent_notification_sms(guardian_name, school_name, application_code, status_token, status_url):
+    contact_name = guardian_name or "Parent/Guardian"
+    return (
+        f"{school_name}: Hello {contact_name}, your admission request {application_code} has been received. "
+        f"Use token {status_token} to track it here: {status_url}"
+    )
+
+
+def _send_parent_admission_update(application, school, next_step, payment_url=None):
+    if not application.parent_email:
+        return False
+
+    settings = SchoolSettings.query.filter_by(school_id=school.id).first()
+    status_path = _build_parent_status_path(school.id, application.status_token)
+    status_url = _build_parent_public_url(status_path)
+    pdf_policy = _get_parent_admission_pdf_policy(settings)
+    if application.status == "Approved" and _can_expose_parent_decision_pdf(settings) and pdf_policy["delivery_mode"] == "email_link":
+        decision_url = _build_parent_public_url(_build_parent_decision_pdf_path(school.id, application.status_token))
+        next_step = f"{next_step} Download the admission decision PDF here: {decision_url}"
+
+    subject, body = get_parent_admission_status_email(
+        guardian_name=application.guardian_name or "Parent/Guardian",
+        school_name=school.name,
+        student_name=f"{application.first_name} {application.surname}".strip(),
+        application_code=application.application_code,
+        status_token=application.status_token,
+        status=application.status,
+        summary=application.ai_summary or "Your application has been updated.",
+        status_url=status_url,
+        next_step=next_step,
+        payment_url=payment_url,
+    )
+    if not subject or not body:
+        return False
+    return send_email_notification(application.parent_email, subject, body)
+
+
+def _build_ai_registrar_assessment(payload, document_manifest):
+    missing_items = []
+    flags = []
+
+    if not sanitize_string(payload.get("guardian_name")):
+        missing_items.append("guardian_name")
+    if not sanitize_string(payload.get("parent_email")) and not sanitize_string(payload.get("parent_phone")):
+        missing_items.append("guardian_contact")
+    preferred_class = sanitize_string(payload.get("preferred_class") or payload.get("class_assigned"))
+    if preferred_class not in VALID_GRADES:
+        missing_items.append("preferred_class")
+
+    categories = {item.get("category") for item in (document_manifest or []) if isinstance(item, dict)}
+    report_docs = [
+        item for item in (document_manifest or []) if isinstance(item, dict) and item.get("category") == "previous_report"
+    ]
+    parsed_report_docs = [
+        item for item in report_docs if item.get("ocr_status") == "parsed" and (item.get("ocr_subject_count") or 0) > 0
+    ]
+    if not document_manifest:
+        missing_items.append("supporting_documents")
+    if "birth_certificate" not in categories:
+        flags.append("birth_certificate_not_detected")
+    if "previous_report" not in categories:
+        flags.append("previous_report_not_detected")
+    elif report_docs and not parsed_report_docs:
+        flags.append("previous_report_uploaded_but_not_parsed")
+
+    high_confidence_report = None
+    if parsed_report_docs:
+        high_confidence_report = max(
+            parsed_report_docs,
+            key=lambda item: (item.get("ocr_confidence") or 0, item.get("ocr_subject_count") or 0),
+        )
+        if (high_confidence_report.get("ocr_confidence") or 0) < 0.85:
+            flags.append("previous_report_low_confidence")
+
+    desired_test_mode = sanitize_string(payload.get("desired_test_mode") or "either").lower()
+    internet_quality = sanitize_string(payload.get("internet_quality") or "unknown").lower()
+
+    score = 30
+    if "guardian_name" not in missing_items:
+        score += 15
+    if "guardian_contact" not in missing_items:
+        score += 15
+    if "preferred_class" not in missing_items:
+        score += 15
+    if document_manifest:
+        score += min(len(document_manifest) * 10, 25)
+    if high_confidence_report:
+        score += min((high_confidence_report.get("ocr_subject_count") or 0) * 2, 10)
+        if (high_confidence_report.get("ocr_confidence") or 0) >= 0.85:
+            score += 10
+
+    extracted_average = high_confidence_report.get("ocr_term_average") if high_confidence_report else None
+    extracted_subject_count = high_confidence_report.get("ocr_subject_count") if high_confidence_report else 0
+
+    if missing_items:
+        recommendation = "request_correction"
+        status = "NeedsCorrection"
+        summary = "Application received, but the AI Registrar found missing details that should be corrected before school review."
+    elif desired_test_mode == "online" and internet_quality == "stable":
+        recommendation = "invite_online_test"
+        status = "TestReady"
+        summary = "Application looks complete and internet quality is marked stable, so the AI Registrar recommends the remote admission-test path."
+    elif desired_test_mode == "in_person" or internet_quality == "limited":
+        recommendation = "schedule_school_visit"
+        status = "VisitRequired"
+        summary = "Application looks usable, but the AI Registrar recommends a school visit or in-person test because the family selected that route or indicated limited internet."
+    else:
+        recommendation = "manual_review"
+        status = "ReviewReady"
+        summary = "Application looks substantially complete and is ready for school review with AI-generated guidance."
+
+    if high_confidence_report and extracted_subject_count:
+        summary += (
+            f" OCR extracted {extracted_subject_count} subject entries"
+            + (f" with a detected term average of {float(extracted_average):.1f}." if extracted_average is not None else ".")
+        )
+
+    return {
+        "readiness_score": max(0, min(int(score), 100)),
+        "recommendation": recommendation,
+        "status": status,
+        "summary": summary,
+        "flags": flags,
+        "missing_items": missing_items,
+        "ocr_summary": {
+            "parsed_previous_reports": len(parsed_report_docs),
+            "best_report_confidence": high_confidence_report.get("ocr_confidence") if high_confidence_report else None,
+            "best_report_subject_count": extracted_subject_count or 0,
+            "best_report_term_average": extracted_average,
+        },
+    }
+
+
+def _admit_student_from_payload(school_id, data, actor_id):
+    school = _lock_school_for_capacity_check(school_id)
+    limit = get_plan_limits(get_effective_plan(school))
+    current_count = _count_active_students_for_billing(school_id)
+    school.current_student_count = current_count
+    school.last_metered_at = get_utc_now()
+    if current_count >= limit:
+        raise ValueError(f"Admission failed: Plan limit of {limit} students reached. Please upgrade.")
+
+    first_name = (data.get("first_name") or "").strip()
+    surname = (data.get("surname") or "").strip()
+    full_name = (data.get("name") or "").strip()
+
+    if full_name and not first_name and not surname:
+        parts = full_name.split(maxsplit=1)
+        first_name = parts[0] if parts else ""
+        surname = parts[1] if len(parts) > 1 else ""
+
+    if not first_name or not surname:
+        raise ValueError("Missing required fields: first_name and surname")
+
+    full_name = f"{first_name} {surname}".strip()
+    gender = (data.get("gender") or "").strip()
+
+    date_of_birth = None
+    raw_dob = (data.get("date_of_birth") or "").strip()
+    if raw_dob:
+        try:
+            date_of_birth = date.fromisoformat(raw_dob)
+        except ValueError as exc:
+            raise ValueError("Invalid date_of_birth format. Use YYYY-MM-DD.") from exc
+
+    scholarship_type = sanitize_string(data.get("scholarship_type") or "none").lower()
+    scholarship_notes = sanitize_string(data.get("scholarship_notes") or "")
+    if scholarship_type not in {"none", "tuition", "tuition_feeding"}:
+        raise ValueError("Invalid scholarship_type. Use none, tuition, or tuition_feeding.")
+
+    class_assigned = data.get("class_assigned")
+    if class_assigned not in VALID_GRADES:
+        raise ValueError(f"Invalid grade level. Allowed: {', '.join(VALID_GRADES)}")
+
+    student_code = (data.get("student_code") or "").strip().upper()
+    if student_code:
+        if Student.query.filter_by(student_code=student_code, school_id=school_id).first():
+            raise ValueError(f"Student code {student_code} already exists.")
+    else:
+        prefix = normalize_student_code_prefix(school_id)
+        next_index = Student.query.filter_by(school_id=school_id).count() + 1
+        while True:
+            candidate = generate_student_code(prefix, next_index)
+            if not Student.query.filter_by(student_code=candidate, school_id=school_id).first():
+                student_code = candidate
+                break
+            next_index += 1
+
+    same_name_students = Student.query.filter_by(
+        school_id=school_id,
+        first_name=first_name,
+        surname=surname,
+    ).all()
+    name_conflict_warning = None
+    if same_name_students:
+        if len(same_name_students) == 1:
+            existing = same_name_students[0]
+            name_conflict_warning = (
+                f"⚠️ DUPLICATE NAME: '{full_name}' already exists. Review {existing.student_code} before treating this as a new learner."
+            )
+        else:
+            codes = ", ".join([s.student_code for s in same_name_students])
+            name_conflict_warning = f"⚠️ {len(same_name_students)} students named '{full_name}' already exist (Codes: {codes})."
+
+    new_student = Student(
+        first_name=first_name,
+        surname=surname,
+        name=full_name,
+        gender=gender,
+        date_of_birth=date_of_birth,
+        student_code=student_code,
+        school_id=school_id,
+        guardian_name=data.get("guardian_name"),
+        parent_name=data.get("guardian_name") or data.get("parent_name"),
+        parent_email=data.get("parent_email"),
+        parent_phone=data.get("parent_phone"),
+        current_class=class_assigned,
+        is_on_scholarship=scholarship_type != "none",
+        scholarship_covers_tuition=scholarship_type in {"tuition", "tuition_feeding"},
+        scholarship_covers_feeding=scholarship_type == "tuition_feeding",
+        scholarship_notes=scholarship_notes or None,
+        feeding_paid=False,
+        is_present=True,
+    )
+    db.session.add(new_student)
+    school.current_student_count = current_count + 1
+    school.last_metered_at = get_utc_now()
+    db.session.commit()
+
+    log_action(
+        user_id=actor_id,
+        school_id=school_id,
+        action="STUDENT_ADMITTED",
+        details=f"Admitted {new_student.name} to {new_student.current_class} (Score: {data.get('score')}%)",
+    )
+
+    proration_result = calculate_prorated_admission_charge(school, 1, get_effective_plan(school))
+    return new_student, school, scholarship_type, name_conflict_warning, proration_result
+
+
+def _build_student_payment_instruction_payload(student, school_id):
+    from backend.utils import generate_all_payment_codes
+
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
+    admission_fee = _get_school_admission_fee_config(settings)
+    if admission_fee["enabled"]:
+        other_fees.setdefault(admission_fee["label"], admission_fee["amount"])
+
+    fees_config = {
+        "tuition_fee": settings.tuition_fee if settings else 0.0,
+        "feeding_fee": settings.feeding_fee if settings else 0.0,
+        "uniform_fee": settings.uniform_fee if settings else 0.0,
+        "transport_fee": settings.transport_fee if settings else 0.0,
+        "terminal_report_fee": settings.terminal_report_fee if settings else 0.0,
+        "other_fees": other_fees,
+    }
+
+    payment_codes = generate_all_payment_codes(student.student_code, fees_config)
+    subaccounts = PaystackSubAccount.query.filter_by(school_id=school_id, is_active=True).all()
+    subaccount_map = {(entry.payment_type or "").strip(): entry for entry in subaccounts}
+
+    codes_list = []
+    for fee_type, code in payment_codes.items():
+        if fee_type == "Tuition":
+            base_amount = fees_config["tuition_fee"] + fees_config["terminal_report_fee"]
+            display_name = "Tuition + Terminal Report"
+        elif fee_type == "Feeding":
+            base_amount = fees_config["feeding_fee"]
+            display_name = fee_type
+        elif fee_type == "Uniform":
+            base_amount = fees_config["uniform_fee"]
+            display_name = fee_type
+        elif fee_type == "Transport":
+            base_amount = fees_config["transport_fee"]
+            display_name = fee_type
+        else:
+            base_amount = fees_config["other_fees"].get(fee_type, 0.0)
+            display_name = fee_type
+
+        if student.is_on_scholarship:
+            if fee_type == "Tuition" and student.scholarship_covers_tuition:
+                base_amount = 0.0
+            if fee_type == "Feeding" and student.scholarship_covers_feeding:
+                base_amount = 0.0
+
+        route = subaccount_map.get(fee_type)
+        convenience_fee_percent = route.percentage_charge if route else DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
+        convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
+        total_amount = base_amount + convenience_fee_amount
+        virtual_bank_account = route.virtual_bank_account if route else None
+        virtual_bank_name = route.virtual_bank_name if route else None
+        momo_shortcode = route.momo_shortcode if route else None
+        has_virtual_route = bool(virtual_bank_account or momo_shortcode)
+
+        codes_list.append({
+            "fee_type": display_name,
+            "code": code,
+            "reference_code": code,
+            "payment_identity_base": student.student_code,
+            "base_amount": base_amount,
+            "cash_amount": round(base_amount, 2),
+            "convenience_fee_percent": convenience_fee_percent,
+            "convenience_fee_amount": round(convenience_fee_amount, 2),
+            "total_amount": round(total_amount, 2),
+            "amount": round(total_amount, 2),
+            "virtual_bank_account": virtual_bank_account,
+            "virtual_bank_name": virtual_bank_name,
+            "momo_shortcode": momo_shortcode,
+            "subaccount_code": route.subaccount_code if route else None,
+            "has_virtual_route": has_virtual_route,
+            "preferred_payment_model": "reference_first",
+            "is_scholarship_fee": bool(
+                (fee_type == "Tuition" and student.scholarship_covers_tuition)
+                or (fee_type == "Feeding" and student.scholarship_covers_feeding)
+            ),
+            "instructions": (
+                f"Use the stable learner payment identity {student.student_code} with reference {code}. "
+                + (
+                    "A dedicated fee-route virtual account is also available for automatic routing. "
+                    if has_virtual_route
+                    else "If no fee-route account is available, pay with the structured reference through bank app, shortcode, or the school's approved manual fallback. "
+                )
+                + f"Cash at the school office remains GH₵ {base_amount:.2f} without the convenience fee."
+            ),
+        })
+
+    return {
+        "student_id": student.id,
+        "student_name": student.name,
+        "student_code": student.student_code,
+        "class": student.current_class,
+        "parent_name": student.parent_name,
+        "parent_phone": student.parent_phone,
+        "parent_email": student.parent_email,
+        "payment_identity": {
+            "model": "reference_first",
+            "student_code": student.student_code,
+            "stable_payment_identity": student.student_code,
+            "supports_structured_references": True,
+            "supports_fee_route_dvas": any(bool(item.get("has_virtual_route")) for item in codes_list),
+            "supported_rails": ["bank_app", "ussd_or_shortcode", "school_office_manual"],
+            "recommended_examples": [item["reference_code"] for item in codes_list[:3]],
+        },
+        "admission_fee": admission_fee,
+        "payment_codes": codes_list,
+        "note": "Preferred model: use the learner's stable payment identity and structured reference. Digital channels may include a convenience fee, while cash at the school office remains the base amount. Fee-route virtual accounts remain supported where configured, and manual school-office fallback remains available.",
+    }
 
 
 def normalize_login_attempt(attempt, now, window_minutes):
@@ -3842,111 +4450,16 @@ def get_student_payment_codes(student_id):
 
     Backward compatibility: legacy reference codes are still returned.
     """
-    from backend.utils import generate_all_payment_codes
-
     student = Student.query.filter_by(
         id=student_id, school_id=g.school_id
     ).first_or_404()
-    school = School.query.filter_by(id=g.school_id).first()
 
     actor_id = get_jwt_identity()
     try:
         actor_id = int(actor_id) if actor_id is not None else None
     except (TypeError, ValueError):
         actor_id = None
-
-    # Get school fees configuration
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-    fees_config = {
-        "tuition_fee": settings.tuition_fee if settings else 0.0,
-        "feeding_fee": settings.feeding_fee if settings else 0.0,
-        "uniform_fee": settings.uniform_fee if settings else 0.0,
-        "transport_fee": settings.transport_fee if settings else 0.0,
-        "terminal_report_fee": settings.terminal_report_fee if settings else 0.0,
-        "other_fees": settings.other_fees if settings else {},
-    }
-
-    # Generate payment codes based on student code
-    payment_codes = generate_all_payment_codes(student.student_code, fees_config)
-
-    # Virtual routing map by payment type (Paystack fee route accounts)
-    subaccounts = PaystackSubAccount.query.filter_by(
-        school_id=g.school_id, is_active=True
-    ).all()
-    subaccount_map = {
-        (entry.payment_type or "").strip(): entry for entry in subaccounts
-    }
-
-    # Format for frontend display
-    codes_list = []
-    for fee_type, code in payment_codes.items():
-        base_amount = 0.0
-        if fee_type == "Tuition":
-            # Tuition now includes terminal report fee
-            base_amount = fees_config["tuition_fee"] + fees_config["terminal_report_fee"]
-        elif fee_type == "Feeding":
-            base_amount = fees_config["feeding_fee"]
-        elif fee_type == "Uniform":
-            base_amount = fees_config["uniform_fee"]
-        elif fee_type == "Transport":
-            base_amount = fees_config["transport_fee"]
-        else:
-            base_amount = fees_config["other_fees"].get(fee_type, 0.0)
-
-        # Scholarship overrides
-        if student.is_on_scholarship:
-            if fee_type == "Tuition" and student.scholarship_covers_tuition:
-                base_amount = 0.0
-            if fee_type == "Feeding" and student.scholarship_covers_feeding:
-                base_amount = 0.0
-        
-        # Calculate convenience fee (default 2.0% or from fee route account)
-        route = subaccount_map.get(fee_type)
-        convenience_fee_percent = route.percentage_charge if route else DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
-        convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
-        total_amount = base_amount + convenience_fee_amount
-
-        # Display name for tuition includes terminal report reference
-        display_name = fee_type
-        if fee_type == "Tuition":
-            display_name = "Tuition + Terminal Report"
-
-        virtual_bank_account = route.virtual_bank_account if route else None
-        virtual_bank_name = route.virtual_bank_name if route else None
-        momo_shortcode = route.momo_shortcode if route else None
-        has_virtual_route = bool(virtual_bank_account or momo_shortcode)
-
-        codes_list.append(
-            {
-                "fee_type": display_name,
-                "code": code,
-                "reference_code": code,
-                "base_amount": base_amount,
-                "cash_amount": round(base_amount, 2),
-                "convenience_fee_percent": convenience_fee_percent,
-                "convenience_fee_amount": round(convenience_fee_amount, 2),
-                "total_amount": round(total_amount, 2),
-                "amount": round(total_amount, 2),
-                "virtual_bank_account": virtual_bank_account,
-                "virtual_bank_name": virtual_bank_name,
-                "momo_shortcode": momo_shortcode,
-                "subaccount_code": route.subaccount_code if route else None,
-                "has_virtual_route": has_virtual_route,
-                "is_scholarship_fee": bool(
-                    (fee_type == "Tuition" and student.scholarship_covers_tuition)
-                    or (fee_type == "Feeding" and student.scholarship_covers_feeding)
-                ),
-                "instructions": (
-                    f"Pay GH₵ {base_amount:.2f} school fee + {convenience_fee_percent}% convenience fee (GH₵ {convenience_fee_amount:.2f}) = GH₵ {total_amount:.2f} total by virtual route for {display_name}. "
-                    + (
-                        "Use the dedicated Paystack virtual account for automatic processing. "
-                        if has_virtual_route
-                        else "Virtual route pending setup. Pay cash at the school office or use the school's approved manual payment instructions. "
-                    )
-                    + f"Reference code ({code}) remains optional backup. Cash at the school office remains GH₵ {base_amount:.2f} without the convenience fee."
-                ),
-            }
-        )
+    payload = _build_student_payment_instruction_payload(student, g.school_id)
 
     log_action(
         actor_id,
@@ -3957,28 +4470,33 @@ def get_student_payment_codes(student_id):
                 "student_id": student.id,
                 "student_code": student.student_code,
                 "student_class": student.current_class,
-                "routes_count": len(codes_list),
+                "routes_count": len(payload["payment_codes"]),
                 "has_virtual_route": any(
-                    bool(code.get("has_virtual_route")) for code in codes_list
+                    bool(code.get("has_virtual_route")) for code in payload["payment_codes"]
                 ),
                 "ip": request.remote_addr,
             }
         ),
     )
+    return jsonify(payload)
 
-    return jsonify(
-        {
-            "student_id": student.id,
-            "student_name": student.name,
-            "student_code": student.student_code,
-            "class": student.current_class,
-            "parent_name": student.parent_name,
-            "parent_phone": student.parent_phone,
-            "parent_email": student.parent_email,
-            "payment_codes": codes_list,
-            "note": "Use the payment-type virtual account or shortcode where available. Virtual-route totals include the convenience fee. If a virtual route is unavailable, parents may pay cash at the school office or use the school's approved manual payment instructions.",
-        }
-    )
+
+@api.route("/public/schools/<school_id>/payments/<student_code>", methods=["GET"])
+def get_public_student_payment_codes(school_id, student_code):
+    """Return parent-safe payment instructions using the recommended stable payment identity model."""
+    student = Student.query.filter_by(
+        school_id=school_id,
+        student_code=(student_code or "").strip().upper(),
+    ).first()
+    if not student:
+        return jsonify({"message": "Student not found"}), 404
+
+    payload = _build_student_payment_instruction_payload(student, school_id)
+    payload.pop("parent_name", None)
+    payload.pop("parent_phone", None)
+    payload.pop("parent_email", None)
+    payload["public_status"] = "available"
+    return jsonify(payload)
 
 
 @api.route("/students", methods=["GET"])
@@ -7266,8 +7784,9 @@ def get_live_feed():
 
 
 @api.route("/proprietor/student-rescue-agent", methods=["GET"])
+@api.route("/headmaster/student-rescue-agent", methods=["GET"])
 @multi_tenant_guard
-@role_required("proprietor")
+@role_required("proprietor", "headmaster")
 @jwt_required()
 def get_student_rescue_agent():
     """Return prioritized intervention recommendations for at-risk students."""
@@ -7281,8 +7800,9 @@ def get_student_rescue_agent():
 
 
 @api.route("/proprietor/student-rescue-agent/contact-templates/<int:student_id>", methods=["GET"])
+@api.route("/headmaster/student-rescue-agent/contact-templates/<int:student_id>", methods=["GET"])
 @multi_tenant_guard
-@role_required("proprietor")
+@role_required("proprietor", "headmaster")
 @jwt_required()
 def get_student_rescue_contact_templates(student_id):
     """Return prebuilt contact templates for a flagged rescue student."""
@@ -7301,8 +7821,9 @@ def get_student_rescue_contact_templates(student_id):
 
 
 @api.route("/proprietor/student-rescue-agent/report", methods=["GET"])
+@api.route("/headmaster/student-rescue-agent/report", methods=["GET"])
 @multi_tenant_guard
-@role_required("proprietor")
+@role_required("proprietor", "headmaster")
 @jwt_required()
 def get_student_rescue_report():
     """Return rescue reporting data for current open, in-progress, and resolved cases."""
@@ -7330,8 +7851,9 @@ def get_student_rescue_report():
 
 
 @api.route("/proprietor/student-rescue-agent/send-email", methods=["POST"])
+@api.route("/headmaster/student-rescue-agent/send-email", methods=["POST"])
 @multi_tenant_guard
-@role_required("proprietor")
+@role_required("proprietor", "headmaster")
 @jwt_required()
 def send_student_rescue_email():
     """Send the generated Student Rescue Agent email template to a guardian."""
@@ -7384,11 +7906,12 @@ def send_student_rescue_email():
 
 
 @api.route("/proprietor/student-rescue-agent/outcome", methods=["POST"])
+@api.route("/headmaster/student-rescue-agent/outcome", methods=["POST"])
 @multi_tenant_guard
-@role_required("proprietor")
+@role_required("proprietor", "headmaster")
 @jwt_required()
 def log_student_rescue_outcome():
-    """Log a proprietor action taken on a rescue case."""
+    """Log a leadership action taken on a rescue case."""
     payload = request.get_json(silent=True) or {}
     student_id = payload.get("student_id")
     action_code = sanitize_string(payload.get("action_code"))
@@ -8011,6 +8534,427 @@ def get_staff_notifications():
 
 
 # --- 4. ADMISSIONS & EXAMS ---
+
+
+@api.route("/public/schools/<school_id>/admissions/apply", methods=["POST"])
+def submit_parent_admission_application(school_id):
+    """Public parent-facing admissions intake for the AI Registrar MVP."""
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+
+    payload = request.get_json(silent=True) or {}
+    if request.form:
+        payload = request.form.to_dict(flat=True)
+
+    first_name = sanitize_string(payload.get("first_name") or "")
+    surname = sanitize_string(payload.get("surname") or "")
+    preferred_class = sanitize_string(payload.get("preferred_class") or payload.get("class_assigned") or "")
+    guardian_name = sanitize_string(payload.get("guardian_name") or payload.get("parent_name") or "")
+    parent_email = sanitize_string(payload.get("parent_email") or "")
+    parent_phone = sanitize_string(payload.get("parent_phone") or "")
+
+    if not first_name or not surname:
+        return jsonify({"message": "first_name and surname are required"}), 400
+    if preferred_class not in VALID_GRADES:
+        return jsonify({"message": f"preferred_class must be one of: {', '.join(VALID_GRADES)}"}), 400
+    if not guardian_name:
+        return jsonify({"message": "guardian_name is required"}), 400
+    if not parent_email and not parent_phone:
+        return jsonify({"message": "Provide at least parent_email or parent_phone"}), 400
+
+    date_of_birth = None
+    raw_dob = sanitize_string(payload.get("date_of_birth") or "")
+    if raw_dob:
+        try:
+            date_of_birth = date.fromisoformat(raw_dob)
+        except ValueError:
+            return jsonify({"message": "Invalid date_of_birth format. Use YYYY-MM-DD."}), 400
+
+    document_manifest = []
+    for uploaded in request.files.getlist("documents"):
+        if not uploaded or not uploaded.filename:
+            continue
+        file_bytes = uploaded.read()
+        document_manifest.append(
+            _extract_parent_admission_document_details(
+                uploaded.filename,
+                uploaded.mimetype,
+                file_bytes,
+            )
+        )
+
+    assessment = _build_ai_registrar_assessment(payload, document_manifest)
+    application = ParentAdmissionApplication(
+        school_id=school_id,
+        application_code=_generate_parent_admission_code(school_id),
+        status_token=secrets.token_urlsafe(24),
+        first_name=first_name,
+        surname=surname,
+        gender=sanitize_string(payload.get("gender") or "") or None,
+        date_of_birth=date_of_birth,
+        preferred_class=preferred_class,
+        guardian_name=guardian_name,
+        parent_email=parent_email or None,
+        parent_phone=parent_phone or None,
+        prior_school=sanitize_string(payload.get("prior_school") or "") or None,
+        desired_test_mode=sanitize_string(payload.get("desired_test_mode") or "either") or "either",
+        internet_quality=sanitize_string(payload.get("internet_quality") or "unknown") or "unknown",
+        parent_notes=sanitize_string(payload.get("parent_notes") or "") or None,
+        document_manifest=document_manifest,
+        ai_summary=assessment["summary"],
+        ai_recommendation=assessment["recommendation"],
+        ai_readiness_score=assessment["readiness_score"],
+        ai_flags=assessment["flags"],
+        ai_missing_items=assessment["missing_items"],
+        status=assessment["status"],
+    )
+    db.session.add(application)
+    db.session.commit()
+
+    status_path = _build_parent_status_path(school_id, application.status_token)
+    status_url = _build_parent_public_url(status_path)
+    email_sent = _send_parent_admission_update(
+        application,
+        school,
+        next_step="Keep this token safe and use the tracking link to monitor review updates from the school.",
+    )
+
+    return jsonify({
+        "message": "Admission application submitted.",
+        "application": application.to_public_dict(),
+        "school": _get_public_school_profile_payload(school, settings),
+        "status_token": application.status_token,
+        "status_path": status_path,
+        "status_url": status_url,
+        "notification": {
+            "email_sent": email_sent,
+            "sms_preview": _build_parent_notification_sms(
+                application.guardian_name,
+                school.name,
+                application.application_code,
+                application.status_token,
+                status_url,
+            ) if application.parent_phone else None,
+        },
+    }), 201
+
+
+@api.route("/public/schools/<school_id>/profile", methods=["GET"])
+def get_public_school_profile(school_id):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    return jsonify(_get_public_school_profile_payload(school, settings))
+
+
+@api.route("/public/schools/<school_id>/admissions/status/<status_token>", methods=["GET"])
+def get_parent_admission_status(school_id, status_token):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    application = ParentAdmissionApplication.query.filter_by(
+        school_id=school_id,
+        status_token=status_token,
+    ).first()
+    if not application:
+        return jsonify({"message": "Application not found"}), 404
+
+    payload = application.to_public_dict()
+    payload["school"] = _get_public_school_profile_payload(school, settings)
+    payload["status_path"] = _build_parent_status_path(school_id, application.status_token)
+    if application.admitted_student_id:
+        student = Student.query.filter_by(id=application.admitted_student_id, school_id=school_id).first()
+        if student:
+            payload["payment_path"] = _build_parent_payment_path(school_id, student.student_code)
+            payload["payment_url"] = _build_parent_public_url(payload["payment_path"])
+            payload["student_code"] = student.student_code
+
+    pdf_policy = _get_parent_admission_pdf_policy(settings)
+    if application.status == "Approved" and _can_expose_parent_decision_pdf(settings):
+        decision_path = _build_parent_decision_pdf_path(school_id, application.status_token)
+        payload["decision_document"] = {
+            "available": True,
+            "download_path": decision_path,
+            "download_url": _build_parent_public_url(decision_path),
+            "delivery_mode": pdf_policy["delivery_mode"],
+        }
+    return jsonify(payload)
+
+
+@api.route("/public/schools/<school_id>/admissions/status/<status_token>/decision-pdf", methods=["GET"])
+def download_parent_admission_decision_pdf(school_id, status_token):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    pdf_policy = _get_parent_admission_pdf_policy(settings)
+    if not pdf_policy["enabled"]:
+        return jsonify({"message": "Admission decision PDF is not enabled for this school."}), 404
+    if not _has_ai_employee_addon(settings, "ai_registrar_addon"):
+        return jsonify({"message": "Admission decision PDF requires the AI Registrar add-on."}), 403
+
+    application = ParentAdmissionApplication.query.filter_by(
+        school_id=school_id,
+        status_token=status_token,
+    ).first()
+    if not application:
+        return jsonify({"message": "Application not found"}), 404
+    if application.status != "Approved":
+        return jsonify({"message": "Admission decision PDF is only available for approved applications."}), 409
+
+    payment_url = None
+    if application.admitted_student_id:
+        student = Student.query.filter_by(id=application.admitted_student_id, school_id=school_id).first()
+        if student:
+            payment_url = _build_parent_public_url(_build_parent_payment_path(school_id, student.student_code))
+
+    pdf_bytes = _build_parent_admission_decision_pdf_bytes(application, school, settings, payment_url=payment_url)
+    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{application.first_name}_{application.surname}".strip("_")) or application.application_code
+    filename = f"{safe_name}_admission_decision.pdf"
+    response = make_response(pdf_bytes)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    return response
+
+
+@api.route("/public/schools/<school_id>/admissions/status/<status_token>/resubmit", methods=["POST"])
+def resubmit_parent_admission_application(school_id, status_token):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    application = ParentAdmissionApplication.query.filter_by(
+        school_id=school_id,
+        status_token=status_token,
+    ).first()
+    if not application:
+        return jsonify({"message": "Application not found"}), 404
+    if application.status in {"Approved", "Rejected"}:
+        return jsonify({"message": "This application can no longer be updated."}), 409
+
+    payload = request.get_json(silent=True) or {}
+    if request.form:
+        payload = request.form.to_dict(flat=True)
+
+    merged_payload = {
+        "guardian_name": sanitize_string(payload.get("guardian_name") or application.guardian_name or ""),
+        "parent_email": sanitize_string(payload.get("parent_email") or application.parent_email or ""),
+        "parent_phone": sanitize_string(payload.get("parent_phone") or application.parent_phone or ""),
+        "preferred_class": sanitize_string(payload.get("preferred_class") or application.preferred_class or ""),
+        "desired_test_mode": sanitize_string(payload.get("desired_test_mode") or application.desired_test_mode or "either"),
+        "internet_quality": sanitize_string(payload.get("internet_quality") or application.internet_quality or "unknown"),
+    }
+
+    if not merged_payload["guardian_name"]:
+        return jsonify({"message": "guardian_name is required"}), 400
+    if not merged_payload["parent_email"] and not merged_payload["parent_phone"]:
+        return jsonify({"message": "Provide at least parent_email or parent_phone"}), 400
+    if merged_payload["preferred_class"] not in VALID_GRADES:
+        return jsonify({"message": f"preferred_class must be one of: {', '.join(VALID_GRADES)}"}), 400
+
+    application.guardian_name = merged_payload["guardian_name"]
+    application.parent_email = merged_payload["parent_email"] or None
+    application.parent_phone = merged_payload["parent_phone"] or None
+    application.preferred_class = merged_payload["preferred_class"]
+    application.desired_test_mode = merged_payload["desired_test_mode"] or "either"
+    application.internet_quality = merged_payload["internet_quality"] or "unknown"
+    application.prior_school = sanitize_string(payload.get("prior_school") or application.prior_school or "") or None
+
+    new_notes = sanitize_string(payload.get("parent_notes") or "")
+    if new_notes:
+        existing_notes = (application.parent_notes or "").strip()
+        application.parent_notes = f"{existing_notes}\n\nCorrection update: {new_notes}".strip()
+
+    document_manifest = list(application.document_manifest or [])
+    for uploaded in request.files.getlist("documents"):
+        if not uploaded or not uploaded.filename:
+            continue
+        file_bytes = uploaded.read()
+        entry = _extract_parent_admission_document_details(uploaded.filename, uploaded.mimetype, file_bytes)
+        entry["submitted_in_correction"] = True
+        document_manifest.append(entry)
+
+    application.document_manifest = document_manifest
+    assessment = _build_ai_registrar_assessment(
+        {
+            "guardian_name": application.guardian_name,
+            "parent_email": application.parent_email,
+            "parent_phone": application.parent_phone,
+            "preferred_class": application.preferred_class,
+            "desired_test_mode": application.desired_test_mode,
+            "internet_quality": application.internet_quality,
+        },
+        document_manifest,
+    )
+    application.ai_summary = assessment["summary"]
+    application.ai_recommendation = assessment["recommendation"]
+    application.ai_readiness_score = assessment["readiness_score"]
+    application.ai_flags = assessment["flags"]
+    application.ai_missing_items = assessment["missing_items"]
+    application.status = assessment["status"]
+    db.session.commit()
+
+    _send_parent_admission_update(
+        application,
+        school,
+        next_step="Your correction update has been received. Use the same tracking link to monitor the next school review decision.",
+    )
+
+    return jsonify(
+        {
+            "message": "Application updated successfully.",
+            "application": application.to_public_dict(),
+            "status_path": _build_parent_status_path(school_id, application.status_token),
+        }
+    )
+
+
+@api.route("/admissions/applications", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def list_parent_admission_applications():
+    status_filter = sanitize_string(request.args.get("status") or "")
+    query = ParentAdmissionApplication.query.filter_by(school_id=g.school_id)
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    applications = query.order_by(ParentAdmissionApplication.submitted_at.desc()).all()
+    summary = {}
+    for item in applications:
+        summary[item.status] = summary.get(item.status, 0) + 1
+
+    return jsonify({
+        "applications": [
+            {
+                **item.to_staff_dict(),
+                **({"decision_document": _build_staff_parent_decision_document_payload(item, settings, g.school_id)} if _build_staff_parent_decision_document_payload(item, settings, g.school_id) else {}),
+            }
+            for item in applications
+        ],
+        "summary": summary,
+    })
+
+
+@api.route("/admissions/applications/<int:application_id>/review", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def review_parent_admission_application(application_id):
+    application = ParentAdmissionApplication.query.filter_by(
+        id=application_id,
+        school_id=g.school_id,
+    ).first()
+    if not application:
+        return jsonify({"message": "Application not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    action = sanitize_string(payload.get("action") or "").lower()
+    reviewer_notes = sanitize_string(payload.get("notes") or "")
+    reviewer_id = int(get_jwt_identity())
+
+    action_map = {
+        "approve": "Approved",
+        "reject": "Rejected",
+        "request_correction": "NeedsCorrection",
+        "invite_test": "TestReady",
+        "schedule_visit": "VisitRequired",
+    }
+    if action not in action_map:
+        return jsonify({"message": "Invalid review action"}), 400
+
+    application.reviewer_notes = reviewer_notes or None
+    application.reviewed_by_user_id = reviewer_id
+    application.reviewed_at = get_utc_now()
+    application.status = action_map[action]
+
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+
+    response_payload = {
+        "message": f"Application marked as {application.status}.",
+        "application": application.to_staff_dict(),
+    }
+
+    if action == "approve":
+        if application.admitted_student_id:
+            return jsonify({"message": "Application has already been approved and converted to a student."}), 409
+        class_assigned = sanitize_string(payload.get("class_assigned") or application.preferred_class)
+        admission_payload = {
+            "first_name": application.first_name,
+            "surname": application.surname,
+            "gender": application.gender,
+            "date_of_birth": application.date_of_birth.isoformat() if application.date_of_birth else None,
+            "class_assigned": class_assigned,
+            "guardian_name": application.guardian_name,
+            "parent_name": application.guardian_name,
+            "parent_email": application.parent_email,
+            "parent_phone": application.parent_phone,
+            "score": application.ai_readiness_score,
+            "scholarship_type": "none",
+        }
+        try:
+            student, _school, _scholarship_type, warning, proration_result = _admit_student_from_payload(
+                g.school_id,
+                admission_payload,
+                reviewer_id,
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify({"message": str(exc)}), 400 if "Invalid" in str(exc) or "Missing" in str(exc) else 403
+
+        application.admitted_student_id = student.id
+        application.status = "Approved"
+        db.session.commit()
+        response_payload.update({
+            "message": f"Application approved and {student.name} admitted.",
+            "student_id": student.id,
+            "student_code": student.student_code,
+            "warning": warning,
+            "billing_notice": proration_result if proration_result.get("prorated_charge") else None,
+            "application": application.to_staff_dict(),
+        })
+        decision_document = _build_staff_parent_decision_document_payload(application, settings, g.school_id)
+        if decision_document:
+            response_payload["application"]["decision_document"] = decision_document
+        _send_parent_admission_update(
+            application,
+            School.query.get(g.school_id),
+            next_step="The learner has been approved. Open the payment link to view any required school charges, including admission fee if your school applies one.",
+            payment_url=_build_parent_public_url(_build_parent_payment_path(g.school_id, student.student_code)),
+        )
+    else:
+        db.session.commit()
+        next_step_map = {
+            "NeedsCorrection": "The school needs more information or documents. Re-open your status page and submit the requested corrections.",
+            "TestReady": "The school recommends the remote admission-test path. Watch the status page for next-step instructions.",
+            "VisitRequired": "The school recommends an in-person visit or test. Watch the status page for follow-up details.",
+            "Rejected": "The school has closed this admission request. Review the notes on your status page for context.",
+        }
+        _send_parent_admission_update(
+            application,
+            School.query.get(g.school_id),
+            next_step=next_step_map.get(application.status, "Your application has been updated. Check the status page for details."),
+        )
+
+    log_action(
+        reviewer_id,
+        g.school_id,
+        "PARENT_ADMISSION_REVIEWED",
+        json.dumps({
+            "application_id": application.id,
+            "application_code": application.application_code,
+            "action": action,
+            "status": application.status,
+        }),
+    )
+
+    return jsonify(response_payload)
 
 
 @api.route("/admissions/generate-test", methods=["POST"])
@@ -11398,6 +12342,8 @@ def get_school_branding():
             "uniform_fee": 0.0,
             "transport_fee": 0.0,
             "terminal_report_fee": 0.0,
+            "admission_fee_enabled": False,
+            "admission_fee_amount": 0.0,
             "other_fees": {},
         }
 
@@ -11408,6 +12354,8 @@ def get_school_branding():
                 "uniform_fee": settings.uniform_fee or 0.0,
                 "transport_fee": settings.transport_fee or 0.0,
                 "terminal_report_fee": settings.terminal_report_fee or 0.0,
+                "admission_fee_enabled": bool(settings.admission_fee_enabled),
+                "admission_fee_amount": settings.admission_fee_amount or 0.0,
                 "other_fees": settings.other_fees or {},
             }
 
@@ -12478,6 +13426,7 @@ def get_school_settings():
     )
 
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    enabled_modules = _get_enabled_modules(settings)
 
     masked_bank_fields = _masked_bank_fields_for_school(school)
 
@@ -12499,6 +13448,13 @@ def get_school_settings():
             "country_code": settings.country_code if settings and settings.country_code else "GH",
             "anniversary_date": settings.anniversary_date.isoformat() if settings and settings.anniversary_date else None,
             "next_term_reopen_date": _get_report_global_settings(settings).get("next_term_reopen_date") if settings else None,
+            "ai_registrar_addon_enabled": bool(enabled_modules.get("ai_registrar_addon", False)),
+            "ai_bursar_addon_enabled": bool(enabled_modules.get("ai_bursar_addon", False)),
+            "approval_pdf_enabled": bool(settings.approval_pdf_enabled) if settings else False,
+            "approval_pdf_delivery_mode": settings.approval_pdf_delivery_mode if settings and settings.approval_pdf_delivery_mode else "email_link",
+            "approval_pdf_include_payment_summary": bool(settings.approval_pdf_include_payment_summary) if settings else True,
+            "approval_pdf_include_required_items": bool(settings.approval_pdf_include_required_items) if settings else True,
+            "approval_pdf_required_items": settings.approval_pdf_required_items if settings and settings.approval_pdf_required_items else "",
         }
     ), 200
 
@@ -12604,6 +13560,26 @@ def update_school_settings():
     if "whatsapp_notifications_enabled" in data:
         settings.whatsapp_notifications_enabled = bool(data.get("whatsapp_notifications_enabled", True))
         changed_fields.append("whatsapp_notifications_enabled")
+    if "approval_pdf_enabled" in data:
+        if bool(data.get("approval_pdf_enabled")) and not _has_ai_employee_addon(settings, "ai_registrar_addon"):
+            return jsonify({"message": "Approval PDFs require the AI Registrar add-on."}), 403
+        settings.approval_pdf_enabled = bool(data.get("approval_pdf_enabled"))
+        changed_fields.append("approval_pdf_enabled")
+    if "approval_pdf_delivery_mode" in data:
+        delivery_mode = (data.get("approval_pdf_delivery_mode") or "email_link").strip()
+        if delivery_mode not in {"status_page_only", "email_link", "email_attachment"}:
+            return jsonify({"message": "Invalid approval_pdf_delivery_mode."}), 400
+        settings.approval_pdf_delivery_mode = delivery_mode
+        changed_fields.append("approval_pdf_delivery_mode")
+    if "approval_pdf_include_payment_summary" in data:
+        settings.approval_pdf_include_payment_summary = bool(data.get("approval_pdf_include_payment_summary"))
+        changed_fields.append("approval_pdf_include_payment_summary")
+    if "approval_pdf_include_required_items" in data:
+        settings.approval_pdf_include_required_items = bool(data.get("approval_pdf_include_required_items"))
+        changed_fields.append("approval_pdf_include_required_items")
+    if "approval_pdf_required_items" in data:
+        settings.approval_pdf_required_items = sanitize_string(data.get("approval_pdf_required_items") or "") or None
+        changed_fields.append("approval_pdf_required_items")
 
     log_action(
         actor_id,
@@ -12665,6 +13641,12 @@ def update_school_fees():
         settings.terminal_report_fee = (
             float(data["terminal_report_fee"]) if data["terminal_report_fee"] else 0.0
         )
+    if "admission_fee_enabled" in data:
+        settings.admission_fee_enabled = bool(data.get("admission_fee_enabled"))
+    if "admission_fee_amount" in data:
+        settings.admission_fee_amount = (
+            float(data["admission_fee_amount"]) if data["admission_fee_amount"] else 0.0
+        )
     if "other_fees" in data:
         settings.other_fees = (
             data["other_fees"] if isinstance(data["other_fees"], dict) else {}
@@ -12696,6 +13678,8 @@ def get_school_fees():
                 "uniform_fee": 0.0,
                 "transport_fee": 0.0,
                 "terminal_report_fee": 0.0,
+                "admission_fee_enabled": False,
+                "admission_fee_amount": 0.0,
                 "other_fees": {},
             }
         )
@@ -12707,6 +13691,8 @@ def get_school_fees():
             "uniform_fee": 0.0,
             "transport_fee": settings.transport_fee or 0.0,
             "terminal_report_fee": settings.terminal_report_fee or 0.0,
+            "admission_fee_enabled": bool(settings.admission_fee_enabled),
+            "admission_fee_amount": settings.admission_fee_amount or 0.0,
             "other_fees": settings.other_fees or {},
         }
     )

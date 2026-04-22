@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router-dom';
 import TimetableManager from '../components/TimetableManager';
 import PerformanceAnalytics from '../components/PerformanceAnalytics';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
@@ -7,6 +8,7 @@ import TeacherAlerts from '../components/TeacherAlerts';
 import PromotionHistoryModal from '../components/PromotionHistoryModal';
 import ExamInboxPanel from '../components/ExamInboxPanel';
 import StudentsRegistry from './StudentsRegistry';
+import RescueActivityCenter from './RescueActivityCenter';
 
 const CLASS_OPTIONS = [
   'Nursery',
@@ -23,6 +25,8 @@ const CLASS_OPTIONS = [
 ];
 
 export default function HeadmasterDashboard() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'dashboard';
   const [notes, setNotes] = useState([]);
   const [selectedNote, setSelectedNote] = useState(null);
   const [reviewComment, setReviewComment] = useState("");
@@ -32,8 +36,17 @@ export default function HeadmasterDashboard() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [selectedStudentForPromotion, setSelectedStudentForPromotion] = useState(null);
-  const [activeTab, setActiveTab] = useState('dashboard');
   const [pendingExamCount, setPendingExamCount] = useState(0);
+
+  const handleTabChange = (tab) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (tab === 'dashboard') {
+      nextParams.delete('tab');
+    } else {
+      nextParams.set('tab', tab);
+    }
+    setSearchParams(nextParams);
+  };
 
   const getAuthHeaders = () => ({
     headers: {
@@ -171,7 +184,7 @@ export default function HeadmasterDashboard() {
       {/* Tab Navigation */}
       <div className="flex gap-3 mb-8 border-b border-slate-300">
         <button
-          onClick={() => setActiveTab('dashboard')}
+          onClick={() => handleTabChange('dashboard')}
           className={`px-6 py-3 font-bold rounded-t-lg transition-colors ${
             activeTab === 'dashboard'
               ? 'bg-blue-600 text-white'
@@ -181,7 +194,7 @@ export default function HeadmasterDashboard() {
           📊 Dashboard
         </button>
         <button
-          onClick={() => setActiveTab('students')}
+          onClick={() => handleTabChange('students')}
           className={`px-6 py-3 font-bold rounded-t-lg transition-colors ${
             activeTab === 'students'
               ? 'bg-blue-600 text-white'
@@ -190,11 +203,23 @@ export default function HeadmasterDashboard() {
         >
           👥 Manage Students
         </button>
+        <button
+          onClick={() => handleTabChange('rescue-activity')}
+          className={`px-6 py-3 font-bold rounded-t-lg transition-colors ${
+            activeTab === 'rescue-activity'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-slate-700 hover:bg-slate-100'
+          }`}
+        >
+          🚨 Rescue Activity
+        </button>
       </div>
 
       {/* Content Based on Active Tab */}
       {activeTab === 'students' ? (
         <StudentsRegistry />
+      ) : activeTab === 'rescue-activity' ? (
+        <RescueActivityCenter endpointBase="/api/headmaster/student-rescue-agent" />
       ) : (
         <>
           {/* Default Dashboard Content */}

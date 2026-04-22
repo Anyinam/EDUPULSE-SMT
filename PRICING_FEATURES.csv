@@ -31,6 +31,10 @@ AI Question Generation for Admissions,AI Features,✗,✗,✓
 Subject-Based Question Pools,AI Features,✗,✗,✓
 Difficulty Level Customization,AI Features,✗,✗,✓
 Candidate Screening Automation,AI Features,✗,✗,✓
+Student Rescue Agent,AI Packaging,✗,✗,Premium bundled
+AI Registrar Add-on,AI Packaging,✗,Optional add-on (GH₵180-300/term),Optional add-on (GH₵120-240/term)
+AI Bursar Add-on,AI Packaging,✗,Optional add-on (GH₵240-420/term),Optional add-on (GH₵180-360/term)
+Communications Automation Add-on,AI Packaging,✗,Optional add-on + usage credits,Optional add-on + usage credits
 ,,,,
 MoMo Webhook Automation,Payment Automation,✗,✗,✓
 Bank Transfer Webhook Automation,Payment Automation,✗,✗,✓

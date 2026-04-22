@@ -289,13 +289,21 @@ export default function SettingsPanel() {
     bank_branch: '',
     country_code: 'GH',
     anniversary_date: '',
-    next_term_reopen_date: ''
+    next_term_reopen_date: '',
+    ai_registrar_addon_enabled: false,
+    approval_pdf_enabled: false,
+    approval_pdf_delivery_mode: 'email_link',
+    approval_pdf_include_payment_summary: true,
+    approval_pdf_include_required_items: true,
+    approval_pdf_required_items: ''
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
     feeding_fee: 0,
     transport_fee: 0,
     terminal_report_fee: 0,
+    admission_fee_enabled: false,
+    admission_fee_amount: 0,
     other_fees: {}
   });
   const [otherFeeInput, setOtherFeeInput] = useState('');
@@ -436,6 +444,12 @@ export default function SettingsPanel() {
           country_code: data.country_code || prev.country_code,
           anniversary_date: data.anniversary_date || prev.anniversary_date,
           next_term_reopen_date: data.next_term_reopen_date || '',
+          ai_registrar_addon_enabled: Boolean(data.ai_registrar_addon_enabled),
+          approval_pdf_enabled: Boolean(data.approval_pdf_enabled),
+          approval_pdf_delivery_mode: data.approval_pdf_delivery_mode || 'email_link',
+          approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
+          approval_pdf_include_required_items: data.approval_pdf_include_required_items !== false,
+          approval_pdf_required_items: data.approval_pdf_required_items || '',
         }));
         setMaskedBankSnapshot({
           bank_name: data.bank_name || '',
@@ -477,6 +491,8 @@ export default function SettingsPanel() {
           feeding_fee: res.data.feeding_fee || 0,
           transport_fee: res.data.transport_fee || 0,
           terminal_report_fee: res.data.terminal_report_fee || 0,
+          admission_fee_enabled: Boolean(res.data.admission_fee_enabled),
+          admission_fee_amount: res.data.admission_fee_amount || 0,
           other_fees: res.data.other_fees || {}
         });
       } catch (err) {
@@ -1253,7 +1269,12 @@ export default function SettingsPanel() {
         school_website: settings.school_website,
         country_code: settings.country_code,
         anniversary_date: settings.anniversary_date,
-        next_term_reopen_date: settings.next_term_reopen_date
+        next_term_reopen_date: settings.next_term_reopen_date,
+        approval_pdf_enabled: settings.ai_registrar_addon_enabled ? settings.approval_pdf_enabled : false,
+        approval_pdf_delivery_mode: settings.approval_pdf_delivery_mode,
+        approval_pdf_include_payment_summary: settings.ai_registrar_addon_enabled ? settings.approval_pdf_include_payment_summary : false,
+        approval_pdf_include_required_items: settings.ai_registrar_addon_enabled ? settings.approval_pdf_include_required_items : false,
+        approval_pdf_required_items: settings.ai_registrar_addon_enabled ? settings.approval_pdf_required_items : ''
       };
 
       if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
@@ -1277,6 +1298,8 @@ export default function SettingsPanel() {
         feeding_fee: fees.feeding_fee,
         transport_fee: fees.transport_fee,
         terminal_report_fee: fees.terminal_report_fee,
+        admission_fee_enabled: fees.admission_fee_enabled,
+        admission_fee_amount: fees.admission_fee_amount,
         other_fees: fees.other_fees
       }, { headers });
       
@@ -1824,6 +1847,38 @@ export default function SettingsPanel() {
                 />
               </div>
             </div>
+
+            <div className="md:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Admission Fee</label>
+                  <p className="text-sm text-slate-600">Turn this on only if your school charges a separate admission fee for newly admitted learners.</p>
+                </div>
+                <label className="inline-flex items-center gap-3 text-sm font-bold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={fees.admission_fee_enabled}
+                    onChange={(e) => setFees((prev) => ({ ...prev, admission_fee_enabled: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Enable admission fee
+                </label>
+              </div>
+
+              <div className="mt-4 flex items-center gap-2 max-w-xs">
+                <span className="text-slate-600 font-semibold">GH₵</span>
+                <input
+                  type="number"
+                  value={fees.admission_fee_amount}
+                  onChange={(e) => setFees((prev) => ({ ...prev, admission_fee_amount: parseFloat(e.target.value) || 0 }))}
+                  className="flex-1 p-3 border rounded-lg bg-white"
+                  placeholder="0.00"
+                  step="0.01"
+                  min="0"
+                  disabled={!fees.admission_fee_enabled}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Other Fees Section */}
@@ -1916,12 +1971,118 @@ export default function SettingsPanel() {
                 <p className="text-slate-600">Transport</p>
                 <p className="text-lg font-bold text-slate-800">GH₵ {fees.transport_fee.toFixed(2)}</p>
               </div>
+              {fees.admission_fee_enabled ? (
+                <div>
+                  <p className="text-slate-600">Admission</p>
+                  <p className="text-lg font-bold text-slate-800">GH₵ {fees.admission_fee_amount.toFixed(2)}</p>
+                </div>
+              ) : null}
               {Object.entries(fees.other_fees).map(([name, amount]) => (
                 <div key={name}>
                   <p className="text-slate-600">{name}</p>
                   <p className="text-lg font-bold text-slate-800">GH₵ {amount.toFixed(2)}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t pt-6 mt-8">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">📄 Admission Decision PDF Policy</h3>
+          <p className="text-sm text-slate-600 mb-4">
+            Control whether approved applicants get an admission decision PDF. Rejected and correction-status applications do not generate PDFs by default.
+          </p>
+
+          {!settings.ai_registrar_addon_enabled && (
+            <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Approval PDFs require the AI Registrar add-on. The controls below stay locked until that add-on is enabled for this school.
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Enable Approval PDF</label>
+                <p className="text-sm text-slate-600">
+                  When enabled, approved applications can expose a downloadable admission decision PDF through the secure status-token flow.
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-3 text-sm font-bold text-slate-700 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={settings.approval_pdf_enabled}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_enabled: e.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300"
+                  disabled={!settings.ai_registrar_addon_enabled}
+                />
+                Enable PDF
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Delivery Mode</label>
+                <select
+                  name="approval_pdf_delivery_mode"
+                  value={settings.approval_pdf_delivery_mode}
+                  onChange={handleChange}
+                  className="w-full p-3 border rounded-lg bg-white"
+                  disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled}
+                >
+                  <option value="status_page_only">Status Page Only</option>
+                  <option value="email_link">Email Link + Status Page</option>
+                  <option value="email_attachment">Email Attachment Policy</option>
+                </select>
+                <p className="text-xs text-slate-500 mt-2">
+                  The backend currently exposes the secure link immediately. Email-link mode appends the download link to approval emails.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.approval_pdf_include_payment_summary}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_payment_summary: e.target.checked }))}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                    disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled}
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-700">Include Payment Guidance</span>
+                    <span className="block text-xs text-slate-500">Adds the payment link and school-configured admission fee summary when relevant.</span>
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.approval_pdf_include_required_items}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_required_items: e.target.checked }))}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                    disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled}
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-700">Include Required Items</span>
+                    <span className="block text-xs text-slate-500">Adds a school-defined list of items parents should bring after approval.</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Required Items Text</label>
+              <textarea
+                name="approval_pdf_required_items"
+                value={settings.approval_pdf_required_items}
+                onChange={handleChange}
+                rows={5}
+                className="w-full p-3 border rounded-lg bg-white"
+                disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled || !settings.approval_pdf_include_required_items}
+                placeholder={'Examples:\n- Bring two passport photographs\n- Bring prior report card\n- Report to the admissions office on reopening day'}
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                This is school-controlled content for approved applicants only. Rejection and correction PDFs remain disabled by default.
+              </p>
             </div>
           </div>
         </div>

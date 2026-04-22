@@ -107,6 +107,9 @@ class SchoolSettings(db.Model):
             "finance": True,
             "hr": True,
             "inventory": True,
+            "ai_registrar_addon": False,
+            "ai_bursar_addon": False,
+            "communications_automation_addon": False,
         },
     )
     # Report template selection per tenant
@@ -122,6 +125,13 @@ class SchoolSettings(db.Model):
     uniform_fee = db.Column(db.Float, default=0.0)  # Uniform cost per student
     transport_fee = db.Column(db.Float, default=0.0)  # Transport/transport allowance
     terminal_report_fee = db.Column(db.Float, default=0.0)  # Per-term report printing fee
+    admission_fee_enabled = db.Column(db.Boolean, default=False)
+    admission_fee_amount = db.Column(db.Float, default=0.0)
+    approval_pdf_enabled = db.Column(db.Boolean, default=False)
+    approval_pdf_delivery_mode = db.Column(db.String(30), default="email_link")
+    approval_pdf_include_payment_summary = db.Column(db.Boolean, default=True)
+    approval_pdf_include_required_items = db.Column(db.Boolean, default=True)
+    approval_pdf_required_items = db.Column(db.Text)
     other_fees = db.Column(
         db.JSON, default={}
     )  # Flexible: {"Sports": 50.0, "Library": 25.0, etc.}
@@ -421,6 +431,92 @@ class StudentNotification(db.Model):
     school = db.relationship("School", backref="notifications")
     recipient = db.relationship("User", backref="notifications_received", foreign_keys=[recipient_user_id])
     student = db.relationship("Student", backref="notifications")
+
+
+class ParentAdmissionApplication(db.Model):
+    __tablename__ = "parent_admission_applications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    school_id = db.Column(db.String(20), db.ForeignKey("schools.id"), nullable=False)
+    application_code = db.Column(db.String(40), unique=True, nullable=False)
+    status_token = db.Column(db.String(80), unique=True, nullable=False)
+
+    first_name = db.Column(db.String(50), nullable=False)
+    surname = db.Column(db.String(50), nullable=False)
+    gender = db.Column(db.String(10))
+    date_of_birth = db.Column(db.Date)
+    preferred_class = db.Column(db.String(20), nullable=False)
+
+    guardian_name = db.Column(EncryptedString)
+    parent_email = db.Column(EncryptedString)
+    parent_phone = db.Column(EncryptedString)
+    prior_school = db.Column(db.String(120))
+    desired_test_mode = db.Column(db.String(20), default="either")
+    internet_quality = db.Column(db.String(20), default="unknown")
+    parent_notes = db.Column(db.Text)
+
+    document_manifest = db.Column(db.JSON, default=list)
+    ai_summary = db.Column(db.Text)
+    ai_recommendation = db.Column(db.String(40), default="manual_review")
+    ai_readiness_score = db.Column(db.Integer, default=0)
+    ai_flags = db.Column(db.JSON, default=list)
+    ai_missing_items = db.Column(db.JSON, default=list)
+
+    status = db.Column(db.String(30), default="Submitted")
+    submitted_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    reviewed_at = db.Column(db.DateTime)
+    reviewed_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    reviewer_notes = db.Column(db.Text)
+    admitted_student_id = db.Column(db.Integer, db.ForeignKey("students.id"))
+
+    school = db.relationship(
+        "School",
+        backref=db.backref("parent_admission_applications", cascade="all, delete-orphan"),
+    )
+    reviewer = db.relationship("User", foreign_keys=[reviewed_by_user_id])
+    admitted_student = db.relationship("Student", foreign_keys=[admitted_student_id])
+
+    __table_args__ = (
+        db.Index("idx_parent_admission_school_status", "school_id", "status"),
+    )
+
+    def to_public_dict(self):
+        return {
+            "id": self.id,
+            "application_code": self.application_code,
+            "student_name": f"{self.first_name} {self.surname}".strip(),
+            "preferred_class": self.preferred_class,
+            "status": self.status,
+            "ai_summary": self.ai_summary,
+            "ai_recommendation": self.ai_recommendation,
+            "ai_readiness_score": self.ai_readiness_score,
+            "ai_missing_items": self.ai_missing_items or [],
+            "desired_test_mode": self.desired_test_mode,
+            "internet_quality": self.internet_quality,
+            "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+            "reviewer_notes": self.reviewer_notes,
+            "admitted_student_id": self.admitted_student_id,
+        }
+
+    def to_staff_dict(self):
+        payload = self.to_public_dict()
+        payload.update({
+            "status_token": self.status_token,
+            "first_name": self.first_name,
+            "surname": self.surname,
+            "gender": self.gender,
+            "date_of_birth": self.date_of_birth.isoformat() if self.date_of_birth else None,
+            "guardian_name": self.guardian_name,
+            "parent_email": self.parent_email,
+            "parent_phone": self.parent_phone,
+            "prior_school": self.prior_school,
+            "parent_notes": self.parent_notes,
+            "document_manifest": self.document_manifest or [],
+            "ai_flags": self.ai_flags or [],
+        })
+        return payload
 
 
 # ---------------------------------------------------------

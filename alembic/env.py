@@ -27,10 +27,22 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Override sqlalchemy.url if DATABASE_URL environment variable is set
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+def _resolve_database_url() -> str:
+    app_database_url = None
+    try:
+        app_database_url = app.config.get("SQLALCHEMY_DATABASE_URI")
+    except Exception:
+        app_database_url = None
+
+    if app_database_url:
+        return app_database_url
+
+    from backend.config import _build_database_url
+
+    return _build_database_url()
+
+
+config.set_main_option("sqlalchemy.url", _resolve_database_url().replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

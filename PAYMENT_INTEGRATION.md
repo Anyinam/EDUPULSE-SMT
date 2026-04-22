@@ -4,6 +4,10 @@
 
 Your revenue model is **SaaS subscription-based**. Schools (tenants) subscribe to different tiers (Free/Basic/Premium) and you receive automatic payments via **Paystack** (Ghana's leading payment gateway).
 
+Important scope note:
+- This document covers EduPulse's own school subscription billing.
+- Parent and guardian fee collection is a separate operational payment layer documented in `PAYSTACK_SUBACCOUNT_GUIDE.md`, `PAYMENT_REFERENCE_FORMAT.md`, and `B2B2C_AI_EMPLOYEE_ROADMAP.md`.
+
 ### Current Onboarding Payment Behavior
 - Free plan: registration completes immediately and user proceeds to login.
 - Basic/Premium: registration initializes payment immediately and redirects to checkout.

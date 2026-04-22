@@ -15,6 +15,32 @@ EduPulse SMT operates a **Freemium SaaS** model with three pricing tiers designe
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+EduPulse remains a school-led B2B platform first, but the next product evolution is a **B2B2C operating layer** where parents interact directly with school-controlled admissions and payment workflows.
+
+- The school remains the paying customer and policy owner.
+- Parents become transacting users inside the school's branded workflows.
+- AI Employees are meant to perform scoped operational labor, not replace school authority.
+
+### Current vs Planned Scope
+
+Current implementation:
+- school onboarding and subscription billing
+- school-managed admissions and bulk student onboarding
+- parent payment instructions with reference parsing and optional Paystack fee-route DVAs
+- Student Rescue Agent for intervention workflows
+
+Planned near-term expansion:
+- AI Registrar for admissions intake, document completeness checks, and routing
+- parent-facing admissions application and status tracking
+- online-test or school-visit decisioning based on connectivity and policy
+- AI Bursar for reconciliation support, payment stress flagging, and collections recommendations
+
+Future-only items:
+- fully autonomous admission approval without staff review
+- voice-first multilingual parent bots
+- pure outcome-based pricing for AI labor
+- predictive dropout automation and advanced autonomous escalation
+
 ---
 
 ## 1️⃣ CUSTOMER ACQUISITION FLOW
@@ -63,6 +89,12 @@ CHANNEL 4: Freemium Viral Loop
 ├─ "Try free for 50 students" word-of-mouth
 ├─ Parent networks
 └─ ROI: Low CAC, viral coefficient = 0.3-0.5
+
+CHANNEL 5: Parent Self-Service Pull (Planned B2B2C)
+├─ Schools share branded admissions links
+├─ Parents apply remotely without first visiting campus
+├─ AI Registrar reduces admissions friction and follow-up delays
+└─ ROI: Higher application conversion and lower admissions admin cost
 ```
 
 ### Customer Acquisition Cost (CAC) & LTV

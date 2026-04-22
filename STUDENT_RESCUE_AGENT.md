@@ -1,6 +1,6 @@
 # Student Rescue Agent
 
-Student Rescue Agent is EduPulse SMT's intervention engine for proprietor oversight. It turns scattered financial, attendance, and academic warning signs into one prioritized rescue queue with clear next actions.
+Student Rescue Agent is EduPulse SMT's intervention engine for proprietor and headmaster oversight. It turns scattered financial, attendance, and academic warning signs into one prioritized rescue queue with clear next actions.
 
 ## What It Solves
 
@@ -55,6 +55,7 @@ This design keeps the system explainable for school leadership and easy to refin
 ### Dedicated rescue endpoint
 
 - `GET /api/proprietor/student-rescue-agent`
+- `GET /api/headmaster/student-rescue-agent`
 
 Returns:
 
@@ -81,6 +82,7 @@ Each student entry includes:
 ### Contact template endpoint
 
 - `GET /api/proprietor/student-rescue-agent/contact-templates/<student_id>`
+- `GET /api/headmaster/student-rescue-agent/contact-templates/<student_id>`
 
 Returns call, SMS/WhatsApp, email, and meeting-brief drafts for the selected rescue case.
 
@@ -92,6 +94,7 @@ Note:
 ### Outcome logging endpoint
 
 - `POST /api/proprietor/student-rescue-agent/outcome`
+- `POST /api/headmaster/student-rescue-agent/outcome`
 
 Request body:
 
@@ -112,12 +115,14 @@ Outcomes are stored through the audit log so schools can review what action has 
 ### Rescue email send endpoint
 
 - `POST /api/proprietor/student-rescue-agent/send-email`
+- `POST /api/headmaster/student-rescue-agent/send-email`
 
 This sends the generated rescue email template directly to the stored parent email address and automatically logs an `email_sent` rescue outcome.
 
 ### Rescue report endpoint
 
 - `GET /api/proprietor/student-rescue-agent/report`
+- `GET /api/headmaster/student-rescue-agent/report`
 
 Supports reporting on current rescue work, including:
 
@@ -144,7 +149,7 @@ The existing `critical_list` remains available for compatibility, but it is now 
 
 ## Frontend Surface
 
-The proprietor dashboard now includes a dedicated Student Rescue Agent card that shows:
+The proprietor and headmaster experiences now include Student Rescue Agent access that shows:
 
 - total flagged students
 - critical cases
@@ -160,7 +165,7 @@ The proprietor dashboard now includes a dedicated Student Rescue Agent card that
 - dashboard filters for open, in-progress, resolved, and risk bands
 - rescue reporting cards for weekly action volume and closure state
 
-In addition, proprietors now have a dedicated Rescue Activity Center page from the left navigation. This page gives rescue work a permanent home outside the main dashboard.
+In addition, proprietors and headmasters now have a dedicated Rescue Activity Center entry from the left navigation. This page gives rescue work a permanent home outside the main dashboard.
 
 Free-tier schools see a limited preview while Premium schools can view the full rescue queue.
 
@@ -184,7 +189,7 @@ That creates a stronger sales narrative than broad AI messaging because it conne
 
 Use this short flow in product demos:
 
-1. Open the Proprietor Dashboard and show the Student Rescue Agent summary cards.
+1. Open the Proprietor or Headmaster Dashboard and show the Student Rescue Agent summary cards.
 2. Open one flagged student and point out the exact reasons behind the score.
 3. Show the recommended actions and the ready-made guardian contact templates.
 4. Log an outcome such as `Guardian Called` or `Payment Plan Agreed`.

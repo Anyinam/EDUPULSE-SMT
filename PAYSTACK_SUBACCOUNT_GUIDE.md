@@ -1,19 +1,24 @@
-# Paystack Subaccount Integration Guide
+# Paystack Fee-Route DVA Guide
 
 ## Overview
-EduPulse supports Paystack virtual subaccounts for payment-type tracking.
+EduPulse currently supports Paystack dedicated virtual accounts as fee-route accounts for payment-type tracking.
 
 - School registers one real bank account with Paystack.
-- System creates one virtual route per fee type (Tuition, Feeding, Uniform, Transport, Other).
+- Current implementation can create one virtual route per fee type (Tuition, Feeding, Uniform, Transport, Other).
 - Parents pay using that virtual route.
 - Paystack identifies the payment type automatically.
 - Funds settle to the school’s single real bank account.
 
+Important product note:
+- This is the current implementation, not the mandatory long-term architecture for every school.
+- The recommended medium-term direction is a stable student or family payment identity with structured references across web, bank app, USSD, and manual fallback rails.
+- Shortcode and low-data payment paths should remain supported because they fit the Ghanaian market.
+
 ## Architecture
 
-### How It Works
+### How It Works Today
 1. School saves one settlement bank account in EduPulse.
-2. Proprietor creates virtual subaccounts by payment type.
+2. Proprietor creates fee-route DVAs by payment type.
 3. Paystack returns virtual account details / shortcode per type.
 4. Parent pays through the matching route.
 5. Webhook confirms payment and updates student balance.
@@ -39,11 +44,33 @@ Paystack settles to school's one real bank account
 - Registered once
 - Receives all settlements
 
-**Virtual Payment Routes (Many):**
+**Virtual Payment Routes (Current Optional Pattern):**
 - Tuition route
 - Feeding route
 - Uniform route
 - Transport route
+
+## Recommended Direction
+
+Near-term recommended model:
+- one stable student or family payment identity
+- structured references for fee categorization
+- one reconciliation engine across bank app, shortcode / USSD, and manual fallback
+- optional continued use of fee-route DVAs only where the school has a clear operational reason
+
+Why:
+- fewer payment rails for parents to memorize
+- less account sprawl per school
+- better fit for mixed online and offline parent behavior
+- still compatible with current reference parsing already used elsewhere in EduPulse
+
+## What Should Stay Future-Only
+
+Do not treat these as immediate implementation requirements:
+- one DVA per student plus one DVA per fee type on top of that
+- autonomous collections bots contacting parents without school approval
+- removing shortcode or manual fallback payment paths
+- pricing purely on recovered fees before baseline data exists
 
 ## Setup Instructions
 
@@ -58,7 +85,7 @@ This is the only account that receives settlement.
 ### 2) Fetch Bank Codes
 Endpoint: `GET /api/proprietor/paystack/banks`
 
-### 3) Create Virtual Subaccount per Fee Type
+### 3) Create Fee-Route DVA per Payment Type
 Endpoint: `POST /api/proprietor/paystack/subaccounts/create`
 
 Request:
@@ -77,7 +104,7 @@ Notes:
 Sample response:
 ```json
 {
-  "message": "Virtual subaccount created for Tuition. Parents can pay to this virtual account.",
+  "message": "Dedicated virtual account created for Tuition. Parents can pay to this virtual account.",
   "subaccount": {
     "payment_type": "Tuition",
     "subaccount_code": "ACCT_xyz123abc",
@@ -97,13 +124,14 @@ Sample response:
 Endpoint: `GET /api/proprietor/paystack/subaccounts`
 
 ### 5) Share Parent Instructions
-For each fee type, share:
+For each active fee route, share:
 - Virtual bank account (if available)
 - MoMo shortcode (if available)
 - Amount
 - Backup reference code
 
 Parents should use the route that matches the intended fee type.
+If the school later standardizes on one payment identity, reference codes remain the safer long-term categorization layer.
 
 ### 6) Optional Payment Link Flow
 Endpoint: `POST /api/finance/paystack/initialize-payment`
@@ -127,6 +155,18 @@ Implemented behavior:
 - Settlement destination is still the one real school bank account.
 - Timing depends on Paystack settlement schedule.
 
+## Architecture Decision Summary
+
+Use the current fee-route DVA pattern when:
+- the school wants clear fee-type separation now
+- the operations team can manage multiple payment routes
+- Paystack economics and bank support are acceptable
+
+Prefer a unified payment identity model over time when:
+- parent usability matters more than fee-type route separation
+- schools need simpler instructions for mixed-literacy households
+- USSD, bank app, and manual flows must all converge cleanly
+
 ## Troubleshooting
 
 ### "School bank account not configured"
@@ -143,5 +183,5 @@ Check webhook URL, secret key, and backend logs.
 
 ---
 
-**Last Updated:** March 2, 2026  
-**Version:** 1.1 (Virtual Subaccount Flow)
+**Last Updated:** April 21, 2026  
+**Version:** 1.2 (Current Fee-Route DVA + Future Direction)

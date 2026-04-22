@@ -319,3 +319,31 @@ def get_term_billing_notification_email(school_name, proprietor_name, term_name,
         'student_overage_cost': student_overage_cost,
     }
     return render_email_template('term_billing_notification', variables)
+
+
+def get_parent_admission_status_email(
+    guardian_name,
+    school_name,
+    student_name,
+    application_code,
+    status_token,
+    status,
+    summary,
+    status_url,
+    next_step,
+    payment_url=None,
+):
+    """Generate parent admission status notification email."""
+    variables = {
+        'guardian_name': guardian_name,
+        'school_name': school_name,
+        'student_name': student_name,
+        'application_code': application_code,
+        'status_token': status_token,
+        'status': status,
+        'summary': summary,
+        'status_url': status_url,
+        'next_step': next_step,
+        'payment_url': payment_url or '',
+    }
+    return render_email_template('parent_admission_status_email', variables)

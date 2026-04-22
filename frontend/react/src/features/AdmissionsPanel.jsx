@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
 
 export default function AdmissionsPanel() {
+  const enabledModules = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('enabled_modules') || '{}');
+    } catch (err) {
+      return {};
+    }
+  })();
+  const aiRegistrarAddonEnabled = Boolean(enabledModules.ai_registrar_addon);
   const [formData, setFormData] = useState({
     first_name: '',
     surname: '',
@@ -18,6 +26,12 @@ export default function AdmissionsPanel() {
     score: 0 // Default for manual admission
   });
   const [csvFile, setCsvFile] = useState(null);
+  const [applications, setApplications] = useState([]);
+  const [applicationSummary, setApplicationSummary] = useState({});
+  const [loadingApplications, setLoadingApplications] = useState(true);
+  const [reviewNotes, setReviewNotes] = useState({});
+  const [reviewClass, setReviewClass] = useState({});
+  const [reviewingId, setReviewingId] = useState(null);
 
   // Promotion state
   const [promotionData, setPromotionData] = useState({
@@ -36,8 +50,30 @@ export default function AdmissionsPanel() {
 
   const genderOptions = ['Male', 'Female', 'Other'];
 
+  const getAuthHeaders = () => ({
+    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+    'X-School-ID': localStorage.getItem('school_id')
+  });
+
+  useEffect(() => {
+    fetchApplications();
+  }, []);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const fetchApplications = async () => {
+    try {
+      setLoadingApplications(true);
+      const res = await axios.get('/api/admissions/applications', { headers: getAuthHeaders() });
+      setApplications(res.data.applications || []);
+      setApplicationSummary(res.data.summary || {});
+    } catch (err) {
+      console.error('Failed to fetch parent applications', err);
+    } finally {
+      setLoadingApplications(false);
+    }
   };
 
   const handlePromotionChange = (e) => {
@@ -95,6 +131,7 @@ export default function AdmissionsPanel() {
         scholarship_notes: '',
         score: 0
       });
+      fetchApplications();
     } catch (err) {
       alert(err.response?.data?.message || "Admission failed.");
     }
@@ -123,8 +160,31 @@ export default function AdmissionsPanel() {
       }
       alert(msg);
       setCsvFile(null);
+      fetchApplications();
     } catch (err) {
       alert(err.response?.data?.message || "Bulk upload failed.");
+    }
+  };
+
+  const handleReviewApplication = async (application, action) => {
+    try {
+      setReviewingId(application.id);
+      const payload = {
+        action,
+        notes: reviewNotes[application.id] || '',
+      };
+      if (action === 'approve') {
+        payload.class_assigned = reviewClass[application.id] || application.preferred_class;
+      }
+      const res = await axios.post(`/api/admissions/applications/${application.id}/review`, payload, {
+        headers: getAuthHeaders()
+      });
+      alert(res.data.message);
+      fetchApplications();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Review action failed.');
+    } finally {
+      setReviewingId(null);
     }
   };
 
@@ -229,6 +289,103 @@ export default function AdmissionsPanel() {
               <button type="submit" className="bg-blue-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-800 w-full md:w-auto shadow-lg shadow-blue-200">Admit Student</button>
           </div>
         </form>
+      </div>
+
+      {/* AI Registrar Review Queue */}
+      <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">AI Registrar Review Queue</h2>
+            <p className="mt-1 text-sm text-slate-500">Review public parent applications, follow the AI recommendation, and convert approved applicants into students.</p>
+          </div>
+          <div className="flex flex-wrap gap-3 text-xs font-bold text-slate-600">
+            {Object.entries(applicationSummary).map(([status, count]) => (
+              <span key={status} className="rounded-full bg-slate-100 px-3 py-2">{status}: {count}</span>
+            ))}
+          </div>
+        </div>
+
+        {!aiRegistrarAddonEnabled && (
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Approval decision PDFs are locked because this school does not currently have the AI Registrar add-on entitlement. Core admissions review still works.
+          </div>
+        )}
+
+        {loadingApplications ? (
+          <p className="mt-6 text-sm text-slate-500">Loading applications...</p>
+        ) : applications.length === 0 ? (
+          <p className="mt-6 text-sm text-slate-500">No parent applications submitted yet.</p>
+        ) : (
+          <div className="mt-6 space-y-4">
+            {applications.map((application) => (
+              <div key={application.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-black text-slate-900">{application.first_name} {application.surname}</h3>
+                      <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">{application.status}</span>
+                      <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-bold text-cyan-700">Score {application.ai_readiness_score}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-500">{application.application_code} • Preferred Class: {application.preferred_class}</p>
+                    <p className="mt-2 text-sm text-slate-700">{application.ai_summary}</p>
+                    {(application.ai_missing_items || []).length > 0 && (
+                      <p className="mt-2 text-xs font-semibold text-amber-700">Missing: {application.ai_missing_items.join(', ')}</p>
+                    )}
+                  </div>
+                  <div className="rounded-2xl bg-white px-4 py-3 text-right">
+                    <p className="text-xs font-bold uppercase text-slate-400">AI Recommendation</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{application.ai_recommendation}</p>
+                    <p className="mt-1 text-xs text-slate-500">{application.desired_test_mode} • {application.internet_quality}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-xl bg-white p-4">
+                    <p className="text-xs font-bold uppercase text-slate-400">Guardian Contact</p>
+                    <p className="mt-2 text-sm text-slate-700">{application.guardian_name || 'Not recorded'}</p>
+                    <p className="mt-1 text-sm text-slate-600">{application.parent_email || 'No email'} • {application.parent_phone || 'No phone'}</p>
+                    <p className="mt-1 text-xs text-slate-500">Documents: {(application.document_manifest || []).length}</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-4">
+                    <p className="text-xs font-bold uppercase text-slate-400">Reviewer Notes</p>
+                    <textarea
+                      value={reviewNotes[application.id] || ''}
+                      onChange={(event) => setReviewNotes((current) => ({ ...current, [application.id]: event.target.value }))}
+                      rows={3}
+                      className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Add school review notes or parent follow-up guidance"
+                    />
+                    <select
+                      value={reviewClass[application.id] || application.preferred_class}
+                      onChange={(event) => setReviewClass((current) => ({ ...current, [application.id]: event.target.value }))}
+                      className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    >
+                      {validGrades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button onClick={() => handleReviewApplication(application, 'approve')} disabled={reviewingId === application.id} className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60">Approve & Admit</button>
+                  <button onClick={() => handleReviewApplication(application, 'invite_test')} disabled={reviewingId === application.id} className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">Invite Online Test</button>
+                  <button onClick={() => handleReviewApplication(application, 'schedule_visit')} disabled={reviewingId === application.id} className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-60">Schedule Visit</button>
+                  <button onClick={() => handleReviewApplication(application, 'request_correction')} disabled={reviewingId === application.id} className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60">Request Correction</button>
+                  <button onClick={() => handleReviewApplication(application, 'reject')} disabled={reviewingId === application.id} className="rounded-xl border border-red-300 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-60">Reject</button>
+                  {application.decision_document?.available && (
+                    <a
+                      href={application.decision_document.download_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-100"
+                    >
+                      Preview Approval PDF
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Bulk Upload Section */}

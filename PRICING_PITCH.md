@@ -254,6 +254,24 @@ else:
 
 ## 💰 Pricing Strategy
 
+### AI Employee Add-ons
+
+Recommended packaging model:
+- keep the main platform on subscription pricing
+- keep Student Rescue Agent and already-shipped Premium AI value bundled in Premium
+- sell new workflow workers as optional add-ons
+- do not start with per-task AI billing
+
+Draft add-ons:
+- AI Registrar Add-on: GH₵180 to GH₵300 per term for Basic, GH₵120 to GH₵240 per term for Premium
+- AI Bursar Add-on: GH₵240 to GH₵420 per term for Basic, GH₵180 to GH₵360 per term for Premium
+- Communications Automation Add-on: small add-on fee plus message credits or pass-through SMS/WhatsApp cost
+
+Why Basic and Premium add-on prices differ:
+- Premium already includes adjacent AI, analytics, and governance surfaces, so the add-on is an incremental expansion
+- Basic schools get a larger net-new workflow lift from the same worker
+- the worker itself should remain substantively the same for the add-on tier; the price difference reflects surrounding bundled value, not a lower-quality Premium add-on
+
 ### Value Proposition by Tier
 
 **Free Tier** (GH₵0)

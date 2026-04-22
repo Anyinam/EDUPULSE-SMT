@@ -46,6 +46,10 @@ and welcome email is sent once after successful payment verification.
 
 Target: 62.5% Basic, 37.5% Premium (of paying customers)
 
+Strategic extension (planned): EduPulse remains B2B at the contract layer, but adds a
+school-controlled B2B2C parent access layer for admissions, status tracking, and payments.
+AI Registrar and AI Bursar are planned as scoped workflow workers, not full autonomous school replacements.
+
 
 ═════════════════════════════════════════════════════════════════════════════
 
@@ -96,6 +100,12 @@ SECONDARY REVENUE (Future)
    = +GH₵33,500/month (additional)
 
 TOTAL POTENTIAL ARR: GH₵1,170,000 + GH₵402,000 = GH₵1,572,000/year
+
+AI EMPLOYEE EXPANSION (Planned)
+├─ AI Registrar: application intake, document completeness, routing, and school review support
+├─ AI Bursar: reconciliation exceptions, flexible-plan signals, and collections recommendations
+├─ Parent access layer: remote admissions, online test option, school-visit fallback, payment status
+└─ Future only: autonomous approval, voice bots, pure outcome pricing
 
 
 ═════════════════════════════════════════════════════════════════════════════

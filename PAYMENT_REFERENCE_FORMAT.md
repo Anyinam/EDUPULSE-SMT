@@ -2,6 +2,13 @@
 
 ## Reference Parsing: How Parents Pay ✅
 
+This remains the most future-friendly fallback even when Paystack fee-route DVAs are enabled.
+
+Recommended product stance:
+- current implementation may expose fee-route DVAs by payment type
+- structured references should still remain supported across bank app, shortcode / USSD, and manual fallback flows
+- over time, EduPulse should favor a stable student or family payment identity plus reference parsing rather than multiplying payment destinations unnecessarily
+
 Instead of any configuration, **parents simply enter a formatted reference** when making MoMo or Bank transfers.
 
 Your system **automatically parses** this reference to extract:

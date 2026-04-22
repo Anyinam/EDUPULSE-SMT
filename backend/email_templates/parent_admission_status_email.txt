@@ -1,0 +1,24 @@
+Subject: {{school_name}} admission update for {{student_name}}
+
+Hello {{guardian_name}},
+
+This is an update from {{school_name}} regarding the admission request for {{student_name}}.
+
+Application code: {{application_code}}
+Status token: {{status_token}}
+Current status: {{status}}
+
+Summary:
+{{summary}}
+
+Next step:
+{{next_step}}
+
+Track the application here:
+{{status_url}}
+
+If the learner has already been approved, payment instructions are available here:
+{{payment_url}}
+
+Regards,
+{{school_name}}

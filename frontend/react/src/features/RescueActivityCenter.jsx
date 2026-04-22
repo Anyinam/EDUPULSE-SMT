@@ -1,7 +1,7 @@
 import React from 'react';
 import StudentRescueAgent from '../components/StudentRescueAgent';
 
-export default function RescueActivityCenter() {
+export default function RescueActivityCenter({ endpointBase = '/api/proprietor/student-rescue-agent' }) {
   return (
     <div className="space-y-6">
       <div className="rounded-3xl bg-linear-to-r from-slate-950 via-red-900 to-orange-700 px-8 py-8 text-white shadow-xl">
@@ -17,7 +17,7 @@ export default function RescueActivityCenter() {
         </div>
       </div>
 
-      <StudentRescueAgent />
+      <StudentRescueAgent endpointBase={endpointBase} />
     </div>
   );
 }
