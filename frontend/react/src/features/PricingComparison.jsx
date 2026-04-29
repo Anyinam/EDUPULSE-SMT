@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Check, X, Info } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, X, Info, Loader } from 'lucide-react';
+import axios from 'axios';
 import TermsModal from '../components/TermsModal';
 import PrivacyModal from '../components/PrivacyModal';
 import DataRetentionModal from '../components/DataRetentionModal';
@@ -8,85 +9,41 @@ export default function PricingComparison() {
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showRetention, setShowRetention] = useState(false);
+  const [plansData, setPlansData] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const plans = [
-    {
-      name: 'Free Tier',
-      color: 'gray',
-      baseFee: 0,
-      baseFeeLabel: '₵0/term',
-      includedStudents: 100,
-      overageRate: 0,
-      overageLabel: 'N/A',
-      description: 'Perfect for small schools getting started',
-      features: [
-        { name: 'Up to 50 students', included: true },
-        { name: '1 class only', included: true },
-        { name: 'View attendance & feeding', included: true },
-        { name: 'View grades', included: true },
-        { name: 'Basic reports (1 template)', included: true },
-        { name: 'Grade entry & editing', included: false },
-        { name: 'Lesson notes', included: false },
-        { name: 'Payment tracking', included: false },
-        { name: 'AI features', included: false },
-        { name: 'Bulk operations', included: false },
-        { name: 'Advanced analytics', included: false },
-      ],
-      cta: 'Get Started Free',
-      highlighted: false,
-    },
-    {
-      name: 'Basic',
-      color: 'blue',
-      baseFee: 200,
-      baseFeeLabel: '₵200/term',
-      includedStudents: 25,
-      overageRate: 12,
-      overageLabel: '₵12/extra student',
-      description: 'Full school operations for growing institutions',
-      features: [
-        { name: 'Up to 200 students', included: true },
-        { name: '5 classes', included: true },
-        { name: 'Full attendance & feeding', included: true },
-        { name: 'Grade entry & editing', included: true },
-        { name: 'Lesson notes creation', included: true },
-        { name: 'Payment tracking', included: true },
-        { name: 'Basic AI feedback', included: true },
-        { name: '5 report templates', included: true },
-        { name: 'Bulk operations', included: true },
-        { name: 'AI grade narratives', included: false },
-        { name: 'Custom HTML templates', included: false },
-      ],
-      cta: 'Start 14-Day Trial',
-      highlighted: true,
-      badge: 'MOST POPULAR',
-    },
-    {
-      name: 'Premium',
-      color: 'purple',
-      baseFee: 450,
-      baseFeeLabel: '₵450/term',
-      includedStudents: 30,
-      overageRate: 27,
-      overageLabel: '₵27/extra student',
-      description: 'Unlimited access with AI-powered insights',
-      features: [
-        { name: 'Unlimited students', included: true },
-        { name: 'Unlimited classes', included: true },
-        { name: 'Everything in Basic, plus:', included: true, bold: true },
-        { name: 'AI-generated grade narratives', included: true },
-        { name: 'Full AI analysis & scoring', included: true },
-        { name: 'Advanced analytics dashboard', included: true },
-        { name: 'Custom HTML templates', included: true },
-        { name: 'Unlimited staff', included: true },
-        { name: 'Priority support', included: true },
-        { name: 'API access', included: true },
-        { name: 'White-label options', included: true },
-      ],
-      cta: 'Start 14-Day Trial',
-      highlighted: false,
-    },
-  ];
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const res = await axios.get('/api/subscription/plans');
+        setPlansData(res.data?.plans || []);
+      } catch (error) {
+        console.error('Failed to load pricing plans:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPlans();
+  }, []);
+
+  const plans = (plansData || []).map((plan) => ({
+    rawName: plan.name,
+    name: plan.display_name || plan.name,
+    color: plan.ui_color || 'gray',
+    baseFee: Number(plan.base_fee_per_term || 0),
+    baseFeeLabel: `₵${Number(plan.base_fee_per_term || 0).toLocaleString()}/term`,
+    includedStudents: Number(plan.included_students || 0),
+    overageRate: Number(plan.price_per_student_per_term || 0),
+    overageLabel: Number(plan.price_per_student_per_term || 0) > 0 ? `₵${plan.price_per_student_per_term}/extra student` : 'N/A',
+    description: plan.description,
+    features: plan.marketing_features || [],
+    addonOptions: plan.addon_options || [],
+    packagingSummary: plan.packaging_summary || '',
+    cta: plan.name === 'Free Tier' ? 'Get Started Free' : 'Start 14-Day Trial',
+    highlighted: Boolean(plan.popular),
+    badge: plan.popular ? 'MOST POPULAR' : undefined,
+  }));
 
   const colorStyles = {
     gray: {
@@ -104,12 +61,12 @@ export default function PricingComparison() {
       accent: 'text-blue-700',
       shadow: 'shadow-xl',
     },
-    purple: {
-      badge: 'bg-purple-100 text-purple-800 border-purple-300',
-      border: 'border-purple-500',
-      button: 'bg-purple-600 hover:bg-purple-700 text-white',
-      header: 'bg-purple-50',
-      accent: 'text-purple-700',
+    amber: {
+      badge: 'bg-amber-100 text-amber-800 border-amber-300',
+      border: 'border-amber-500',
+      button: 'bg-amber-600 hover:bg-amber-700 text-white',
+      header: 'bg-amber-50',
+      accent: 'text-amber-700',
     },
   };
 
@@ -119,6 +76,14 @@ export default function PricingComparison() {
     const total = baseFee + (billable * rate);
     return `₵${total.toLocaleString()}`;
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <Loader className="h-10 w-10 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 to-blue-50 py-16 px-4">
@@ -174,7 +139,7 @@ export default function PricingComparison() {
                 <div className="space-y-4 mb-8 p-4 bg-slate-50 rounded-lg">
                   <div className="text-sm">
                     <span className="font-semibold text-slate-900">
-                      {plan.includedStudents === 100 ? 'Up to' : 'First'} {plan.includedStudents} students
+                      {plan.rawName === 'Free Tier' ? 'Up to' : 'First'} {plan.rawName === 'Free Tier' ? 50 : (plan.includedStudents || 0)} students
                     </span>
                     <span className="text-slate-600 ml-2">included</span>
                   </div>
@@ -203,6 +168,12 @@ export default function PricingComparison() {
                 >
                   {plan.cta}
                 </button>
+
+                {plan.packagingSummary && (
+                  <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    {plan.packagingSummary}
+                  </p>
+                )}
 
                 <p className="text-center text-xs text-slate-500 mt-3 leading-relaxed">
                   By creating a school account, you accept our{' '}
@@ -243,6 +214,20 @@ export default function PricingComparison() {
                     </li>
                   ))}
                 </ul>
+
+                {plan.addonOptions.length > 0 && (
+                  <div className="mt-6 border-t border-slate-100 pt-4">
+                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Future Add-Ons</p>
+                    <p className="mb-2 text-xs text-slate-500">These are future optional products and are not bundled into the listed plan price.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {plan.addonOptions.map((addon) => (
+                        <span key={addon} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
+                          {addon}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -267,7 +252,7 @@ export default function PricingComparison() {
               </p>
               <p className="text-sm">
                 <strong>Example:</strong> Basic plan with 150 students:
-                <br />₵200 (base) + (125 × ₵12) = <strong>₵1,700/term</strong>
+                <br />₵360 (base) + (120 × ₵12) = <strong>₵1,800/term</strong>
               </p>
             </div>
 

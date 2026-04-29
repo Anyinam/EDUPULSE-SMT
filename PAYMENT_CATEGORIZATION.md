@@ -6,7 +6,7 @@
 
 Payment providers (MoMo, Bank) don't care about your internal business logic. They just send:
 - Amount
-- Reference (student code)
+- Reference (stable learner identity plus payment purpose)
 - Transaction ID
 - Status
 
@@ -15,6 +15,11 @@ Payment providers (MoMo, Bank) don't care about your internal business logic. Th
 - **Feeding**: Daily, Weekly, Monthly
 - **Uniforms**: Specific item + quantity
 - **Transport**: Route + frequency
+
+Recommended stance:
+- use one stable learner or family payment identity as the default parent instruction
+- encode payment purpose in the structured reference
+- treat fee-route virtual accounts as optional convenience rails, not the main categorization model
 
 ---
 
@@ -28,9 +33,10 @@ When a parent pays for Term 1 tuition:
 # Bank sends this
 curl -X POST http://localhost:5000/api/finance/webhook/bank \
   -H "Content-Type: application/json" \
+  -H "X-Bank-Signature: <hmac_sha256_of_raw_body>" \
   -d '{
     "status": "success",
-    "reference": "S001",
+    "reference": "S001-TUITION-T1",
     "amount": 500.00,
     "transaction_id": "BANK-GCB-2026-001",
     "description": "Tuition - Term 1",
@@ -303,6 +309,7 @@ Everything is **self-configured**. You don't need to set up anything with paymen
 # 1. Student pays for Term 1 Tuition via Bank
 curl -X POST http://localhost:5000/api/finance/webhook/bank \
   -H "Content-Type: application/json" \
+  -H "X-Bank-Signature: <hmac_sha256_of_raw_body>" \
   -d '{
     "status": "success",
     "reference": "S001",

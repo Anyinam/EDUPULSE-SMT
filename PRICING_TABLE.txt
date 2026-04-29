@@ -5,10 +5,10 @@ EDUPULSE PRICING & FEATURES COMPARISON
 PRICING
 ─────────────────────────────────────────────────────────────────────────────
 	Free Tier		Basic Plan		Premium Plan
-Price	GH₵ 0/month		GH₵ 360/term (Base)	GH₵ 510/term (Base)
-				+ GH₵ 12/student/term	+ GH₵ 17/student/term (Overage)
-Annual (30 students)	GH₵ 0			GH₵ 1,080 (base only)	GH₵ 1,530 (base only)
-Annual (100 students)	GH₵ 0			GH₵ 3,600		GH₵ 5,100
+Price	GH₵ 0/month		GH₵ 360/term (Base)	GH₵ 750/term (Base)
+        + GH₵ 12/student/term	+ GH₵ 22/student/term (Overage)
+Annual (30 students)	GH₵ 0			GH₵ 1,080 (base only)	GH₵ 2,250 (base only)
+Annual (100 students)	GH₵ 0			GH₵ 3,600		GH₵ 6,870
 Students Included	50			30 (in base fee)	30 (in base fee)
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -152,12 +152,12 @@ Basic Plan (70 schools × avg 100 students):
   = 70 schools × GH₵3,600/year = GH₵252,000/year
 
 Premium Plan (30 schools × avg 100 students):
-  30 schools × [(GH₵510 × 3) + (70 students × GH₵17 × 3)]
-  = 30 schools × GH₵5,100/year = GH₵153,000/year
+  30 schools × [(GH₵750 × 3) + (70 students × GH₵22 × 3)]
+  = 30 schools × GH₵6,870/year = GH₵206,100/year
 
-Total Annual Revenue (100 schools): GH₵405,000
+Total Annual Revenue (100 schools): GH₵458,100
 
-Average ARR per School: GH₵4,050
+Average ARR per School: GH₵4,581
 
 REVENUE SCENARIOS (Basic Plan by School Size)
 ─────────────────────────────────────────────────────────────────────────────
@@ -173,11 +173,11 @@ REVENUE SCENARIOS (Premium Plan by School Size)
 ─────────────────────────────────────────────────────────────────────────────
 School Size		Students	Annual Cost		Cost Per Student
 ─────────────────────────────────────────────────────────────────────────────
-Small JHS		30		GH₵1,530		GH₵51/student
-Mid-size JHS		75		GH₵2,655		GH₵35/student
-Large JHS		150		GH₵3,825		GH₵26/student
-Secondary		200		GH₵5,100		GH₵26/student
-Large Secondary		400		GH₵10,200		GH₵26/student
+Small JHS		30		GH₵2,250		GH₵75/student
+Mid-size JHS		75		GH₵5,220		GH₵70/student
+Large JHS		150		GH₵10,170		GH₵68/student
+Secondary		200		GH₵13,470		GH₵67/student
+Large Secondary		400		GH₵26,670		GH₵67/student
 
 ═══════════════════════════════════════════════════════════════════════════════
 

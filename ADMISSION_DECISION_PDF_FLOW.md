@@ -186,7 +186,7 @@ Suggested metadata fields:
 ## Commercial Fit
 
 This feature should align with the AI Employee packaging strategy:
-- approval-document generation fits naturally inside the AI Registrar Add-on
+- approval-document generation should ride inside the bundled AI Registrar capability for paid subscription schools
 - correction and rejection PDFs should remain optional policy controls, not assumed defaults
 - communications channel costs should still be separated from AI workflow pricing
 

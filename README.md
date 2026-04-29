@@ -76,21 +76,23 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 
 ### AI Employee Packaging
 - The platform remains subscription-led at the contract layer.
+- AI Registrar is bundled into the current paid subscriptions so every Basic and Premium school gets the admissions workflow by default.
 - Already-shipped AI capabilities such as Student Rescue Agent remain bundled in Premium.
-- New AI Employees should be sold as optional workflow add-ons rather than forced into every school subscription.
-- The recommended default is fixed add-on pricing per school per term, not per-task charging.
-- Lower Premium add-on pricing reflects the fact that Premium already bundles adjacent analytics and governance value; it does not imply a weaker add-on.
+- Future AI Employees should be sold as optional workflow add-ons rather than forced into every school subscription.
+- The recommended default for those future workers is fixed add-on pricing per school per term, not per-task charging.
+- Lower Premium add-on pricing for future workers can still reflect the fact that Premium already bundles adjacent analytics and governance value.
 
 ### Current vs Planned Boundaries
-- Current: school-managed admissions, public parent admission application, document upload, AI completeness checks, online-vs-school-visit admission routing, family-facing payment/status pages, payment reference parsing, Paystack fee-route DVAs where configured, staff-controlled approval workflows, Student Rescue Agent, and audited finance operations.
+- Current: school-managed admissions, public parent admission application, document upload, AI completeness checks, online-vs-school-visit admission routing, family-facing payment/status pages, stable payment identity plus structured reference parsing, optional Paystack fee-route DVAs where configured, staff-controlled approval workflows, Student Rescue Agent, and audited finance operations.
 - Current admissions decisioning includes status-page feedback, email updates, correction resubmission, and optional approval-only PDF delivery when a school enables it.
 - Next build: AI Bursar exception queues, richer parent balance/status visibility, and more automated admissions extraction/scoring.
 - Future only: fully autonomous admission approval, multilingual voice bots, predictive dropout automation, and pure outcome-based billing for AI employees.
 
 ### Payment Architecture Direction
-- Current implementation supports one Paystack dedicated virtual route per fee type when configured by the school.
-- This works, but it is documented as a current operating model rather than the long-term default for every school.
-- The recommended medium-term design is one stable student or family payment identity, with structured references to categorize tuition, feeding, transport, uniforms, and other fee types across bank app, USSD, and manual fallback channels.
+- Current implementation can support one Paystack dedicated virtual route per fee type when configured by the school.
+- This works, but it is documented as an optional operating model rather than the long-term default for every school.
+- The recommended product default is one stable student or family payment identity, with structured references to categorize tuition, feeding, transport, uniforms, admission, and other fee types across bank app, USSD, and manual fallback channels.
+- Fee-route DVAs should be treated as an optional convenience layer, not the main categorization model.
 - Shortcode and low-literacy payment paths remain strategically important and should not be removed.
 
 ## 🧩 API Highlights (Recent)

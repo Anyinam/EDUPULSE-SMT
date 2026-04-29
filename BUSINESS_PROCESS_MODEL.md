@@ -26,7 +26,7 @@ EduPulse remains a school-led B2B platform first, but the next product evolution
 Current implementation:
 - school onboarding and subscription billing
 - school-managed admissions and bulk student onboarding
-- parent payment instructions with reference parsing and optional Paystack fee-route DVAs
+- parent payment instructions with stable payment identity, structured reference parsing, and optional Paystack fee-route DVAs
 - Student Rescue Agent for intervention workflows
 
 Planned near-term expansion:

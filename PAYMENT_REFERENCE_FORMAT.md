@@ -2,12 +2,12 @@
 
 ## Reference Parsing: How Parents Pay ✅
 
-This remains the most future-friendly fallback even when Paystack fee-route DVAs are enabled.
+This is now the recommended default parent payment instruction, even when Paystack fee-route DVAs are enabled.
 
 Recommended product stance:
-- current implementation may expose fee-route DVAs by payment type
-- structured references should still remain supported across bank app, shortcode / USSD, and manual fallback flows
-- over time, EduPulse should favor a stable student or family payment identity plus reference parsing rather than multiplying payment destinations unnecessarily
+- current implementation may expose fee-route DVAs by payment type, but those are optional
+- structured references should remain the default parent instruction across bank app, shortcode / USSD, and manual fallback flows
+- EduPulse should favor a stable student or family payment identity plus reference parsing rather than multiplying payment destinations unnecessarily
 
 Instead of any configuration, **parents simply enter a formatted reference** when making MoMo or Bank transfers.
 
@@ -157,6 +157,7 @@ Payment {
 ```bash
 curl -X POST http://localhost:5000/api/finance/webhook/bank \
   -H "Content-Type: application/json" \
+  -H "X-Bank-Signature: <hmac_sha256_of_raw_body>" \
   -d '{
     "status": "success",
     "reference": "S001-T1",

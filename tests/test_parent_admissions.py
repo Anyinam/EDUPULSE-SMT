@@ -82,7 +82,6 @@ def test_public_school_profile_exposes_branding_and_admission_fee(client, db, te
 
 def test_school_can_review_parent_application_and_admit_student(client, app, db, test_school, test_proprietor):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
-    settings.enabled_modules = {**(settings.enabled_modules or {}), "ai_registrar_addon": True}
     settings.approval_pdf_enabled = True
     settings.approval_pdf_required_items = "Bring two passport photos\nBring prior report card"
     db.session.commit()
@@ -359,7 +358,6 @@ def test_parent_can_resubmit_missing_documents_and_application_reassesses(client
 
 def test_decision_pdf_is_not_available_for_rejected_application(client, app, test_school, test_proprietor, db):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
-    settings.enabled_modules = {**(settings.enabled_modules or {}), "ai_registrar_addon": True}
     settings.approval_pdf_enabled = True
     db.session.commit()
 
@@ -380,9 +378,9 @@ def test_decision_pdf_is_not_available_for_rejected_application(client, app, tes
     assert pdf_response.status_code == 409
 
 
-def test_decision_pdf_requires_ai_registrar_addon(client, app, test_school, test_proprietor, db):
+def test_decision_pdf_requires_paid_subscription_ai_registrar_access(client, app, test_school, test_proprietor, db):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
-    settings.enabled_modules = {**(settings.enabled_modules or {}), "ai_registrar_addon": False}
+    test_school.subscription_plan = "Free Tier"
     settings.approval_pdf_enabled = True
     db.session.commit()
 

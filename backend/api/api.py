@@ -41,6 +41,7 @@ def _validate_security_configuration() -> None:
         "JWT_SECRET_KEY": (os.getenv("JWT_SECRET_KEY") or "").strip(),
         "DATA_ENCRYPTION_KEY": (os.getenv("DATA_ENCRYPTION_KEY") or "").strip(),
         "LEDGER_SECRET_KEY": (os.getenv("LEDGER_SECRET_KEY") or "").strip(),
+        "BANK_WEBHOOK_SECRET": (os.getenv("BANK_WEBHOOK_SECRET") or "").strip(),
     }
 
     issues = []

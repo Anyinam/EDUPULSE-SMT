@@ -1486,6 +1486,11 @@ def _has_ai_employee_addon(settings, addon_key):
     return bool(_get_enabled_modules(settings).get(addon_key, False))
 
 
+def _has_ai_registrar_access(school):
+    plan = ((getattr(school, "subscription_plan", None) or "Free Tier").strip())
+    return plan in {"Basic", "Premium"}
+
+
 def _get_public_school_profile_payload(school, settings):
     return {
         "school_id": school.id,
@@ -1502,13 +1507,14 @@ def _get_public_school_profile_payload(school, settings):
     }
 
 
-def _can_expose_parent_decision_pdf(settings):
+def _can_expose_parent_decision_pdf(school, settings):
     pdf_policy = _get_parent_admission_pdf_policy(settings)
-    return pdf_policy["enabled"] and _has_ai_employee_addon(settings, "ai_registrar_addon")
+    return pdf_policy["enabled"] and _has_ai_registrar_access(school)
 
 
 def _build_staff_parent_decision_document_payload(application, settings, school_id):
-    if application.status != "Approved" or not _can_expose_parent_decision_pdf(settings):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if application.status != "Approved" or not school or not _can_expose_parent_decision_pdf(school, settings):
         return None
     decision_path = _build_parent_decision_pdf_path(school_id, application.status_token)
     return {
@@ -1655,7 +1661,7 @@ def _send_parent_admission_update(application, school, next_step, payment_url=No
     status_path = _build_parent_status_path(school.id, application.status_token)
     status_url = _build_parent_public_url(status_path)
     pdf_policy = _get_parent_admission_pdf_policy(settings)
-    if application.status == "Approved" and _can_expose_parent_decision_pdf(settings) and pdf_policy["delivery_mode"] == "email_link":
+    if application.status == "Approved" and _can_expose_parent_decision_pdf(school, settings) and pdf_policy["delivery_mode"] == "email_link":
         decision_url = _build_parent_public_url(_build_parent_decision_pdf_path(school.id, application.status_token))
         next_step = f"{next_step} Download the admission decision PDF here: {decision_url}"
 
@@ -5287,6 +5293,30 @@ def _verify_paystack_signature(raw_body):
     return True, "ok"
 
 
+def _verify_bank_webhook_signature(raw_body):
+    """Verify bank webhook signature using HMAC SHA256."""
+    secret_key = (os.getenv("BANK_WEBHOOK_SECRET") or "").strip()
+    signature = (
+        request.headers.get("x-bank-signature")
+        or request.headers.get("x-webhook-signature")
+        or ""
+    ).strip()
+
+    if not secret_key:
+        return False, "BANK_WEBHOOK_SECRET not configured"
+    if not signature:
+        return False, "Missing bank webhook signature"
+
+    expected = hmac.new(
+        secret_key.encode("utf-8"), raw_body, hashlib.sha256
+    ).hexdigest()
+
+    if not secrets.compare_digest(expected, signature):
+        return False, "Invalid bank webhook signature"
+
+    return True, "ok"
+
+
 def _should_inject_failpoint(metadata, failpoint_name):
     env_failpoints = {
         item.strip()
@@ -7457,7 +7487,15 @@ def bank_transfer_webhook():
     from backend.utils import parse_payment_reference
 
     try:
-        data = request.json
+        raw_body = request.get_data() or b""
+        verified, reason = _verify_bank_webhook_signature(raw_body)
+        if not verified:
+            logger.warning(f"Bank webhook rejected: {reason}")
+            return jsonify({"status": "rejected", "message": reason}), 401
+
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({"status": "error", "message": "Invalid JSON payload"}), 400
 
         # Verify transaction status
         if data.get("status") != "success":
@@ -8674,7 +8712,7 @@ def get_parent_admission_status(school_id, status_token):
             payload["student_code"] = student.student_code
 
     pdf_policy = _get_parent_admission_pdf_policy(settings)
-    if application.status == "Approved" and _can_expose_parent_decision_pdf(settings):
+    if application.status == "Approved" and _can_expose_parent_decision_pdf(school, settings):
         decision_path = _build_parent_decision_pdf_path(school_id, application.status_token)
         payload["decision_document"] = {
             "available": True,
@@ -8695,8 +8733,8 @@ def download_parent_admission_decision_pdf(school_id, status_token):
     pdf_policy = _get_parent_admission_pdf_policy(settings)
     if not pdf_policy["enabled"]:
         return jsonify({"message": "Admission decision PDF is not enabled for this school."}), 404
-    if not _has_ai_employee_addon(settings, "ai_registrar_addon"):
-        return jsonify({"message": "Admission decision PDF requires the AI Registrar add-on."}), 403
+    if not _has_ai_registrar_access(school):
+        return jsonify({"message": "Admission decision PDF requires a paid subscription plan with AI Registrar included."}), 403
 
     application = ParentAdmissionApplication.query.filter_by(
         school_id=school_id,
@@ -13448,7 +13486,8 @@ def get_school_settings():
             "country_code": settings.country_code if settings and settings.country_code else "GH",
             "anniversary_date": settings.anniversary_date.isoformat() if settings and settings.anniversary_date else None,
             "next_term_reopen_date": _get_report_global_settings(settings).get("next_term_reopen_date") if settings else None,
-            "ai_registrar_addon_enabled": bool(enabled_modules.get("ai_registrar_addon", False)),
+            "ai_registrar_enabled": _has_ai_registrar_access(school),
+            "ai_registrar_addon_enabled": _has_ai_registrar_access(school),
             "ai_bursar_addon_enabled": bool(enabled_modules.get("ai_bursar_addon", False)),
             "approval_pdf_enabled": bool(settings.approval_pdf_enabled) if settings else False,
             "approval_pdf_delivery_mode": settings.approval_pdf_delivery_mode if settings and settings.approval_pdf_delivery_mode else "email_link",
@@ -13561,8 +13600,8 @@ def update_school_settings():
         settings.whatsapp_notifications_enabled = bool(data.get("whatsapp_notifications_enabled", True))
         changed_fields.append("whatsapp_notifications_enabled")
     if "approval_pdf_enabled" in data:
-        if bool(data.get("approval_pdf_enabled")) and not _has_ai_employee_addon(settings, "ai_registrar_addon"):
-            return jsonify({"message": "Approval PDFs require the AI Registrar add-on."}), 403
+        if bool(data.get("approval_pdf_enabled")) and not _has_ai_registrar_access(school):
+            return jsonify({"message": "Approval PDFs require a paid subscription plan with AI Registrar included."}), 403
         settings.approval_pdf_enabled = bool(data.get("approval_pdf_enabled"))
         changed_fields.append("approval_pdf_enabled")
     if "approval_pdf_delivery_mode" in data:
@@ -13909,7 +13948,11 @@ def get_all_subscription_plans():
             "max_staff": "∞" if max_staff == float('inf') else max_staff,
             "features": plan_info.get("features", {}),
             "report_templates": plan_info.get("report_templates", []),
-            "popular": plan_name == "Basic",  # Mark Basic as most popular
+            "marketing_features": plan_info.get("marketing_features", []),
+            "addon_options": plan_info.get("addon_options", []),
+            "packaging_summary": plan_info.get("packaging_summary", ""),
+            "ui_color": plan_info.get("ui_color", "gray"),
+            "popular": bool(plan_info.get("popular", plan_name == "Basic")),
         })
     
     return jsonify({"plans": plans_data})
@@ -16169,16 +16212,13 @@ def paystack_initialize_payment():
         
         # Model A Pricing: Base Fee + Included Students + Overage
         pricing = {
-            'Basic': {
-                'base_fee': 360,          # GH₵ 360 base per term
-                'included_students': 30,  # 30 students included
-                'overage_rate': 12        # GH₵ 12 per extra student
-            },
-            'Premium': {
-                'base_fee': 510,          # GH₵ 510 base per term
-                'included_students': 30,  # 30 students included
-                'overage_rate': 17        # GH₵ 17 per extra student
+            key: {
+                'base_fee': value.get('base_fee_per_term', 0),
+                'included_students': value.get('included_students', 0),
+                'overage_rate': value.get('per_student_per_term', 0),
             }
+            for key, value in PRICING.items()
+            if key in {'Basic', 'Premium'}
         }
         
         if plan_name not in pricing:

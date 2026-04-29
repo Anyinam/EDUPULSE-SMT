@@ -1,9 +1,9 @@
 Feature,Category,Free Tier,Basic Plan,Premium Plan
-Price,Pricing,GH₵ 0/month,"GH₵ 360/term (Base) + GH₵ 12/student/term (Overage)","GH₵ 510/term (Base) + GH₵ 17/student/term (Overage)"
+Price,Pricing,GH₵ 0/month,"GH₵ 360/term (Base) + GH₵ 12/student/term (Overage)","GH₵ 750/term (Base) + GH₵ 22/student/term (Overage)"
 Student Capacity,Quotas,50 students,200 students,Unlimited
-Annual Cost (30 students),Pricing,GH₵ 0,GH₵ 1080 (Base only),GH₵ 1530 (Base only)
-Annual Cost (100 students),Pricing,GH₵ 0,GH₵ 3600 (Base + 70 × GH₵12 × 3),GH₵ 5100 (Base + 70 × GH₵17 × 3)
-Cost Per Student/Year,Pricing,GH₵ 0,"GH₵36/student (30-student base); GH₵12/add'l","GH₵51/student (30-student base); GH₵17/add'l"
+Annual Cost (30 students),Pricing,GH₵ 0,GH₵ 1080 (Base only),GH₵ 2250 (Base only)
+Annual Cost (100 students),Pricing,GH₵ 0,GH₵ 3600 (Base + 70 × GH₵12 × 3),GH₵ 6870 (Base + 70 × GH₵22 × 3)
+Cost Per Student/Year,Pricing,GH₵ 0,"GH₵36/student (30-student base); GH₵12/add'l","GH₵75/student (30-student base); GH₵22/add'l"
 ,,,,
 Basic Attendance Tracking,Core Features,✓,✓,✓
 Manual Grade Entry,Core Features,✓,✓,✓
@@ -32,7 +32,7 @@ Subject-Based Question Pools,AI Features,✗,✗,✓
 Difficulty Level Customization,AI Features,✗,✗,✓
 Candidate Screening Automation,AI Features,✗,✗,✓
 Student Rescue Agent,AI Packaging,✗,✗,Premium bundled
-AI Registrar Add-on,AI Packaging,✗,Optional add-on (GH₵180-300/term),Optional add-on (GH₵120-240/term)
+AI Registrar,AI Packaging,✗,Bundled in subscription,Bundled in subscription
 AI Bursar Add-on,AI Packaging,✗,Optional add-on (GH₵240-420/term),Optional add-on (GH₵180-360/term)
 Communications Automation Add-on,AI Packaging,✗,Optional add-on + usage credits,Optional add-on + usage credits
 ,,,,

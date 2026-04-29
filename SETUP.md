@@ -51,7 +51,13 @@ nano .env
 # MAIL_USERNAME=your-email@gmail.com
 # MAIL_PASSWORD=your-app-password  # From Google App Passwords
 # DATA_ENCRYPTION_KEY=your-fernet-key
+# BANK_WEBHOOK_SECRET=shared secret used to verify bank/provider callbacks
 ```
+
+`BANK_WEBHOOK_SECRET` is platform-level. It does not come from each school's bank account.
+Use one of these models:
+- if the bank or payment aggregator gives you a webhook signing secret, store that exact value in `.env`
+- if the bank asks you to define a shared secret for callback signing, generate your own strong random value and configure the same value on both sides
 
 ### 4. Initialize Database
 

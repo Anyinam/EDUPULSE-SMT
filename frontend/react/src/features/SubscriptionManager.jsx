@@ -7,6 +7,7 @@ import BillingControlPanel from '../components/BillingControlPanel';
 
 export default function SubscriptionManager() {
   const [sub, setSub] = useState(null);
+  const [planCatalog, setPlanCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [billingPeriod, setBillingPeriod] = useState('term');
@@ -28,11 +29,15 @@ export default function SubscriptionManager() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'X-School-ID': localStorage.getItem('school_id') 
         };
-        const res = await axios.get('/api/school/subscription', { headers });
+        const [res, plansRes] = await Promise.all([
+          axios.get('/api/school/subscription', { headers }),
+          axios.get('/api/subscription/plans'),
+        ]);
         setSub({
           ...res.data,
           next_billing_date: res.data?.next_billing_date || res.data?.next_billing || null,
         });
+        setPlanCatalog(plansRes.data?.plans || []);
       } catch (err) {
         console.error('Failed to fetch subscription', err);
         setSub(null);
@@ -190,87 +195,33 @@ export default function SubscriptionManager() {
   // Auto-detect current student enrollment
   const currentStudents = sub.current_enrollment || 0;
   
-  // Calculate costs using Model A (Base Fee + Included Students + Overage)
-  // Basic: ₵360 base/term + 30 included + ₵12/extra student
-  const basicBaseFee = 360;
-  const basicIncluded = 30;
-  const basicOverage = Math.max(0, currentStudents - basicIncluded);
-  const basicTermCost = basicBaseFee + (basicOverage * 12);
-  const basicAnnualCost = basicTermCost * 3;
-  
-  // Premium: ₵450 base/term + 30 included + ₵27/extra student
-  // Premium: ₵510 base/term + 30 included + ₵17/extra student
-  const premiumBaseFee = 510;
-  const premiumIncluded = 30;
-  const premiumOverage = Math.max(0, currentStudents - premiumIncluded);
-  const premiumTermCost = premiumBaseFee + (premiumOverage * 17);
-  const premiumAnnualCost = premiumTermCost * 3;
+  const plans = (planCatalog || []).map((plan) => {
+    const baseFee = Number(plan.base_fee_per_term || 0);
+    const included = Number(plan.included_students || 0);
+    const price = Number(plan.price_per_student_per_term || 0);
+    const overage = Math.max(0, currentStudents - included);
+    const termCost = plan.name === 'Free Tier' ? 0 : baseFee + (overage * price);
 
-  const plans = [
-    {
-      name: 'Free Tier',
-      price: 0,
-      termCost: 0,
-      annualCost: 0,
-      description: 'Perfect for small schools getting started',
-      color: 'gray',
-      features: [
-        { name: 'Up to 50 students', included: true },
-        { name: '1 class only', included: true },
-        { name: 'View attendance & feeding', included: true, note: '(Read-only)' },
-        { name: 'Basic report generation', included: true },
-        { name: 'Grade viewing', included: true },
-        { name: 'Grade entry & editing', included: false },
-        { name: 'Payment tracking', included: false },
-        { name: 'AI insights', included: false },
-      ],
-    },
-    {
-      name: 'Basic',
-      price: 12,
-      baseFee: basicBaseFee,
-      included: basicIncluded,
-      overage: basicOverage,
-      termCost: basicTermCost,
-      annualCost: basicAnnualCost,
-      description: 'Full school operations for growing institutions',
-      color: 'blue',
-      popular: true,
-      features: [
-        { name: 'Up to 200 students', included: true },
-        { name: '5 classes', included: true },
-        { name: 'Full attendance & feeding management', included: true },
-        { name: 'Grade entry & editing', included: true },
-        { name: 'Payment tracking & reconciliation', included: true },
-        { name: 'Lesson notes creation', included: true },
-        { name: 'Bulk operations', included: true },
-        { name: '5 report templates', included: true },
-        { name: 'Basic AI feedback', included: true },
-      ],
-    },
-    {
-      name: 'Premium',
-      price: 17,
-      baseFee: premiumBaseFee,
-      included: premiumIncluded,
-      overage: premiumOverage,
-      termCost: premiumTermCost,
-      annualCost: premiumAnnualCost,
-      description: 'Unlimited access with AI-powered insights',
-      color: 'purple',
-      recommended: true,
-      features: [
-        { name: '∞ Unlimited students', included: true },
-        { name: '∞ Unlimited classes', included: true },
-        { name: 'Everything in Basic', included: true },
-        { name: 'AI-powered grade narratives', included: true },
-        { name: 'Advanced analytics dashboard', included: true },
-        { name: 'Custom HTML templates', included: true },
-        { name: 'Priority support', included: true },
-        { name: 'Full AI analysis & scoring', included: true },
-      ],
-    },
-  ];
+    return {
+      name: plan.name,
+      price,
+      baseFee,
+      included,
+      overage,
+      termCost,
+      annualCost: termCost * 3,
+      description: plan.description,
+      color: plan.ui_color || 'gray',
+      popular: Boolean(plan.popular),
+      recommended: false,
+      features: plan.marketing_features || [],
+      addonOptions: plan.addon_options || [],
+      packagingSummary: plan.packaging_summary || '',
+    };
+  });
+
+  const basicPlan = plans.find((plan) => plan.name === 'Basic');
+  const premiumPlan = plans.find((plan) => plan.name === 'Premium');
 
   return (
     <div className="bg-linear-to-br from-slate-50 to-blue-50 min-h-screen p-8">
@@ -419,11 +370,6 @@ export default function SubscriptionManager() {
                     MOST POPULAR
                   </div>
                 )}
-                {plan.recommended && !isCurrentPlan && (
-                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-linear-to-r from-purple-600 to-pink-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg">
-                    RECOMMENDED
-                  </div>
-                )}
                 {isCurrentPlan && (
                   <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg flex items-center gap-1">
                     <CheckCircle size={14} /> CURRENT PLAN
@@ -445,7 +391,7 @@ export default function SubscriptionManager() {
                         GH₵ {displayCost.toLocaleString()}
                       </div>
                       <div className="text-sm text-slate-600">
-                        {currentStudents} students × GH₵ {plan.price} × {billingPeriod === 'term' ? '1 term' : '3 terms'}
+                        Base GH₵ {plan.baseFee} covers {plan.included} students; overage is GH₵ {plan.price}/student/{billingPeriod === 'term' ? 'term' : 'term billed across 3 terms'}
                       </div>
                       {plan.baseFee !== undefined && billingPeriod === 'term' && (
                         <div className="text-xs text-slate-500 mt-2 space-y-0.5">
@@ -478,6 +424,26 @@ export default function SubscriptionManager() {
                     </li>
                   ))}
                 </ul>
+
+                {plan.packagingSummary && (
+                  <p className="mb-6 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    {plan.packagingSummary}
+                  </p>
+                )}
+
+                {plan.addonOptions.length > 0 && (
+                  <div className="mb-6 border-t border-slate-100 pt-4">
+                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Future Add-Ons</p>
+                    <p className="mb-2 text-xs text-slate-500">These are future optional products. They are not included in this subscription price.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {plan.addonOptions.map((addon) => (
+                        <span key={addon} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
+                          {addon}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Proration Banner - Only show if applicable */}
                 {shouldShowProration && (
@@ -530,10 +496,10 @@ export default function SubscriptionManager() {
             <div className="bg-white rounded-lg p-3 border border-blue-100">
               <p className="font-bold text-blue-900 mb-2">📊 Full Cost Formula</p>
               <p className="font-mono text-xs text-slate-700 mb-2">
-                <strong>Students × Price/Student × Terms</strong>
+                <strong>Base Fee + (Students Above Included × Price/Student)</strong>
               </p>
               <p className="text-xs">
-                Example: <strong>50 students × GH₵12 × 1 term = GH₵600</strong>
+                Example: <strong>GH₵ {basicPlan?.baseFee || 0} + (70 × GH₵ {basicPlan?.price || 0}) = GH₵ {basicPlan ? (basicPlan.baseFee + (70 * basicPlan.price)).toLocaleString() : '0'}/term</strong>
               </p>
             </div>
             <div className="bg-white rounded-lg p-3 border border-blue-100">
@@ -542,7 +508,7 @@ export default function SubscriptionManager() {
                 <strong>Full Cost × (Days Remaining / 120)</strong>
               </p>
               <p className="text-xs">
-                Example: Upgrade on day 90? <strong>Pay only 25% = GH₵150</strong>
+                Example: Upgrade on day 90? <strong>Pay only 25% of the full term cost</strong>
               </p>
             </div>
           </div>
@@ -583,7 +549,7 @@ export default function SubscriptionManager() {
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={16} />
-                <span>Example: 100 students on Basic = <strong>GH₵ 1,200/term</strong></span>
+                <span>Example: 100 students on Premium = <strong>GH₵ {premiumPlan ? (premiumPlan.baseFee + (Math.max(0, 100 - premiumPlan.included) * premiumPlan.price)).toLocaleString() : '0'}/term</strong></span>
               </li>
             </ul>
           </div>

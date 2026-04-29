@@ -220,18 +220,18 @@ Total per Year (3 terms):    ₵2,880.00
 **Scenario:** School has 150 students, subscribes to Premium plan at term start
 
 ```
-Base Fee:                    ₵510.00
+Base Fee:                    ₵750.00
 Included:                    30 students
 Current Students:            150
 Students Over Threshold:     120 (150 - 30)
-Overage Rate:                ₵17/student
-Overage Charge:              ₵2,040.00 (120 × ₵17)
+Overage Rate:                ₵22/student
+Overage Charge:              ₵2,640.00 (120 × ₵22)
 ────────────────────────────────────
-Total per Term:              ₵2,550.00
-Total per Year (3 terms):    ₵7,650.00
+Total per Term:              ₵3,390.00
+Total per Year (3 terms):    ₵10,170.00
 ```
 
-**Average per student:** ₵2,550 ÷ 150 = ₵17.00/student/term
+**Average per student:** ₵3,390 ÷ 150 = ₵22.60/student/term
 
 ---
 
@@ -273,7 +273,7 @@ Let's compare the cost for a school with **100 students** across plans:
 |------|----------|----------|---------|----------------|----------------|----------------|
 | Free Tier | ₵0 | 0 | N/A | N/A | **₵0** | **₵0** |
 | Basic | ₵360 | 30 | 70 × ₵12 | ₵840 | **₵1,200** | **₵3,600** |
-| Premium | ₵510 | 30 | 70 × ₵17 | ₵1,190 | **₵1,700** | **₵5,100** |
+| Premium | ₵750 | 30 | 70 × ₵22 | ₵1,540 | **₵2,290** | **₵6,870** |
 
 **Free Tier limitation:** Max 50 students, 1 class, read-only features
 
@@ -285,7 +285,7 @@ Let's compare the cost for a school with **100 students** across plans:
 
 **A:** You pay only the base platform fee:
 - Basic: ₵360/term
-- Premium: ₵510/term
+- Premium: ₵750/term
 
 When you later admit students, mid-term pro-ration applies.
 
@@ -297,7 +297,7 @@ When you later admit students, mid-term pro-ration applies.
 
 Example: Upgrade from Basic to Premium with 60 days left:
 ```
-Premium Term Cost: ₵510 base + overage
+Premium Term Cost: ₵750 base + overage
 Pro-ration: 60/90 = 66.7%
 You pay: 66.7% of (Premium Cost - Already Paid)
 ```
@@ -405,7 +405,7 @@ pro_rated_charge = overage_students × overage_rate × pro_ration_factor
 |------|-----------|----------|--------------|-------------|
 | **Free Tier** | ₵0 | 0 | N/A | ₵0 |
 | **Basic** | ₵360 | 30 | ₵12/student | ₵1,080 |
-| **Premium** | ₵510 | 30 | ₵17/student | ₵1,530 |
+| **Premium** | ₵750 | 30 | ₵22/student | ₵2,250 |
 
 ### Key Files in Codebase
 

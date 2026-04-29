@@ -1,12 +1,12 @@
 # Paystack Fee-Route DVA Guide
 
 ## Overview
-EduPulse currently supports Paystack dedicated virtual accounts as fee-route accounts for payment-type tracking.
+EduPulse currently supports Paystack dedicated virtual accounts as an optional convenience layer for payment-type tracking.
 
 - School registers one real bank account with Paystack.
-- Current implementation can create one virtual route per fee type (Tuition, Feeding, Uniform, Transport, Other).
-- Parents pay using that virtual route.
-- Paystack identifies the payment type automatically.
+- Current implementation can create one virtual route per fee type (Tuition, Feeding, Uniform, Transport, Other) if the school chooses to use them.
+- Parents can still pay using the structured reference without depending on those routes.
+- Paystack route metadata can help identify the payment type automatically when such routes are enabled.
 - Funds settle to the school’s single real bank account.
 
 Important product note:
@@ -18,9 +18,9 @@ Important product note:
 
 ### How It Works Today
 1. School saves one settlement bank account in EduPulse.
-2. Proprietor creates fee-route DVAs by payment type.
-3. Paystack returns virtual account details / shortcode per type.
-4. Parent pays through the matching route.
+2. EduPulse issues structured references against a stable learner or family payment identity.
+3. Proprietor may optionally create fee-route DVAs by payment type.
+4. Parent pays using the structured reference, with or without the optional route.
 5. Webhook confirms payment and updates student balance.
 6. Settlement goes to the school’s single real account.
 
@@ -28,9 +28,9 @@ Important product note:
 ```
 Parent pays Tuition GH₵500
     ↓
-Uses Tuition virtual account/shortcode
+Uses reference S001-TUITION-T1
     ↓
-Paystack tags payment as Tuition
+May optionally also use a Tuition virtual route/shortcode
     ↓
 EduPulse webhook confirms and updates records
     ↓
@@ -85,7 +85,7 @@ This is the only account that receives settlement.
 ### 2) Fetch Bank Codes
 Endpoint: `GET /api/proprietor/paystack/banks`
 
-### 3) Create Fee-Route DVA per Payment Type
+### 3) Optionally Create Fee-Route DVA per Payment Type
 Endpoint: `POST /api/proprietor/paystack/subaccounts/create`
 
 Request:
@@ -124,14 +124,15 @@ Sample response:
 Endpoint: `GET /api/proprietor/paystack/subaccounts`
 
 ### 5) Share Parent Instructions
-For each active fee route, share:
-- Virtual bank account (if available)
-- MoMo shortcode (if available)
-- Amount
-- Backup reference code
+The recommended instruction set is:
+- stable learner payment identity
+- structured reference per fee purpose
+- amount due
+- school-office fallback guidance
 
-Parents should use the route that matches the intended fee type.
-If the school later standardizes on one payment identity, reference codes remain the safer long-term categorization layer.
+Only add the virtual bank account or shortcode when the school has explicitly enabled that optional route.
+
+Parents should be able to pay successfully even without memorizing multiple route accounts.
 
 ### 6) Optional Payment Link Flow
 Endpoint: `POST /api/finance/paystack/initialize-payment`
@@ -151,7 +152,7 @@ Implemented behavior:
 
 ## Settlement Notes
 
-- Virtual routes are for payment identification.
+- Virtual routes are an optional convenience layer for payment identification.
 - Settlement destination is still the one real school bank account.
 - Timing depends on Paystack settlement schedule.
 

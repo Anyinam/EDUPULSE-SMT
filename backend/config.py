@@ -33,11 +33,12 @@ def _build_database_url() -> str:
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+    BANK_WEBHOOK_SECRET = os.getenv("BANK_WEBHOOK_SECRET")
     SQLALCHEMY_DATABASE_URI = _build_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     if os.getenv("FLASK_ENV", "development").lower() == "production":
-        if not SECRET_KEY or not JWT_SECRET_KEY:
+        if not SECRET_KEY or not JWT_SECRET_KEY or not BANK_WEBHOOK_SECRET:
             raise RuntimeError(
-                "Startup blocked: SECRET_KEY and JWT_SECRET_KEY must be set in production."
+                "Startup blocked: SECRET_KEY, JWT_SECRET_KEY, and BANK_WEBHOOK_SECRET must be set in production."
             )

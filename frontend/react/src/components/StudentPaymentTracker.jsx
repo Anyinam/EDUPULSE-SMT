@@ -100,7 +100,7 @@ export default function StudentPaymentTracker() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Payment Instructions - ${paymentCodes.student_name}</title>
+        <title>Payment Instructions & Reference Guide - ${paymentCodes.student_name}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body {
@@ -318,39 +318,40 @@ export default function StudentPaymentTracker() {
           </div>
 
           <!-- Document Title -->
-          <div class="document-title">📋 Payment Instructions & Fee Summary</div>
+          <div class="document-title">📋 Payment Instructions & Reference Guide</div>
 
           <!-- Student Information -->
           <div class="student-info">
             <p><span class="info-label">Student Name:</span> ${paymentCodes.student_name}</p>
-            <p><span class="info-label">Student ID:</span> <strong>${paymentCodes.student_code}</strong></p>
+            <p><span class="info-label">Stable Payment Identity:</span> <strong>${paymentCodes.student_code}</strong></p>
             <p><span class="info-label">Class:</span> ${paymentCodes.class || 'Not assigned'}</p>
             ${paymentCodes.parent_phone ? `<p><span class="info-label">Parent/Guardian:</span> ${paymentCodes.parent_name || ''} (${paymentCodes.parent_phone})</p>` : ''}
           </div>
 
           <!-- Payment Routes Section -->
           <div class="section">
-            <div class="section-title">💳 Payment Routes by Fee Type</div>
+            <div class="section-title">💳 Structured References By Fee Type</div>
             <table class="payment-codes-table">
               <thead>
                 <tr>
                   <th>Fee Type</th>
-                  <th>Virtual Route</th>
-                  <th>Reference (Backup)</th>
+                  <th>Preferred Reference</th>
+                  <th>Optional Route</th>
                   <th class="amount-column">School Fee</th>
                   <th class="amount-column">Convenience Fee</th>
-                  <th class="amount-column">Total via Route</th>
+                  <th class="amount-column">Total via Optional Route</th>
                 </tr>
               </thead>
               <tbody>
                 ${paymentCodes.payment_codes.map(code => `
                   <tr>
                     <td><strong>${code.fee_type}</strong></td>
+                    <td><span class="code-column">${code.reference_code || code.code}</span></td>
                     <td>
                       ${code.virtual_bank_account ? `<div><strong>Acct:</strong> <span class="code-column">${code.virtual_bank_account}</span></div>` : ''}
-                      ${!code.virtual_bank_account ? '<span style="color:#b91c1c;">Not configured</span>' : ''}
+                      ${code.virtual_bank_name ? `<div><strong>Bank:</strong> ${code.virtual_bank_name}</div>` : ''}
+                      ${!code.virtual_bank_account ? '<span style="color:#475569;">Use bank narration, USSD narration, or school-office reference flow</span>' : ''}
                     </td>
-                    <td><span class="code-column">${code.reference_code || code.code}</span></td>
                     <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
                     <td class="amount-column">GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)}</td>
                     <td class="amount-column">GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}</td>
@@ -362,30 +363,32 @@ export default function StudentPaymentTracker() {
 
           <!-- Important Notice -->
           <div class="important">
-            <strong>⚠️ Important:</strong> Each virtual-route total already includes the convenience fee. If a parent wants to avoid the convenience fee, they can pay the school fee amount by cash at the school office instead. During USSD wallet-to-bank transfer, select the bank shown with that virtual account. Reference code is backup only.
+            <strong>⚠️ Important:</strong> EduPulse now treats the structured reference as the main payment instruction. Parents should keep the learner identity and fee reference in the payment narration. If the school has configured an optional virtual route for convenience, that route can still be used. Route totals already include the convenience fee. Cash at the school office remains the no-convenience-fee fallback.
           </div>
 
           <!-- Payment Methods Section -->
           <div class="section">
-            <div class="section-title">💰 How to Pay (Per Fee Type)</div>
+            <div class="section-title">💰 How to Pay (Reference-First)</div>
             ${paymentCodes.payment_codes.map(code => `
               <div class="payment-method">
                 <div class="payment-method-title">${code.fee_type}</div>
                 <div class="payment-method-content">
-                  ${code.virtual_bank_account ? `<p><strong>Bank Transfer (Virtual):</strong> ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}</p>` : ''}
-                  ${!code.virtual_bank_account ? '<p style="color:#b91c1c;"><strong>Virtual account not configured for this fee type.</strong></p>' : ''}
+                  <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
+                  <p><strong>Use With:</strong> Bank transfer narration, USSD / shortcode narration, or school-office payment entry.</p>
+                  ${code.virtual_bank_account ? `<p><strong>Optional Virtual Route:</strong> ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}</p>` : ''}
+                  ${!code.virtual_bank_account ? '<p style="color:#475569;"><strong>No optional virtual route is configured for this fee type.</strong> Use the reference with the school\'s approved payment channel.</p>' : ''}
                   <p><strong>School Fee:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                   <p><strong>Convenience Fee:</strong> GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)} (${Number(code.convenience_fee_percent || 0).toFixed(2)}%)</p>
-                  <p><strong>Total by Virtual Route:</strong> GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}</p>
+                  <p><strong>Total by Optional Route:</strong> GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}</p>
                   <p><strong>Cash at School Office:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
-                  <p><strong>Backup Reference:</strong> ${code.reference_code || code.code}</p>
+                  <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
                   ${code.virtual_bank_account ? `
-                    <p style="margin-top: 8px;"><strong>USSD Wallet-to-Bank:</strong></p>
+                    <p style="margin-top: 8px;"><strong>Optional USSD Wallet-to-Bank Route:</strong></p>
                     <p style="margin-left: 12px;">1) Dial your mobile money USSD code (e.g., MTN *170#)</p>
                     <p style="margin-left: 12px;">2) Choose transfer/wallet-to-bank</p>
                     <p style="margin-left: 12px;">3) Select bank: <strong>${code.virtual_bank_name || 'Bank shown with this virtual account'}</strong></p>
                     <p style="margin-left: 12px;">4) Enter account number: <strong>${code.virtual_bank_account}</strong></p>
-                    <p style="margin-left: 12px;">5) Confirm account number, enter amount, and approve payment</p>
+                    <p style="margin-left: 12px;">5) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration if your wallet flow allows it, then confirm payment</p>
                   ` : ''}
                 </div>
               </div>
@@ -397,14 +400,14 @@ export default function StudentPaymentTracker() {
           <div class="section">
             <div class="section-title">📊 Amount Summary</div>
             <div class="instructions">
-              <div class="instructions-title">Virtual Route Totals vs Cash Office Totals:</div>
+              <div class="instructions-title">Reference-First Totals vs Cash Office Totals:</div>
               <div class="instruction-text">
                 ${paymentCodes.payment_codes.map(code => 
-                  `• <strong>${code.fee_type}:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)} school fee + GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)} convenience fee = GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)} via route. Cash at office stays GH₵ ${Number(code.base_amount || 0).toFixed(2)}.`
+                  `• <strong>${code.fee_type}:</strong> Use reference <strong>${code.reference_code || code.code}</strong>. School fee is GH₵ ${Number(code.base_amount || 0).toFixed(2)}. If the optional route is used, convenience fee is GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)} and total becomes GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}. Cash at office stays GH₵ ${Number(code.base_amount || 0).toFixed(2)}.`
                 ).join('<br>')}
               </div>
               <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
-                Total via route: GH₵ ${totalVirtualRouteAmount.toFixed(2)} • Total convenience fees: GH₵ ${totalConvenienceFees.toFixed(2)} • Total by cash at school office: GH₵ ${totalCashAmount.toFixed(2)}
+                Total if optional routes are used: GH₵ ${totalVirtualRouteAmount.toFixed(2)} • Total convenience fees: GH₵ ${totalConvenienceFees.toFixed(2)} • Total by cash at school office: GH₵ ${totalCashAmount.toFixed(2)}
               </div>
             </div>
           </div>
@@ -414,7 +417,7 @@ export default function StudentPaymentTracker() {
             <div class="section-title">❓ Questions?</div>
             <div class="instructions">
               <div class="instruction-text">
-                If you have any questions about these payment routes or which fee route to use:
+                If you have any questions about the payment reference to use or the school\'s approved payment channel:
               </div>
               ${schoolPhone ? `<div class="instruction-text">📞 Call: ${schoolPhone}</div>` : ''}
               ${schoolEmail ? `<div class="instruction-text">✉️ Email: ${schoolEmail}</div>` : ''}
@@ -800,7 +803,7 @@ export default function StudentPaymentTracker() {
                 <div className="bg-amber-50 border-l-4 border-l-amber-600 p-4 rounded-lg">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-bold text-amber-900 flex items-center gap-2">
-                      📋 Payment Routes to Share with Parent
+                      📋 Payment References to Share with Parent
                     </h4>
                     <div className="flex gap-2">
                       <button
@@ -808,12 +811,12 @@ export default function StudentPaymentTracker() {
                           const codesText = paymentCodes.payment_codes
                             .map(c => {
                               const routeText = c.virtual_bank_account
-                                ? `Virtual Account ${c.virtual_bank_account}${c.virtual_bank_name ? ` (${c.virtual_bank_name})` : ''}`
-                                : 'Virtual route pending - contact school accounts office';
-                              return `${c.fee_type}: ${routeText} | School fee GH₵ ${Number(c.base_amount || 0).toFixed(2)} + convenience fee GH₵ ${Number(c.convenience_fee_amount || 0).toFixed(2)} = GH₵ ${Number(c.total_amount || c.amount || 0).toFixed(2)} via route | Cash at school office GH₵ ${Number(c.base_amount || 0).toFixed(2)} | Ref ${c.reference_code || c.code}`;
+                                ? `Optional route ${c.virtual_bank_account}${c.virtual_bank_name ? ` (${c.virtual_bank_name})` : ''}`
+                                : 'No optional route configured';
+                              return `${c.fee_type}: Preferred reference ${c.reference_code || c.code} | ${routeText} | School fee GH₵ ${Number(c.base_amount || 0).toFixed(2)} + convenience fee GH₵ ${Number(c.convenience_fee_amount || 0).toFixed(2)} = GH₵ ${Number(c.total_amount || c.amount || 0).toFixed(2)} if optional route is used | Cash at school office GH₵ ${Number(c.base_amount || 0).toFixed(2)}`;
                             })
                             .join('\n');
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStudent ID: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the matching route for each fee type. Virtual-route amounts already include the convenience fee. If a parent wants to avoid the convenience fee, they can pay the school fee amount by cash at the school office instead. If a virtual account is not yet available, contact the school's accounts office and include the backup reference.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the structured reference as the main instruction for each fee type. If the school has configured an optional route, it may be used with the same reference where possible. Optional-route amounts already include the convenience fee. If a parent wants to avoid the convenience fee, they can pay the school fee amount by cash at the school office.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -841,23 +844,24 @@ export default function StudentPaymentTracker() {
                           <p className="text-xs text-slate-600">School Fee: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs text-slate-600">Convenience Fee: GH₵ {Number(code.convenience_fee_amount || 0).toFixed(2)} ({Number(code.convenience_fee_percent || 0).toFixed(2)}%)</p>
                           <p className="text-xs font-semibold text-slate-700">Total via Route: GH₵ {Number(code.total_amount || code.amount || 0).toFixed(2)}</p>
+                          <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
                           <p className="text-xs text-slate-600">Cash at School Office: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs text-slate-700">
                             {code.virtual_bank_account
-                              ? `🏦 Virtual Account: ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}`
-                              : '🏦 Virtual route pending: Pay by cash at the school office or contact accounts office for approved manual instructions'}
+                              ? `🏦 Optional Route: ${code.virtual_bank_account}${code.virtual_bank_name ? ` (${code.virtual_bank_name})` : ''}`
+                              : '🏦 No optional route configured: use the reference with the school\'s approved payment channel or take it to the school office'}
                           </p>
 
-                          <p className="text-xs text-slate-600">Backup Ref: {code.reference_code || code.code}</p>
+                          <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <code className="block bg-amber-100 text-amber-900 px-3 py-2 rounded font-mono font-bold text-sm">
-                            {code.virtual_bank_account || (code.reference_code || code.code)}
+                            {code.reference_code || code.code}
                           </code>
                           <button
                             onClick={() => {
-                              navigator.clipboard.writeText(code.virtual_bank_account || (code.reference_code || code.code));
-                              alert('Route copied!');
+                              navigator.clipboard.writeText(code.reference_code || code.code);
+                              alert('Reference copied!');
                             }}
                             className="px-2 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors text-xs font-bold"
                           >
@@ -868,7 +872,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Example instruction: "Pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong> school fee + GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.convenience_fee_amount || 0).toFixed(2)}</strong> convenience fee = GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.total_amount || paymentCodes.payment_codes[0]?.amount || 0).toFixed(2)}</strong> via <strong>{paymentCodes.payment_codes[0]?.virtual_bank_account ? `virtual route ${paymentCodes.payment_codes[0]?.virtual_bank_account}` : 'approved manual instruction from the accounts office'}</strong>. If you want to avoid the convenience fee, pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong> by cash at the school office. Backup ref: <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S0011'}</strong>."
+                    💬 Example instruction: "Use reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong> for this fee. The school fee is GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong>. If the school's optional route is used, add the convenience fee of GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.convenience_fee_amount || 0).toFixed(2)}</strong> for a total of GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.total_amount || paymentCodes.payment_codes[0]?.amount || 0).toFixed(2)}</strong>. If you want to avoid the convenience fee, pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong> by cash at the school office."
                   </p>
                 </div>
               )}

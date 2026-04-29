@@ -130,7 +130,7 @@ Implementation status:
 
 Current implementation supports:
 - one optional Paystack dedicated virtual route per fee type
-- structured reference parsing for payment categorization
+- structured reference parsing as the default payment categorization model
 - manual fallback where virtual routes are unavailable
 
 This is valid operationally, but it should be treated as a current implementation pattern, not the universal long-term destination.
@@ -162,6 +162,7 @@ Benefits:
 
 Recommended commercial model:
 - keep the platform subscription as the main contract layer
+- bundle AI Registrar into the current paid subscriptions as a standard admissions capability
 - keep already-shipped AI value inside Premium where it already strengthens Premium differentiation
 - sell new AI Employees as optional add-ons that a school can enable when the workflow is relevant
 - avoid per-task or pure outcome-based billing until trust, baseline usage, and cost predictability are stronger
@@ -179,14 +180,16 @@ Premium-bundled AI features:
 - AI Exam Assistant
 - current AI lesson-analysis and narrative features already tied to Premium capability tiers
 
+Paid-plan bundled AI features:
+- AI Registrar for Basic and Premium schools
+
 Optional AI Employee add-ons for new workflow workers:
-- AI Registrar Add-on
 - AI Bursar Add-on
 - future Communications Automation Add-on where SMS or WhatsApp usage becomes material
 
 ### Draft Add-on Package Model
 
-#### 1. AI Registrar Add-on
+#### 1. AI Registrar (Bundled in Paid Plans)
 
 Positioning:
 - admission workflow automation for schools that want a stronger parent-intake and review-assistance layer
@@ -201,13 +204,13 @@ Recommended scope:
 - optional approval-document generation when the school enables it
 
 Recommended pricing shape:
-- fixed add-on fee per school per term
-- include a reasonable admissions volume band in the base add-on
-- if usage becomes large later, use volume bands per term, not per application decision
+- include AI Registrar in Basic and Premium plan value messaging
+- treat admissions volume as part of normal paid-plan adoption rather than a separate AI worker invoice
+- if usage becomes unusually large later, revisit plan bands before introducing a separate AI Registrar bill
 
 Recommended starting commercial draft:
-- Basic plan school: GH₵180 to GH₵300 per term
-- Premium plan school: GH₵120 to GH₵240 per term as a lighter uplift because Premium already carries related workflow value
+- Basic plan school: AI Registrar included in the subscription
+- Premium plan school: AI Registrar included in the subscription alongside broader AI and governance value
 
 Why Basic and Premium prices differ:
 - Premium already bundles adjacent AI and governance capability, so the add-on is an incremental expansion rather than a cold-start workflow purchase

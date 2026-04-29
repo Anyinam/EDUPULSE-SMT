@@ -91,7 +91,7 @@ This route returns a parent-safe payment payload with:
 - supported payment rails
 - structured reference examples
 - fee-by-fee payment instructions
-- fee-route DVA details where configured
+- optional fee-route DVA details where configured
 - school-office fallback guidance
 - school-configured admission fee when enabled
 

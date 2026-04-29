@@ -21,122 +21,38 @@ const TEMPLATE_CANONICAL_TO_ALIAS = Object.fromEntries(
 const PREVIEW_TEMPLATE_THEMES = {
   default: {
     modalCanvas: 'bg-white p-8 shadow-lg',
-    sectionGap: 'space-y-6',
-    headerWrap: 'text-center mb-2 border-b-4 border-blue-800 pb-4',
-    logoShell: 'bg-blue-100 text-blue-900',
-    titleClass: 'text-3xl font-bold text-blue-900 uppercase',
-    mottoClass: 'mt-1 text-sm italic text-gray-600',
-    contactClass: 'mt-2 text-xs text-gray-500',
-    studentCard: 'grid grid-cols-2 gap-4 rounded-lg bg-blue-50 p-4 text-xs',
-    academicTitleClass: 'text-xl font-bold uppercase text-slate-800',
+    sectionGap: 'space-y-5',
+    headerWrap: 'mb-2 rounded-3xl bg-linear-to-r from-emerald-600 via-teal-600 to-sky-600 px-6 pb-5 pt-4 text-white shadow-lg',
+    logoShell: 'bg-white/20 text-white',
+    titleClass: 'text-3xl font-black uppercase tracking-tight text-white',
+    mottoClass: 'mt-1 text-sm italic text-emerald-100',
+    contactClass: 'mt-2 text-xs text-emerald-100',
+    studentCard: 'grid grid-cols-2 gap-4 rounded-3xl border border-emerald-100 bg-white p-5 text-xs text-slate-800 shadow-sm',
+    academicTitleClass: 'text-xl font-black uppercase text-slate-900',
     academicMetaClass: 'text-sm text-slate-600',
-    summaryCard: 'rounded-lg bg-blue-50 p-4',
-    summaryTitle: 'mb-3 border-b pb-1 font-bold text-slate-700',
-    summaryLabel: 'font-bold text-slate-700',
-    summaryValue: 'font-bold text-slate-800',
-    tableTitle: 'mb-2 border-b pb-1 font-bold text-slate-700',
-    tableHead: 'bg-slate-100',
-    tableRow: 'border-b',
-    tableGrade: 'font-bold text-green-700',
-    tableTotal: 'font-bold',
-    scaleHead: 'bg-slate-50',
-    scaleText: 'text-slate-700',
-    insightWrap: 'rounded-lg bg-slate-50 p-4',
-    insightTitle: 'mb-3 border-b pb-1 font-bold text-slate-700',
-    insightCard: 'rounded border border-slate-200 bg-white p-3',
-    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-slate-500',
-    insightText: 'text-sm text-slate-700',
-    signatureWrap: 'mt-8 border-t pt-4',
-    signatureLine: 'mt-8 border-t border-slate-400 pt-1',
-    signatureText: 'text-xs font-bold text-slate-700',
-    genericCard: 'rounded-lg border p-4',
-    genericTitle: 'mb-2 text-sm font-bold text-gray-700',
-    genericText: 'grid grid-cols-1 gap-2 text-xs text-gray-600 md:grid-cols-2',
-    genericLabel: 'font-semibold text-gray-700',
-    remarkTones: {
-      teacher_remarks: 'rounded border-l-4 border-yellow-400 bg-yellow-50 p-3',
-      headmaster_remarks: 'rounded border-l-4 border-orange-400 bg-orange-50 p-3',
-      proprietor_remarks: 'rounded border-l-4 border-cyan-400 bg-cyan-50 p-3',
-      ai_analysis: 'rounded border-l-4 border-purple-400 bg-purple-50 p-3',
-      default: 'rounded border-l-4 border-slate-300 bg-slate-50 p-3'
-    }
-  },
-  gradman_v1: {
-    modalCanvas: 'bg-white p-8 shadow-lg',
-    sectionGap: 'space-y-6',
-    headerWrap: 'text-center mb-2 border-b-4 border-blue-900 pb-5',
-    logoShell: 'bg-blue-100 text-blue-900',
-    titleClass: 'text-3xl font-black tracking-tight text-blue-900 uppercase',
-    mottoClass: 'mt-1 text-sm italic text-slate-600',
-    contactClass: 'mt-2 text-xs text-slate-500',
-    studentCard: 'grid grid-cols-2 gap-4 rounded-xl border border-blue-100 bg-blue-50 p-5 text-xs',
-    academicTitleClass: 'text-2xl font-extrabold uppercase text-slate-900',
-    academicMetaClass: 'text-sm text-slate-600',
-    summaryCard: 'rounded-xl border border-blue-100 bg-white p-4 shadow-sm',
-    summaryTitle: 'mb-3 border-b border-blue-100 pb-1 font-bold uppercase tracking-wide text-blue-900',
+    summaryCard: 'rounded-3xl border border-slate-200 bg-white p-4 text-slate-800 shadow-sm',
+    summaryTitle: 'mb-3 border-b border-slate-200 pb-1 font-bold uppercase tracking-wide text-emerald-700',
     summaryLabel: 'font-bold text-slate-700',
     summaryValue: 'font-bold text-slate-900',
-    tableTitle: 'mb-2 border-b border-blue-100 pb-1 font-bold uppercase tracking-wide text-blue-900',
-    tableHead: 'bg-blue-50',
-    tableRow: 'border-b border-slate-200',
-    tableGrade: 'font-bold text-blue-700',
-    tableTotal: 'font-bold text-slate-900',
-    scaleHead: 'bg-blue-50',
-    scaleText: 'text-slate-700',
-    insightWrap: 'rounded-xl border border-slate-200 bg-slate-50 p-4',
-    insightTitle: 'mb-3 border-b border-blue-100 pb-1 font-bold uppercase tracking-wide text-blue-900',
-    insightCard: 'rounded-lg border border-blue-100 bg-white p-3',
-    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-blue-700',
-    insightText: 'text-sm text-slate-700',
-    signatureWrap: 'mt-10 border-t border-slate-200 pt-4',
-    signatureLine: 'mt-8 border-t border-slate-500 pt-1',
-    signatureText: 'text-xs font-bold uppercase tracking-wide text-slate-700',
-    genericCard: 'rounded-xl border border-slate-200 p-4',
-    genericTitle: 'mb-2 text-sm font-bold uppercase tracking-wide text-blue-900',
-    genericText: 'grid grid-cols-1 gap-2 text-xs text-slate-600 md:grid-cols-2',
-    genericLabel: 'font-semibold text-slate-800',
-    remarkTones: {
-      teacher_remarks: 'rounded-xl border-l-4 border-yellow-400 bg-yellow-50 p-3',
-      headmaster_remarks: 'rounded-xl border-l-4 border-orange-400 bg-orange-50 p-3',
-      proprietor_remarks: 'rounded-xl border-l-4 border-cyan-400 bg-cyan-50 p-3',
-      ai_analysis: 'rounded-xl border-l-4 border-indigo-400 bg-indigo-50 p-3',
-      default: 'rounded-xl border-l-4 border-slate-300 bg-slate-50 p-3'
-    }
-  },
-  parent_focus: {
-    modalCanvas: 'bg-emerald-50 p-8 shadow-lg',
-    sectionGap: 'space-y-5',
-    headerWrap: 'mb-2 rounded-3xl bg-white px-6 pb-5 pt-4 text-left shadow-sm',
-    logoShell: 'bg-emerald-100 text-emerald-800',
-    titleClass: 'text-3xl font-black text-emerald-900 uppercase',
-    mottoClass: 'mt-1 text-sm italic text-emerald-700',
-    contactClass: 'mt-2 text-xs text-emerald-800',
-    studentCard: 'grid grid-cols-2 gap-4 rounded-3xl bg-white p-5 text-xs shadow-sm',
-    academicTitleClass: 'text-xl font-black uppercase text-emerald-900',
-    academicMetaClass: 'text-sm text-emerald-700',
-    summaryCard: 'rounded-3xl bg-emerald-100 p-4',
-    summaryTitle: 'mb-3 border-b border-emerald-200 pb-1 font-bold text-emerald-900',
-    summaryLabel: 'font-bold text-emerald-900',
-    summaryValue: 'font-bold text-emerald-950',
-    tableTitle: 'mb-2 font-bold text-emerald-900',
-    tableHead: 'bg-emerald-100',
-    tableRow: 'border-b border-emerald-100',
+    tableTitle: 'mb-2 border-b border-slate-200 pb-1 font-bold uppercase tracking-wide text-sky-700',
+    tableHead: 'bg-slate-100 text-slate-700',
+    tableRow: 'border-b border-slate-200 text-slate-700',
     tableGrade: 'font-bold text-emerald-700',
-    tableTotal: 'font-bold text-emerald-950',
-    scaleHead: 'bg-white',
-    scaleText: 'text-emerald-900',
-    insightWrap: 'rounded-3xl bg-white p-4 shadow-sm',
-    insightTitle: 'mb-3 border-b border-emerald-100 pb-1 font-bold text-emerald-900',
-    insightCard: 'rounded-2xl bg-emerald-50 p-3',
-    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-emerald-700',
-    insightText: 'text-sm text-emerald-950',
-    signatureWrap: 'mt-8 rounded-3xl bg-white p-4 shadow-sm',
-    signatureLine: 'mt-8 border-t border-emerald-300 pt-1',
-    signatureText: 'text-xs font-bold text-emerald-900',
-    genericCard: 'rounded-3xl bg-white p-4 shadow-sm',
-    genericTitle: 'mb-2 text-sm font-bold text-emerald-900',
-    genericText: 'grid grid-cols-1 gap-2 text-xs text-emerald-800 md:grid-cols-2',
-    genericLabel: 'font-semibold text-emerald-900',
+    tableTotal: 'font-bold text-slate-900',
+    scaleHead: 'bg-slate-100 text-slate-700',
+    scaleText: 'text-slate-700',
+    insightWrap: 'rounded-3xl border border-slate-200 bg-white p-4 shadow-sm',
+    insightTitle: 'mb-3 border-b border-slate-200 pb-1 font-bold uppercase tracking-wide text-violet-700',
+    insightCard: 'rounded-2xl bg-slate-50 p-3',
+    insightLabel: 'mb-1 text-xs font-bold uppercase tracking-wide text-violet-700',
+    insightText: 'text-sm text-slate-700',
+    signatureWrap: 'mt-8 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm',
+    signatureLine: 'mt-8 border-t border-slate-400 pt-1',
+    signatureText: 'text-xs font-bold text-slate-700',
+    genericCard: 'rounded-3xl border border-slate-200 bg-white p-4 shadow-sm',
+    genericTitle: 'mb-2 text-sm font-bold uppercase tracking-wide text-slate-700',
+    genericText: 'grid grid-cols-1 gap-2 text-xs text-slate-600 md:grid-cols-2',
+    genericLabel: 'font-semibold text-slate-700',
     remarkTones: {
       teacher_remarks: 'rounded-3xl border border-emerald-200 bg-white p-4',
       headmaster_remarks: 'rounded-3xl border border-lime-200 bg-lime-50 p-4',
@@ -290,7 +206,7 @@ export default function SettingsPanel() {
     country_code: 'GH',
     anniversary_date: '',
     next_term_reopen_date: '',
-    ai_registrar_addon_enabled: false,
+    ai_registrar_enabled: false,
     approval_pdf_enabled: false,
     approval_pdf_delivery_mode: 'email_link',
     approval_pdf_include_payment_summary: true,
@@ -325,19 +241,6 @@ export default function SettingsPanel() {
   });
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [subscriptionPlan, setSubscriptionPlan] = useState('');
-  const [paystackProviders, setPaystackProviders] = useState([]);
-  const [paystackRoutes, setPaystackRoutes] = useState([]);
-  const [loadingPaystackProviders, setLoadingPaystackProviders] = useState(false);
-  const [loadingPaystackRoutes, setLoadingPaystackRoutes] = useState(false);
-  const [creatingPaystackRoute, setCreatingPaystackRoute] = useState(false);
-  const [resolvingPaystackCustomer, setResolvingPaystackCustomer] = useState(false);
-  const [paystackProviderError, setPaystackProviderError] = useState('');
-  const [paystackRouteMessage, setPaystackRouteMessage] = useState('');
-  const [paystackRouteForm, setPaystackRouteForm] = useState({
-    payment_type: 'Tuition',
-    customer_code: '',
-    preferred_bank: ''
-  });
   const [bankDetailsVisible, setBankDetailsVisible] = useState(false);
   const [maskedBankSnapshot, setMaskedBankSnapshot] = useState({
     bank_name: '',
@@ -444,7 +347,7 @@ export default function SettingsPanel() {
           country_code: data.country_code || prev.country_code,
           anniversary_date: data.anniversary_date || prev.anniversary_date,
           next_term_reopen_date: data.next_term_reopen_date || '',
-          ai_registrar_addon_enabled: Boolean(data.ai_registrar_addon_enabled),
+          ai_registrar_enabled: Boolean(data.ai_registrar_enabled ?? data.ai_registrar_addon_enabled),
           approval_pdf_enabled: Boolean(data.approval_pdf_enabled),
           approval_pdf_delivery_mode: data.approval_pdf_delivery_mode || 'email_link',
           approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
@@ -505,105 +408,12 @@ export default function SettingsPanel() {
     fetchGradingScheme();
     fetchFees();
     fetchActiveTemplate();
-    fetchPaystackProviders();
-    fetchPaystackRoutes();
   }, []);
 
   const getAuthHeaders = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
     'X-School-ID': localStorage.getItem('school_id')
   });
-
-  const fetchPaystackProviders = async () => {
-    setLoadingPaystackProviders(true);
-    setPaystackProviderError('');
-    try {
-      const headers = getAuthHeaders();
-      const res = await axios.get('/api/proprietor/paystack/providers?country=ghana', { headers });
-      const providers = Array.isArray(res.data)
-        ? res.data
-        : Array.isArray(res.data?.providers)
-          ? res.data.providers
-          : [];
-      setPaystackProviders(providers);
-      if (res.data?.warning) {
-        setPaystackProviderError(`⚠️ ${res.data.warning}`);
-      }
-      if (!paystackRouteForm.preferred_bank && providers.length > 0) {
-        const defaultProvider = providers[0]?.slug || providers[0]?.name || '';
-        setPaystackRouteForm((prev) => ({ ...prev, preferred_bank: defaultProvider }));
-      }
-    } catch (err) {
-      const error = err.response?.data?.error || err.response?.data?.message || 'Failed to load supported providers';
-      setPaystackProviderError(error);
-    } finally {
-      setLoadingPaystackProviders(false);
-    }
-  };
-
-  const fetchPaystackRoutes = async () => {
-    setLoadingPaystackRoutes(true);
-    try {
-      const headers = getAuthHeaders();
-      const res = await axios.get('/api/proprietor/paystack/subaccounts', { headers });
-      setPaystackRoutes(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error('Failed to load Paystack routes:', err);
-      setPaystackRoutes([]);
-    } finally {
-      setLoadingPaystackRoutes(false);
-    }
-  };
-
-  const handleAutofillPaystackCustomerCode = async () => {
-    setResolvingPaystackCustomer(true);
-    setPaystackRouteMessage('');
-    try {
-      const headers = getAuthHeaders();
-      const res = await axios.post('/api/proprietor/paystack/customers/resolve', {}, { headers });
-      const customerCode = res.data?.customer_code || '';
-      if (!customerCode) {
-        setPaystackRouteMessage('❌ Could not resolve a Paystack customer code.');
-        return;
-      }
-
-      setPaystackRouteForm((prev) => ({ ...prev, customer_code: customerCode }));
-      setPaystackRouteMessage(`✅ Customer code auto-filled: ${customerCode}`);
-    } catch (err) {
-      const error = err.response?.data?.error || err.response?.data?.message || 'Failed to auto-fill customer code';
-      setPaystackRouteMessage(`❌ ${error}`);
-    } finally {
-      setResolvingPaystackCustomer(false);
-    }
-  };
-
-  const handleCreatePaystackRoute = async () => {
-    const fallbackProvider = paystackRouteForm.preferred_bank?.trim() || 'titan-paystack';
-
-    setCreatingPaystackRoute(true);
-    setPaystackRouteMessage('');
-    try {
-      const headers = getAuthHeaders();
-      const payload = {
-        payment_type: paystackRouteForm.payment_type,
-        customer_code: paystackRouteForm.customer_code?.trim() || undefined,
-        preferred_bank: fallbackProvider
-      };
-
-      const res = await axios.post('/api/proprietor/paystack/subaccounts/create', payload, { headers });
-      if (res.data?.mode === 'manual_fallback') {
-        setPaystackRouteMessage(`⚠️ ${res.data?.message || 'Route created in fallback mode. Virtual account is not yet available.'}`);
-      } else {
-        setPaystackRouteMessage(`✅ ${res.data?.message || 'Virtual account created successfully.'}`);
-      }
-      await fetchPaystackRoutes();
-    } catch (err) {
-      const error = err.response?.data?.error || err.response?.data?.message || 'Failed to create virtual account route';
-      setPaystackRouteMessage(`❌ ${error}`);
-    } finally {
-      setCreatingPaystackRoute(false);
-    }
-  };
 
   const fetchActiveTemplate = async () => {
     try {
@@ -1270,11 +1080,11 @@ export default function SettingsPanel() {
         country_code: settings.country_code,
         anniversary_date: settings.anniversary_date,
         next_term_reopen_date: settings.next_term_reopen_date,
-        approval_pdf_enabled: settings.ai_registrar_addon_enabled ? settings.approval_pdf_enabled : false,
+        approval_pdf_enabled: settings.ai_registrar_enabled ? settings.approval_pdf_enabled : false,
         approval_pdf_delivery_mode: settings.approval_pdf_delivery_mode,
-        approval_pdf_include_payment_summary: settings.ai_registrar_addon_enabled ? settings.approval_pdf_include_payment_summary : false,
-        approval_pdf_include_required_items: settings.ai_registrar_addon_enabled ? settings.approval_pdf_include_required_items : false,
-        approval_pdf_required_items: settings.ai_registrar_addon_enabled ? settings.approval_pdf_required_items : ''
+        approval_pdf_include_payment_summary: settings.ai_registrar_enabled ? settings.approval_pdf_include_payment_summary : false,
+        approval_pdf_include_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_include_required_items : false,
+        approval_pdf_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_required_items : ''
       };
 
       if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
@@ -1369,26 +1179,6 @@ export default function SettingsPanel() {
       console.error('Grading scheme save error:', err);
     }
   };
-
-  const providerErrorLower = (paystackProviderError || '').toLowerCase();
-  const hasProviderAuthIssue =
-    providerErrorLower.includes('unauthorized') ||
-    providerErrorLower.includes('paystack_secret_key') ||
-    providerErrorLower.includes('invalid key') ||
-    providerErrorLower.includes('forbidden') ||
-    providerErrorLower.includes('permission');
-
-  const paymentNetworkStatus = loadingPaystackProviders
-    ? 'Checking'
-    : paystackProviderError
-      ? 'Temporary Fallback'
-      : 'Active';
-
-  const paymentNetworkBadgeClass = loadingPaystackProviders
-    ? 'bg-slate-100 text-slate-700'
-    : paystackProviderError
-      ? 'bg-amber-100 text-amber-800'
-      : 'bg-green-100 text-green-800';
 
   return (
     <>
@@ -1573,23 +1363,26 @@ export default function SettingsPanel() {
         {/* Payment Account Details Section */}
         <div className="border-t pt-6 mt-8">
           <h3 className="text-lg font-bold text-slate-800 mb-4">💳 Payment Account Details</h3>
-          <p className="text-sm text-slate-600 mb-6">Parents pay via Paystack payment gateway. Bank account details below are hidden after save and require password re-entry to view again.</p>
+          <p className="text-sm text-slate-600 mb-6">Parents pay using the learner payment identity plus structured references. Bank account details below are hidden after save and require password re-entry to view again.</p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Bank Transfer Section */}
             <div className="border rounded-lg p-4 bg-green-50">
               <h4 className="font-bold text-slate-800 mb-3">🏦 Bank Account</h4>
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-slate-600">Saved bank details stay masked until you click View and re-enter your password.</p>
+                <p className="max-w-sm text-xs text-slate-600">Saved bank details stay masked by default. Use the secure reveal action and confirm your password to view the full account information.</p>
                 {!bankDetailsVisible && (
                   <button
                     type="button"
                     onClick={handleViewBankDetails}
-                    className="inline-flex items-center justify-center rounded bg-indigo-600 px-3 py-1 text-sm text-white"
+                    className="inline-flex min-w-40 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
                   >
-                    View Hidden Bank Details
+                    Reveal Bank Details
                   </button>
                 )}
+              </div>
+              <div className="mb-3 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
+                EduPulse now tracks school-fee transactions with the learner payment identity plus structured references. Keep this bank account accurate because it remains the school's official receiving account for bank-transfer instructions, office-guided payments, and reconciliation review.
               </div>
               <div className="space-y-3">
                 <div>
@@ -1639,138 +1432,6 @@ export default function SettingsPanel() {
                     placeholder="Bank branch name"
                     disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_branch)}
                   />
-                </div>
-              </div>
-            </div>
-
-            {/* Paystack Dedicated Virtual Accounts */}
-            <div className="border rounded-lg p-4 bg-blue-50">
-              <h4 className="font-bold text-slate-800 mb-2">🧾 Paystack Virtual Accounts</h4>
-              <p className="text-xs text-slate-600 mb-3">
-                Create one dedicated virtual account per fee type. Parents can transfer to these account numbers directly.
-              </p>
-              <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                Test Paystack secret keys usually keep dedicated routes in fallback mode. You need live Paystack keys before real virtual account numbers will consistently appear.
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-bold text-slate-700">Payment Type</label>
-                  <select
-                    value={paystackRouteForm.payment_type}
-                    onChange={(e) => setPaystackRouteForm((prev) => ({ ...prev, payment_type: e.target.value }))}
-                    className="w-full p-2 border rounded mt-1 bg-white"
-                  >
-                    <option value="Tuition">Tuition</option>
-                    <option value="Feeding">Feeding</option>
-                    <option value="Uniform">Uniform</option>
-                    <option value="Transport">Transport</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                <div className="bg-slate-50 border border-slate-200 rounded p-2">
-                  <p className="text-xs text-slate-600">
-                    Customer profile is handled automatically by the system. No extra configuration is required.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="text-sm font-bold text-slate-700">Supported Provider / Bank</label>
-                  <select
-                    value={paystackRouteForm.preferred_bank}
-                    onChange={(e) => setPaystackRouteForm((prev) => ({ ...prev, preferred_bank: e.target.value }))}
-                    className="w-full p-2 border rounded mt-1 bg-white"
-                    disabled={loadingPaystackProviders}
-                  >
-                    {!loadingPaystackProviders && paystackProviders.length === 0 && (
-                      <option value="">No providers loaded</option>
-                    )}
-                    {paystackProviders.map((provider, idx) => (
-                      <option
-                        key={`${provider.slug || provider.name || 'provider'}-${idx}`}
-                        value={provider.slug || provider.name || ''}
-                      >
-                        {provider.name || provider.slug || 'Unknown Provider'}
-                        {provider.slug ? ` (${provider.slug})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={fetchPaystackProviders}
-                      className="px-3 py-1 text-xs font-bold rounded bg-slate-700 text-white hover:bg-slate-600"
-                    >
-                      {loadingPaystackProviders ? 'Refreshing...' : 'Refresh Providers'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCreatePaystackRoute}
-                      disabled={creatingPaystackRoute}
-                      className="px-3 py-1 text-xs font-bold rounded bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-50"
-                    >
-                      {creatingPaystackRoute ? 'Creating...' : 'Create Virtual Account'}
-                    </button>
-                  </div>
-                  {paystackProviderError && (
-                    <div className={`mt-2 rounded border p-2 text-xs ${paystackProviderError.startsWith('⚠️') ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-red-300 bg-red-50 text-red-700'}`}>
-                      <p className="font-semibold">{paystackProviderError.startsWith('⚠️') ? paystackProviderError : `❌ ${paystackProviderError}`}</p>
-                      {hasProviderAuthIssue && (
-                        <ul className="mt-2 list-disc pl-4 space-y-1">
-                          <li>Payment network is temporarily unavailable.</li>
-                          <li>You can still create routes and continue operations.</li>
-                          <li>Parents can pay using the school bank account while setup completes.</li>
-                          <li>If this continues, contact platform support.</li>
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                  {paystackRouteMessage && (
-                    <p className={`text-xs mt-2 ${paystackRouteMessage.startsWith('✅') ? 'text-green-700' : paystackRouteMessage.startsWith('⚠️') ? 'text-amber-800' : 'text-red-600'}`}>
-                      {paystackRouteMessage}
-                    </p>
-                  )}
-                </div>
-
-                <div className="pt-2 border-t">
-                  <p className="text-sm font-bold text-slate-700 mb-2">Configured Virtual Routes</p>
-                  <p className="text-xs text-slate-500 mb-2">
-                    Status: <span className="font-semibold text-green-700">Virtual Account Ready</span> (real account number available) or <span className="font-semibold text-amber-700">Fallback Mode</span> (manual route while gateway setup completes).
-                  </p>
-                  {loadingPaystackRoutes ? (
-                    <p className="text-xs text-slate-500">Loading routes...</p>
-                  ) : paystackRoutes.length === 0 ? (
-                    <p className="text-xs text-slate-500">No virtual routes created yet.</p>
-                  ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      {paystackRoutes
-                        .filter((route) => route.is_active)
-                        .map((route) => {
-                          const isFallbackMode = !route.virtual_bank_account || (route.subaccount_code || '').startsWith('MANUAL_');
-
-                          return (
-                            <div key={route.id} className="bg-white border rounded p-2 text-xs">
-                              <div className="flex items-center justify-between gap-2 mb-1">
-                                <p className="font-bold text-slate-700">{route.payment_type}</p>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    isFallbackMode
-                                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                      : 'bg-green-100 text-green-800 border border-green-300'
-                                  }`}
-                                >
-                                  {isFallbackMode ? 'Fallback Mode' : 'Virtual Account Ready'}
-                                </span>
-                              </div>
-                              <p className="text-slate-600">Acct: {route.virtual_bank_account || 'Not set'}</p>
-                              <p className="text-slate-600">Bank: {route.virtual_bank_name || route.momo_provider || 'Not set'}</p>
-                              <p className="text-slate-600">Convenience Fee: {Number(route.percentage_charge || 0).toFixed(2)}%</p>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1993,9 +1654,9 @@ export default function SettingsPanel() {
             Control whether approved applicants get an admission decision PDF. Rejected and correction-status applications do not generate PDFs by default.
           </p>
 
-          {!settings.ai_registrar_addon_enabled && (
+          {!settings.ai_registrar_enabled && (
             <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Approval PDFs require the AI Registrar add-on. The controls below stay locked until that add-on is enabled for this school.
+              Approval PDFs are included on paid subscription plans. Free Tier schools can still run admissions review, but PDF decision delivery stays locked.
             </div>
           )}
 
@@ -2013,7 +1674,7 @@ export default function SettingsPanel() {
                   checked={settings.approval_pdf_enabled}
                   onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_enabled: e.target.checked }))}
                   className="h-4 w-4 rounded border-slate-300"
-                  disabled={!settings.ai_registrar_addon_enabled}
+                  disabled={!settings.ai_registrar_enabled}
                 />
                 Enable PDF
               </label>
@@ -2027,7 +1688,7 @@ export default function SettingsPanel() {
                   value={settings.approval_pdf_delivery_mode}
                   onChange={handleChange}
                   className="w-full p-3 border rounded-lg bg-white"
-                  disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled}
+                  disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
                 >
                   <option value="status_page_only">Status Page Only</option>
                   <option value="email_link">Email Link + Status Page</option>
@@ -2045,7 +1706,7 @@ export default function SettingsPanel() {
                     checked={settings.approval_pdf_include_payment_summary}
                     onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_payment_summary: e.target.checked }))}
                     className="mt-1 h-4 w-4 rounded border-slate-300"
-                    disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled}
+                    disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
                   />
                   <span>
                     <span className="block text-sm font-bold text-slate-700">Include Payment Guidance</span>
@@ -2059,7 +1720,7 @@ export default function SettingsPanel() {
                     checked={settings.approval_pdf_include_required_items}
                     onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_required_items: e.target.checked }))}
                     className="mt-1 h-4 w-4 rounded border-slate-300"
-                    disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled}
+                    disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
                   />
                   <span>
                     <span className="block text-sm font-bold text-slate-700">Include Required Items</span>
@@ -2077,7 +1738,7 @@ export default function SettingsPanel() {
                 onChange={handleChange}
                 rows={5}
                 className="w-full p-3 border rounded-lg bg-white"
-                disabled={!settings.ai_registrar_addon_enabled || !settings.approval_pdf_enabled || !settings.approval_pdf_include_required_items}
+                disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled || !settings.approval_pdf_include_required_items}
                 placeholder={'Examples:\n- Bring two passport photographs\n- Bring prior report card\n- Report to the admissions office on reopening day'}
               />
               <p className="text-xs text-slate-500 mt-2">

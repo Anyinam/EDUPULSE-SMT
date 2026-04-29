@@ -242,6 +242,104 @@ def test_paystack_webhook_duplicate_event_protection(client, db, test_school, mo
     assert call_counter["count"] == 1
 
 
+def test_bank_webhook_requires_valid_signature(client, db, test_school, monkeypatch):
+    from backend.api.models import Student
+
+    monkeypatch.setenv("BANK_WEBHOOK_SECRET", "test-bank-webhook-secret-0123456789")
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Kwame",
+        surname="Boateng",
+        name="Kwame Boateng",
+        student_code="BANK001",
+        current_class="JHS 1",
+        total_tuition_owed=250.0,
+    )
+    db.session.add(student)
+    db.session.commit()
+
+    payload = {
+        "status": "success",
+        "reference": "BANK001-TUITION-T1",
+        "amount": 50.0,
+        "transaction_id": "BANK-WEBHOOK-REJECT-001",
+        "payer_name": "Parent One",
+    }
+
+    raw = json.dumps(payload).encode("utf-8")
+
+    missing = client.post(
+        "/api/finance/webhook/bank",
+        data=raw,
+        headers={"Content-Type": "application/json"},
+    )
+    assert missing.status_code == 401
+    assert missing.get_json()["message"] == "Missing bank webhook signature"
+
+    invalid = client.post(
+        "/api/finance/webhook/bank",
+        data=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Bank-Signature": "bad-signature",
+        },
+    )
+    assert invalid.status_code == 401
+    assert invalid.get_json()["message"] == "Invalid bank webhook signature"
+
+
+def test_bank_webhook_records_payment_with_valid_signature(client, db, test_school, monkeypatch):
+    from backend.api.models import Payment, Student
+
+    secret = "test-bank-webhook-secret-0123456789"
+    monkeypatch.setenv("BANK_WEBHOOK_SECRET", secret)
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Ama",
+        surname="Mensah",
+        name="Ama Mensah",
+        student_code="BANK002",
+        current_class="JHS 2",
+        total_tuition_owed=300.0,
+    )
+    db.session.add(student)
+    db.session.commit()
+
+    payload = {
+        "status": "success",
+        "reference": "BANK002-TUITION-T1",
+        "amount": 120.0,
+        "transaction_id": "BANK-WEBHOOK-OK-001",
+        "payer_name": "Parent Two",
+    }
+
+    raw = json.dumps(payload).encode("utf-8")
+    signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/api/finance/webhook/bank",
+        data=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Bank-Signature": signature,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "recorded"
+    assert body["payment_type"] == "Tuition"
+
+    payment = Payment.query.filter_by(reference_id="BANK-WEBHOOK-OK-001").first()
+    assert payment is not None
+    assert payment.method == "Bank_Auto"
+
+    db.session.refresh(student)
+    assert student.total_tuition_owed == 180.0
+
+
 def test_billing_timeline_and_statement_endpoints(client, db, test_school, proprietor_headers):
     from backend.api.models import add_ledger_entry
 

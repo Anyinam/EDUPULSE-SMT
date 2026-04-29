@@ -43,90 +43,26 @@ const SubscriptionPlans = () => {
 
     fetchData();
   }, []);
-  
-  const plans = [
-    {
-      name: 'Free',
-      price: 0,
-      priceLabel: 'Forever Free',
-      description: 'Perfect for small schools getting started',
-      maxStudents: 50,
-      maxClasses: 1,
-      maxStaff: 3,
-      color: 'gray',
-      features: [
-        { name: 'Up to 50 students', included: true },
-        { name: '1 class only', included: true },
-        { name: 'View attendance & feeding', included: true, note: 'Read-only' },
-        { name: 'Basic report generation', included: true },
-        { name: 'Grade viewing', included: true },
-        { name: 'Grade entry & editing', included: false },
-        { name: 'Lesson notes', included: false },
-        { name: 'Payment tracking', included: false },
-        { name: 'Bulk operations', included: false },
-        { name: 'AI analysis', included: false },
-        { name: 'Advanced analytics', included: false },
-      ],
-    },
-    {
-      name: 'Basic',
-      price: 12,
-      baseFee: 360,
-      includedStudents: 30,
-      priceLabel: '360 GHS base + 12/student above 30',
-      description: 'Full school operations for growing institutions',
-      maxStudents: 200,
-      maxClasses: 5,
-      maxStaff: 15,
-      color: 'blue',
-      popular: true,
-      features: [
-        { name: 'Up to 200 students', included: true },
-        { name: '5 classes', included: true },
-        { name: 'Full attendance & feeding management', included: true },
-        { name: 'Grade entry & editing', included: true },
-        { name: 'Lesson notes creation', included: true },
-        { name: 'Payment tracking & reconciliation', included: true },
-        { name: 'Bulk operations (attendance/feeding)', included: true },
-        { name: 'Exam Papers module', included: false, note: 'Premium only' },
-        { name: '5 report templates', included: true },
-        { name: 'Basic AI feedback on lesson notes', included: true },
-        { name: 'AI Exam Assistant', included: false, note: 'Premium only' },
-        { name: 'AI grade narratives', included: false },
-        { name: 'Custom HTML templates', included: false },
-        { name: 'Advanced analytics dashboard', included: false },
-      ],
-    },
-    {
-      name: 'Premium',
-      price: 17,
-      baseFee: 510,
-      includedStudents: 30,
-      priceLabel: '510 GHS base + 17/student above 30',
-      description: 'Unlimited access with AI-powered insights',
-      maxStudents: '∞',
-      maxClasses: '∞',
-      maxStaff: '∞',
-      color: 'purple',
-      features: [
-        { name: 'Unlimited students', included: true },
-        { name: 'Unlimited classes', included: true },
-        { name: 'Everything in Basic, plus:', included: true, bold: true },
-        { name: 'Exam Papers module', included: true },
-        { name: 'AI Exam Assistant', included: true },
-        { name: 'AI-generated grade narratives', included: true },
-        { name: 'Full AI analysis & scoring', included: true },
-        { name: 'Advanced analytics dashboard', included: true },
-        { name: 'Custom HTML report templates', included: true },
-        { name: 'Priority support', included: true },
-        { name: 'API access', included: true },
-        { name: 'White-label options', included: true },
-      ],
-    },
-  ];
+
+  const plans = (plansData || []).map((plan) => ({
+    rawName: plan.name,
+    name: plan.display_name || plan.name,
+    price: Number(plan.price_per_student_per_term || 0),
+    baseFee: Number(plan.base_fee_per_term || 0),
+    includedStudents: Number(plan.included_students || 0),
+    description: plan.description,
+    maxStudents: plan.max_students,
+    maxClasses: plan.max_classes,
+    maxStaff: plan.max_staff,
+    color: plan.ui_color || 'gray',
+    popular: Boolean(plan.popular),
+    features: plan.marketing_features || [],
+    addonOptions: plan.addon_options || [],
+    packagingSummary: plan.packaging_summary || '',
+  }));
 
   const calculateCost = (plan) => {
-    if (plan.name === 'Free') return 0;
+    if (plan.rawName === 'Free Tier') return 0;
     
     const students = Math.min(studentCount, 
       plan.maxStudents === '∞' ? studentCount : plan.maxStudents
@@ -154,11 +90,11 @@ const SubscriptionPlans = () => {
       button: 'bg-blue-600 hover:bg-blue-700 text-white',
       accent: 'text-blue-600',
     },
-    purple: {
-      border: 'border-purple-500',
-      badge: 'bg-purple-100 text-purple-800',
-      button: 'bg-purple-600 hover:bg-purple-700 text-white',
-      accent: 'text-purple-600',
+    amber: {
+      border: 'border-amber-500',
+      badge: 'bg-amber-100 text-amber-800',
+      button: 'bg-amber-600 hover:bg-amber-700 text-white',
+      accent: 'text-amber-700',
     },
   };
 
@@ -166,10 +102,9 @@ const SubscriptionPlans = () => {
     try {
       const token = localStorage.getItem('token');
       const schoolId = localStorage.getItem('school_id');
-      const normalizedPlan = planName === 'Free' ? 'Free Tier' : planName;
       const response = await axios.post(
         '/api/school/subscription/upgrade',
-        { plan: normalizedPlan },
+        { plan: planName },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -177,7 +112,7 @@ const SubscriptionPlans = () => {
           }
         }
       );
-      alert(`Successfully upgraded to ${normalizedPlan}!`);
+      alert(`Successfully upgraded to ${planName}!`);
       window.location.reload();
     } catch (error) {
       console.error('Subscription error:', error);
@@ -188,7 +123,7 @@ const SubscriptionPlans = () => {
   const isCurrentPlan = (planName) => {
     if (!currentSubscription) return false;
     const currentPlan = currentSubscription.plan || 'Free Tier';
-    return currentPlan.includes(planName) || planName.includes(currentPlan.replace(' Tier', ''));
+    return currentPlan === planName;
   };
 
   if (loading) {
@@ -263,12 +198,12 @@ const SubscriptionPlans = () => {
                 colorClasses[plan.color].border
               } ${plan.popular ? 'transform scale-105' : ''}`}
             >
-              {isCurrentPlan(plan.name) && (
+              {isCurrentPlan(plan.rawName) && (
                 <div className="absolute top-0 left-0 bg-green-600 text-white px-4 py-1 text-xs font-bold rounded-br-lg">
                   CURRENT PLAN
                 </div>
               )}
-              {plan.popular && !isCurrentPlan(plan.name) && (
+              {plan.popular && !isCurrentPlan(plan.rawName) && (
                 <div className="absolute top-0 right-0 bg-blue-600 text-white px-4 py-1 text-xs font-bold rounded-bl-lg">
                   MOST POPULAR
                 </div>
@@ -285,7 +220,7 @@ const SubscriptionPlans = () => {
 
                 {/* Pricing */}
                 <div className="mb-6">
-                  {plan.name === 'Free' ? (
+                  {plan.rawName === 'Free Tier' ? (
                     <div>
                       <div className="text-4xl font-bold text-gray-900">
                         GH₵ 0
@@ -324,20 +259,26 @@ const SubscriptionPlans = () => {
 
                 {/* CTA Button */}
                 <button
-                  onClick={() => !isCurrentPlan(plan.name) && handleSubscribe(plan.name)}
-                  disabled={isCurrentPlan(plan.name)}
+                  onClick={() => !isCurrentPlan(plan.rawName) && handleSubscribe(plan.rawName)}
+                  disabled={isCurrentPlan(plan.rawName)}
                   className={`w-full py-3 px-6 rounded-lg font-semibold transition ${
-                    isCurrentPlan(plan.name)
+                    isCurrentPlan(plan.rawName)
                       ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
                       : colorClasses[plan.color].button
                   }`}
                 >
-                  {isCurrentPlan(plan.name)
+                  {isCurrentPlan(plan.rawName)
                     ? 'Current Plan'
-                    : plan.name === 'Free'
+                    : plan.rawName === 'Free Tier'
                     ? 'Get Started'
                     : 'Upgrade Now'}
                 </button>
+
+                {plan.packagingSummary && (
+                  <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    {plan.packagingSummary}
+                  </p>
+                )}
 
                 {/* Features List */}
                 <div className="mt-8 space-y-3">
@@ -361,6 +302,20 @@ const SubscriptionPlans = () => {
                     </div>
                   ))}
                 </div>
+
+                {plan.addonOptions.length > 0 && (
+                  <div className="mt-6 border-t border-slate-100 pt-4">
+                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Future Add-Ons</p>
+                    <p className="mb-2 text-xs text-slate-500">These are future optional products and are not part of the base subscription.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {plan.addonOptions.map((addon) => (
+                        <span key={addon} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
+                          {addon}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}

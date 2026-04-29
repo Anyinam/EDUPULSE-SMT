@@ -83,24 +83,24 @@ Everything in Free Tier, plus:
 ---
 
 ## 🚀 Premium Plan
-**Price**: GH₵ 510/term (Base fee covers 30 students) + GH₵ 17/student/term for additional students  
-**Annual Cost (30 students)**: ~GH₵ 1,530/year  
-**Annual Cost (100 students)**: ~GH₵ 5,100/year  
+**Price**: GH₵ 750/term (Base fee covers 30 students) + GH₵ 22/student/term for additional students  
+**Annual Cost (30 students)**: ~GH₵ 2,250/year  
+**Annual Cost (100 students)**: ~GH₵ 6,870/year  
 **Student Cap**: Unlimited  
 **Best For**: Large schools, advanced governance, full AI capabilities
 
 ### Pricing Examples
 ```
 School with 30 students:
-  GH₵510/term × 3 terms = GH₵1,530/year
+  GH₵750/term × 3 terms = GH₵2,250/year
 
 School with 100 students (70 over base):
-  (GH₵510 × 3 terms) + (70 students × GH₵17/term × 3) 
-  = GH₵1,530 + GH₵3,570 = GH₵5,100/year
+  (GH₵750 × 3 terms) + (70 students × GH₵22/term × 3) 
+  = GH₵2,250 + GH₵4,620 = GH₵6,870/year
 
 School with 200 students (170 over base):
-  (GH₵510 × 3 terms) + (170 students × GH₵17/term × 3)
-  = GH₵1,530 + GH₵8,670 = GH₵10,200/year
+  (GH₵750 × 3 terms) + (170 students × GH₵22/term × 3)
+  = GH₵2,250 + GH₵11,220 = GH₵13,470/year
 ```
 
 ### Features ✅
@@ -258,12 +258,15 @@ else:
 
 Recommended packaging model:
 - keep the main platform on subscription pricing
+- bundle AI Registrar into the current paid subscriptions
 - keep Student Rescue Agent and already-shipped Premium AI value bundled in Premium
 - sell new workflow workers as optional add-ons
 - do not start with per-task AI billing
 
+Bundled now:
+- AI Registrar: included in Basic and Premium
+
 Draft add-ons:
-- AI Registrar Add-on: GH₵180 to GH₵300 per term for Basic, GH₵120 to GH₵240 per term for Premium
 - AI Bursar Add-on: GH₵240 to GH₵420 per term for Basic, GH₵180 to GH₵360 per term for Premium
 - Communications Automation Add-on: small add-on fee plus message credits or pass-through SMS/WhatsApp cost
 
@@ -287,7 +290,7 @@ Why Basic and Premium add-on prices differ:
 - **30 students:** GH₵1,080/year (base only)
 - **100 students:** GH₵3,600/year (base + 70 × GH₵12 × 3)
 
-**Premium Plan** (GH₵510/term base + GH₵17/student/term = ~GH₵1,530-10,200/year)
+**Premium Plan** (GH₵750/term base + GH₵22/student/term = ~GH₵2,250-13,470/year)
 - **Pitch**: "Intelligence-driven governance for large schools"
 - **ROI**: Predictive AI prevents dropout losses (estimated GH₵2,000+/student saved)
 - **Unlimited scaling**: No cap on student growth
@@ -313,19 +316,20 @@ Per Term Cost: GH₵360 + GH₵1,440 = GH₵1,800
 Annual Revenue: GH₵5,400 (3 terms)
 Staff: 8-10 people
 Use Case: Full attendance, grades, basic finance tracking
-Upgrade Trigger: Want AI features (hit Premium for GH₵2,550/term with same enrollment)
+Upgrade Trigger: Want AI features (hit Premium for GH₵3,390/term with same enrollment)
 ```
 
 **Scenario 3: Large Secondary School (400+ students)**
 ```
 Plan: Premium
 Base Fee: GH₵510/term × 3 terms = GH₵1,530/year
-Overage: (400 - 30 students) × GH₵17/term × 3 terms = GH₵18,870/year
-Total Annual: GH₵1,530 + GH₵18,870 = GH₵20,400/year
+Base Fee: GH₵750/term × 3 terms = GH₵2,250/year
+Overage: (400 - 30 students) × GH₵22/term × 3 terms = GH₵24,420/year
+Total Annual: GH₵2,250 + GH₵24,420 = GH₵26,670/year
 Staff: 20+ people
 Use Case: AI risk prediction, automated payments, unlimited growth
 Business Impact: Predict & prevent student dropouts
-Cost Per Student: GH₵51/student/year
+Cost Per Student: GH₵66.68/student/year
 ```
 
 ### Tax Assumptions
@@ -348,10 +352,10 @@ Average ARR per school: ~GH₵3,480
 > *"GH₵200/month to run your entire school platform with **production-grade security and compliance**. Managing 150+ students? Every feature you need, encrypted and audit-ready."*
 
 ### For Premium Tier Schools
-> *"Premium starts at just GH₵510/term (includes 30 students), then GH₵17 per additional student per term. **Scales affordably** from GH₵1,530/year (30 students) to GH₵5,100/year (100 students). **Enhanced DSAR support** means faster regulatory response times."*
+> *"Premium starts at GH₵750/term (includes 30 students), then GH₵22 per additional student per term. **Scales cleanly** from GH₵2,250/year (30 students) to GH₵6,870/year (100 students). **Enhanced DSAR support** means faster regulatory response times."*
 
 ### For Schools Growing Faster
-> *"With Premium, each new student adds just GH₵51/year (GH₵17/term × 3 terms). **Scale for less**—no per-seat licenses, no hidden fees."*
+> *"With Premium, each new student adds GH₵66/year (GH₵22/term × 3 terms). **Scale transparently** with no per-seat licenses or hidden fees."*
 
 ### For Compliance-Conscious Schools
 > *"Most schools store data in plain Excel files—**no encryption, no audit trail, no compliance**. EduPulse gives you **Ghana Data Protection Act compliance out of the box**: encrypted data, tamper-proof ledgers, and documented DSAR workflows. **Pass regulatory audits without hiring a compliance team.**"*
@@ -367,14 +371,14 @@ Average ARR per school: ~GH₵3,480
 ### Basic → Premium
 - Show locked AI features in dashboard
 - "Premium: See which students are at risk of dropping out"
-- A/B test: Cost savings from dropout prevention (GH₵2,000+/student saved) vs. GH₵17/student/term cost
-- **Growth Advantage**: "Your school just hit 150 students. Premium costs only GH₵17/extra student/term (vs. GH₵12/student/year in Basic)—plus AI features worth 10x the cost."
+- A/B test: Cost savings from dropout prevention (GH₵2,000+/student saved) vs. GH₵22/student/term cost
+- **Growth Advantage**: "Your school just hit 150 students. Premium costs GH₵22/extra student/term (vs. GH₵12/student/term in Basic) and adds the full AI workflow stack."
 
 ### Premium Scaling Advantage
 - Schools **naturally grow into** Premium pricing
-- 30 students: GH₵1,530/year (base fee only)
-- 75 students: GH₵2,655/year (base + 45 students)
-- 150 students: GH₵4,785/year (base + 120 students)
+- 30 students: GH₵2,250/year (base fee only)
+- 75 students: GH₵5,220/year (base + 45 students)
+- 150 students: GH₵10,170/year (base + 120 students)
 - **Per-student cost drops as school grows** (better than competing per-seat licensing)
 
 ### Bottlenecks for Upgrades

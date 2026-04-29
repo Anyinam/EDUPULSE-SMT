@@ -4,14 +4,8 @@ import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
 
 export default function AdmissionsPanel() {
-  const enabledModules = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('enabled_modules') || '{}');
-    } catch (err) {
-      return {};
-    }
-  })();
-  const aiRegistrarAddonEnabled = Boolean(enabledModules.ai_registrar_addon);
+  const subscriptionPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const aiRegistrarIncluded = subscriptionPlan === 'Basic' || subscriptionPlan === 'Premium';
   const [formData, setFormData] = useState({
     first_name: '',
     surname: '',
@@ -305,9 +299,9 @@ export default function AdmissionsPanel() {
           </div>
         </div>
 
-        {!aiRegistrarAddonEnabled && (
+        {!aiRegistrarIncluded && (
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Approval decision PDFs are locked because this school does not currently have the AI Registrar add-on entitlement. Core admissions review still works.
+            Approval decision PDFs are available on paid subscription plans where AI Registrar is included. Core admissions review still works.
           </div>
         )}
 

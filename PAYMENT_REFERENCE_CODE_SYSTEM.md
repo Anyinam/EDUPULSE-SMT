@@ -1,28 +1,35 @@
-# Payment Reference Code System (MoMo + Cash Tracking)
+# Payment Reference System (MoMo + Bank + Cash Tracking)
 
 ## Overview
-Parents/guardians can now pay school fees using **unique reference codes** that automatically track which fee type (Tuition, Feeding, Uniform, Transport) is being paid.
+EduPulse should now treat structured references as the primary school-fee instruction model. Parents and guardians pay with one stable learner identity plus a readable payment-purpose reference that tells EduPulse what the payment is for.
 
 **Example:**
-- Student ID: `CFK01`
-- Tuition payment code: `CFK011`
-- Feeding payment code: `CFK012`
-- Uniform payment code: `CFK013`
-- Transport payment code: `CFK014`
+- Stable learner identity: `CFK01`
+- Tuition reference: `CFK01-TUITION-T1`
+- Feeding reference: `CFK01-FEEDING-MON`
+- Uniform reference: `CFK01-UNIFORM`
+- Transport reference: `CFK01-TRANSPORT-MON`
+
+Legacy note:
+- older short payment-code patterns can still be recognized where already deployed
+- new school communication should favor the clearer structured-reference format
 
 ---
 
 ## How It Works
 
-### 1. **Code Generation**
-The system automatically generates codes based on:
-- **Student code** (first part): e.g., `CFK01`
-- **Payment type index** (last digit):
-  - `1` = Tuition
-  - `2` = Feeding
-  - `3` = Uniform
-  - `4` = Transport
-  - `5+` = Custom fees (Sports, Library, etc.)
+### 1. **Reference Generation**
+The system generates references from:
+- **Stable learner identity**: e.g. `CFK01`
+- **Fee family**: `TUITION`, `FEEDING`, `UNIFORM`, `TRANSPORT`, `ADMISSION`
+- **Optional detail**: term, frequency, item, or route detail
+
+Examples:
+- `CFK01-TUITION-T1`
+- `CFK01-FEEDING-MON`
+- `CFK01-UNIFORM`
+- `CFK01-TRANSPORT-MON`
+- `CFK01-ADMISSION`
 
 ### 2. **Payment Flow**
 
@@ -30,16 +37,15 @@ The system automatically generates codes based on:
 1. Parent goes to MoMo agent
 2. Agent asks: "What are you paying for?"
 3. Parent says: "School fees for student CFK01"
-4. Agent asks: "Which code?" 
-5. Parent provides code (e.g., `CFK012` for feeding)
-6. MoMo sends payment with reference code to school
+4. Parent provides the structured reference (e.g. `CFK01-FEEDING-MON`)
+5. MoMo sends payment with that reference to school
 7. **System automatically records payment type** ✅
 
 #### For Cash Payments at School
 1. Parent/student visits school office
 2. Staff asks: "What fee are you paying?"
-3. Parent provides code or fee type
-4. Staff enters code (e.g., `CFK012`) or student ID + amount
+3. Parent provides the structured reference or fee purpose
+4. Staff enters the reference (e.g. `CFK01-FEEDING-MON`) or student ID + amount
 5. **System automatically detects payment type** ✅
 
 ---
@@ -50,16 +56,16 @@ The system automatically generates codes based on:
 **Finance Staff Dashboard:** Staff tool for viewing payment codes to communicate to parents
 
 - ✅ View each student's payment status for Tuition, Feeding, Uniform, Transport
-- ✅ **NEW:** Payment codes section showing what codes to tell parents
-- ✅ Copy individual codes to clipboard for quick communication
+- ✅ Payment references section showing what references to tell parents
+- ✅ Copy individual references to clipboard for quick communication
 - ✅ Copy full payment instructions for sharing with parents
 - ✅ Outstanding balance calculated per fee type
 - ✅ Progress bars show payment completion
 
 ### Automatic Payment Tracking
-**Backend:** Codes are automatically parsed and logged
+**Backend:** Structured references are automatically parsed and logged
 
-- ✅ Reference code tells system which fee was paid
+- ✅ Reference tells system which fee was paid
 - ✅ No more manual fee type selection
 - ✅ Reduces data entry errors
 - ✅ Works with existing MoMo webhook system
@@ -85,19 +91,19 @@ GET /api/students/{student_id}/payment-codes
   "payment_codes": [
     {
       "fee_type": "Tuition",
-      "code": "CFK011",
+      "code": "CFK01-TUITION-T1",
       "amount": 5000.00,
-      "instructions": "Pay GH₵ 5000.00 for Tuition. Use reference code: CFK011"
+      "instructions": "Pay GH₵ 5000.00 for Tuition. Use reference: CFK01-TUITION-T1"
     },
     {
       "fee_type": "Feeding",
-      "code": "CFK012",
+      "code": "CFK01-FEEDING-MON",
       "amount": 500.00,
-      "instructions": "Pay GH₵ 500.00 for Feeding. Use reference code: CFK012"
+      "instructions": "Pay GH₵ 500.00 for Feeding. Use reference: CFK01-FEEDING-MON"
     },
     ...
   ],
-  "note": "Parents should reference the code when making payments via MoMo or at the school office."
+  "note": "Parents should use the structured reference when making payments via MoMo, bank transfer, USSD, or at the school office."
 }
 ```
 
@@ -109,14 +115,14 @@ POST /api/finance/receive-payment
 **Option A - With Reference Code:**
 ```json
 {
-  "reference_code": "CFK012",
+  "reference_code": "CFK01-FEEDING-MON",
   "amount": 500.00,
   "method": "MoMo"
 }
 ```
 ✅ **System automatically determines:**
 - Student ID: `CFK01`
-- Payment Type: `Feeding` (from the `2`)
+- Payment Type: `Feeding` (from the reference token)
 - Amount: `500.00`
 
 **Option B - Traditional (still works):**
@@ -133,29 +139,29 @@ POST /api/finance/receive-payment
 
 ## Implementation Details
 
-### Code Parsing Logic
+### Reference Parsing Logic
 ```python
-# Example: Parse "CFK012"
-student_code = "CFK01"      # First part (everything except last digit)
-index = 2                    # Last digit
-payment_type = "Feeding"     # Map: 2 → Feeding
+# Example: Parse "CFK01-FEEDING-MON"
+student_code = "CFK01"
+payment_type = "Feeding"
+payment_category = {"frequency": "Monthly"}
 
 # Works for:
-# CFK011 → Student CFK01, Tuition
-# CFK012 → Student CFK01, Feeding
-# CFK013 → Student CFK01, Uniform
-# ABC1231 → Student ABC123, Custom Fee #1
+# CFK01-TUITION-T1 → Student CFK01, Tuition, Term 1
+# CFK01-FEEDING-MON → Student CFK01, Feeding, Monthly
+# CFK01-UNIFORM → Student CFK01, Uniform
+# ABC123-ADMISSION → Student ABC123, Admission
 ```
 
 ### Custom Fees Mapping
-When school adds custom fees like "Sports" or "Library":
+When school adds custom fees like "Sports" or "Library", use readable fee tokens:
 ```
-Sport = Index 5 → Code: CFK015
-Library = Index 6 → Code: CFK016
-Art = Index 7 → Code: CFK017
+CFK01-SPORTS
+CFK01-LIBRARY
+CFK01-ART-MATERIALS
 ```
 
-The order matches the order fees appear in the fee configuration.
+The format should stay readable enough for staff and parents to understand without memorizing numeric suffixes.
 
 ---
 

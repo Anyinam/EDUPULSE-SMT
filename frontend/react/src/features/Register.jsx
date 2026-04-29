@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import TermsModal from '../components/TermsModal';
 import PrivacyModal from '../components/PrivacyModal';
 import DataRetentionModal from '../components/DataRetentionModal';
 import { Logo } from '../components/Logo';
-import { CheckCircle, ArrowRight, ArrowLeft } from 'lucide-react';
+import { CheckCircle, ArrowRight, ArrowLeft, Loader } from 'lucide-react';
 
 const TERMS_VERSION = '2026-03-07';
 const POLICY_VERSION = '2026-03-07';
@@ -20,74 +20,44 @@ export default function Register() {
     selectedPlan: 'Free' // Default to Free plan
   });
   const [error, setError] = useState('');
+  const [plans, setPlans] = useState([]);
+  const [plansLoading, setPlansLoading] = useState(true);
   const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showRetention, setShowRetention] = useState(false);
 
-  const plans = [
-    {
-      name: 'Free',
-      price: 0,
-      priceLabel: 'Forever Free',
-      description: 'Perfect for small schools getting started',
-      maxStudents: 50,
-      maxClasses: 1,
-      color: 'gray',
-      features: [
-        'Up to 50 students',
-        '1 class only',
-        'View attendance & feeding',
-        'Basic report generation',
-        'Grade viewing'
-      ],
-    },
-    {
-      name: 'Basic',
-      price: 12,
-      baseFee: 360,
-      includedStudents: 30,
-      priceLabel: 'GH₵360 per term includes 30 students',
-      description: 'Full school operations for growing institutions',
-      maxStudents: 200,
-      maxClasses: 5,
-      color: 'blue',
-      popular: true,
-      features: [
-        'Up to 200 students',
-        '5 classes',
-        'Full attendance & feeding',
-        'Grade entry & editing',
-        'Payment tracking',
-        'Lesson notes creation',
-        'Bulk operations',
-        'Exam Papers module (Premium only)',
-        'AI Exam Assistant (Premium only)'
-      ],
-    },
-    {
-      name: 'Premium',
-      price: 17,
-      baseFee: 510,
-      includedStudents: 30,
-      priceLabel: 'GH₵510 per term includes 30 students',
-      description: 'Unlimited access with AI-powered insights',
-      maxStudents: Infinity,
-      maxClasses: Infinity,
-      color: 'purple',
-      features: [
-        'Unlimited students',
-        'Unlimited classes',
-        'Everything in Basic',
-        'Exam Papers module',
-        'AI Exam Assistant for exam papers',
-        'AI-powered grade narratives',
-        'Advanced analytics',
-        'Custom HTML templates',
-        'Priority support'
-      ],
-    },
-  ];
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const res = await axios.get('/api/subscription/plans');
+        const mappedPlans = (res.data?.plans || []).map((plan) => ({
+          rawName: plan.name,
+          name: plan.name === 'Free Tier' ? 'Free' : plan.name,
+          displayName: plan.display_name || plan.name,
+          price: Number(plan.price_per_student_per_term || 0),
+          baseFee: Number(plan.base_fee_per_term || 0),
+          includedStudents: Number(plan.included_students || 0),
+          description: plan.description || '',
+          maxStudents: plan.max_students === '∞' ? 'Unlimited' : plan.max_students,
+          maxClasses: plan.max_classes === '∞' ? 'Unlimited' : plan.max_classes,
+          color: plan.ui_color || 'gray',
+          popular: Boolean(plan.popular),
+          features: plan.marketing_features || [],
+          addonOptions: plan.addon_options || [],
+          packagingSummary: plan.packaging_summary || '',
+        }));
+        setPlans(mappedPlans);
+      } catch (fetchError) {
+        console.error('Failed to load registration plans:', fetchError);
+        setError('Unable to load subscription plans right now. Please refresh and try again.');
+      } finally {
+        setPlansLoading(false);
+      }
+    };
+
+    fetchPlans();
+  }, []);
 
   const handleNext = (e) => {
     e.preventDefault();
@@ -309,60 +279,88 @@ export default function Register() {
                 </p>
               </div>
 
-              {/* Plan Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                {plans.map((plan) => {
-                  const isSelected = form.selectedPlan === plan.name;
-                  
-                  return (
-                    <div
-                      key={plan.name}
-                      onClick={() => setForm({...form, selectedPlan: plan.name})}
-                      className={`relative border-2 rounded-2xl p-6 cursor-pointer transition-all ${
-                        isSelected 
-                          ? 'border-blue-600 bg-blue-50 shadow-xl' 
-                          : 'border-slate-200 hover:border-blue-300 hover:shadow-lg'
-                      }`}
-                    >
-                      {plan.popular && (
-                        <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">
-                          MOST POPULAR
+              {plansLoading ? (
+                <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 p-12">
+                  <Loader className="h-8 w-8 animate-spin text-blue-600" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  {plans.map((plan) => {
+                    const isSelected = form.selectedPlan === plan.name;
+                    
+                    return (
+                      <div
+                        key={plan.name}
+                        onClick={() => setForm({...form, selectedPlan: plan.name})}
+                        className={`relative border-2 rounded-2xl p-6 cursor-pointer transition-all ${
+                          isSelected 
+                            ? 'border-blue-600 bg-blue-50 shadow-xl' 
+                            : 'border-slate-200 hover:border-blue-300 hover:shadow-lg'
+                        }`}
+                      >
+                        {plan.popular && (
+                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">
+                            MOST POPULAR
+                          </div>
+                        )}
+                        {isSelected && (
+                          <div className="absolute top-4 right-4">
+                            <CheckCircle className="text-blue-600" size={24} />
+                          </div>
+                        )}
+                        
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">{plan.displayName}</h3>
+                        <p className="text-sm text-slate-600 mb-4">{plan.description}</p>
+                        
+                        <div className="mb-4">
+                          {plan.name === 'Free' ? (
+                            <div className="text-3xl font-black text-slate-800">GH₵ 0</div>
+                          ) : (
+                            <>
+                              <div className="text-2xl font-black text-slate-800">GH₵ {plan.baseFee.toLocaleString()}</div>
+                              <div className="text-sm text-slate-600">base fee at signup</div>
+                              <div className="text-xs text-slate-500 mt-1">Includes first {plan.includedStudents} students each term</div>
+                              <div className="text-xs text-slate-500">Later overage: GH₵ {plan.price}/student above {plan.includedStudents}</div>
+                            </>
+                          )}
                         </div>
-                      )}
-                      {isSelected && (
-                        <div className="absolute top-4 right-4">
-                          <CheckCircle className="text-blue-600" size={24} />
-                        </div>
-                      )}
-                      
-                      <h3 className="text-xl font-bold text-slate-800 mb-2">{plan.name}</h3>
-                      <p className="text-sm text-slate-600 mb-4">{plan.description}</p>
-                      
-                      <div className="mb-4">
-                        {plan.name === 'Free' ? (
-                          <div className="text-3xl font-black text-slate-800">GH₵ 0</div>
-                        ) : (
-                          <>
-                            <div className="text-2xl font-black text-slate-800">GH₵ {plan.baseFee.toLocaleString()}</div>
-                            <div className="text-sm text-slate-600">base fee at signup</div>
-                            <div className="text-xs text-slate-500 mt-1">Includes first {plan.includedStudents} students each term</div>
-                            <div className="text-xs text-slate-500">Later overage: GH₵ {plan.price}/student above {plan.includedStudents}</div>
-                          </>
+                        
+                        <ul className="space-y-2 text-sm">
+                          {plan.features.map((feature, idx) => (
+                            <li key={idx} className="flex items-start gap-2">
+                              <CheckCircle className="text-green-600 shrink-0 mt-0.5" size={16} />
+                              <span>
+                                {feature.name}
+                                {feature.note && <span className="ml-1 text-xs italic text-slate-500">{feature.note}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+
+                        {plan.packagingSummary && (
+                          <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            {plan.packagingSummary}
+                          </p>
+                        )}
+
+                        {plan.addonOptions.length > 0 && (
+                          <div className="mt-4 border-t border-slate-100 pt-3">
+                            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Future Add-Ons</p>
+                            <p className="mb-2 text-xs text-slate-500">These are future optional products and do not come with the selected plan by default.</p>
+                            <div className="flex flex-wrap gap-2">
+                              {plan.addonOptions.map((addon) => (
+                                <span key={addon} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
+                                  {addon}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         )}
                       </div>
-                      
-                      <ul className="space-y-2 text-sm">
-                        {plan.features.map((feature, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
-                            <CheckCircle className="text-green-600 shrink-0 mt-0.5" size={16} />
-                            <span>{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="flex gap-4">
                 <button 
@@ -410,7 +408,7 @@ export default function Register() {
                 </div>
                 <div className="border-t pt-4">
                   <div className="text-xs font-bold text-slate-500 uppercase mb-1">Selected Plan</div>
-                  <div className="text-2xl font-black text-blue-600">{form.selectedPlan}</div>
+                  <div className="text-2xl font-black text-blue-600">{plans.find(p => p.name === form.selectedPlan)?.displayName || form.selectedPlan}</div>
                   {form.selectedPlan !== 'Free' && (
                     <div className="text-sm text-slate-600 mt-1">
                       GH₵ {plans.find(p => p.name === form.selectedPlan)?.baseFee?.toLocaleString()} due now at signup
