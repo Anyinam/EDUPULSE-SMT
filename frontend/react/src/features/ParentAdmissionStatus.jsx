@@ -197,6 +197,38 @@ export default function ParentAdmissionStatus() {
               </div>
             </div>
 
+            {payload.parent_response_message && (
+              <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-xs font-bold uppercase text-emerald-700">School Response</p>
+                <p className="mt-3 text-sm leading-7 text-slate-700">{payload.parent_response_message}</p>
+              </div>
+            )}
+
+            {payload.follow_up_plan?.type === 'school_visit' && (
+              <div className="rounded-[1.75rem] border border-blue-200 bg-blue-50 p-5">
+                <p className="text-xs font-bold uppercase text-blue-700">School Visit Plan</p>
+                <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="text-xs font-bold uppercase text-slate-500">Date</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{payload.follow_up_plan.date ? formatDate(payload.follow_up_plan.date) : 'To be confirmed'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="text-xs font-bold uppercase text-slate-500">Time</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{payload.follow_up_plan.time || 'To be confirmed'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="text-xs font-bold uppercase text-slate-500">Location</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{payload.follow_up_plan.location || 'See school notes'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="text-xs font-bold uppercase text-slate-500">Contact</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{payload.follow_up_plan.contact_person || 'Admissions Office'}</p>
+                    {payload.follow_up_plan.contact_phone ? <p className="mt-1 text-xs text-slate-600">{payload.follow_up_plan.contact_phone}</p> : null}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {payload.reviewer_notes && (
               <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 p-5">
                 <p className="text-xs font-bold uppercase text-amber-700">School Review Notes</p>
@@ -250,6 +282,12 @@ export default function ParentAdmissionStatus() {
             )}
 
             <div className="flex flex-wrap gap-3">
+              {payload.decision_document?.available && (
+                <a href={payload.decision_document.download_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800">
+                  <FileSearch size={16} />
+                  Download Admission Letter
+                </a>
+              )}
               {payload.payment_path && (
                 <Link to={payload.payment_path} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-700">
                   <Wallet size={16} />

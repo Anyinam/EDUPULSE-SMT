@@ -23,6 +23,8 @@ export default function Register() {
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(true);
   const [agreed, setAgreed] = useState(false);
+  const [schoolAuthorityConfirmed, setSchoolAuthorityConfirmed] = useState(false);
+  const [migrationConsentPlanConfirmed, setMigrationConsentPlanConfirmed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showRetention, setShowRetention] = useState(false);
@@ -73,6 +75,14 @@ export default function Register() {
         setError('You must agree to the Terms of Service, Privacy Policy, and Data Retention Policy');
         return;
       }
+      if (!schoolAuthorityConfirmed) {
+        setError('You must confirm that the school has authority to manage student and guardian records in EduPulse SMT.');
+        return;
+      }
+      if (!migrationConsentPlanConfirmed) {
+        setError('You must confirm that the school will issue any required notices or consents before migrating legacy records or uploading WAEC/BECE data.');
+        return;
+      }
       setStep(2);
     } else if (step === 2) {
       setStep(3);
@@ -98,7 +108,9 @@ export default function Register() {
         termsAccepted: agreed,
         termsVersion: TERMS_VERSION,
         policyAccepted: agreed,
-        policyVersion: POLICY_VERSION
+        policyVersion: POLICY_VERSION,
+        schoolDataAuthorityConfirmed: schoolAuthorityConfirmed,
+        legacyAndExamConsentPlanConfirmed: migrationConsentPlanConfirmed,
       };
 
       const res = await axios.post('/api/register', payload);
@@ -254,6 +266,33 @@ export default function Register() {
                     <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-bold hover:underline ml-1">Data Retention Policy</button>
                   </label>
                 </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="school-authority"
+                    checked={schoolAuthorityConfirmed}
+                    onChange={(e) => setSchoolAuthorityConfirmed(e.target.checked)}
+                    className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="school-authority" className="text-sm text-slate-600 cursor-pointer select-none">
+                    I confirm that this school has authority to manage student, guardian, and school records in EduPulse SMT.
+                  </label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="legacy-consent-plan"
+                    checked={migrationConsentPlanConfirmed}
+                    onChange={(e) => setMigrationConsentPlanConfirmed(e.target.checked)}
+                    className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="legacy-consent-plan" className="text-sm text-slate-600 cursor-pointer select-none">
+                    I confirm that the school will send any required parent or guardian notices or obtain consent before migrating legacy records or uploading WAEC or BECE data.
+                  </label>
+                </div>
+                <p className="text-xs leading-5 text-slate-500">
+                  By continuing, you confirm that your school has authority to manage student and guardian data in EduPulse SMT and will issue any notices or consent forms required under Ghana's Data Protection Act before uploading legacy records or WAEC or BECE result data.
+                </p>
               </div>
 
               <button type="submit" className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold mt-8 hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 flex items-center justify-center gap-2">

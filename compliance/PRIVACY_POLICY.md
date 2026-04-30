@@ -4,13 +4,13 @@ Effective Date: February 21, 2026
 
 This Privacy Policy explains how EduPulse SMT ("EduPulse SMT", "we", "us") collects, uses, discloses, and protects personal data when schools, staff, students, and guardians use the EduPulse SMT platform (the "Service").
 
-This policy is designed to comply with Ghana's Data Protection Act, 2012 (Act 843).
+This policy is designed primarily to comply with Ghana's Data Protection Act, 2012 (Act 843). Where practical, EduPulse SMT may also apply stricter operational safeguards inspired by widely adopted international privacy standards, but Ghana law remains the primary legal baseline for Ghanaian school operations.
 
 When a school completes registration on EduPulse SMT, that registration action confirms acceptance of this Privacy Policy and the Data Retention and Deletion Policy as part of onboarding.
 
 ## 1. Who We Are
 
-Controller: EduPulse SMT
+Controller: EduPulse SMT for platform-operated data such as account, billing, security, support, and product records. For school-originated student, guardian, academic, attendance, admissions, and examination records, the school is ordinarily the primary data controller and EduPulse SMT acts as its processor or service provider.
 Contact: danielasareanyinam2020@gmail.com
 Address: [Insert Registered Address]
 
@@ -21,7 +21,9 @@ We collect data necessary to provide the Service, including:
 - School and account data: school name, school ID, contact details, subscription plan.
 - Staff data: name, email, phone, role, login credentials.
 - Student data: name, student ID, class, academic records, attendance.
+- Examination and academic analytics data: internal assessment marks, school-uploaded WAEC or BECE result lists, subject performance history, trend-analysis outputs, and benchmarking outputs derived from public aggregate reports.
 - Parent/guardian data: name, phone, email (if provided by the school).
+- Consent and compliance records: acceptance of policies, admissions acknowledgements, migration-consent records, and other notices or approvals required for lawful educational processing.
 - Usage data: login events, device info, IP address, audit logs.
 - Payment data: transaction references, invoices. We do not store full card details. Payments are processed by Paystack.
 
@@ -30,12 +32,17 @@ We collect data necessary to provide the Service, including:
 We process personal data to:
 
 - Provide the Service (lesson notes, grading, reporting, communication).
+- Support admissions workflows, including parent-submitted learner profiles, supporting documents, and application status tracking.
+- Import and analyze school-supplied external examination records, including WAEC or BECE result lists, where the school has the legal authority to provide them.
+- Produce school-level academic intelligence such as subject trends, cohort summaries, performance decline alerts, internal benchmarking, and comparisons against lawfully available regional or national aggregate statistics.
 - Maintain security and prevent fraud.
 - Provide support and system notifications.
 - Meet legal and regulatory requirements.
 - Manage subscriptions, billing, and receipts.
 
-For student data, the school is the primary data controller and EduPulse SMT acts as a data processor on the school's behalf.
+For student data, the school is the primary data controller and EduPulse SMT acts as a data processor on the school's behalf in most operational contexts.
+
+Schools are responsible for ensuring that they have an appropriate legal basis before uploading student records, historic academic files, WAEC or BECE result lists, or continuous-assessment records to EduPulse SMT. Where consent is the chosen legal basis, the school must obtain and retain that consent before using the Service for that purpose.
 
 ## 4. Data Sharing
 
@@ -43,6 +50,7 @@ We share data only with:
 
 - Authorized school staff using the platform.
 - Service providers (hosting, email, payment processing) under strict contracts.
+- Examination or education-sector counterparties only where lawfully required, school-authorized, or supported by a formal approved integration.
 - Regulators or law enforcement if legally required.
 
 We do not sell personal data.
@@ -75,9 +83,17 @@ Requests can be sent to danielasareanyinam2020@gmail.com. We will respond within
 
 EduPulse SMT is used by schools. Student data is processed under the school's authority and for educational purposes only.
 
+Where a parent or guardian submits data directly through an EduPulse SMT admissions or parent-facing workflow, that submission constitutes an instruction to process the data for admissions review, educational administration, and related follow-up communications.
+
+Where a school migrates pre-existing student records into EduPulse SMT, the school is responsible for using an appropriate legal basis and any notices or consent forms required under Act 843 or other applicable sector obligations.
+
+Where a school imports WAEC or BECE result data for school-level academic analytics, the school must ensure the import is limited to legitimate educational purposes, kept confidential, and not reused for unrelated marketing or public disclosure.
+
 ## 9. Cross-Border Transfers
 
 If data is stored or processed outside Ghana, we ensure adequate protections and contractual safeguards.
+
+Cross-border storage or support arrangements do not reduce the school's obligations under Ghana law. EduPulse SMT will use contractual, technical, and organizational safeguards that are appropriate for the sensitivity of minors' academic records.
 
 ## 10. Changes to This Policy
 

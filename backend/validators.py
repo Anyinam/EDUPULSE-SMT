@@ -46,6 +46,8 @@ class RegisterSchema(Schema):
     termsVersion = fields.Str(required=True, validate=validate.Length(min=1, max=50))
     policyAccepted = fields.Bool(required=True)
     policyVersion = fields.Str(required=True, validate=validate.Length(min=1, max=50))
+    schoolDataAuthorityConfirmed = fields.Bool(required=True)
+    legacyAndExamConsentPlanConfirmed = fields.Bool(required=True)
     selectedPlan = fields.Str(
         required=False,
         validate=validate.OneOf(["Free", "Basic", "Premium"]),
@@ -68,6 +70,10 @@ class RegisterSchema(Schema):
             raise ValidationError("Terms of Service must be accepted")
         if data.get("policyAccepted") is not True:
             raise ValidationError("Privacy and Data Retention policies must be accepted")
+        if data.get("schoolDataAuthorityConfirmed") is not True:
+            raise ValidationError("School data authority confirmation is required")
+        if data.get("legacyAndExamConsentPlanConfirmed") is not True:
+            raise ValidationError("Legacy migration and examination notice confirmation is required")
 
 
 class StudentGradeSchema(Schema):

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import TimetableManager from './TimetableManager';
 import TermManagementPanel from './TermManagementPanel';
+import ComplianceEvidenceUploader from './ComplianceEvidenceUploader';
 import reportTemplates from '../report_templates';
 import { buildTemplateHtml, GRADE_SCALE_ROWS, formatGradingSchemeSummary, getGradeFromTotal, getRemarkFromGrade } from '../utils/reportTemplate';
 
@@ -207,11 +208,29 @@ export default function SettingsPanel() {
     anniversary_date: '',
     next_term_reopen_date: '',
     ai_registrar_enabled: false,
+    admissions_visit_location_default: '',
+    admissions_visit_contact_person_default: '',
+    admissions_visit_contact_phone_default: '',
+    admissions_approve_message_template: '',
+    admissions_reject_message_template: '',
+    admissions_correction_message_template: '',
+    admissions_online_test_message_template: '',
+    admissions_visit_message_template: '',
     approval_pdf_enabled: false,
     approval_pdf_delivery_mode: 'email_link',
     approval_pdf_include_payment_summary: true,
     approval_pdf_include_required_items: true,
-    approval_pdf_required_items: ''
+    approval_pdf_required_items: '',
+    data_compliance_school_authority_confirmed: false,
+    data_compliance_registration_confirmed_at: '',
+    data_compliance_registration_confirmed_ip: '',
+    legacy_parent_notice_dispatched: false,
+    legacy_consent_collection_completed: false,
+    legacy_consent_collection_date: '',
+    legacy_consent_evidence_notes: '',
+    legacy_consent_evidence_artifact_count: 0,
+    bece_result_processing_enabled: false,
+    bece_parent_notice_confirmed: false,
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
@@ -348,11 +367,29 @@ export default function SettingsPanel() {
           anniversary_date: data.anniversary_date || prev.anniversary_date,
           next_term_reopen_date: data.next_term_reopen_date || '',
           ai_registrar_enabled: Boolean(data.ai_registrar_enabled ?? data.ai_registrar_addon_enabled),
+          admissions_visit_location_default: data.admissions_visit_location_default || '',
+          admissions_visit_contact_person_default: data.admissions_visit_contact_person_default || '',
+          admissions_visit_contact_phone_default: data.admissions_visit_contact_phone_default || '',
+          admissions_approve_message_template: data.admissions_approve_message_template || '',
+          admissions_reject_message_template: data.admissions_reject_message_template || '',
+          admissions_correction_message_template: data.admissions_correction_message_template || '',
+          admissions_online_test_message_template: data.admissions_online_test_message_template || '',
+          admissions_visit_message_template: data.admissions_visit_message_template || '',
           approval_pdf_enabled: Boolean(data.approval_pdf_enabled),
           approval_pdf_delivery_mode: data.approval_pdf_delivery_mode || 'email_link',
           approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
           approval_pdf_include_required_items: data.approval_pdf_include_required_items !== false,
           approval_pdf_required_items: data.approval_pdf_required_items || '',
+          data_compliance_school_authority_confirmed: Boolean(data.data_compliance_school_authority_confirmed),
+          data_compliance_registration_confirmed_at: data.data_compliance_registration_confirmed_at || '',
+          data_compliance_registration_confirmed_ip: data.data_compliance_registration_confirmed_ip || '',
+          legacy_parent_notice_dispatched: Boolean(data.legacy_parent_notice_dispatched),
+          legacy_consent_collection_completed: Boolean(data.legacy_consent_collection_completed),
+          legacy_consent_collection_date: data.legacy_consent_collection_date || '',
+          legacy_consent_evidence_notes: data.legacy_consent_evidence_notes || '',
+          legacy_consent_evidence_artifact_count: Number(data.legacy_consent_evidence_artifact_count || 0),
+          bece_result_processing_enabled: Boolean(data.bece_result_processing_enabled),
+          bece_parent_notice_confirmed: Boolean(data.bece_parent_notice_confirmed),
         }));
         setMaskedBankSnapshot({
           bank_name: data.bank_name || '',
@@ -1080,11 +1117,26 @@ export default function SettingsPanel() {
         country_code: settings.country_code,
         anniversary_date: settings.anniversary_date,
         next_term_reopen_date: settings.next_term_reopen_date,
+        admissions_visit_location_default: settings.admissions_visit_location_default,
+        admissions_visit_contact_person_default: settings.admissions_visit_contact_person_default,
+        admissions_visit_contact_phone_default: settings.admissions_visit_contact_phone_default,
+        admissions_approve_message_template: settings.admissions_approve_message_template,
+        admissions_reject_message_template: settings.admissions_reject_message_template,
+        admissions_correction_message_template: settings.admissions_correction_message_template,
+        admissions_online_test_message_template: settings.admissions_online_test_message_template,
+        admissions_visit_message_template: settings.admissions_visit_message_template,
         approval_pdf_enabled: settings.ai_registrar_enabled ? settings.approval_pdf_enabled : false,
         approval_pdf_delivery_mode: settings.approval_pdf_delivery_mode,
         approval_pdf_include_payment_summary: settings.ai_registrar_enabled ? settings.approval_pdf_include_payment_summary : false,
         approval_pdf_include_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_include_required_items : false,
-        approval_pdf_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_required_items : ''
+        approval_pdf_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_required_items : '',
+        data_compliance_school_authority_confirmed: settings.data_compliance_school_authority_confirmed,
+        legacy_parent_notice_dispatched: settings.legacy_parent_notice_dispatched,
+        legacy_consent_collection_completed: settings.legacy_consent_collection_completed,
+        legacy_consent_collection_date: settings.legacy_consent_collection_date,
+        legacy_consent_evidence_notes: settings.legacy_consent_evidence_notes,
+        bece_result_processing_enabled: settings.bece_result_processing_enabled,
+        bece_parent_notice_confirmed: settings.bece_parent_notice_confirmed,
       };
 
       if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
@@ -1649,101 +1701,264 @@ export default function SettingsPanel() {
         </div>
 
         <div className="border-t pt-6 mt-8">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">📄 Admission Decision PDF Policy</h3>
+          <h3 className="text-lg font-bold text-slate-800 mb-4">🎓 Admissions Configuration</h3>
           <p className="text-sm text-slate-600 mb-4">
-            Control whether approved applicants get an admission decision PDF. Rejected and correction-status applications do not generate PDFs by default.
+            Configure the parent-facing admissions responses, school-visit defaults, and the approval letter for accepted applicants.
           </p>
 
           {!settings.ai_registrar_enabled && (
             <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Approval PDFs are included on paid subscription plans. Free Tier schools can still run admissions review, but PDF decision delivery stays locked.
+              AI Registrar workflow automation is included on paid subscription plans. Free Tier schools can still review applications, but the approval letter stays locked.
             </div>
           )}
 
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Enable Approval PDF</label>
-                <p className="text-sm text-slate-600">
-                  When enabled, approved applications can expose a downloadable admission decision PDF through the secure status-token flow.
-                </p>
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Parent Response Templates</h4>
+              <p className="mt-1 text-sm text-slate-600">These messages are used when the school marks an application as approved, rejected, needing correction, online-test ready, or school-visit required.</p>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Approval Message</label>
+                  <textarea name="admissions_approve_message_template" value={settings.admissions_approve_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Rejection Message</label>
+                  <textarea name="admissions_reject_message_template" value={settings.admissions_reject_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Correction Request Message</label>
+                  <textarea name="admissions_correction_message_template" value={settings.admissions_correction_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Online Test Message</label>
+                  <textarea name="admissions_online_test_message_template" value={settings.admissions_online_test_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">School Visit Message</label>
+                  <textarea name="admissions_visit_message_template" value={settings.admissions_visit_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
+                  <p className="text-xs text-slate-500 mt-2">Available placeholders: {'{student_name}'}, {'{school_name}'}, {'{class_assigned}'}, {'{visit_date}'}, {'{visit_time}'}, {'{visit_location}'}, {'{visit_contact_person}'}, {'{visit_contact_phone}'}.</p>
+                </div>
               </div>
-              <label className="inline-flex items-center gap-3 text-sm font-bold text-slate-700 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={settings.approval_pdf_enabled}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_enabled: e.target.checked }))}
-                  className="h-4 w-4 rounded border-slate-300"
-                  disabled={!settings.ai_registrar_enabled}
-                />
-                Enable PDF
-              </label>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">School Visit Defaults</h4>
+              <p className="mt-1 text-sm text-slate-600">These defaults prefill the review queue when staff marks an application as requiring a school visit.</p>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Visit Location</label>
+                  <input name="admissions_visit_location_default" value={settings.admissions_visit_location_default} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" placeholder="Admissions office / campus gate" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Contact Person</label>
+                  <input name="admissions_visit_contact_person_default" value={settings.admissions_visit_contact_person_default} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" placeholder="Admissions Officer" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Contact Phone</label>
+                  <input name="admissions_visit_contact_phone_default" value={settings.admissions_visit_contact_phone_default} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" placeholder="+233..." />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-5">
+              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Approved Admission Letter</h4>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Enable Admission Letter</label>
+                  <p className="text-sm text-slate-600">
+                    When enabled, approved applications can expose a downloadable admission letter through the secure parent status page.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-3 text-sm font-bold text-slate-700 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={settings.approval_pdf_enabled}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_enabled: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-300"
+                    disabled={!settings.ai_registrar_enabled}
+                  />
+                  Enable Letter
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Letter Delivery</label>
+                  <select
+                    name="approval_pdf_delivery_mode"
+                    value={settings.approval_pdf_delivery_mode}
+                    onChange={handleChange}
+                    className="w-full p-3 border rounded-lg bg-white"
+                    disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
+                  >
+                    <option value="status_page_only">Status Page Only</option>
+                    <option value="email_link">Email Link + Status Page</option>
+                    <option value="email_attachment">Email Attachment</option>
+                  </select>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Parents can always use the secure status page. Email-link mode also adds the letter link to approval emails.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                    <input
+                      type="checkbox"
+                      checked={settings.approval_pdf_include_payment_summary}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_payment_summary: e.target.checked }))}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                      disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
+                    />
+                    <span>
+                      <span className="block text-sm font-bold text-slate-700">Include Payment Instructions</span>
+                      <span className="block text-xs text-slate-500">Adds the payment link and school-configured admission fee summary when relevant.</span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                    <input
+                      type="checkbox"
+                      checked={settings.approval_pdf_include_required_items}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_required_items: e.target.checked }))}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                      disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
+                    />
+                    <span>
+                      <span className="block text-sm font-bold text-slate-700">Include Required Items</span>
+                      <span className="block text-xs text-slate-500">Adds the list of documents or items parents should bring after approval.</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Delivery Mode</label>
-                <select
-                  name="approval_pdf_delivery_mode"
-                  value={settings.approval_pdf_delivery_mode}
+                <label className="block text-sm font-bold text-slate-700 mb-2">Required Items Text</label>
+                <textarea
+                  name="approval_pdf_required_items"
+                  value={settings.approval_pdf_required_items}
                   onChange={handleChange}
+                  rows={5}
                   className="w-full p-3 border rounded-lg bg-white"
-                  disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
-                >
-                  <option value="status_page_only">Status Page Only</option>
-                  <option value="email_link">Email Link + Status Page</option>
-                  <option value="email_attachment">Email Attachment Policy</option>
-                </select>
+                  disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled || !settings.approval_pdf_include_required_items}
+                  placeholder={'Examples:\n- Bring two passport photographs\n- Bring prior report card\n- Report to the admissions office on reopening day'}
+                />
                 <p className="text-xs text-slate-500 mt-2">
-                  The backend currently exposes the secure link immediately. Email-link mode appends the download link to approval emails.
+                  This is school-controlled content for approved applicants only. Rejection and correction responses do not generate an approval letter.
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
 
-              <div className="space-y-3">
+        <div className="border-t pt-6 mt-8">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">🔐 Data Compliance & Legacy Migration</h3>
+          <p className="text-sm text-slate-600 mb-4">
+            Track the school-side consent workflow for existing student record migration and any future WAEC or BECE result processing.
+          </p>
+
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Registration Acknowledgement Record</h4>
+              <div className="mt-4">
                 <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
                   <input
                     type="checkbox"
-                    checked={settings.approval_pdf_include_payment_summary}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_payment_summary: e.target.checked }))}
+                    checked={settings.data_compliance_school_authority_confirmed}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, data_compliance_school_authority_confirmed: e.target.checked }))}
                     className="mt-1 h-4 w-4 rounded border-slate-300"
-                    disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
                   />
                   <span>
-                    <span className="block text-sm font-bold text-slate-700">Include Payment Guidance</span>
-                    <span className="block text-xs text-slate-500">Adds the payment link and school-configured admission fee summary when relevant.</span>
+                    <span className="block text-sm font-bold text-slate-700">School data authority confirmed for this tenant</span>
+                    <span className="block text-xs text-slate-500">Use this for existing schools that joined before the new registration acknowledgement flow was added. This unlocks BECE or WAEC import for the current school after you save.</span>
                   </span>
                 </label>
-
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <input
-                    type="checkbox"
-                    checked={settings.approval_pdf_include_required_items}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_required_items: e.target.checked }))}
-                    className="mt-1 h-4 w-4 rounded border-slate-300"
-                    disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
-                  />
-                  <span>
-                    <span className="block text-sm font-bold text-slate-700">Include Required Items</span>
-                    <span className="block text-xs text-slate-500">Adds a school-defined list of items parents should bring after approval.</span>
-                  </span>
-                </label>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recorded At</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-800">{settings.data_compliance_registration_confirmed_at || 'Not recorded'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recorded IP</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-800">{settings.data_compliance_registration_confirmed_ip || 'Not recorded'}</p>
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Required Items Text</label>
-              <textarea
-                name="approval_pdf_required_items"
-                value={settings.approval_pdf_required_items}
-                onChange={handleChange}
-                rows={5}
-                className="w-full p-3 border rounded-lg bg-white"
-                disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled || !settings.approval_pdf_include_required_items}
-                placeholder={'Examples:\n- Bring two passport photographs\n- Bring prior report card\n- Report to the admissions office on reopening day'}
-              />
-              <p className="text-xs text-slate-500 mt-2">
-                This is school-controlled content for approved applicants only. Rejection and correction PDFs remain disabled by default.
-              </p>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Legacy Student Record Migration</h4>
+              <p className="mt-1 text-sm text-slate-600">Use these fields to track whether the school has sent notices and collected the required parent or guardian approvals before moving old records into EduPulse SMT.</p>
+              <div className="mt-4 space-y-3">
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.legacy_parent_notice_dispatched}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, legacy_parent_notice_dispatched: e.target.checked }))}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-700">Parent or guardian notice dispatched</span>
+                    <span className="block text-xs text-slate-500">Confirm that the school has sent the retrospective notice or consent form for students who were already enrolled before EduPulse SMT was introduced.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.legacy_consent_collection_completed}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, legacy_consent_collection_completed: e.target.checked }))}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-700">Consent collection completed</span>
+                    <span className="block text-xs text-slate-500">Tick this only when the school has gathered the required approvals for the migration campaign.</span>
+                  </span>
+                </label>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Consent Collection Date</label>
+                  <input name="legacy_consent_collection_date" type="date" value={settings.legacy_consent_collection_date} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Evidence Notes</label>
+                  <textarea name="legacy_consent_evidence_notes" value={settings.legacy_consent_evidence_notes} onChange={handleChange} rows={3} className="w-full p-3 border rounded-lg bg-white" placeholder="Example: consent forms filed in admissions office on 2026-05-10" />
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <ComplianceEvidenceUploader artifactCount={settings.legacy_consent_evidence_artifact_count || 0} />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">WAEC / BECE Data Readiness</h4>
+              <p className="mt-1 text-sm text-slate-600">These checks do not activate a WAEC integration by themselves. They record that the school has prepared the notice and consent basis before EduPulse SMT is used for external examination analytics.</p>
+              <div className="mt-4 space-y-3">
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.bece_result_processing_enabled}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, bece_result_processing_enabled: e.target.checked }))}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-700">Enable school readiness for WAEC / BECE result processing</span>
+                    <span className="block text-xs text-slate-500">Use this when the school intends to import external examination result lists or trend data into EduPulse SMT.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.bece_parent_notice_confirmed}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, bece_parent_notice_confirmed: e.target.checked }))}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-700">Parent notice or consent basis confirmed for WAEC / BECE analytics</span>
+                    <span className="block text-xs text-slate-500">Tick this only when the school has confirmed the lawful basis for using student examination results in school-level academic analytics.</span>
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -1758,7 +1973,7 @@ export default function SettingsPanel() {
             💾 Save Settings
           </button>
           <p className="text-xs text-slate-500 mt-3">
-            This will save school branding, contact details, and fee configuration. The page will reload to apply changes.
+            This will save school branding, admissions configuration, compliance workflow settings, contact details, and fee configuration. The page will reload to apply changes.
           </p>
         </div>
       </form>

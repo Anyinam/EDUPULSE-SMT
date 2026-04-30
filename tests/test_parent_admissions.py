@@ -26,6 +26,7 @@ def _submit_parent_application(client, school_id, **overrides):
         "parent_email": "ama.parent@example.com",
         "desired_test_mode": "online",
         "internet_quality": "stable",
+        "consent_confirmed": "true",
     }
     payload.update(overrides)
     return client.post(
@@ -51,6 +52,7 @@ def test_parent_admission_application_submission_and_status_tracking(client, tes
     payload = response.get_json()
     assert payload["application"]["status"] == "TestReady"
     assert payload["application"]["ai_recommendation"] == "invite_online_test"
+    assert payload["consent_recorded"] is True
 
     status_response = client.get(
         f"/api/public/schools/{test_school.id}/admissions/status/{payload['status_token']}"
@@ -59,6 +61,40 @@ def test_parent_admission_application_submission_and_status_tracking(client, tes
     status_payload = status_response.get_json()
     assert status_payload["application_code"] == payload["application"]["application_code"]
     assert status_payload["status"] == "TestReady"
+
+
+def test_parent_admission_accepts_more_than_two_supporting_documents(client, test_school):
+    response = _submit_parent_application(
+        client,
+        test_school.id,
+        documents=[
+            (io.BytesIO(b"report content"), "previous-report.pdf"),
+            (io.BytesIO(b"birth certificate"), "birth-certificate.pdf"),
+            (io.BytesIO(b"guardian id"), "guardian-id.jpg"),
+        ],
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+
+    application = ParentAdmissionApplication.query.get(payload["application"]["id"])
+    assert len(application.document_manifest or []) == 3
+    assert {item.get("filename") for item in (application.document_manifest or [])} == {
+        "previous-report.pdf",
+        "birth-certificate.pdf",
+        "guardian-id.jpg",
+    }
+
+
+def test_parent_admission_requires_guardian_consent_confirmation(client, test_school):
+    response = _submit_parent_application(
+        client,
+        test_school.id,
+        consent_confirmed="false",
+    )
+
+    assert response.status_code == 400
+    assert "consent" in response.get_json()["message"].lower()
 
 
 def test_public_school_profile_exposes_branding_and_admission_fee(client, db, test_school):
@@ -354,6 +390,51 @@ def test_parent_can_resubmit_missing_documents_and_application_reassesses(client
     application = ParentAdmissionApplication.query.get(application_id)
     assert application.parent_email == "ama.parent@example.com"
     assert any(item.get("submitted_in_correction") for item in (application.document_manifest or []))
+
+
+def test_school_visit_plan_is_exposed_to_staff_and_parent_status(client, app, test_school, test_proprietor):
+    submit_response = _submit_parent_application(
+        client,
+        test_school.id,
+        desired_test_mode="in_person",
+        internet_quality="limited",
+    )
+    payload = submit_response.get_json()
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    review_response = client.post(
+        f"/api/admissions/applications/{payload['application']['id']}/review",
+        headers=headers,
+        data=json.dumps(
+            {
+                "action": "schedule_visit",
+                "notes": "Please arrive 15 minutes early and bring the learner.",
+                "visit_date": "2026-05-04",
+                "visit_time": "09:30",
+                "visit_location": "Admissions Office",
+                "visit_contact_person": "Mrs. Asante",
+                "visit_contact_phone": "+233501234567",
+            }
+        ),
+    )
+
+    assert review_response.status_code == 200
+    review_payload = review_response.get_json()
+    assert review_payload["application"]["status"] == "VisitRequired"
+    assert review_payload["application"]["reviewer_notes"] == "Please arrive 15 minutes early and bring the learner."
+    assert review_payload["application"]["follow_up_plan"]["type"] == "school_visit"
+    assert review_payload["application"]["follow_up_plan"]["date"] == "2026-05-04"
+    assert review_payload["application"]["follow_up_plan"]["location"] == "Admissions Office"
+    assert "Please visit" in review_payload["application"]["parent_response_message"]
+
+    status_response = client.get(
+        f"/api/public/schools/{test_school.id}/admissions/status/{payload['status_token']}"
+    )
+    assert status_response.status_code == 200
+    status_payload = status_response.get_json()
+    assert status_payload["follow_up_plan"]["contact_person"] == "Mrs. Asante"
+    assert status_payload["follow_up_plan"]["contact_phone"] == "+233501234567"
+    assert status_payload["reviewer_notes"] == "Please arrive 15 minutes early and bring the learner."
 
 
 def test_decision_pdf_is_not_available_for_rejected_application(client, app, test_school, test_proprietor, db):

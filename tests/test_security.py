@@ -488,6 +488,8 @@ class TestInputValidation:
             "termsVersion": "2026-02-22",
             "policyAccepted": True,
             "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
         }
 
         response = client.post(

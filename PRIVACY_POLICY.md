@@ -8,7 +8,7 @@
 
 ## 1. INTRODUCTION
 
-This Privacy Policy describes how EduPulse SMT ("we," "us," or "our") collects, uses, processes, stores, and protects personal data in accordance with the **Ghana Data Protection Act, 2012 (Act 843)** and its regulations.
+This Privacy Policy describes how EduPulse SMT ("we," "us," or "our") collects, uses, processes, stores, and protects personal data in accordance with the **Ghana Data Protection Act, 2012 (Act 843)** and its regulations. Where appropriate, we may also apply stricter operational safeguards inspired by widely used international privacy standards, but Ghana law remains the primary legal framework for EduPulse SMT's Ghana school operations.
 
 EduPulse SMT is a cloud-based school management system that provides educational institutions in Ghana with tools for student management, attendance tracking, grade recording, financial management, and administrative operations.
 
@@ -55,6 +55,7 @@ We process personal data under the following legal bases as provided by the Data
 - **Enrollment Information:** Student ID, class/grade, enrollment date, academic year
 - **Contact Information:** Residential address, parent/guardian contact details
 - **Academic Records:** Grades, test scores, exam results, attendance records, lesson notes
+- **External Examination Records:** School-uploaded WAEC or BECE result lists, subject-level performance history, continuous-assessment records, and examination summaries where lawfully supplied by the school
 - **Financial Records:** Tuition fees, payment history, outstanding balances
 - **Health Information:** Medical conditions, allergies (only when voluntarily provided by parents/guardians for student welfare)
 - **Behavioral Records:** Disciplinary records, conduct notes (if applicable)
@@ -65,6 +66,7 @@ We process personal data under the following legal bases as provided by the Data
 - **Contact Information:** Phone numbers (mobile/landline), email addresses, residential address
 - **Financial Information:** Payment method preferences, payment history
 - **Communication Records:** Messages sent/received through the system, WhatsApp communications
+- **Consent Records:** Admissions acknowledgements, migration-consent confirmations, and related compliance records where used by the school or platform
 
 ### 4.3 School Staff Data
 
@@ -110,6 +112,7 @@ We process personal data under the following legal bases as provided by the Data
 - **Payment Processors:** Transaction data from Paystack
 - **Email Service Providers:** Delivery status from Gmail SMTP
 - **WhatsApp Business API:** Message delivery status from Meta
+- **School-Supplied Examination Sources:** WAEC or BECE result lists, continuous-assessment records, and similar education records provided to the school and uploaded into EduPulse SMT by an authorised school representative
 
 ---
 
@@ -121,6 +124,8 @@ We process personal data under the following legal bases as provided by the Data
    - Manage student enrollment, attendance, and academic records
    - Generate report cards and academic transcripts
    - Track student performance and progress
+   - Import and organise school-supplied WAEC or BECE result data where the school is authorised to provide it
+   - Produce school-level academic analytics such as trend reviews, subject weakness summaries, and internal performance monitoring
    - Facilitate teacher-student-parent communication
 
 2. **Administrative Functions:**
@@ -193,6 +198,8 @@ We share data with the following third-party processors under strict Data Proces
    - **Purpose:** Hosting EduPulse platform
    - **Location:** [Specify AWS/Azure/GCP region - preferably EU or South Africa]
    - **Security:** ISO 27001 certified, SOC 2 compliant
+
+We do not share identifiable student examination records with third parties for advertising, data brokerage, or unrelated commercial profiling.
 
 ### 7.3 Legal Obligations
 

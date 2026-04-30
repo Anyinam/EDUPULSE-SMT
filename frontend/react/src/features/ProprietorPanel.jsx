@@ -19,6 +19,7 @@ import TerminalReportPrinter from '../components/TerminalReportPrinter';
 import HolidayCalendar from '../components/HolidayCalendar';
 import AuditReport from '../components/AuditReport';
 import PerformanceAnalytics from '../components/PerformanceAnalytics';
+import ExamIntelligencePanel from '../components/ExamIntelligencePanel';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import ExamInboxPanel from '../components/ExamInboxPanel';
 import StudentRescueAgent from '../components/StudentRescueAgent';
@@ -233,6 +234,10 @@ export default function ProprietorPanel() {
                 title="Class Performance (Proprietor View)"
                 defaultView="visualization"
               />
+            </div>
+
+            <div className="mb-8">
+              <ExamIntelligencePanel />
             </div>
 
             {/* Report Card Approvals Section */}

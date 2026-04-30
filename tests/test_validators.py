@@ -71,6 +71,8 @@ class TestValidators:
             "termsVersion": "2026-02-22",
             "policyAccepted": True,
             "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
         }
         with pytest.raises(ValidationError) as exc_info:
             schema.load(data)
@@ -89,6 +91,8 @@ class TestValidators:
             "termsVersion": "2026-02-22",
             "policyAccepted": True,
             "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
         }
         with pytest.raises(ValidationError) as exc_info:
             schema.load(data)
@@ -107,9 +111,30 @@ class TestValidators:
             "termsVersion": "2026-02-22",
             "policyAccepted": True,
             "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
         }
         result = schema.load(data)
         assert result["schoolCode"] == "CCA-OFK"
+
+    def test_register_schema_requires_school_data_authority_confirmation(self):
+        schema = RegisterSchema()
+        data = {
+            "schoolCode": "CCA-OFK",
+            "schoolName": "CCA Ofankor",
+            "username": "newuser",
+            "email": "newuser@cca.edu",
+            "password": "SecurePass123!",
+            "termsAccepted": True,
+            "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": False,
+            "legacyAndExamConsentPlanConfirmed": True,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            schema.load(data)
+        assert "authority" in str(exc_info.value.messages).lower()
 
     def test_student_grade_schema_valid(self):
         """Test valid grade entry."""

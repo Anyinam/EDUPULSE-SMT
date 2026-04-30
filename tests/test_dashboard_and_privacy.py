@@ -1,5 +1,8 @@
 import json
+from io import BytesIO
 from datetime import datetime, timedelta, timezone
+
+from reportlab.pdfgen import canvas
 
 from flask_jwt_extended import create_access_token
 
@@ -479,6 +482,216 @@ def test_bank_details_are_masked_and_password_reveal_returns_full_values(client,
     assert revealed["bank_account"] == "1234567890"
     assert revealed["bank_account_name"] == "EduPulse School Account"
     assert revealed["bank_branch"] == "Kumasi Main"
+
+
+def test_school_settings_persist_legacy_migration_and_bece_compliance_flags(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    response = client.post(
+        "/api/school/settings",
+        headers=headers,
+        data=json.dumps(
+            {
+                "legacy_parent_notice_dispatched": True,
+                "legacy_consent_collection_completed": True,
+                "legacy_consent_collection_date": "2026-04-29",
+                "legacy_consent_evidence_notes": "Signed forms filed in the admissions office.",
+                "bece_result_processing_enabled": True,
+                "bece_parent_notice_confirmed": True,
+            }
+        ),
+    )
+
+    assert response.status_code == 200
+
+    settings_response = client.get("/api/school/settings", headers=headers)
+    assert settings_response.status_code == 200
+    payload = settings_response.get_json()
+    assert payload["legacy_parent_notice_dispatched"] is True
+    assert payload["legacy_consent_collection_completed"] is True
+    assert payload["legacy_consent_collection_date"] == "2026-04-29"
+    assert payload["legacy_consent_evidence_notes"] == "Signed forms filed in the admissions office."
+    assert payload["bece_result_processing_enabled"] is True
+    assert payload["bece_parent_notice_confirmed"] is True
+
+
+def test_legacy_consent_evidence_upload_list_and_download(client, app, test_school, test_proprietor, tmp_path):
+    app.config["LEGACY_CONSENT_EVIDENCE_STORAGE_DIR"] = str(tmp_path / "evidence")
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    multipart_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+
+    upload_response = client.post(
+        "/api/school/settings/legacy-consent-evidence",
+        headers=multipart_headers,
+        data={
+            "category": "signed_form",
+            "note": "Signed legacy consent forms for Term 2.",
+            "file": (BytesIO(b"signed consent evidence"), "legacy-consent.txt"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert upload_response.status_code == 201
+    upload_payload = upload_response.get_json()
+    assert upload_payload["artifact"]["category"] == "signed_form"
+
+    list_response = client.get("/api/school/settings/legacy-consent-evidence", headers=headers)
+    assert list_response.status_code == 200
+    artifacts = list_response.get_json()["artifacts"]
+    assert len(artifacts) == 1
+    assert artifacts[0]["original_filename"] == "legacy-consent.txt"
+
+    settings_response = client.get("/api/school/settings", headers=headers)
+    assert settings_response.status_code == 200
+    assert settings_response.get_json()["legacy_consent_evidence_artifact_count"] == 1
+
+    download_response = client.get(artifacts[0]["download_path"], headers=headers)
+    assert download_response.status_code == 200
+    assert download_response.data == b"signed consent evidence"
+
+
+def test_exam_intelligence_import_requires_ready_compliance_flags(client, app, test_school, test_proprietor, tmp_path):
+    app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    multipart_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+
+    response = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2025/2026",
+            "file": (BytesIO(b"Ama | Female | Mathematics | 78 | B2\n"), "waec-results.txt"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert "readiness" in response.get_json()["message"].lower()
+
+
+def test_exam_intelligence_import_and_dashboard_summary(client, app, test_school, test_proprietor, tmp_path):
+    app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    settings_response = client.post(
+        "/api/school/settings",
+        headers=headers,
+        data=json.dumps(
+            {
+                "data_compliance_school_authority_confirmed": True,
+                "legacy_parent_notice_dispatched": True,
+                "legacy_consent_collection_completed": True,
+                "bece_result_processing_enabled": True,
+                "bece_parent_notice_confirmed": True,
+            }
+        ),
+    )
+    assert settings_response.status_code == 200
+
+    multipart_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+    text_one = (
+        "Ama | Female | Mathematics | 78 | B2\n"
+        "Ama | Female | English Language | 74 | B3\n"
+        "Kojo | Male | Mathematics | 60 | C5\n"
+        "Kojo | Male | English Language | 58 | C6\n"
+    ).encode("utf-8")
+    upload_one = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2024/2025",
+            "file": (BytesIO(text_one), "waec-sheet-2024.txt"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_one.status_code == 201
+
+    extracted_rows = (
+        "Ama | Female | Mathematics | 82 | A1\n"
+        "Ama | Female | English Language | 79 | B2\n"
+        "Kojo | Male | Mathematics | 66 | C4\n"
+        "Kojo | Male | English Language | 63 | C5\n"
+    )
+    upload_two = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2025/2026",
+            "result_text": extracted_rows,
+            "file": (BytesIO(b"%PDF-1.4 fake school result pdf"), "waec-results-2025.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_two.status_code == 201
+
+    dashboard_response = client.get("/api/analytics/exam-intelligence", headers=headers)
+    assert dashboard_response.status_code == 200
+    payload = dashboard_response.get_json()
+    assert payload["compliance_ready"] is True
+    assert payload["summary"]["total_imports"] == 2
+    assert payload["latest_batch"]["academic_year"] == "2025/2026"
+    assert payload["latest_batch"]["candidate_count"] == 2
+    assert any(item["subject"] == "Mathematics" for item in payload["subject_trends"])
+    assert any(item["gender"] == "Female" for item in payload["gender_comparison"])
+
+    list_response = client.get("/api/analytics/exam-imports", headers=headers)
+    assert list_response.status_code == 200
+    batches = list_response.get_json()["batches"]
+    assert len(batches) == 2
+
+    download_response = client.get(batches[0]["download_path"], headers=headers)
+    assert download_response.status_code == 200
+    assert b"%PDF-1.4" in download_response.data
+
+
+def test_exam_intelligence_parses_text_based_pdf_automatically(client, app, test_school, test_proprietor, tmp_path):
+    app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    settings_response = client.post(
+        "/api/school/settings",
+        headers=headers,
+        data=json.dumps(
+            {
+                "data_compliance_school_authority_confirmed": True,
+                "legacy_parent_notice_dispatched": True,
+                "legacy_consent_collection_completed": True,
+                "bece_result_processing_enabled": True,
+                "bece_parent_notice_confirmed": True,
+            }
+        ),
+    )
+    assert settings_response.status_code == 200
+
+    pdf_buffer = BytesIO()
+    pdf = canvas.Canvas(pdf_buffer)
+    pdf.drawString(72, 780, "Ama Mensah | Female | Mathematics | 82 | A1")
+    pdf.drawString(72, 760, "Ama Mensah | Female | English Language | 79 | B2")
+    pdf.drawString(72, 740, "Kojo Owusu | Male | Mathematics | 66 | C4")
+    pdf.drawString(72, 720, "Kojo Owusu | Male | English Language | 63 | C5")
+    pdf.save()
+    pdf_buffer.seek(0)
+
+    multipart_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+    upload_response = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2025/2026",
+            "file": (pdf_buffer, "waec-text-based-results.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert upload_response.status_code == 201
+    batch = upload_response.get_json()["batch"]
+    assert batch["candidate_count"] == 2
+    assert batch["source_format"] == "pdf"
+    assert batch["parse_mode"] == "pdf_text"
 
 
 def test_payment_codes_include_convenience_fee_breakdown_and_cash_alternative(client, app, test_school, test_proprietor, test_students):

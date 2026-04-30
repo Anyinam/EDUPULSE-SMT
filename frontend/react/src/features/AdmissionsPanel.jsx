@@ -25,6 +25,12 @@ export default function AdmissionsPanel() {
   const [loadingApplications, setLoadingApplications] = useState(true);
   const [reviewNotes, setReviewNotes] = useState({});
   const [reviewClass, setReviewClass] = useState({});
+  const [reviewFollowUp, setReviewFollowUp] = useState({});
+  const [workflowDefaults, setWorkflowDefaults] = useState({
+    visit_location: '',
+    visit_contact_person: '',
+    visit_contact_phone: ''
+  });
   const [reviewingId, setReviewingId] = useState(null);
 
   // Promotion state
@@ -63,6 +69,11 @@ export default function AdmissionsPanel() {
       const res = await axios.get('/api/admissions/applications', { headers: getAuthHeaders() });
       setApplications(res.data.applications || []);
       setApplicationSummary(res.data.summary || {});
+      setWorkflowDefaults(res.data.workflow_defaults || {
+        visit_location: '',
+        visit_contact_person: '',
+        visit_contact_phone: ''
+      });
     } catch (err) {
       console.error('Failed to fetch parent applications', err);
     } finally {
@@ -169,6 +180,14 @@ export default function AdmissionsPanel() {
       };
       if (action === 'approve') {
         payload.class_assigned = reviewClass[application.id] || application.preferred_class;
+      }
+      if (action === 'schedule_visit') {
+        const followUp = reviewFollowUp[application.id] || {};
+        payload.visit_date = followUp.visit_date || '';
+        payload.visit_time = followUp.visit_time || '';
+        payload.visit_location = followUp.visit_location || '';
+        payload.visit_contact_person = followUp.visit_contact_person || '';
+        payload.visit_contact_phone = followUp.visit_contact_phone || '';
       }
       const res = await axios.post(`/api/admissions/applications/${application.id}/review`, payload, {
         headers: getAuthHeaders()
@@ -342,6 +361,7 @@ export default function AdmissionsPanel() {
                   </div>
                   <div className="rounded-xl bg-white p-4">
                     <p className="text-xs font-bold uppercase text-slate-400">Reviewer Notes</p>
+                    <p className="mt-1 text-xs text-slate-500">These notes appear on the parent's status page. Use them for visit instructions, test guidance, approval context, or rejection reasons.</p>
                     <textarea
                       value={reviewNotes[application.id] || ''}
                       onChange={(event) => setReviewNotes((current) => ({ ...current, [application.id]: event.target.value }))}
@@ -349,6 +369,75 @@ export default function AdmissionsPanel() {
                       className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                       placeholder="Add school review notes or parent follow-up guidance"
                     />
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-bold uppercase text-slate-500">Visit Plan Details</p>
+                      <p className="mt-1 text-xs text-slate-500">Used when you mark School Visit Required. Parents will see these details on their status page and in the review update.</p>
+                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <input
+                          type="date"
+                          value={reviewFollowUp[application.id]?.visit_date ?? application.follow_up_plan?.date ?? ''}
+                          onChange={(event) => setReviewFollowUp((current) => ({
+                            ...current,
+                            [application.id]: {
+                              ...(current[application.id] || {}),
+                              visit_date: event.target.value,
+                            },
+                          }))}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <input
+                          type="time"
+                          value={reviewFollowUp[application.id]?.visit_time ?? application.follow_up_plan?.time ?? ''}
+                          onChange={(event) => setReviewFollowUp((current) => ({
+                            ...current,
+                            [application.id]: {
+                              ...(current[application.id] || {}),
+                              visit_time: event.target.value,
+                            },
+                          }))}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={reviewFollowUp[application.id]?.visit_location ?? application.follow_up_plan?.location ?? workflowDefaults.visit_location ?? ''}
+                          onChange={(event) => setReviewFollowUp((current) => ({
+                            ...current,
+                            [application.id]: {
+                              ...(current[application.id] || {}),
+                              visit_location: event.target.value,
+                            },
+                          }))}
+                          placeholder="Visit location"
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={reviewFollowUp[application.id]?.visit_contact_person ?? application.follow_up_plan?.contact_person ?? workflowDefaults.visit_contact_person ?? ''}
+                          onChange={(event) => setReviewFollowUp((current) => ({
+                            ...current,
+                            [application.id]: {
+                              ...(current[application.id] || {}),
+                              visit_contact_person: event.target.value,
+                            },
+                          }))}
+                          placeholder="Contact person"
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={reviewFollowUp[application.id]?.visit_contact_phone ?? application.follow_up_plan?.contact_phone ?? workflowDefaults.visit_contact_phone ?? ''}
+                          onChange={(event) => setReviewFollowUp((current) => ({
+                            ...current,
+                            [application.id]: {
+                              ...(current[application.id] || {}),
+                              visit_contact_phone: event.target.value,
+                            },
+                          }))}
+                          placeholder="Contact phone"
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2"
+                        />
+                      </div>
+                    </div>
                     <select
                       value={reviewClass[application.id] || application.preferred_class}
                       onChange={(event) => setReviewClass((current) => ({ ...current, [application.id]: event.target.value }))}
@@ -361,8 +450,8 @@ export default function AdmissionsPanel() {
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button onClick={() => handleReviewApplication(application, 'approve')} disabled={reviewingId === application.id} className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60">Approve & Admit</button>
-                  <button onClick={() => handleReviewApplication(application, 'invite_test')} disabled={reviewingId === application.id} className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">Invite Online Test</button>
-                  <button onClick={() => handleReviewApplication(application, 'schedule_visit')} disabled={reviewingId === application.id} className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-60">Schedule Visit</button>
+                  <button onClick={() => handleReviewApplication(application, 'invite_test')} disabled={reviewingId === application.id} className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">Mark Online Test Path</button>
+                  <button onClick={() => handleReviewApplication(application, 'schedule_visit')} disabled={reviewingId === application.id} className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-60">Mark School Visit Required</button>
                   <button onClick={() => handleReviewApplication(application, 'request_correction')} disabled={reviewingId === application.id} className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60">Request Correction</button>
                   <button onClick={() => handleReviewApplication(application, 'reject')} disabled={reviewingId === application.id} className="rounded-xl border border-red-300 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-60">Reject</button>
                   {application.decision_document?.available && (

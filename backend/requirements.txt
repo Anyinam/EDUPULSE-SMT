@@ -15,3 +15,4 @@ apscheduler
 holidays
 alembic
 reportlab
+pdfplumber

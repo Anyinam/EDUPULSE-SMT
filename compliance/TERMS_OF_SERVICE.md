@@ -46,6 +46,12 @@ You may not:
 
 EduPulse processes personal data as described in the Privacy Policy and Data Processing Agreement.
 
+Schools represent that they have the lawful authority to upload, manage, and instruct processing of student, guardian, academic, attendance, admissions, and examination records within the Service.
+
+Where the school uploads WAEC or BECE result lists, continuous-assessment records, or legacy student files that pre-date EduPulse SMT, the school is responsible for ensuring that any required notices, approvals, or parent or guardian consents have been obtained.
+
+Schools may not use EduPulse SMT to disclose student examination records publicly, sell academic data, or process minors' data for purposes unrelated to legitimate school administration, admissions, safeguarding, billing, or academic improvement.
+
 ## 7. Intellectual Property
 
 EduPulse and its licensors own all IP rights to the Service. Schools retain ownership of their data.

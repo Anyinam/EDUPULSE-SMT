@@ -15,7 +15,7 @@ from urllib.parse import quote
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO, StringIO
 
-from flask import Blueprint, Response, current_app, g, jsonify, make_response, request, stream_with_context
+from flask import Blueprint, Response, current_app, g, jsonify, make_response, request, send_file, stream_with_context
 from flask_jwt_extended import (
     create_access_token,
     decode_token,
@@ -25,6 +25,7 @@ from flask_jwt_extended import (
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import joinedload
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 from backend.api.models import (
     VALID_GRADES,
@@ -68,7 +69,7 @@ from backend.api.models import (
     get_ledger_summary,
     verify_ledger_chain,
 )
-from backend.report_card_parser import parse_report_card_image_bytes
+from backend.report_card_parser import ocr_image_bytes, parse_report_card_image_bytes
 from backend.settings import (
     AUTH_LOCKOUT_ATTEMPTS,
     AUTH_LOCKOUT_DURATION_MIN,
@@ -1543,6 +1544,739 @@ def _build_parent_public_url(path):
     return f"{origin.rstrip('/')}{path}"
 
 
+PARENT_ADMISSION_WORKFLOW_KEY = "parent_admissions_workflow"
+PARENT_ADMISSION_REVIEW_META_PREFIX = "[EDUPULSE_PARENT_ADMISSION_META]"
+DATA_COMPLIANCE_WORKFLOW_KEY = "data_compliance_workflow"
+EXAM_INTELLIGENCE_WORKFLOW_KEY = "exam_intelligence"
+PARENT_ADMISSION_CONSENT_VERSION = "2026-04-29"
+
+DEFAULT_DATA_COMPLIANCE_WORKFLOW = {
+    "registration_acknowledgements": {
+        "school_data_authority_confirmed": False,
+        "legacy_and_exam_consent_plan_confirmed": False,
+        "accepted_at": None,
+        "accepted_ip": None,
+        "terms_version": None,
+        "policy_version": None,
+        "proprietor_user_id": None,
+    },
+    "legacy_migration": {
+        "parent_notice_dispatched": False,
+        "consent_collection_completed": False,
+        "consent_collection_date": None,
+        "evidence_notes": "",
+        "evidence_artifacts": [],
+        "bece_result_processing_enabled": False,
+        "bece_parent_notice_confirmed": False,
+    },
+}
+
+DEFAULT_EXAM_INTELLIGENCE_WORKFLOW = {
+    "imports": [],
+}
+
+DEFAULT_PARENT_ADMISSION_WORKFLOW = {
+    "response_templates": {
+        "approve": "Congratulations. {student_name} has been offered admission to {school_name} for {class_assigned}.",
+        "reject": "Thank you for applying to {school_name}. The school is unable to offer admission at this time.",
+        "request_correction": "The school needs more information before final review. Please update the missing details or documents listed on your status page.",
+        "invite_test": "Your application is ready for the online admission-test path. Please follow the school instructions shared below.",
+        "schedule_visit": "Please visit {school_name} for the next admissions step. Review the visit details below and contact the school if you need to reschedule.",
+    },
+    "visit_defaults": {
+        "location": "",
+        "contact_person": "",
+        "contact_phone": "",
+    },
+}
+
+
+def _normalize_parent_admission_workflow_config(raw_config):
+    config = _clone_json_document(raw_config)
+    if not isinstance(config, dict):
+        config = {}
+
+    raw_templates = config.get("response_templates") if isinstance(config.get("response_templates"), dict) else {}
+    raw_visit_defaults = config.get("visit_defaults") if isinstance(config.get("visit_defaults"), dict) else {}
+
+    return {
+        "response_templates": {
+            key: sanitize_string(raw_templates.get(key) or default_value) or default_value
+            for key, default_value in DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"].items()
+        },
+        "visit_defaults": {
+            "location": sanitize_string(raw_visit_defaults.get("location") or "") or "",
+            "contact_person": sanitize_string(raw_visit_defaults.get("contact_person") or "") or "",
+            "contact_phone": sanitize_string(raw_visit_defaults.get("contact_phone") or "") or "",
+        },
+    }
+
+
+def _normalize_data_compliance_workflow_config(raw_config):
+    config = _clone_json_document(raw_config)
+    if not isinstance(config, dict):
+        config = {}
+
+    raw_registration = config.get("registration_acknowledgements")
+    if not isinstance(raw_registration, dict):
+        raw_registration = {}
+    raw_legacy = config.get("legacy_migration")
+    if not isinstance(raw_legacy, dict):
+        raw_legacy = {}
+    raw_artifacts = raw_legacy.get("evidence_artifacts")
+    if not isinstance(raw_artifacts, list):
+        raw_artifacts = []
+
+    consent_collection_date = sanitize_string(raw_legacy.get("consent_collection_date") or "") or None
+    if consent_collection_date:
+        try:
+            from datetime import datetime as dt
+            dt.strptime(consent_collection_date, "%Y-%m-%d")
+        except ValueError:
+            consent_collection_date = None
+
+    return {
+        "registration_acknowledgements": {
+            "school_data_authority_confirmed": bool(raw_registration.get("school_data_authority_confirmed", False)),
+            "legacy_and_exam_consent_plan_confirmed": bool(raw_registration.get("legacy_and_exam_consent_plan_confirmed", False)),
+            "accepted_at": sanitize_string(raw_registration.get("accepted_at") or "") or None,
+            "accepted_ip": sanitize_string(raw_registration.get("accepted_ip") or "") or None,
+            "terms_version": sanitize_string(raw_registration.get("terms_version") or "") or None,
+            "policy_version": sanitize_string(raw_registration.get("policy_version") or "") or None,
+            "proprietor_user_id": raw_registration.get("proprietor_user_id") if isinstance(raw_registration.get("proprietor_user_id"), int) else None,
+        },
+        "legacy_migration": {
+            "parent_notice_dispatched": bool(raw_legacy.get("parent_notice_dispatched", False)),
+            "consent_collection_completed": bool(raw_legacy.get("consent_collection_completed", False)),
+            "consent_collection_date": consent_collection_date,
+            "evidence_notes": sanitize_string(raw_legacy.get("evidence_notes") or "") or "",
+            "evidence_artifacts": [
+                artifact
+                for artifact in [_normalize_legacy_consent_evidence_artifact(item) for item in raw_artifacts]
+                if artifact
+            ][:24],
+            "bece_result_processing_enabled": bool(raw_legacy.get("bece_result_processing_enabled", False)),
+            "bece_parent_notice_confirmed": bool(raw_legacy.get("bece_parent_notice_confirmed", False)),
+        },
+    }
+
+
+def _normalize_legacy_consent_evidence_artifact(raw_artifact):
+    if not isinstance(raw_artifact, dict):
+        return None
+
+    artifact_id = sanitize_string(raw_artifact.get("id") or "") or None
+    stored_filename = sanitize_string(raw_artifact.get("stored_filename") or "") or None
+    original_filename = sanitize_string(raw_artifact.get("original_filename") or "") or None
+    if not artifact_id or not stored_filename or not original_filename:
+        return None
+
+    return {
+        "id": artifact_id,
+        "stored_filename": stored_filename,
+        "original_filename": original_filename,
+        "category": sanitize_string(raw_artifact.get("category") or "general") or "general",
+        "note": sanitize_string(raw_artifact.get("note") or "") or "",
+        "uploaded_at": sanitize_string(raw_artifact.get("uploaded_at") or "") or None,
+        "uploaded_by": raw_artifact.get("uploaded_by") if isinstance(raw_artifact.get("uploaded_by"), int) else None,
+        "size_bytes": int(raw_artifact.get("size_bytes") or 0),
+    }
+
+
+def _normalize_exam_import_entry(raw_import):
+    if not isinstance(raw_import, dict):
+        return None
+
+    batch_id = sanitize_string(raw_import.get("id") or "") or None
+    stored_filename = sanitize_string(raw_import.get("stored_filename") or "") or None
+    source_filename = sanitize_string(raw_import.get("source_filename") or "") or None
+    parsed_rows_filename = sanitize_string(raw_import.get("parsed_rows_filename") or "") or None
+    if not batch_id or not stored_filename or not source_filename:
+        return None
+
+    subject_summaries = raw_import.get("subject_summaries")
+    if not isinstance(subject_summaries, list):
+        subject_summaries = []
+
+    normalized_subject_summaries = []
+    for item in subject_summaries:
+        if not isinstance(item, dict):
+            continue
+        subject_name = sanitize_string(item.get("subject") or "") or None
+        if not subject_name:
+            continue
+        normalized_subject_summaries.append(
+            {
+                "subject": subject_name,
+                "average_score": round(float(item.get("average_score") or 0), 2),
+                "pass_rate": round(float(item.get("pass_rate") or 0), 2),
+                "entries": int(item.get("entries") or 0),
+            }
+        )
+
+    return {
+        "id": batch_id,
+        "exam_type": sanitize_string(raw_import.get("exam_type") or "BECE") or "BECE",
+        "academic_year": sanitize_string(raw_import.get("academic_year") or "") or "Unknown",
+        "source_filename": source_filename,
+        "stored_filename": stored_filename,
+        "parsed_rows_filename": parsed_rows_filename,
+        "source_format": sanitize_string(raw_import.get("source_format") or "document") or "document",
+        "parse_mode": sanitize_string(raw_import.get("parse_mode") or "structured_text") or "structured_text",
+        "uploaded_at": sanitize_string(raw_import.get("uploaded_at") or "") or None,
+        "uploaded_by": raw_import.get("uploaded_by") if isinstance(raw_import.get("uploaded_by"), int) else None,
+        "candidate_count": int(raw_import.get("candidate_count") or 0),
+        "subject_entry_count": int(raw_import.get("subject_entry_count") or 0),
+        "average_score": round(float(raw_import.get("average_score") or 0), 2),
+        "pass_rate": round(float(raw_import.get("pass_rate") or 0), 2),
+        "subject_summaries": normalized_subject_summaries[:12],
+    }
+
+
+def _get_exam_intelligence_workflow_config(settings):
+    global_settings = _get_report_global_settings(settings)
+    raw_config = _clone_json_document(global_settings.get(EXAM_INTELLIGENCE_WORKFLOW_KEY) or DEFAULT_EXAM_INTELLIGENCE_WORKFLOW)
+    if not isinstance(raw_config, dict):
+        raw_config = {}
+    raw_imports = raw_config.get("imports")
+    if not isinstance(raw_imports, list):
+        raw_imports = []
+    return {
+        "imports": [
+            item for item in (_normalize_exam_import_entry(entry) for entry in raw_imports) if item
+        ][:36],
+    }
+
+
+def _set_exam_intelligence_workflow_config(settings, workflow_config):
+    config = _clone_json_document(settings.report_template_config)
+    global_settings = config.get(GLOBAL_REPORT_SETTINGS_KEY) or {}
+    if not isinstance(global_settings, dict):
+        global_settings = {}
+
+    imports = workflow_config.get("imports") if isinstance(workflow_config, dict) else []
+    if not isinstance(imports, list):
+        imports = []
+    global_settings[EXAM_INTELLIGENCE_WORKFLOW_KEY] = {
+        "imports": [
+            item for item in (_normalize_exam_import_entry(entry) for entry in imports) if item
+        ][:36]
+    }
+    config[GLOBAL_REPORT_SETTINGS_KEY] = global_settings
+    settings.report_template_config = config
+
+
+def _get_school_storage_root(config_key, default_folder_name):
+    base_dir = current_app.config.get(config_key) or os.path.join(current_app.instance_path, default_folder_name)
+    os.makedirs(base_dir, exist_ok=True)
+    school_dir = os.path.join(base_dir, str(g.school_id))
+    os.makedirs(school_dir, exist_ok=True)
+    return school_dir
+
+
+def _get_legacy_evidence_storage_root():
+    return _get_school_storage_root("LEGACY_CONSENT_EVIDENCE_STORAGE_DIR", "legacy-consent-evidence")
+
+
+def _get_exam_import_storage_root():
+    return _get_school_storage_root("EXAM_INTELLIGENCE_STORAGE_DIR", "exam-intelligence")
+
+
+def _resolve_existing_school_file(storage_root, stored_filename):
+    if not stored_filename:
+        return None
+    candidate_path = os.path.join(storage_root, stored_filename)
+    if not os.path.isfile(candidate_path):
+        return None
+    return candidate_path
+
+
+def _build_legacy_evidence_download_path(artifact_id):
+    return f"/api/school/settings/legacy-consent-evidence/{quote(artifact_id)}/download"
+
+
+def _build_exam_import_download_path(batch_id):
+    return f"/api/analytics/exam-imports/{quote(batch_id)}/download"
+
+
+def _build_exam_rows_snapshot_path(batch_id):
+    return f"{batch_id}_rows.json"
+
+
+def _normalize_exam_row_key(value):
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _extract_exam_row_value(row, aliases):
+    normalized_row = {
+        _normalize_exam_row_key(key): value
+        for key, value in (row or {}).items()
+        if key is not None
+    }
+    for alias in aliases:
+        if alias in normalized_row and normalized_row[alias] not in (None, ""):
+            return normalized_row[alias]
+    return ""
+
+
+def _parse_exam_score_value(value):
+    text_value = sanitize_string(value or "") or ""
+    if not text_value:
+        return None
+    text_value = text_value.replace("%", "").replace(",", "")
+    try:
+        return float(text_value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_exam_result_pass(score, grade):
+    if score is not None:
+        return score >= 50
+
+    grade_text = (sanitize_string(grade or "") or "").upper()
+    if not grade_text:
+        return False
+    if grade_text.isdigit():
+        return int(grade_text) <= 6
+    if grade_text in {"A1", "B2", "B3", "C4", "C5", "C6", "PASS"}:
+        return True
+    if grade_text in {"D7", "E8", "F9", "FAIL"}:
+        return False
+    return False
+
+
+def _parse_exam_csv_rows(file_stream):
+    try:
+        decoded = file_stream.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        file_stream.seek(0)
+        decoded = file_stream.read().decode("latin-1")
+
+    reader = csv.DictReader(StringIO(decoded))
+    rows = []
+    for raw_row in reader:
+        candidate_name = sanitize_string(
+            _extract_exam_row_value(raw_row, ["candidate_name", "student_name", "name", "candidate"])
+        )
+        subject_name = sanitize_string(
+            _extract_exam_row_value(raw_row, ["subject", "subject_name", "paper", "course"])
+        )
+        if not candidate_name or not subject_name:
+            continue
+        rows.append(
+            {
+                "candidate_name": candidate_name,
+                "candidate_identifier": sanitize_string(
+                    _extract_exam_row_value(raw_row, ["candidate_id", "index_number", "student_code"])
+                ) or candidate_name,
+                "gender": (sanitize_string(_extract_exam_row_value(raw_row, ["gender", "sex"])) or "Unknown").title(),
+                "subject": subject_name,
+                "score": _parse_exam_score_value(
+                    _extract_exam_row_value(raw_row, ["score", "total_score", "mark", "marks"])
+                ),
+                "grade": sanitize_string(_extract_exam_row_value(raw_row, ["grade", "result_grade"])) or "",
+            }
+        )
+
+    if not rows:
+        raise ValueError("The uploaded CSV did not contain valid candidate_name and subject columns.")
+    return rows
+
+
+def _parse_exam_text_rows(text):
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    rows = []
+
+    delimited_pattern = re.compile(
+        r"^(?P<candidate>[^|,;]+?)\s*[|,;]\s*(?P<gender>[^|,;]+?)\s*[|,;]\s*(?P<subject>[^|,;]+?)\s*[|,;]\s*(?P<score>[A-Za-z0-9.%-]+?)\s*[|,;]\s*(?P<grade>[A-Za-z0-9+-]+)\s*$"
+    )
+    spaced_pattern = re.compile(
+        r"^(?P<candidate>[A-Za-z][A-Za-z '.-]+?)\s+(?P<gender>Male|Female|M|F)\s+(?P<subject>[A-Za-z&/(). -]+?)\s+(?P<score>\d{1,3}(?:\.\d+)?)\s+(?P<grade>[A-F][1-9]?|[A-C][1-6]|PASS|FAIL|[1-9])$",
+        re.IGNORECASE,
+    )
+
+    for line in lines:
+        match = delimited_pattern.match(line) or spaced_pattern.match(line)
+        if not match:
+            continue
+        candidate_name = sanitize_string(match.group("candidate") or "")
+        subject_name = sanitize_string(match.group("subject") or "")
+        if not candidate_name or not subject_name:
+            continue
+        gender_text = sanitize_string(match.group("gender") or "") or "Unknown"
+        if gender_text.upper() == "M":
+            gender_text = "Male"
+        elif gender_text.upper() == "F":
+            gender_text = "Female"
+        score_text = sanitize_string(match.group("score") or "") or ""
+        score_value = _parse_exam_score_value(score_text)
+        rows.append(
+            {
+                "candidate_name": candidate_name,
+                "candidate_identifier": candidate_name,
+                "gender": gender_text.title(),
+                "subject": subject_name,
+                "score": score_value,
+                "grade": sanitize_string(match.group("grade") or "") or score_text,
+            }
+        )
+
+    if not rows:
+        raise ValueError(
+            "Could not parse the uploaded result document. Paste the extracted rows in this format: Candidate | Gender | Subject | Score | Grade"
+        )
+    return rows
+
+
+def _load_exam_document_text(uploaded, file_ext, result_text=None):
+    if result_text and sanitize_string(result_text or ""):
+        return str(result_text)
+
+    uploaded.stream.seek(0)
+    file_bytes = uploaded.read()
+    uploaded.stream.seek(0)
+
+    if file_ext == ".txt":
+        try:
+            return file_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return file_bytes.decode("latin-1")
+
+    if file_ext in {".png", ".jpg", ".jpeg", ".webp"}:
+        try:
+            return ocr_image_bytes(file_bytes)
+        except Exception as exc:
+            raise ValueError(f"Image OCR failed: {exc}")
+
+    if file_ext == ".pdf":
+        try:
+            import pdfplumber
+        except Exception as exc:
+            raise ValueError(
+                f"PDF parsing is not available in this environment yet: {exc}. Upload the PDF and paste the extracted rows in the review text box."
+            )
+
+        try:
+            extracted_pages = []
+            with pdfplumber.open(BytesIO(file_bytes)) as pdf_document:
+                for page in pdf_document.pages:
+                    extracted_pages.append(page.extract_text() or "")
+            extracted_text = "\n".join(part for part in extracted_pages if part.strip()).strip()
+        except Exception as exc:
+            raise ValueError(f"PDF text extraction failed: {exc}")
+
+        if not extracted_text:
+            raise ValueError(
+                "This PDF did not expose extractable text automatically. Upload the PDF and paste the extracted rows in the review text box."
+            )
+        return extracted_text
+
+    raise ValueError("Unsupported exam document format.")
+
+
+def _build_exam_batch_summary(rows):
+    if not rows:
+        return {
+            "candidate_count": 0,
+            "subject_entry_count": 0,
+            "average_score": 0.0,
+            "pass_rate": 0.0,
+            "subject_summaries": [],
+        }
+
+    unique_candidates = {row.get("candidate_identifier") or row.get("candidate_name") for row in rows}
+    numeric_scores = [row["score"] for row in rows if row.get("score") is not None]
+    pass_count = sum(1 for row in rows if _is_exam_result_pass(row.get("score"), row.get("grade")))
+    subject_buckets = {}
+    for row in rows:
+        subject_name = row.get("subject") or "Unknown"
+        bucket = subject_buckets.setdefault(subject_name, {"scores": [], "passes": 0, "entries": 0})
+        bucket["entries"] += 1
+        if row.get("score") is not None:
+            bucket["scores"].append(row["score"])
+        if _is_exam_result_pass(row.get("score"), row.get("grade")):
+            bucket["passes"] += 1
+
+    subject_summaries = []
+    for subject_name, bucket in subject_buckets.items():
+        average_score = round(sum(bucket["scores"]) / len(bucket["scores"]), 2) if bucket["scores"] else 0.0
+        pass_rate = round((bucket["passes"] / bucket["entries"]) * 100, 2) if bucket["entries"] else 0.0
+        subject_summaries.append(
+            {
+                "subject": subject_name,
+                "average_score": average_score,
+                "pass_rate": pass_rate,
+                "entries": bucket["entries"],
+            }
+        )
+
+    subject_summaries.sort(key=lambda item: (-item["average_score"], item["subject"]))
+    return {
+        "candidate_count": len(unique_candidates),
+        "subject_entry_count": len(rows),
+        "average_score": round(sum(numeric_scores) / len(numeric_scores), 2) if numeric_scores else 0.0,
+        "pass_rate": round((pass_count / len(rows)) * 100, 2) if rows else 0.0,
+        "subject_summaries": subject_summaries,
+    }
+
+
+def _load_exam_rows_for_batch(batch_meta):
+    rows_filename = batch_meta.get("parsed_rows_filename")
+    resolved_path = _resolve_existing_school_file(_get_exam_import_storage_root(), rows_filename)
+    if not resolved_path:
+        return []
+    with open(resolved_path, "r", encoding="utf-8") as file_handle:
+        payload = json.load(file_handle)
+    rows = payload.get("rows") if isinstance(payload, dict) else []
+    return rows if isinstance(rows, list) else []
+
+
+def _build_exam_intelligence_payload(settings):
+    workflow_config = _get_exam_intelligence_workflow_config(settings)
+    imports = sorted(
+        workflow_config.get("imports") or [],
+        key=lambda item: (_academic_year_sort_key(item.get("academic_year")), item.get("uploaded_at") or ""),
+        reverse=True,
+    )
+
+    compliance_workflow = _get_data_compliance_workflow_config(settings)
+    registration_ack = compliance_workflow.get("registration_acknowledgements") or {}
+    legacy_migration = compliance_workflow.get("legacy_migration") or {}
+    compliance_ready = bool(
+        registration_ack.get("school_data_authority_confirmed")
+        and legacy_migration.get("bece_result_processing_enabled")
+        and legacy_migration.get("bece_parent_notice_confirmed")
+    )
+
+    enriched_imports = []
+    for batch in imports:
+        item = dict(batch)
+        item["download_path"] = _build_exam_import_download_path(batch["id"])
+        enriched_imports.append(item)
+
+    latest_batch = enriched_imports[0] if enriched_imports else None
+    previous_batch = enriched_imports[1] if len(enriched_imports) > 1 else None
+    latest_subjects = {item["subject"]: item for item in (latest_batch or {}).get("subject_summaries", [])}
+    previous_subjects = {item["subject"]: item for item in (previous_batch or {}).get("subject_summaries", [])}
+
+    subject_trends = []
+    for subject_name, subject_summary in latest_subjects.items():
+        previous = previous_subjects.get(subject_name)
+        previous_average = previous.get("average_score") if previous else None
+        subject_trends.append(
+            {
+                "subject": subject_name,
+                "latest_average": subject_summary.get("average_score", 0.0),
+                "previous_average": previous_average,
+                "delta": round(subject_summary.get("average_score", 0.0) - previous_average, 2) if previous_average is not None else None,
+                "latest_pass_rate": subject_summary.get("pass_rate", 0.0),
+            }
+        )
+    subject_trends.sort(key=lambda item: (item["delta"] is None, -(item["delta"] or -999), item["subject"]))
+
+    gender_comparison = []
+    if latest_batch:
+        rows = _load_exam_rows_for_batch(latest_batch)
+        gender_buckets = {}
+        for row in rows:
+            gender_name = row.get("gender") or "Unknown"
+            bucket = gender_buckets.setdefault(gender_name, {"scores": [], "passes": 0, "entries": 0})
+            bucket["entries"] += 1
+            if row.get("score") is not None:
+                bucket["scores"].append(row["score"])
+            if _is_exam_result_pass(row.get("score"), row.get("grade")):
+                bucket["passes"] += 1
+        for gender_name, bucket in gender_buckets.items():
+            gender_comparison.append(
+                {
+                    "gender": gender_name,
+                    "average_score": round(sum(bucket["scores"]) / len(bucket["scores"]), 2) if bucket["scores"] else 0.0,
+                    "pass_rate": round((bucket["passes"] / bucket["entries"]) * 100, 2) if bucket["entries"] else 0.0,
+                    "entries": bucket["entries"],
+                }
+            )
+        gender_comparison.sort(key=lambda item: item["gender"])
+
+    year_trends = [
+        {
+            "academic_year": item.get("academic_year"),
+            "exam_type": item.get("exam_type"),
+            "average_score": item.get("average_score", 0.0),
+            "pass_rate": item.get("pass_rate", 0.0),
+            "candidate_count": item.get("candidate_count", 0),
+        }
+        for item in reversed(enriched_imports)
+    ]
+
+    return {
+        "compliance_ready": compliance_ready,
+        "compliance_gaps": {
+            "school_data_authority_confirmed": bool(registration_ack.get("school_data_authority_confirmed")),
+            "bece_result_processing_enabled": bool(legacy_migration.get("bece_result_processing_enabled")),
+            "bece_parent_notice_confirmed": bool(legacy_migration.get("bece_parent_notice_confirmed")),
+        },
+        "summary": {
+            "total_imports": len(enriched_imports),
+            "latest_average_score": latest_batch.get("average_score", 0.0) if latest_batch else 0.0,
+            "latest_pass_rate": latest_batch.get("pass_rate", 0.0) if latest_batch else 0.0,
+            "latest_candidate_count": latest_batch.get("candidate_count", 0) if latest_batch else 0,
+        },
+        "latest_batch": latest_batch,
+        "batches": enriched_imports,
+        "subject_trends": subject_trends[:12],
+        "gender_comparison": gender_comparison,
+        "year_trends": year_trends,
+    }
+
+
+def _get_data_compliance_workflow_config(settings):
+    global_settings = _get_report_global_settings(settings)
+    return _normalize_data_compliance_workflow_config(global_settings.get(DATA_COMPLIANCE_WORKFLOW_KEY))
+
+
+def _set_data_compliance_workflow_config(settings, workflow_config):
+    config = _clone_json_document(settings.report_template_config)
+    global_settings = config.get(GLOBAL_REPORT_SETTINGS_KEY) or {}
+    if not isinstance(global_settings, dict):
+        global_settings = {}
+    global_settings[DATA_COMPLIANCE_WORKFLOW_KEY] = _normalize_data_compliance_workflow_config(workflow_config)
+    config[GLOBAL_REPORT_SETTINGS_KEY] = global_settings
+    settings.report_template_config = config
+
+
+def _get_parent_admission_workflow_config(settings):
+    global_settings = _get_report_global_settings(settings)
+    return _normalize_parent_admission_workflow_config(global_settings.get(PARENT_ADMISSION_WORKFLOW_KEY))
+
+
+def _set_parent_admission_workflow_config(settings, workflow_config):
+    config = _clone_json_document(settings.report_template_config)
+    global_settings = config.get(GLOBAL_REPORT_SETTINGS_KEY) or {}
+    if not isinstance(global_settings, dict):
+        global_settings = {}
+    global_settings[PARENT_ADMISSION_WORKFLOW_KEY] = _normalize_parent_admission_workflow_config(workflow_config)
+    config[GLOBAL_REPORT_SETTINGS_KEY] = global_settings
+    settings.report_template_config = config
+
+
+def _render_parent_admission_template(template, context):
+    rendered = str(template or "")
+    for key, value in (context or {}).items():
+        rendered = rendered.replace(f"{{{key}}}", str(value or ""))
+    return rendered.strip()
+
+
+def _build_parent_admission_follow_up_plan(action, payload, workflow_config):
+    visit_defaults = workflow_config.get("visit_defaults") or {}
+    visit_date = sanitize_string(payload.get("visit_date") or "") or ""
+    visit_time = sanitize_string(payload.get("visit_time") or "") or ""
+    visit_location = sanitize_string(payload.get("visit_location") or visit_defaults.get("location") or "") or ""
+    visit_contact_person = sanitize_string(payload.get("visit_contact_person") or visit_defaults.get("contact_person") or "") or ""
+    visit_contact_phone = sanitize_string(payload.get("visit_contact_phone") or visit_defaults.get("contact_phone") or "") or ""
+
+    if visit_date:
+        try:
+            from datetime import datetime as dt
+            dt.strptime(visit_date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("visit_date must use YYYY-MM-DD format.")
+
+    if visit_time:
+        try:
+            from datetime import datetime as dt
+            dt.strptime(visit_time, "%H:%M")
+        except ValueError:
+            raise ValueError("visit_time must use HH:MM format.")
+
+    if action != "schedule_visit":
+        return None
+
+    if not any([visit_date, visit_time, visit_location, visit_contact_person, visit_contact_phone]):
+        return None
+
+    return {
+        "type": "school_visit",
+        "date": visit_date or None,
+        "time": visit_time or None,
+        "location": visit_location or None,
+        "contact_person": visit_contact_person or None,
+        "contact_phone": visit_contact_phone or None,
+    }
+
+
+def _build_parent_admission_response_message(action, application, school, workflow_config, class_assigned=None, follow_up_plan=None):
+    templates = workflow_config.get("response_templates") or {}
+    template = templates.get(action) or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"].get(action) or ""
+    context = {
+        "school_name": school.name if school else "The school",
+        "student_name": f"{application.first_name} {application.surname}".strip(),
+        "application_code": application.application_code,
+        "preferred_class": application.preferred_class or "",
+        "class_assigned": class_assigned or application.preferred_class or "",
+        "visit_date": (follow_up_plan or {}).get("date") or "",
+        "visit_time": (follow_up_plan or {}).get("time") or "",
+        "visit_location": (follow_up_plan or {}).get("location") or "",
+        "visit_contact_person": (follow_up_plan or {}).get("contact_person") or "",
+        "visit_contact_phone": (follow_up_plan or {}).get("contact_phone") or "",
+    }
+    return _render_parent_admission_template(template, context)
+
+
+def _serialize_parent_admission_review_notes(reviewer_note, parent_response_message, follow_up_plan=None, class_assigned=None):
+    meta = {
+        "parent_response_message": sanitize_string(parent_response_message or "") or "",
+        "follow_up_plan": follow_up_plan or None,
+        "class_assigned": sanitize_string(class_assigned or "") or None,
+    }
+    note_body = sanitize_string(reviewer_note or "") or ""
+    return f"{PARENT_ADMISSION_REVIEW_META_PREFIX}{json.dumps(meta, sort_keys=True)}\n{note_body}".rstrip()
+
+
+def _parse_parent_admission_review_notes(raw_notes):
+    if not raw_notes or not isinstance(raw_notes, str):
+        return {
+            "reviewer_note": None,
+            "parent_response_message": None,
+            "follow_up_plan": None,
+            "class_assigned": None,
+        }
+
+    if not raw_notes.startswith(PARENT_ADMISSION_REVIEW_META_PREFIX):
+        cleaned = raw_notes.strip() or None
+        return {
+            "reviewer_note": cleaned,
+            "parent_response_message": cleaned,
+            "follow_up_plan": None,
+            "class_assigned": None,
+        }
+
+    meta_line, _, note_body = raw_notes.partition("\n")
+    meta_payload = meta_line[len(PARENT_ADMISSION_REVIEW_META_PREFIX):].strip()
+    try:
+        meta = json.loads(meta_payload) if meta_payload else {}
+    except json.JSONDecodeError:
+        meta = {}
+
+    return {
+        "reviewer_note": (note_body or "").strip() or None,
+        "parent_response_message": sanitize_string(meta.get("parent_response_message") or "") or None,
+        "follow_up_plan": meta.get("follow_up_plan") if isinstance(meta.get("follow_up_plan"), dict) else None,
+        "class_assigned": sanitize_string(meta.get("class_assigned") or "") or None,
+    }
+
+
+def _apply_parent_admission_review_details(payload):
+    enriched = dict(payload or {})
+    parsed = _parse_parent_admission_review_notes(enriched.get("reviewer_notes"))
+    enriched["reviewer_notes"] = parsed["reviewer_note"]
+    enriched["parent_response_message"] = parsed["parent_response_message"]
+    enriched["follow_up_plan"] = parsed["follow_up_plan"]
+    if parsed["class_assigned"]:
+        enriched["class_assigned"] = parsed["class_assigned"]
+    return enriched
+
+
 def _get_parent_admission_pdf_policy(settings):
     delivery_mode = (getattr(settings, "approval_pdf_delivery_mode", None) or "email_link").strip()
     if delivery_mode not in {"status_page_only", "email_link", "email_attachment"}:
@@ -1588,8 +2322,10 @@ def _build_parent_admission_decision_pdf_bytes(application, school, settings, pa
                 pdf.drawString(left, y, line)
                 y -= gap
 
+    review_details = _parse_parent_admission_review_notes(application.reviewer_notes)
     student_name = f"{application.first_name} {application.surname}".strip()
     decision_date = application.reviewed_at or get_utc_now()
+    class_offered = review_details.get("class_assigned") or application.preferred_class or "-"
 
     pdf.setTitle(f"Admission Decision - {student_name}")
     pdf.setFont("Helvetica-Bold", 16)
@@ -1603,12 +2339,17 @@ def _build_parent_admission_decision_pdf_bytes(application, school, settings, pa
     write_wrapped(f"Learner: {student_name}", "Helvetica", 11)
     write_wrapped(f"Application code: {application.application_code}", "Helvetica", 11)
     write_wrapped(f"Decision: {application.status}", "Helvetica", 11)
-    write_wrapped(f"Class offered: {application.preferred_class or '-'}", "Helvetica", 11)
+    write_wrapped(f"Class offered: {class_offered}", "Helvetica", 11)
     write_wrapped(f"Decision date: {decision_date.strftime('%Y-%m-%d')}", "Helvetica", 11)
     y -= 6
 
+    if review_details.get("parent_response_message"):
+        write_wrapped("Admission Update", "Helvetica-Bold", 12)
+        write_wrapped(review_details["parent_response_message"])
+        y -= 6
+
     write_wrapped("School Notes", "Helvetica-Bold", 12)
-    write_wrapped(application.reviewer_notes or "Approved by the school admissions team.")
+    write_wrapped(review_details.get("reviewer_note") or "Approved by the school admissions team.")
     y -= 6
 
     if application.ai_summary:
@@ -2951,6 +3692,8 @@ def register():
     terms_accepted = data.get("termsAccepted") is True
     policy_version = sanitize_string(data.get("policyVersion"))
     policy_accepted = data.get("policyAccepted") is True
+    school_data_authority_confirmed = data.get("schoolDataAuthorityConfirmed") is True
+    legacy_and_exam_consent_plan_confirmed = data.get("legacyAndExamConsentPlanConfirmed") is True
     selected_plan = sanitize_string(data.get("selectedPlan", "Free"))  # Get selected plan, default to Free
     client_ip = get_client_ip()
 
@@ -2958,6 +3701,10 @@ def register():
         return jsonify({"message": "Terms of Service must be accepted"}), 400
     if not policy_accepted:
         return jsonify({"message": "Privacy and Data Retention policies must be accepted"}), 400
+    if not school_data_authority_confirmed:
+        return jsonify({"message": "School data authority confirmation is required"}), 400
+    if not legacy_and_exam_consent_plan_confirmed:
+        return jsonify({"message": "Legacy migration and examination notice confirmation is required"}), 400
     
     # Validate selected plan
     valid_plans = ["Free", "Basic", "Premium"]
@@ -3003,6 +3750,20 @@ def register():
         new_user.set_password(password)
         db.session.add(new_user)
 
+        db.session.flush()
+
+        compliance_workflow = _get_data_compliance_workflow_config(new_settings)
+        compliance_workflow["registration_acknowledgements"] = {
+            "school_data_authority_confirmed": school_data_authority_confirmed,
+            "legacy_and_exam_consent_plan_confirmed": legacy_and_exam_consent_plan_confirmed,
+            "accepted_at": new_user.terms_accepted_at.isoformat() if new_user.terms_accepted_at else None,
+            "accepted_ip": client_ip,
+            "terms_version": terms_version or None,
+            "policy_version": policy_version or None,
+            "proprietor_user_id": new_user.id,
+        }
+        _set_data_compliance_workflow_config(new_settings, compliance_workflow)
+
         db.session.commit()
 
         try:
@@ -3017,6 +3778,20 @@ def register():
                 school_id,
                 "REGISTRATION_POLICY_ACCEPTED",
                 json.dumps(policy_details, ensure_ascii=False),
+            )
+            log_action(
+                new_user.id,
+                school_id,
+                "REGISTRATION_DATA_COMPLIANCE_ACKNOWLEDGED",
+                json.dumps(
+                    {
+                        "school_data_authority_confirmed": school_data_authority_confirmed,
+                        "legacy_and_exam_consent_plan_confirmed": legacy_and_exam_consent_plan_confirmed,
+                        "accepted_ip": client_ip,
+                        "accepted_at": policy_details.get("accepted_at"),
+                    },
+                    ensure_ascii=False,
+                ),
             )
         except Exception as audit_error:
             logger.warning(f"Policy acceptance audit log failed: {audit_error}")
@@ -8592,6 +9367,8 @@ def submit_parent_admission_application(school_id):
     guardian_name = sanitize_string(payload.get("guardian_name") or payload.get("parent_name") or "")
     parent_email = sanitize_string(payload.get("parent_email") or "")
     parent_phone = sanitize_string(payload.get("parent_phone") or "")
+    consent_confirmed = str(payload.get("consent_confirmed") or payload.get("consentConfirmed") or "").strip().lower() in {"1", "true", "yes", "on"}
+    consent_version = sanitize_string(payload.get("consent_version") or payload.get("consentVersion") or "") or PARENT_ADMISSION_CONSENT_VERSION
 
     if not first_name or not surname:
         return jsonify({"message": "first_name and surname are required"}), 400
@@ -8601,6 +9378,8 @@ def submit_parent_admission_application(school_id):
         return jsonify({"message": "guardian_name is required"}), 400
     if not parent_email and not parent_phone:
         return jsonify({"message": "Provide at least parent_email or parent_phone"}), 400
+    if not consent_confirmed:
+        return jsonify({"message": "Parent or guardian consent confirmation is required before submission."}), 400
 
     date_of_birth = None
     raw_dob = sanitize_string(payload.get("date_of_birth") or "")
@@ -8651,6 +9430,26 @@ def submit_parent_admission_application(school_id):
     db.session.add(application)
     db.session.commit()
 
+    try:
+        log_action(
+            None,
+            school_id,
+            "PARENT_ADMISSION_CONSENT_RECORDED",
+            json.dumps(
+                {
+                    "application_id": application.id,
+                    "application_code": application.application_code,
+                    "status_token": application.status_token,
+                    "consent_version": consent_version,
+                    "accepted_ip": get_client_ip(),
+                    "accepted_at": application.submitted_at.isoformat() if application.submitted_at else None,
+                },
+                ensure_ascii=False,
+            ),
+        )
+    except Exception as consent_log_error:
+        logger.warning("Parent admission consent audit log failed for %s: %s", application.application_code, consent_log_error)
+
     status_path = _build_parent_status_path(school_id, application.status_token)
     status_url = _build_parent_public_url(status_path)
     email_sent = _send_parent_admission_update(
@@ -8666,6 +9465,7 @@ def submit_parent_admission_application(school_id):
         "status_token": application.status_token,
         "status_path": status_path,
         "status_url": status_url,
+        "consent_recorded": True,
         "notification": {
             "email_sent": email_sent,
             "sms_preview": _build_parent_notification_sms(
@@ -8701,7 +9501,7 @@ def get_parent_admission_status(school_id, status_token):
     if not application:
         return jsonify({"message": "Application not found"}), 404
 
-    payload = application.to_public_dict()
+    payload = _apply_parent_admission_review_details(application.to_public_dict())
     payload["school"] = _get_public_school_profile_payload(school, settings)
     payload["status_path"] = _build_parent_status_path(school_id, application.status_token)
     if application.admitted_student_id:
@@ -8865,18 +9665,24 @@ def list_parent_admission_applications():
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     applications = query.order_by(ParentAdmissionApplication.submitted_at.desc()).all()
     summary = {}
+    workflow_config = _get_parent_admission_workflow_config(settings)
     for item in applications:
         summary[item.status] = summary.get(item.status, 0) + 1
 
     return jsonify({
         "applications": [
-            {
+            _apply_parent_admission_review_details({
                 **item.to_staff_dict(),
                 **({"decision_document": _build_staff_parent_decision_document_payload(item, settings, g.school_id)} if _build_staff_parent_decision_document_payload(item, settings, g.school_id) else {}),
-            }
+            })
             for item in applications
         ],
         "summary": summary,
+        "workflow_defaults": {
+            "visit_location": workflow_config["visit_defaults"].get("location", ""),
+            "visit_contact_person": workflow_config["visit_defaults"].get("contact_person", ""),
+            "visit_contact_phone": workflow_config["visit_defaults"].get("contact_phone", ""),
+        },
     })
 
 
@@ -8907,22 +9713,45 @@ def review_parent_admission_application(application_id):
     if action not in action_map:
         return jsonify({"message": "Invalid review action"}), 400
 
-    application.reviewer_notes = reviewer_notes or None
     application.reviewed_by_user_id = reviewer_id
     application.reviewed_at = get_utc_now()
     application.status = action_map[action]
 
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    workflow_config = _get_parent_admission_workflow_config(settings)
+    school = School.query.get(g.school_id)
+    class_assigned = sanitize_string(payload.get("class_assigned") or application.preferred_class)
+    try:
+        follow_up_plan = _build_parent_admission_follow_up_plan(action, payload, workflow_config)
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+
+    if action == "schedule_visit" and not follow_up_plan and not reviewer_notes:
+        return jsonify({"message": "Provide visit details or reviewer notes before marking the school visit as required."}), 400
+
+    parent_response_message = _build_parent_admission_response_message(
+        action,
+        application,
+        school,
+        workflow_config,
+        class_assigned=class_assigned,
+        follow_up_plan=follow_up_plan,
+    )
+    application.reviewer_notes = _serialize_parent_admission_review_notes(
+        reviewer_notes,
+        parent_response_message,
+        follow_up_plan=follow_up_plan,
+        class_assigned=class_assigned if action == "approve" else None,
+    )
 
     response_payload = {
         "message": f"Application marked as {application.status}.",
-        "application": application.to_staff_dict(),
+        "application": _apply_parent_admission_review_details(application.to_staff_dict()),
     }
 
     if action == "approve":
         if application.admitted_student_id:
             return jsonify({"message": "Application has already been approved and converted to a student."}), 409
-        class_assigned = sanitize_string(payload.get("class_assigned") or application.preferred_class)
         admission_payload = {
             "first_name": application.first_name,
             "surname": application.surname,
@@ -8955,29 +9784,26 @@ def review_parent_admission_application(application_id):
             "student_code": student.student_code,
             "warning": warning,
             "billing_notice": proration_result if proration_result.get("prorated_charge") else None,
-            "application": application.to_staff_dict(),
+            "application": _apply_parent_admission_review_details(application.to_staff_dict()),
         })
         decision_document = _build_staff_parent_decision_document_payload(application, settings, g.school_id)
         if decision_document:
             response_payload["application"]["decision_document"] = decision_document
         _send_parent_admission_update(
             application,
-            School.query.get(g.school_id),
-            next_step="The learner has been approved. Open the payment link to view any required school charges, including admission fee if your school applies one.",
+            school,
+            next_step=parent_response_message + " Open the payment link to view any required school charges, including admission fee if your school applies one.",
             payment_url=_build_parent_public_url(_build_parent_payment_path(g.school_id, student.student_code)),
         )
     else:
         db.session.commit()
-        next_step_map = {
-            "NeedsCorrection": "The school needs more information or documents. Re-open your status page and submit the requested corrections.",
-            "TestReady": "The school recommends the remote admission-test path. Watch the status page for next-step instructions.",
-            "VisitRequired": "The school recommends an in-person visit or test. Watch the status page for follow-up details.",
-            "Rejected": "The school has closed this admission request. Review the notes on your status page for context.",
-        }
+        next_step = parent_response_message
+        if reviewer_notes:
+            next_step = f"{next_step} School note: {reviewer_notes}"
         _send_parent_admission_update(
             application,
-            School.query.get(g.school_id),
-            next_step=next_step_map.get(application.status, "Your application has been updated. Check the status page for details."),
+            school,
+            next_step=next_step,
         )
 
     log_action(
@@ -11930,6 +12756,149 @@ def delete_analytics_preset(preset_name):
         return jsonify({"message": "Error deleting analytics preset", "error": str(e)}), 500
 
 
+@api.route("/analytics/exam-imports", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def list_exam_import_batches():
+    try:
+        settings = _get_or_create_school_settings()
+        payload = _build_exam_intelligence_payload(settings)
+        return jsonify({"batches": payload.get("batches", [])})
+    except Exception as e:
+        return jsonify({"message": "Error loading exam import batches", "error": str(e)}), 500
+
+
+@api.route("/analytics/exam-imports", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def upload_exam_import_batch():
+    uploaded = request.files.get("file")
+    if not uploaded:
+        return jsonify({"message": "Upload the school result document using the file field."}), 400
+
+    original_name = uploaded.filename or ""
+    if not original_name:
+        return jsonify({"message": "A result document filename is required."}), 400
+
+    file_ext = os.path.splitext(original_name)[1].lower()
+    allowed_exts = {".csv", ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".webp"}
+    if file_ext not in allowed_exts:
+        return jsonify({"message": "Supported result formats are PDF, PNG, JPG, WEBP, TXT, and CSV."}), 400
+
+    settings = _get_or_create_school_settings()
+    compliance_payload = _build_exam_intelligence_payload(settings)
+    if not compliance_payload.get("compliance_ready"):
+        return jsonify({"message": "Complete the WAEC / BECE readiness confirmations in school settings before importing results."}), 400
+
+    exam_type = sanitize_string(request.form.get("exam_type") or "BECE") or "BECE"
+    academic_year = sanitize_string(request.form.get("academic_year") or "") or "Unknown"
+    result_text = request.form.get("result_text") or request.form.get("ocr_text") or ""
+
+    try:
+        if file_ext == ".csv":
+            uploaded.stream.seek(0)
+            rows = _parse_exam_csv_rows(uploaded.stream)
+            parse_mode = "csv"
+        else:
+            document_text = _load_exam_document_text(uploaded, file_ext, result_text=result_text)
+            rows = _parse_exam_text_rows(document_text)
+            if sanitize_string(result_text or ""):
+                parse_mode = "manual_text"
+            elif file_ext == ".pdf":
+                parse_mode = "pdf_text"
+            else:
+                parse_mode = "ocr_text"
+    except ValueError as e:
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"message": "Failed to parse exam result document", "error": str(e)}), 400
+
+    uploaded.stream.seek(0)
+    batch_id = f"exam_{secrets.token_hex(6)}"
+    safe_name = secure_filename(original_name) or f"{batch_id}{file_ext or '.bin'}"
+    stored_filename = f"{batch_id}_{safe_name}"
+    target_path = os.path.join(_get_exam_import_storage_root(), stored_filename)
+    uploaded.save(target_path)
+
+    parsed_rows_filename = _build_exam_rows_snapshot_path(batch_id)
+    parsed_rows_path = os.path.join(_get_exam_import_storage_root(), parsed_rows_filename)
+    with open(parsed_rows_path, "w", encoding="utf-8") as file_handle:
+        json.dump({"rows": rows}, file_handle, ensure_ascii=False)
+
+    batch_summary = _build_exam_batch_summary(rows)
+    workflow_config = _get_exam_intelligence_workflow_config(settings)
+    next_batch = {
+        "id": batch_id,
+        "exam_type": exam_type,
+        "academic_year": academic_year,
+        "source_filename": safe_name,
+        "stored_filename": stored_filename,
+        "parsed_rows_filename": parsed_rows_filename,
+        "source_format": file_ext.lstrip(".") or "document",
+        "parse_mode": parse_mode,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": int(get_jwt_identity()),
+        **batch_summary,
+    }
+    workflow_config["imports"] = [next_batch] + (workflow_config.get("imports") or [])
+    _set_exam_intelligence_workflow_config(settings, workflow_config)
+    db.session.commit()
+
+    try:
+        log_action(
+            int(get_jwt_identity()),
+            g.school_id,
+            "EXAM_INTELLIGENCE_BATCH_IMPORTED",
+            json.dumps(
+                {
+                    "batch_id": batch_id,
+                    "exam_type": exam_type,
+                    "academic_year": academic_year,
+                    "candidate_count": batch_summary["candidate_count"],
+                    "subject_entry_count": batch_summary["subject_entry_count"],
+                }
+            ),
+        )
+    except Exception as audit_error:
+        logger.warning("Exam intelligence audit log failed for %s: %s", batch_id, audit_error)
+
+    response_batch = dict(next_batch)
+    response_batch["download_path"] = _build_exam_import_download_path(batch_id)
+    return jsonify({"message": "Exam import uploaded.", "batch": response_batch}), 201
+
+
+@api.route("/analytics/exam-imports/<string:batch_id>/download", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def download_exam_import_batch(batch_id):
+    settings = _get_or_create_school_settings()
+    workflow_config = _get_exam_intelligence_workflow_config(settings)
+    matching_batch = next((item for item in (workflow_config.get("imports") or []) if item.get("id") == batch_id), None)
+    if not matching_batch:
+        return jsonify({"message": "Exam import batch not found"}), 404
+
+    resolved_path = _resolve_existing_school_file(_get_exam_import_storage_root(), matching_batch.get("stored_filename"))
+    if not resolved_path:
+        return jsonify({"message": "Exam import file is no longer available"}), 404
+
+    return send_file(resolved_path, as_attachment=True, download_name=matching_batch.get("source_filename") or "exam-import.csv")
+
+
+@api.route("/analytics/exam-intelligence", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def get_exam_intelligence_dashboard():
+    try:
+        settings = _get_or_create_school_settings()
+        return jsonify(_build_exam_intelligence_payload(settings))
+    except Exception as e:
+        return jsonify({"message": "Error loading exam intelligence dashboard", "error": str(e)}), 500
+
+
 @api.route("/analytics/class-performance", methods=["GET"])
 @multi_tenant_guard
 @role_required("proprietor", "headmaster")
@@ -13465,6 +14434,10 @@ def get_school_settings():
 
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     enabled_modules = _get_enabled_modules(settings)
+    workflow_config = _get_parent_admission_workflow_config(settings)
+    compliance_workflow = _get_data_compliance_workflow_config(settings)
+    registration_ack = compliance_workflow.get("registration_acknowledgements") or {}
+    legacy_migration = compliance_workflow.get("legacy_migration") or {}
 
     masked_bank_fields = _masked_bank_fields_for_school(school)
 
@@ -13489,11 +14462,29 @@ def get_school_settings():
             "ai_registrar_enabled": _has_ai_registrar_access(school),
             "ai_registrar_addon_enabled": _has_ai_registrar_access(school),
             "ai_bursar_addon_enabled": bool(enabled_modules.get("ai_bursar_addon", False)),
+            "admissions_visit_location_default": workflow_config["visit_defaults"].get("location", ""),
+            "admissions_visit_contact_person_default": workflow_config["visit_defaults"].get("contact_person", ""),
+            "admissions_visit_contact_phone_default": workflow_config["visit_defaults"].get("contact_phone", ""),
+            "admissions_approve_message_template": workflow_config["response_templates"].get("approve"),
+            "admissions_reject_message_template": workflow_config["response_templates"].get("reject"),
+            "admissions_correction_message_template": workflow_config["response_templates"].get("request_correction"),
+            "admissions_online_test_message_template": workflow_config["response_templates"].get("invite_test"),
+            "admissions_visit_message_template": workflow_config["response_templates"].get("schedule_visit"),
             "approval_pdf_enabled": bool(settings.approval_pdf_enabled) if settings else False,
             "approval_pdf_delivery_mode": settings.approval_pdf_delivery_mode if settings and settings.approval_pdf_delivery_mode else "email_link",
             "approval_pdf_include_payment_summary": bool(settings.approval_pdf_include_payment_summary) if settings else True,
             "approval_pdf_include_required_items": bool(settings.approval_pdf_include_required_items) if settings else True,
             "approval_pdf_required_items": settings.approval_pdf_required_items if settings and settings.approval_pdf_required_items else "",
+            "data_compliance_school_authority_confirmed": bool(registration_ack.get("school_data_authority_confirmed", False)),
+            "data_compliance_registration_confirmed_at": registration_ack.get("accepted_at"),
+            "data_compliance_registration_confirmed_ip": registration_ack.get("accepted_ip"),
+            "legacy_parent_notice_dispatched": bool(legacy_migration.get("parent_notice_dispatched", False)),
+            "legacy_consent_collection_completed": bool(legacy_migration.get("consent_collection_completed", False)),
+            "legacy_consent_collection_date": legacy_migration.get("consent_collection_date") or "",
+            "legacy_consent_evidence_notes": legacy_migration.get("evidence_notes") or "",
+            "legacy_consent_evidence_artifact_count": len(legacy_migration.get("evidence_artifacts") or []),
+            "bece_result_processing_enabled": bool(legacy_migration.get("bece_result_processing_enabled", False)),
+            "bece_parent_notice_confirmed": bool(legacy_migration.get("bece_parent_notice_confirmed", False)),
         }
     ), 200
 
@@ -13593,6 +14584,83 @@ def update_school_settings():
                 return jsonify({"message": "Invalid next_term_reopen_date format. Use YYYY-MM-DD."}), 400
         _set_report_global_setting(settings, "next_term_reopen_date", next_term_reopen_date or None)
         changed_fields.append("next_term_reopen_date")
+    workflow_config = _get_parent_admission_workflow_config(settings)
+    workflow_changed = False
+    compliance_workflow = _get_data_compliance_workflow_config(settings)
+    compliance_changed_fields = []
+    if "admissions_visit_location_default" in data:
+        workflow_config["visit_defaults"]["location"] = sanitize_string(data.get("admissions_visit_location_default") or "") or ""
+        workflow_changed = True
+        changed_fields.append("admissions_visit_location_default")
+    if "admissions_visit_contact_person_default" in data:
+        workflow_config["visit_defaults"]["contact_person"] = sanitize_string(data.get("admissions_visit_contact_person_default") or "") or ""
+        workflow_changed = True
+        changed_fields.append("admissions_visit_contact_person_default")
+    if "admissions_visit_contact_phone_default" in data:
+        workflow_config["visit_defaults"]["contact_phone"] = sanitize_string(data.get("admissions_visit_contact_phone_default") or "") or ""
+        workflow_changed = True
+        changed_fields.append("admissions_visit_contact_phone_default")
+    if "admissions_approve_message_template" in data:
+        workflow_config["response_templates"]["approve"] = sanitize_string(data.get("admissions_approve_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["approve"]
+        workflow_changed = True
+        changed_fields.append("admissions_approve_message_template")
+    if "admissions_reject_message_template" in data:
+        workflow_config["response_templates"]["reject"] = sanitize_string(data.get("admissions_reject_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["reject"]
+        workflow_changed = True
+        changed_fields.append("admissions_reject_message_template")
+    if "admissions_correction_message_template" in data:
+        workflow_config["response_templates"]["request_correction"] = sanitize_string(data.get("admissions_correction_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["request_correction"]
+        workflow_changed = True
+        changed_fields.append("admissions_correction_message_template")
+    if "admissions_online_test_message_template" in data:
+        workflow_config["response_templates"]["invite_test"] = sanitize_string(data.get("admissions_online_test_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["invite_test"]
+        workflow_changed = True
+        changed_fields.append("admissions_online_test_message_template")
+    if "admissions_visit_message_template" in data:
+        workflow_config["response_templates"]["schedule_visit"] = sanitize_string(data.get("admissions_visit_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["schedule_visit"]
+        workflow_changed = True
+        changed_fields.append("admissions_visit_message_template")
+    if workflow_changed:
+        _set_parent_admission_workflow_config(settings, workflow_config)
+    if "data_compliance_school_authority_confirmed" in data:
+        confirmed = bool(data.get("data_compliance_school_authority_confirmed"))
+        compliance_workflow["registration_acknowledgements"]["school_data_authority_confirmed"] = confirmed
+        if confirmed:
+            if not compliance_workflow["registration_acknowledgements"].get("accepted_at"):
+                compliance_workflow["registration_acknowledgements"]["accepted_at"] = datetime.now(timezone.utc).isoformat()
+            if not compliance_workflow["registration_acknowledgements"].get("accepted_ip"):
+                compliance_workflow["registration_acknowledgements"]["accepted_ip"] = request.remote_addr
+            if actor_id is not None and not compliance_workflow["registration_acknowledgements"].get("proprietor_user_id"):
+                compliance_workflow["registration_acknowledgements"]["proprietor_user_id"] = actor_id
+        compliance_changed_fields.append("data_compliance_school_authority_confirmed")
+    if "legacy_parent_notice_dispatched" in data:
+        compliance_workflow["legacy_migration"]["parent_notice_dispatched"] = bool(data.get("legacy_parent_notice_dispatched"))
+        compliance_changed_fields.append("legacy_parent_notice_dispatched")
+    if "legacy_consent_collection_completed" in data:
+        compliance_workflow["legacy_migration"]["consent_collection_completed"] = bool(data.get("legacy_consent_collection_completed"))
+        compliance_changed_fields.append("legacy_consent_collection_completed")
+    if "legacy_consent_collection_date" in data:
+        consent_collection_date = sanitize_string(data.get("legacy_consent_collection_date") or "") or None
+        if consent_collection_date:
+            from datetime import datetime as dt
+            try:
+                dt.strptime(consent_collection_date, "%Y-%m-%d")
+            except ValueError:
+                return jsonify({"message": "Invalid legacy_consent_collection_date format. Use YYYY-MM-DD."}), 400
+        compliance_workflow["legacy_migration"]["consent_collection_date"] = consent_collection_date
+        compliance_changed_fields.append("legacy_consent_collection_date")
+    if "legacy_consent_evidence_notes" in data:
+        compliance_workflow["legacy_migration"]["evidence_notes"] = sanitize_string(data.get("legacy_consent_evidence_notes") or "") or ""
+        compliance_changed_fields.append("legacy_consent_evidence_notes")
+    if "bece_result_processing_enabled" in data:
+        compliance_workflow["legacy_migration"]["bece_result_processing_enabled"] = bool(data.get("bece_result_processing_enabled"))
+        compliance_changed_fields.append("bece_result_processing_enabled")
+    if "bece_parent_notice_confirmed" in data:
+        compliance_workflow["legacy_migration"]["bece_parent_notice_confirmed"] = bool(data.get("bece_parent_notice_confirmed"))
+        compliance_changed_fields.append("bece_parent_notice_confirmed")
+    if compliance_changed_fields:
+        _set_data_compliance_workflow_config(settings, compliance_workflow)
+        changed_fields.extend(compliance_changed_fields)
     if "whatsapp_daily_limit" in data:
         settings.whatsapp_daily_limit = max(5, int(data.get("whatsapp_daily_limit") or 50))
         changed_fields.append("whatsapp_daily_limit")
@@ -13645,8 +14713,113 @@ def update_school_settings():
                 }
             ),
         )
+    if compliance_changed_fields:
+        log_action(
+            actor_id,
+            g.school_id,
+            "DATA_COMPLIANCE_SETTINGS_UPDATED",
+            json.dumps(
+                {
+                    "updated_fields": compliance_changed_fields,
+                    "ip": request.remote_addr,
+                }
+            ),
+        )
     db.session.commit()
     return jsonify({"message": "Settings updated."})
+
+
+@api.route("/school/settings/legacy-consent-evidence", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def get_legacy_consent_evidence_artifacts():
+    settings = _get_or_create_school_settings()
+    workflow_config = _get_data_compliance_workflow_config(settings)
+    artifacts = []
+    for artifact in workflow_config.get("legacy_migration", {}).get("evidence_artifacts", []):
+        item = dict(artifact)
+        item["download_path"] = _build_legacy_evidence_download_path(artifact["id"])
+        artifacts.append(item)
+    return jsonify({"artifacts": artifacts})
+
+
+@api.route("/school/settings/legacy-consent-evidence", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def upload_legacy_consent_evidence_artifact():
+    uploaded = request.files.get("file")
+    if not uploaded:
+        return jsonify({"message": "Upload a consent evidence file using the file field."}), 400
+
+    original_filename = secure_filename(uploaded.filename or "")
+    if not original_filename:
+        return jsonify({"message": "A valid filename is required."}), 400
+
+    artifact_id = f"evidence_{secrets.token_hex(6)}"
+    stored_filename = f"{artifact_id}_{original_filename}"
+    target_path = os.path.join(_get_legacy_evidence_storage_root(), stored_filename)
+    uploaded.save(target_path)
+    file_size = os.path.getsize(target_path)
+
+    settings = _get_or_create_school_settings()
+    workflow_config = _get_data_compliance_workflow_config(settings)
+    artifacts = workflow_config["legacy_migration"].get("evidence_artifacts") or []
+    new_artifact = {
+        "id": artifact_id,
+        "stored_filename": stored_filename,
+        "original_filename": original_filename,
+        "category": sanitize_string(request.form.get("category") or "general") or "general",
+        "note": sanitize_string(request.form.get("note") or "") or "",
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": int(get_jwt_identity()),
+        "size_bytes": file_size,
+    }
+    workflow_config["legacy_migration"]["evidence_artifacts"] = [new_artifact] + artifacts
+    _set_data_compliance_workflow_config(settings, workflow_config)
+    db.session.commit()
+
+    try:
+        log_action(
+            int(get_jwt_identity()),
+            g.school_id,
+            "LEGACY_CONSENT_EVIDENCE_UPLOADED",
+            json.dumps(
+                {
+                    "artifact_id": artifact_id,
+                    "original_filename": original_filename,
+                    "category": new_artifact["category"],
+                }
+            ),
+        )
+    except Exception as audit_error:
+        logger.warning("Legacy consent evidence audit log failed for %s: %s", artifact_id, audit_error)
+
+    response_artifact = dict(new_artifact)
+    response_artifact["download_path"] = _build_legacy_evidence_download_path(artifact_id)
+    return jsonify({"message": "Consent evidence uploaded.", "artifact": response_artifact}), 201
+
+
+@api.route("/school/settings/legacy-consent-evidence/<string:artifact_id>/download", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def download_legacy_consent_evidence_artifact(artifact_id):
+    settings = _get_or_create_school_settings()
+    workflow_config = _get_data_compliance_workflow_config(settings)
+    matching_artifact = next(
+        (item for item in workflow_config.get("legacy_migration", {}).get("evidence_artifacts", []) if item.get("id") == artifact_id),
+        None,
+    )
+    if not matching_artifact:
+        return jsonify({"message": "Consent evidence artifact not found"}), 404
+
+    resolved_path = _resolve_existing_school_file(_get_legacy_evidence_storage_root(), matching_artifact.get("stored_filename"))
+    if not resolved_path:
+        return jsonify({"message": "Consent evidence file is no longer available"}), 404
+
+    return send_file(resolved_path, as_attachment=True, download_name=matching_artifact.get("original_filename") or "consent-evidence")
 
 
 @api.route("/school/fees", methods=["POST"])

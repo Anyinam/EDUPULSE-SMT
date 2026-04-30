@@ -169,6 +169,8 @@ class TestAuthenticationEndpoints:
                 "termsVersion": "2026-02-22",
                 "policyAccepted": True,
                 "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
             },
         )
 
@@ -190,6 +192,8 @@ class TestAuthenticationEndpoints:
                 "termsVersion": "2026-02-22",
                 "policyAccepted": True,
                 "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
             },
         )
 
@@ -211,6 +215,8 @@ class TestAuthenticationEndpoints:
                 "termsVersion": "2026-02-22",
                 "policyAccepted": True,
                 "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
             },
         )
 
@@ -232,6 +238,8 @@ class TestAuthenticationEndpoints:
                 "termsVersion": "2026-02-22",
                 "policyAccepted": True,
                 "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
             },
         )
 
@@ -259,6 +267,8 @@ class TestAuthenticationEndpoints:
                 "termsVersion": "2026-02-22",
                 "policyAccepted": True,
                 "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
                 "selectedPlan": "Premium",
             },
         )
@@ -284,10 +294,34 @@ class TestAuthenticationEndpoints:
                 "termsVersion": "2026-02-22",
                 "policyAccepted": True,
                 "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
             },
         )
 
         assert response.status_code == 400
+
+    def test_register_requires_school_data_authority_confirmation(self, client):
+        response = client.post(
+            "/api/register",
+            json={
+                "schoolCode": "NO-AUTH",
+                "schoolName": "Authority Missing School",
+                "username": "proprietor2",
+                "email": "owner@authority.edu",
+                "password": "NewSchoolPass123!",
+                "termsAccepted": True,
+                "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": False,
+                "legacyAndExamConsentPlanConfirmed": True,
+            },
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "authority" in data["message"].lower() or "authority" in str(data.get("errors", "")).lower()
 
 
 class TestGradeEntryEndpoints:
