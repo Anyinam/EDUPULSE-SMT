@@ -1,7 +1,7 @@
 # EduPulse SMT Professional Pitch (Investor / Strategic Partner / Enterprise Buyer)
 
 ## 1) Executive Summary (30-Second Version)
-EduPulse SMT is a multi-tenant school operations and revenue-governance platform built for Ghanaian schools. We solve two mission-critical problems: **academic execution risk** and **fee-revenue leakage**. Our monetization engine combines subscription plans with active-student metering, proactive billing visibility, and self-service controls (trial, price cap, usage reports), enabling predictable school spend and scalable recurring revenue.
+EduPulse SMT is a multi-tenant school operations, academic-intelligence, and revenue-governance platform built for Ghanaian schools. We solve three mission-critical problems: **academic execution risk**, **fee-revenue leakage**, and **weak school decision visibility**. Our monetization engine combines subscription plans with active-student metering, proactive billing visibility, and self-service controls while the product layer adds parent admissions, academic guidance, report-card intelligence, and exam insight workflows that improve school resilience and learner support.
 
 ---
 
@@ -18,6 +18,8 @@ Schools in our target market face compounding operational breakdowns:
 EduPulse SMT provides one integrated control layer for school execution:
 - **Academic Operations**: attendance, grade entry, report workflows, staged approvals.
 - **Revenue Integrity**: payment capture, reconciliation, finance dashboards, audit trails.
+- **Parent and Admissions Workflows**: parent-facing admissions intake, status tracking, and school-controlled follow-up.
+- **Academic Intelligence**: report-card parsing, chief examiner insight libraries, academic guidance, and intervention workflows.
 - **Subscription Intelligence**: active-student meter, threshold alerts, overage transparency.
 - **Control Layer**: premium trial, pricing lock, price cap, and on-demand usage reporting.
 - **Governance Signals**: AI-assisted insight surfaces and proprietor oversight feed.
@@ -48,6 +50,28 @@ By the end of the demo, stakeholders should see that EduPulse is not just a scho
 - **Adoption Driver**: immediate ROI from reduced leakage + faster term execution.
 
 Positioning: start with schools where payment and reporting friction is acute, then expand through referrals, proprietor networks, and finance-led adoption.
+
+---
+
+## 5A) Sustainability, Social Impact, and SDG Alignment
+
+### Sustainability Logic
+- Revenue comes from a repeatable B2B SaaS model rather than one-off implementation fees alone.
+- Premium governance and intelligence features deepen value without changing the school-controlled contract model.
+- Multi-tenant architecture and reusable onboarding playbooks keep delivery costs scalable.
+
+### Social Impact Thesis
+- Better fee tracking and reconciliation support school continuity and reduce operational shocks.
+- Rescue and academic-guidance workflows help schools identify struggling learners earlier.
+- Parent-facing admissions and payment workflows reduce friction for families.
+- Chief examiner insight libraries make high-value exam feedback more accessible across schools.
+
+### SDG Alignment
+- **SDG 4: Quality Education** through earlier intervention, stronger reporting, and better use of academic evidence.
+- **SDG 8: Decent Work and Economic Growth** through stronger school financial stability.
+- **SDG 9: Industry, Innovation and Infrastructure** through secure digital operating infrastructure for schools.
+- **SDG 10: Reduced Inequalities** through more accessible school workflows for smaller and lower-capacity schools.
+- **SDG 16: Peace, Justice and Strong Institutions** through auditability, role separation, and governance controls.
 
 ---
 
@@ -164,7 +188,7 @@ Pitch angle:
 ---
 
 ## 15) 90-Second Founder Script (Use in Open)
-“EduPulse is building the operating system for school governance and revenue integrity. Schools don’t just need software—they need control: control over academic workflows, fee reconciliation, and predictable growth costs. We’ve built a multi-tenant platform that connects teacher operations, finance reconciliation, and proprietor oversight in one loop. On top of that, we implemented a modern monetization engine: active-student metering, threshold alerts, price caps, trial entitlements, and usage visibility reports. The result is simple: schools trust the system faster, scale with confidence, and stay longer. We’re now ready to expand from high-need schools into chain and district-level deployments with a repeatable, metrics-driven GTM.”
+“EduPulse is building the operating system for school governance, academic intelligence, and revenue integrity. Schools don’t just need software; they need control over academic workflows, fee reconciliation, admissions, and learner-risk visibility. We’ve built a multi-tenant platform that connects teacher operations, finance reconciliation, proprietor oversight, and guided academic intervention in one loop. On top of that, we implemented a modern monetization engine with active-student metering, threshold alerts, price caps, trial entitlements, and usage visibility reports. The result is simple: schools trust the system faster, protect revenue better, support learners earlier, and scale with more confidence.”
 
 ---
 

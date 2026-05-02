@@ -22,31 +22,58 @@ This packet gives counsel a practical overview of:
 
 1. What EduPulse SMT is as a business and software platform
 2. How the system operates technically
-3. How Paystack routing and split-style fee handling work
-4. How cryptography and tamper-evident finance controls work
-5. Which system components are likely to be high-value IP or confidential know-how
-6. Which technical controls support Ghana data-protection compliance analysis
+3. How parent admissions, report-card intelligence, and exam-guidance workflows operate
+4. How Paystack routing and fee handling work
+5. How cryptography and tamper-evident finance controls work
+6. Which system components are likely to be high-value IP or confidential know-how
+7. Which technical controls support Ghana data-protection compliance analysis
 
 ## Recommended Reading Order For Counsel
 
 1. `LEGAL_COUNSEL_DOSSIER.md`
    Single-file version of the counsel packet for easy forwarding.
-2. `LAWYER_COVER_EMAIL.md`
+2. `LAWYER_DOCUMENT_CHECKLIST.md`
+   Exact document list for incorporation and data-protection work.
+3. `LAWYER_COVER_EMAIL.md`
    Ready-to-send email copy introducing the packet.
-3. `LAWYER_EXECUTIVE_BRIEF.md`
+4. `LAWYER_EXECUTIVE_BRIEF.md`
    Shortest high-level overview.
-4. `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
+5. `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
    Full technical explanation of the platform, Paystack routing, and cryptography.
-5. `IP_ASSET_INVENTORY.md`
+6. `IP_ASSET_INVENTORY.md`
    Main asset inventory for ownership, confidentiality, and protectability review.
-6. `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
+7. `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
    Technical control mapping for Ghana privacy/compliance review.
-7. `FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
+8. `FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
    Founder action checklist for locking down ownership and confidentiality.
-8. `CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
+9. `CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
    Draft assignment template for contributors, contractors, and collaborators.
-9. `CONFIDENTIALITY_NDA_TEMPLATE.md`
+10. `CONFIDENTIALITY_NDA_TEMPLATE.md`
    Draft confidentiality/NDA template for advisors, partners, contractors, or other recipients of confidential information.
+
+## Recommended Submission Bundles
+
+### Incorporation And IP Bundle
+
+Send counsel:
+
+1. `LAWYER_DOCUMENT_CHECKLIST.md`
+2. `LAWYER_EXECUTIVE_BRIEF.md`
+3. `IP_ASSET_INVENTORY.md`
+4. `FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
+5. `CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
+6. `CONFIDENTIALITY_NDA_TEMPLATE.md`
+
+### Data Protection And Data Processing Bundle
+
+Send counsel:
+
+1. `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
+2. `compliance/PRIVACY_POLICY.md`
+3. `compliance/DATA_PROCESSING_AGREEMENT.md`
+4. `compliance/DATA_RETENTION_POLICY.md`
+5. `compliance/INCIDENT_RESPONSE_PLAN.md`
+6. `compliance/INFORMATION_SECURITY_POLICY.md`
 
 ## Counsel Objectives
 

@@ -1,54 +1,69 @@
 # Data Processing Agreement (DPA)
 
-Effective Date: February 21, 2026
+Effective Date: May 2, 2026
 
-This DPA forms part of the agreement between the school ("Controller") and EduPulse Limited ("Processor").
+This DPA forms part of the agreement between the school ("Controller") and EduPulse SMT or its duly incorporated operating entity ("Processor").
 
 ## 1. Roles
 
 - Controller: The school determines purposes and means of processing student and staff data.
-- Processor: EduPulse processes data only on documented instructions.
+- Processor: EduPulse SMT processes data only on documented instructions and only to provide the contracted school platform services.
 
 ## 2. Scope and Purpose
 
-EduPulse processes data to provide the Service (lesson notes, grading, reporting, communication, analytics).
+EduPulse SMT processes data to provide the Service, including school operations, admissions workflows, reporting, payment support, document parsing, academic analytics, and related support services.
 
 ## 3. Data Categories
 
 - Student data: name, ID, class, academic records.
 - Staff data: name, email, phone, role.
 - Guardian data (if provided): name, phone, email.
+- Admissions data: application details, supporting documents, and school review status.
+- Academic document data: report-card files, parsed fields, confidence flags, and related review actions.
+- Examination data: school-uploaded WAEC or BECE result records and related academic analysis outputs.
 - Usage data: logins, audit logs.
 
-## 4. Security Measures
+## 4. Controller Responsibilities
 
-EduPulse implements:
+- The Controller is responsible for determining the lawful basis for the personal data it uploads or instructs EduPulse SMT to process.
+- The Controller must ensure it has authority to upload student, guardian, admissions, report-card, and examination data.
+- The Controller remains responsible for notices, consents, and internal approvals required by applicable law.
+
+## 5. Security Measures
+
+EduPulse SMT implements:
 
 - Access control and least privilege
 - TLS encryption in transit
+- Tenant isolation and role-based access controls
 - Backups and monitoring
 - Incident response procedures
+- Audit logging for sensitive operational and financial actions
 
-## 5. Subprocessors
+## 6. Subprocessors
 
-EduPulse may use subprocessors (hosting, email, payment). A current list is available upon request.
+EduPulse SMT may use subprocessors for hosting, email, payment processing, backup, and related infrastructure. A current list is available upon request or by contract schedule.
 
-## 6. Data Subject Rights
+## 7. Data Subject Rights
 
-EduPulse will assist the Controller in responding to data subject requests.
+EduPulse SMT will provide reasonable assistance to the Controller in responding to data subject requests and other privacy-related obligations.
 
-## 7. Breach Notification
+## 8. Breach Notification
 
-EduPulse will notify the Controller without undue delay after becoming aware of a personal data breach.
+EduPulse SMT will notify the Controller without undue delay after becoming aware of a personal data breach affecting Controller data.
 
-## 8. Return or Deletion
+## 9. Return or Deletion
 
-Upon termination, EduPulse will return or delete personal data as instructed, subject to legal obligations.
+Upon termination, EduPulse SMT will return or delete personal data as instructed, subject to legal obligations and documented retention requirements.
 
-## 9. Audit
+## 10. Audit and Information Rights
 
-EduPulse will provide reasonable information to demonstrate compliance.
+EduPulse SMT will provide reasonable information to demonstrate compliance, subject to confidentiality, security, and proportionality safeguards.
 
-## 10. Governing Law
+## 11. Cross-Border Processing
+
+Where Controller data is stored or accessed outside Ghana, EduPulse SMT will use contractual, technical, and organizational safeguards appropriate to the sensitivity of the data.
+
+## 12. Governing Law
 
 This DPA is governed by Ghanaian law.

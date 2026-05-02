@@ -4,6 +4,7 @@ import { toPng } from 'html-to-image';
 import AnalyticsGuidePanel from './AnalyticsGuidePanel';
 import MultiYearAnalyticsView from './MultiYearAnalyticsView';
 import OverviewPanel from './OverviewPanel';
+import PremiumFeatureNotice from '../PremiumFeatureNotice';
 import SingleYearAnalyticsView from './SingleYearAnalyticsView';
 
 const TERM_OPTIONS = ['Term 1', 'Term 2', 'Term 3'];
@@ -20,10 +21,72 @@ function normalizePresetFilters(filters = {}) {
   };
 }
 
+function normalizePresetNameKey(name = '') {
+  return String(name || '').trim().toLowerCase();
+}
+
+function buildPresetHistoryPreview(savedPresets, defaultPresetName, snapshot) {
+  if (!snapshot?.analytics_config) {
+    return [];
+  }
+
+  const currentPresets = Array.isArray(savedPresets) ? savedPresets : [];
+  const snapshotPresets = Array.isArray(snapshot.analytics_config?.presets) ? snapshot.analytics_config.presets : [];
+  const currentNames = currentPresets.map((preset) => preset.name).filter(Boolean);
+  const snapshotNames = snapshotPresets.map((preset) => preset.name).filter(Boolean);
+  const currentNameKeys = new Set(currentNames.map((name) => normalizePresetNameKey(name)));
+  const snapshotNameKeys = new Set(snapshotNames.map((name) => normalizePresetNameKey(name)));
+  const lines = [];
+
+  if ((snapshot.default_preset_name || '') !== (defaultPresetName || '')) {
+    lines.push(`Default preset: ${snapshot.default_preset_name || 'None'} instead of ${defaultPresetName || 'None'}.`);
+  }
+
+  const snapshotOnly = snapshotNames.filter((name) => !currentNameKeys.has(normalizePresetNameKey(name)));
+  const currentOnly = currentNames.filter((name) => !snapshotNameKeys.has(normalizePresetNameKey(name)));
+  if (snapshotOnly.length > 0) {
+    lines.push(`Snapshot includes ${snapshotOnly.join(', ')}.`);
+  }
+  if (currentOnly.length > 0) {
+    lines.push(`Current shelf includes ${currentOnly.join(', ')} that would be removed.`);
+  }
+
+  const focusPresetName = snapshot.focus_preset_name || snapshot.default_preset_name || snapshotNames[0] || '';
+  const snapshotFocusPreset = snapshotPresets.find(
+    (preset) => normalizePresetNameKey(preset.name) === normalizePresetNameKey(focusPresetName)
+  );
+  const currentFocusPreset = currentPresets.find(
+    (preset) => normalizePresetNameKey(preset.name) === normalizePresetNameKey(focusPresetName)
+  );
+
+  if (snapshotFocusPreset) {
+    const currentFilters = normalizePresetFilters(currentFocusPreset?.filters || {});
+    const snapshotFilters = normalizePresetFilters(snapshotFocusPreset.filters || {});
+    const filterLabels = {
+      academicTerm: 'Term',
+      academicYear: 'Year',
+      cohortFromClass: 'Cohort from',
+      cohortToClass: 'Cohort to',
+      analysisMode: 'Mode',
+      activeView: 'View',
+    };
+
+    Object.entries(filterLabels).forEach(([key, label]) => {
+      if ((snapshotFilters[key] || '') !== (currentFilters[key] || '')) {
+        lines.push(`${label}: ${snapshotFilters[key] || 'None'} instead of ${currentFilters[key] || 'None'} for ${snapshotFocusPreset.name}.`);
+      }
+    });
+  }
+
+  return lines;
+}
+
 export default function PerformanceAnalyticsShell({
   title = 'Class Performance Overview',
   defaultView = 'overview',
 }) {
+  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const canAccessAdvancedAnalytics = currentPlan === 'Premium';
   const [academicTerm, setAcademicTerm] = useState('');
   const [academicYear, setAcademicYear] = useState('');
   const [cohortFromClass, setCohortFromClass] = useState('');
@@ -37,6 +100,9 @@ export default function PerformanceAnalyticsShell({
   const [defaultPresetName, setDefaultPresetName] = useState('');
   const [presetName, setPresetName] = useState('');
   const [presetFeedback, setPresetFeedback] = useState('');
+  const [presetHistory, setPresetHistory] = useState([]);
+  const [presetHistoryBusyId, setPresetHistoryBusyId] = useState('');
+  const [selectedPresetHistoryId, setSelectedPresetHistoryId] = useState('');
   const analyticsRef = useRef(null);
 
   const headers = useMemo(() => ({
@@ -65,6 +131,25 @@ export default function PerformanceAnalyticsShell({
   const fetchPresets = async () => {
     const res = await axios.get('/api/analytics/presets', { headers });
     syncPresetResponse(res.data);
+    return res.data;
+  };
+
+  const syncPresetHistoryResponse = (payload) => {
+    const history = Array.isArray(payload?.history) ? payload.history : [];
+    setPresetHistory(history);
+    setSelectedPresetHistoryId((currentValue) => {
+      if (history.some((item) => item.snapshot_id === currentValue)) {
+        return currentValue;
+      }
+      const preferredItem = history.find((item) => !item.is_current) || history[0];
+      return preferredItem?.snapshot_id || '';
+    });
+    return history;
+  };
+
+  const fetchPresetHistory = async () => {
+    const res = await axios.get('/api/analytics/presets/history', { headers });
+    syncPresetHistoryResponse(res.data);
     return res.data;
   };
 
@@ -107,6 +192,7 @@ export default function PerformanceAnalyticsShell({
     const initialize = async () => {
       try {
         const presetPayload = await fetchPresets();
+        await fetchPresetHistory();
         if (cancelled) return;
         const defaultPreset = (presetPayload?.presets || []).find(
           (preset) => preset.name === presetPayload?.default_preset_name
@@ -183,6 +269,14 @@ export default function PerformanceAnalyticsShell({
 
   const multiYearTrendRows = useMemo(() => data?.multi_year_trends || [], [data]);
   const subjectMultiYearTrendRows = useMemo(() => data?.subject_multi_year_trends || [], [data]);
+  const selectedPresetHistoryItem = useMemo(
+    () => presetHistory.find((item) => item.snapshot_id === selectedPresetHistoryId) || null,
+    [presetHistory, selectedPresetHistoryId]
+  );
+  const presetHistoryPreview = useMemo(
+    () => buildPresetHistoryPreview(savedPresets, defaultPresetName, selectedPresetHistoryItem),
+    [savedPresets, defaultPresetName, selectedPresetHistoryItem]
+  );
 
   const buildInsightsCsvRows = () => {
     return [
@@ -349,6 +443,7 @@ export default function PerformanceAnalyticsShell({
         is_default: isDefault,
       }, { headers });
       syncPresetResponse(res.data);
+      await fetchPresetHistory();
       setPresetName('');
       setPresetFeedback(isDefault ? `Saved preset ${trimmedName} as default.` : `Saved preset ${trimmedName}.`);
     } catch (err) {
@@ -366,6 +461,7 @@ export default function PerformanceAnalyticsShell({
     try {
       const res = await axios.delete(`/api/analytics/presets/${encodeURIComponent(presetNameToRemove)}`, { headers });
       syncPresetResponse(res.data);
+      await fetchPresetHistory();
       setPresetFeedback(`Removed preset ${presetNameToRemove}.`);
     } catch (err) {
       setPresetFeedback(err.response?.data?.message || 'Failed to remove preset.');
@@ -376,9 +472,43 @@ export default function PerformanceAnalyticsShell({
     try {
       const res = await axios.put(`/api/analytics/presets/${encodeURIComponent(presetNameToSet)}/default`, {}, { headers });
       syncPresetResponse(res.data);
+      await fetchPresetHistory();
       setPresetFeedback(`Set ${presetNameToSet} as the default preset.`);
     } catch (err) {
       setPresetFeedback(err.response?.data?.message || 'Failed to update default preset.');
+    }
+  };
+
+  const handleRestorePresetHistory = async (snapshotId) => {
+    try {
+      setPresetHistoryBusyId(snapshotId);
+      const res = await axios.post(`/api/analytics/presets/history/${snapshotId}/restore`, {}, { headers });
+      syncPresetResponse(res.data);
+      await fetchPresetHistory();
+      setPresetFeedback('Restored analytics preset history snapshot.');
+    } catch (err) {
+      setPresetFeedback(err.response?.data?.message || 'Failed to restore preset history.');
+    } finally {
+      setPresetHistoryBusyId('');
+    }
+  };
+
+  const handleDownloadPresetHistory = async (snapshotId, fallbackName) => {
+    try {
+      const res = await axios.get(`/api/analytics/presets/history/${snapshotId}/download`, {
+        headers,
+        responseType: 'blob',
+      });
+      const blobUrl = window.URL.createObjectURL(new Blob([res.data], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fallbackName || `${snapshotId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      setPresetFeedback(err.response?.data?.message || 'Failed to download preset snapshot.');
     }
   };
 
@@ -386,6 +516,15 @@ export default function PerformanceAnalyticsShell({
     await fetchData();
     setActiveView('visualization');
   };
+
+  if (!canAccessAdvancedAnalytics) {
+    return (
+      <PremiumFeatureNotice
+        title={title}
+        description="Class performance analytics, saved preset history, and comparison views are available on the Premium plan only."
+      />
+    );
+  }
 
   return (
     <div ref={analyticsRef} className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
@@ -436,6 +575,10 @@ export default function PerformanceAnalyticsShell({
         presetFeedback={presetFeedback}
         savedPresets={savedPresets}
         defaultPresetName={defaultPresetName}
+        presetHistory={presetHistory}
+        selectedPresetHistoryId={selectedPresetHistoryId}
+        presetHistoryPreview={presetHistoryPreview}
+        presetHistoryBusyId={presetHistoryBusyId}
         onSetAnalysisMode={setAnalysisMode}
         onPresetNameChange={setPresetName}
         onSavePreset={() => handleSavePreset(false)}
@@ -443,6 +586,9 @@ export default function PerformanceAnalyticsShell({
         onApplyPreset={handleApplyPreset}
         onDeletePreset={handleDeletePreset}
         onSetDefaultPreset={handleSetDefaultPreset}
+        onSelectPresetHistory={setSelectedPresetHistoryId}
+        onRestorePresetHistory={handleRestorePresetHistory}
+        onDownloadPresetHistory={handleDownloadPresetHistory}
       />
 
       {loading && <p className="text-sm text-slate-500">Loading performance data...</p>}

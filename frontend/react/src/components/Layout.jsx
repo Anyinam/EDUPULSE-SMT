@@ -8,6 +8,8 @@ import { useBranding } from '../hooks/useBranding';
 export default function Layout() {
   const location = useLocation();
   const role = localStorage.getItem('role');
+  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const canAccessPremiumInsights = currentPlan === 'Premium';
   const safeJsonParse = (rawValue, fallback) => {
     try {
       if (rawValue === null || rawValue === undefined || rawValue === '' || rawValue === 'undefined') {
@@ -128,7 +130,8 @@ export default function Layout() {
               {modules.finance && <li><Link to="/proprietor" className="hover:text-blue-200 pl-3">📊 Dashboard & Insights</Link></li>}
               {modules.finance && <li><Link to="/proprietor?tab=payment-tracker" className="hover:text-blue-200 pl-3">💳 Payment Tracker</Link></li>}
               {modules.finance && <li><Link to="/proprietor?tab=finance" className="hover:text-blue-200 pl-3">📈 Transaction History</Link></li>}
-              {modules.finance && <li><Link to="/proprietor?tab=rescue-activity" className="hover:text-blue-200 pl-3">🚨 Rescue Activity</Link></li>}
+              {canAccessPremiumInsights && <li><Link to="/proprietor?tab=exam-intelligence" className="hover:text-blue-200 pl-3">📘 Exam Intelligence</Link></li>}
+              {modules.finance && canAccessPremiumInsights && <li><Link to="/proprietor?tab=rescue-activity" className="hover:text-blue-200 pl-3">🚨 Rescue Activity</Link></li>}
               {modules.finance && <li><Link to="/proprietor?tab=audit" className="hover:text-blue-200 pl-3">🔒 Audit Report</Link></li>}
               {modules.admissions && <li><Link to="/proprietor?tab=terminal-reports" className="hover:text-blue-200 pl-3">📄 Terminal Reports</Link></li>}
               {modules.hr && <li><Link to="/proprietor?tab=staff" className="hover:text-blue-200 pl-3">👥 Staff & HR</Link></li>}
@@ -144,7 +147,8 @@ export default function Layout() {
           {hasRole('headmaster') && (
             <>
               <li><Link to="/headmaster" className="hover:text-blue-200 pl-3 transition-colors">🎓 Headmaster Dashboard</Link></li>
-              <li><Link to="/headmaster?tab=rescue-activity" className="hover:text-blue-200 pl-3 transition-colors">🚨 Rescue Activity</Link></li>
+              {canAccessPremiumInsights && <li><Link to="/headmaster?tab=exam-intelligence" className="hover:text-blue-200 pl-3 transition-colors">📘 Exam Intelligence</Link></li>}
+              {canAccessPremiumInsights && <li><Link to="/headmaster?tab=rescue-activity" className="hover:text-blue-200 pl-3 transition-colors">🚨 Rescue Activity</Link></li>}
               <li><Link to="/headmaster/admissions" className="hover:text-blue-200 pl-3 transition-colors">🎓 Admissions</Link></li>
               {hasRole('homeroom') && <li><Link to="/report-builder" className="hover:text-blue-200 pl-3 transition-colors">📝 Report Builder</Link></li>}
               {hasRole('homeroom') && <li><Link to="/homeroom" className="hover:text-blue-200 pl-3 transition-colors">🏠 Homeroom Dashboard</Link></li>}

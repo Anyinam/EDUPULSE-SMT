@@ -1,6 +1,6 @@
 # EduPulse SMT Privacy Policy (Ghana - Act 843)
 
-Effective Date: February 21, 2026
+Effective Date: May 2, 2026
 
 This Privacy Policy explains how EduPulse SMT ("EduPulse SMT", "we", "us") collects, uses, discloses, and protects personal data when schools, staff, students, and guardians use the EduPulse SMT platform (the "Service").
 
@@ -10,7 +10,7 @@ When a school completes registration on EduPulse SMT, that registration action c
 
 ## 1. Who We Are
 
-Controller: EduPulse SMT for platform-operated data such as account, billing, security, support, and product records. For school-originated student, guardian, academic, attendance, admissions, and examination records, the school is ordinarily the primary data controller and EduPulse SMT acts as its processor or service provider.
+Controller: EduPulse SMT for platform-operated data such as account, billing, security, support, and product records. For school-originated student, guardian, academic, attendance, admissions, report-card, and examination records, the school is ordinarily the primary data controller and EduPulse SMT acts as its processor or service provider.
 Contact: danielasareanyinam2020@gmail.com
 Address: [Insert Registered Address]
 
@@ -21,7 +21,10 @@ We collect data necessary to provide the Service, including:
 - School and account data: school name, school ID, contact details, subscription plan.
 - Staff data: name, email, phone, role, login credentials.
 - Student data: name, student ID, class, academic records, attendance.
+- Admissions data: parent-submitted learner profiles, application forms, supporting documents, status updates, and school review notes.
+- Document-intelligence data: report-card images or PDFs, parsed academic fields, confidence or exception flags, and related review actions.
 - Examination and academic analytics data: internal assessment marks, school-uploaded WAEC or BECE result lists, subject performance history, trend-analysis outputs, and benchmarking outputs derived from public aggregate reports.
+- Shared academic-guidance inputs: school-uploaded or platform-curated chief examiner insights derived from lawfully available public reports.
 - Parent/guardian data: name, phone, email (if provided by the school).
 - Consent and compliance records: acceptance of policies, admissions acknowledgements, migration-consent records, and other notices or approvals required for lawful educational processing.
 - Usage data: login events, device info, IP address, audit logs.
@@ -33,8 +36,9 @@ We process personal data to:
 
 - Provide the Service (lesson notes, grading, reporting, communication).
 - Support admissions workflows, including parent-submitted learner profiles, supporting documents, and application status tracking.
+- Parse and normalize report-card files or images that a school uploads or submits for educational administration and academic analysis.
 - Import and analyze school-supplied external examination records, including WAEC or BECE result lists, where the school has the legal authority to provide them.
-- Produce school-level academic intelligence such as subject trends, cohort summaries, performance decline alerts, internal benchmarking, and comparisons against lawfully available regional or national aggregate statistics.
+- Produce school-level academic intelligence such as subject trends, cohort summaries, performance decline alerts, internal benchmarking, academic guidance, and comparisons against lawfully available regional or national aggregate statistics.
 - Maintain security and prevent fraud.
 - Provide support and system notifications.
 - Meet legal and regulatory requirements.
@@ -42,7 +46,7 @@ We process personal data to:
 
 For student data, the school is the primary data controller and EduPulse SMT acts as a data processor on the school's behalf in most operational contexts.
 
-Schools are responsible for ensuring that they have an appropriate legal basis before uploading student records, historic academic files, WAEC or BECE result lists, or continuous-assessment records to EduPulse SMT. Where consent is the chosen legal basis, the school must obtain and retain that consent before using the Service for that purpose.
+Schools are responsible for ensuring that they have an appropriate legal basis before uploading student records, admissions materials, report-card files, historic academic files, WAEC or BECE result lists, chief examiner materials, or continuous-assessment records to EduPulse SMT. Where consent is the chosen legal basis, the school must obtain and retain that consent before using the Service for that purpose.
 
 ## 4. Data Sharing
 
@@ -88,6 +92,8 @@ Where a parent or guardian submits data directly through an EduPulse SMT admissi
 Where a school migrates pre-existing student records into EduPulse SMT, the school is responsible for using an appropriate legal basis and any notices or consent forms required under Act 843 or other applicable sector obligations.
 
 Where a school imports WAEC or BECE result data for school-level academic analytics, the school must ensure the import is limited to legitimate educational purposes, kept confidential, and not reused for unrelated marketing or public disclosure.
+
+Where a school uploads report cards, admissions documents, or external exam materials for parsing or analysis, the school must ensure those materials were collected lawfully, disclosed appropriately to the relevant families or data subjects where required, and limited to legitimate educational administration purposes.
 
 ## 9. Cross-Border Transfers
 

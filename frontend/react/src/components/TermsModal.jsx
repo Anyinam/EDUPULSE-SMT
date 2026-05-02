@@ -14,7 +14,7 @@ export default function TermsModal({ isOpen, onClose }) {
         <div className="p-6 overflow-y-auto text-slate-600 text-sm leading-relaxed space-y-4">
           <p><strong>1. Acceptance of Terms</strong><br/>By registering for EduPulse SMT, you agree to comply with and be bound by these Terms of Service.</p>
           <p><strong>2. Policy Bundle Acceptance</strong><br/>Registration also confirms acceptance of the Privacy Policy and Data Retention Policy that govern how school, staff, student, and guardian data is handled.</p>
-          <p><strong>3. School Responsibility</strong><br/>Schools must ensure they have lawful authority to upload student, guardian, admissions, legacy-record, and examination data into the platform.</p>
+          <p><strong>3. School Responsibility</strong><br/>Schools must ensure they have lawful authority to upload student, guardian, admissions, legacy-record, and examination data into the platform, and must send any required parent or guardian consent form before student biodata is first uploaded into EduPulse SMT.</p>
           <p><strong>4. Data Privacy</strong><br/>We protect school data with access controls and secure transmission. EduPulse SMT must not be used for unauthorised disclosure of student records.</p>
           <p><strong>5. Subscription & Payments</strong><br/>Plan access, billing, and feature availability are governed by the school's selected subscription and payment status.</p>
           <p><strong>6. User Responsibilities</strong><br/>You are responsible for keeping credentials secure and for ensuring the data you upload is accurate, lawful, and school-authorised.</p>

@@ -17,8 +17,9 @@ EduPulse SMT is a multi-tenant SaaS platform for schools in Ghana. It combines:
 1. School operations
 2. Student and academic workflows
 3. Payment and billing workflows
-4. Proprietor oversight and governance
-5. Audit and security controls
+4. Parent admissions and communication workflows
+5. Proprietor oversight and governance
+6. Audit and security controls
 
 It should be understood legally as more than a generic school app. It is an operating system for school workflow control, payment governance, and audit visibility.
 
@@ -40,7 +41,8 @@ The strongest proprietary elements appear to be:
 3. Paystack fee-route handling by payment type per school
 4. Reconciliation and recovery logic for missing payment writes
 5. Tamper-evident ledgering for finance records
-6. Combined use of encryption, audit logging, and routing controls inside one school operations platform
+6. Report-card parsing and academic-intelligence workflows
+7. Combined use of encryption, audit logging, and routing controls inside one school operations platform
 
 These are stronger candidates for trade-secret and confidential-know-how protection than a simple claim to generic school software features.
 
@@ -74,6 +76,7 @@ The system processes personal data relating to students, guardians, staff, schoo
 4. Application-layer encryption of selected sensitive fields
 5. Audit logging and incident response planning
 6. Retention and deletion policy structure
+7. Structured handling of admissions, report-card, and external examination records
 
 This gives counsel a concrete technical basis for privacy-policy drafting, processor/controller positioning, and regulator-facing explanations.
 
@@ -85,7 +88,8 @@ This brief should help counsel with:
 2. IP ownership and confidentiality clauses
 3. Contractor and employee invention/confidentiality language
 4. Platform terms, privacy, and data-processing language
-5. Ghana data-protection structuring for school and student data
+5. Ghana data-protection structuring for school, parent, and student data
+6. Advice on data-processing or registration application materials where required
 
 ## Recommended Counsel Focus
 

@@ -35,18 +35,22 @@ Your plan includes access to:
 Next Steps:
 
 1. **Update School Settings** - Add your school logo, contact details, and payment information
-2. **Import Student Data** - Use the attached `DATA_IMPORT_TEMPLATE.csv` template
-3. **Add Staff Members** - Create accounts for teachers, headmasters, and finance officers manually from the Staff & HR section
-4. **Configure Classes & Subjects** - Set up your academic structure
-5. **Customize Report Templates** - Choose how student reports are displayed
+2. **Send Parent Consent Forms First** - Use the attached `CONSENT_AND_NOTICE_TEMPLATES.md` guide to send the parent or guardian consent form before uploading any student biodata into EduPulse SMT
+3. **Import Student Data** - Use the attached `DATA_IMPORT_TEMPLATE.csv` template only after the school has completed the required parent or guardian consent workflow
+4. **Add Staff Members** - Create accounts for teachers, headmasters, and finance officers manually from the Staff & HR section
+5. **Configure Classes & Subjects** - Set up your academic structure
+6. **Customize Report Templates** - Choose how student reports are displayed
 
-CSV Import Template (attached):
+Attached onboarding resources:
 
 • Student Import Template: `DATA_IMPORT_TEMPLATE.csv`
 	Columns:
 	`first_name,surname,gender,date_of_birth,class_assigned,guardian_name,parent_email,parent_phone`
 	Date format: `YYYY-MM-DD`
 	Example class names: JHS 1, JHS 2, JHS 3, Primary 1, Class 4, etc.
+
+• Parent Consent And Notice Guide: `CONSENT_AND_NOTICE_TEMPLATES.md`
+	Use the school registration notice and existing student migration wording to contact parents or guardians before uploading student biodata, legacy records, or exam records.
 
 Resources:
 

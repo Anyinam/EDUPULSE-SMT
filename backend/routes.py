@@ -21,6 +21,7 @@ from flask_jwt_extended import (
     decode_token,
     get_jwt_identity,
     jwt_required,
+    verify_jwt_in_request,
 )
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import joinedload
@@ -111,6 +112,15 @@ from backend.subscription_metering import (
     lock_pricing_version,
     sync_student_meter,
 )
+from backend.academic_guidance import (
+    build_academic_guidance_summary,
+    build_chief_examiner_library_payload,
+    build_report_guidance_payload,
+    merge_chief_examiner_library,
+    normalize_chief_examiner_library,
+    normalize_subject_key,
+    normalize_topic_key,
+)
 from backend.utils import (
     calculate_academic_health,
     generate_descriptive_analysis,
@@ -155,6 +165,7 @@ api = Blueprint("api", __name__)
 
 IMPORT_TEMPLATE_ATTACHMENTS = [
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "DATA_IMPORT_TEMPLATE.csv"),
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "compliance", "CONSENT_AND_NOTICE_TEMPLATES.md"),
 ]
 
 DEFAULT_SUBJECTS = [
@@ -167,6 +178,21 @@ DEFAULT_SUBJECTS = [
     "ICT",
     "Creative Arts",
 ]
+
+CHIEF_EXAMINER_LIBRARY_CONFIG_KEY = "chief_examiner_library"
+CHIEF_EXAMINER_LIBRARY_META_KEY = "chief_examiner_library_meta"
+CHIEF_EXAMINER_LIBRARY_HISTORY_KEY = "chief_examiner_library_history"
+CHIEF_EXAMINER_LIBRARY_HISTORY_LIMIT = 25
+PLATFORM_CHIEF_EXAMINER_LIBRARY_SETTING_KEY = "platform_chief_examiner_library"
+PLATFORM_CHIEF_EXAMINER_LIBRARY_META_SETTING_KEY = "platform_chief_examiner_library_meta"
+PLATFORM_CHIEF_EXAMINER_LIBRARY_HISTORY_SETTING_KEY = "platform_chief_examiner_library_history"
+PLATFORM_PUBLIC_CONTENT_SETTING_KEY = "platform_public_content"
+EXAM_PAPER_HISTORY_KEY = "exam_paper_history"
+EXAM_PAPER_HISTORY_LIMIT = 250
+REPORT_TEMPLATE_HISTORY_KEY = "report_template_history"
+REPORT_TEMPLATE_HISTORY_LIMIT = 40
+ANALYTICS_PRESET_HISTORY_KEY = "analytics_preset_history"
+ANALYTICS_PRESET_HISTORY_LIMIT = 40
 
 
 # --- HELPERS ---
@@ -1548,6 +1574,7 @@ PARENT_ADMISSION_WORKFLOW_KEY = "parent_admissions_workflow"
 PARENT_ADMISSION_REVIEW_META_PREFIX = "[EDUPULSE_PARENT_ADMISSION_META]"
 DATA_COMPLIANCE_WORKFLOW_KEY = "data_compliance_workflow"
 EXAM_INTELLIGENCE_WORKFLOW_KEY = "exam_intelligence"
+TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY = "teacher_class_level_exam_summaries_enabled"
 PARENT_ADMISSION_CONSENT_VERSION = "2026-04-29"
 
 DEFAULT_DATA_COMPLIANCE_WORKFLOW = {
@@ -1870,6 +1897,9 @@ def _parse_exam_csv_rows(file_stream):
                 "candidate_identifier": sanitize_string(
                     _extract_exam_row_value(raw_row, ["candidate_id", "index_number", "student_code"])
                 ) or candidate_name,
+                "class_name": sanitize_string(
+                    _extract_exam_row_value(raw_row, ["class_name", "class", "current_class", "grade_level", "form"])
+                ) or None,
                 "gender": (sanitize_string(_extract_exam_row_value(raw_row, ["gender", "sex"])) or "Unknown").title(),
                 "subject": subject_name,
                 "score": _parse_exam_score_value(
@@ -1950,29 +1980,86 @@ def _load_exam_document_text(uploaded, file_ext, result_text=None):
             raise ValueError(f"Image OCR failed: {exc}")
 
     if file_ext == ".pdf":
+        extracted_text = ""
+        pdf_text_error = None
         try:
             import pdfplumber
         except Exception as exc:
-            raise ValueError(
-                f"PDF parsing is not available in this environment yet: {exc}. Upload the PDF and paste the extracted rows in the review text box."
-            )
+            pdf_text_error = exc
+        else:
+            try:
+                extracted_pages = []
+                with pdfplumber.open(BytesIO(file_bytes)) as pdf_document:
+                    for page in pdf_document.pages:
+                        extracted_pages.append(page.extract_text() or "")
+                extracted_text = "\n".join(part for part in extracted_pages if part.strip()).strip()
+            except Exception as exc:
+                pdf_text_error = exc
+
+        if extracted_text:
+            return extracted_text
 
         try:
-            extracted_pages = []
-            with pdfplumber.open(BytesIO(file_bytes)) as pdf_document:
-                for page in pdf_document.pages:
-                    extracted_pages.append(page.extract_text() or "")
-            extracted_text = "\n".join(part for part in extracted_pages if part.strip()).strip()
-        except Exception as exc:
-            raise ValueError(f"PDF text extraction failed: {exc}")
-
-        if not extracted_text:
-            raise ValueError(
-                "This PDF did not expose extractable text automatically. Upload the PDF and paste the extracted rows in the review text box."
-            )
-        return extracted_text
+            return _extract_text_from_pdf_with_ocr(file_bytes)
+        except ValueError as exc:
+            if pdf_text_error:
+                raise ValueError(f"PDF text extraction and OCR fallback both failed: {pdf_text_error}; {exc}")
+            raise
 
     raise ValueError("Unsupported exam document format.")
+
+
+def _extract_text_from_pdf_with_ocr(file_bytes):
+    try:
+        from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+    except Exception as exc:
+        raise ValueError(
+            f"PDF OCR dependencies are not available in this environment yet: {exc}."
+        ) from exc
+
+    try:
+        pdf_info = pdfinfo_from_bytes(file_bytes)
+        total_pages = int(pdf_info.get("Pages") or 0)
+    except Exception:
+        total_pages = 0
+
+    if total_pages <= 0:
+        total_pages = 1
+
+    extracted_pages = []
+    for page_number in range(1, total_pages + 1):
+        try:
+            rendered_pages = convert_from_bytes(
+                file_bytes,
+                dpi=200,
+                fmt="png",
+                first_page=page_number,
+                last_page=page_number,
+            )
+        except Exception as exc:
+            raise ValueError(f"PDF OCR page rendering failed on page {page_number}: {exc}") from exc
+
+        if not rendered_pages:
+            continue
+
+        page_image = rendered_pages[0]
+        image_buffer = BytesIO()
+        try:
+            page_image.save(image_buffer, format="PNG")
+            page_text = ocr_image_bytes(image_buffer.getvalue()).strip()
+        except Exception as exc:
+            raise ValueError(f"PDF OCR failed on page {page_number}: {exc}") from exc
+
+        if page_text:
+            extracted_pages.append(page_text)
+
+    extracted_text = "\n".join(extracted_pages).strip()
+    if not extracted_text:
+        raise ValueError(
+            "This PDF did not expose extractable text automatically, and OCR could not recover readable text. Upload the PDF and paste the extracted rows in the review text box."
+        )
+
+    return extracted_text
 
 
 def _build_exam_batch_summary(rows):
@@ -2030,6 +2117,80 @@ def _load_exam_rows_for_batch(batch_meta):
         payload = json.load(file_handle)
     rows = payload.get("rows") if isinstance(payload, dict) else []
     return rows if isinstance(rows, list) else []
+
+
+def _normalize_exam_lookup_token(value):
+    normalized = sanitize_string(value or "") or ""
+    return re.sub(r"[^a-z0-9]+", "", normalized.lower())
+
+
+def _build_student_exam_class_lookup():
+    lookup = {}
+    students = Student.query.filter_by(school_id=g.school_id).all()
+    for student in students:
+        class_name = sanitize_string(student.current_class or "") or None
+        if not class_name:
+            continue
+        for raw_key in [student.student_code, student.name, f"{student.first_name} {student.surname}"]:
+            token = _normalize_exam_lookup_token(raw_key)
+            if token:
+                lookup[token] = class_name
+    return lookup
+
+
+def _resolve_exam_row_class_name(row, class_lookup):
+    direct_class = sanitize_string((row or {}).get("class_name") or "") or None
+    if direct_class:
+        return direct_class
+
+    for raw_key in [
+        (row or {}).get("candidate_identifier"),
+        (row or {}).get("candidate_name"),
+    ]:
+        token = _normalize_exam_lookup_token(raw_key)
+        if token and token in class_lookup:
+            return class_lookup[token]
+    return None
+
+
+def _build_exam_class_summaries(rows, allowed_classes=None, allowed_subjects=None):
+    if not rows:
+        return []
+
+    class_lookup = _build_student_exam_class_lookup()
+    normalized_allowed_classes = set(allowed_classes or [])
+    normalized_allowed_subjects = set(allowed_subjects or [])
+    class_buckets = {}
+
+    for row in rows:
+        class_name = _resolve_exam_row_class_name(row, class_lookup)
+        subject_name = sanitize_string(row.get("subject") or "") or None
+        if not class_name or not subject_name:
+            continue
+        if normalized_allowed_classes and class_name not in normalized_allowed_classes:
+            continue
+        if normalized_allowed_subjects and subject_name not in normalized_allowed_subjects:
+            continue
+
+        class_bucket = class_buckets.setdefault(class_name, [])
+        class_bucket.append(row)
+
+    summaries = []
+    for class_name, class_rows in class_buckets.items():
+        class_summary = _build_exam_batch_summary(class_rows)
+        summaries.append(
+            {
+                "class_name": class_name,
+                "candidate_count": class_summary.get("candidate_count", 0),
+                "subject_entry_count": class_summary.get("subject_entry_count", 0),
+                "average_score": class_summary.get("average_score", 0.0),
+                "pass_rate": class_summary.get("pass_rate", 0.0),
+                "subject_summaries": class_summary.get("subject_summaries", []),
+            }
+        )
+
+    summaries.sort(key=lambda item: item.get("class_name") or "")
+    return summaries
 
 
 def _build_exam_intelligence_payload(settings):
@@ -2128,6 +2289,95 @@ def _build_exam_intelligence_payload(settings):
         "gender_comparison": gender_comparison,
         "year_trends": year_trends,
     }
+
+
+def _build_teacher_exam_intelligence_payload(settings, teacher_id):
+    payload = _build_exam_intelligence_payload(settings)
+    global_settings = _get_report_global_settings(settings)
+    class_level_summaries_enabled = bool(global_settings.get(TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY, False))
+    assignments = TeacherAssignment.query.filter_by(school_id=g.school_id, teacher_id=teacher_id).all()
+    assigned_subjects = sorted({assignment.subject_name for assignment in assignments if assignment.subject_name})
+    assigned_classes = sorted({assignment.class_name for assignment in assignments if assignment.class_name})
+
+    latest_batch = payload.get("latest_batch") or {}
+    latest_subject_summaries = [
+        item
+        for item in (latest_batch.get("subject_summaries") or [])
+        if item.get("subject") in assigned_subjects
+    ]
+    subject_trends = [
+        item
+        for item in (payload.get("subject_trends") or [])
+        if item.get("subject") in assigned_subjects
+    ]
+    class_summaries = []
+    if class_level_summaries_enabled and latest_batch:
+        class_summaries = _build_exam_class_summaries(
+            _load_exam_rows_for_batch(latest_batch),
+            allowed_classes=assigned_classes,
+            allowed_subjects=assigned_subjects,
+        )
+
+    return {
+        "view_scope": "teacher_subject_summary",
+        "raw_access": False,
+        "class_level_summaries_enabled": class_level_summaries_enabled,
+        "compliance_ready": payload.get("compliance_ready", False),
+        "assigned_subjects": assigned_subjects,
+        "assigned_classes": assigned_classes,
+        "summary": {
+            "tracked_subjects": len(subject_trends),
+            "latest_subject_count": len(latest_subject_summaries),
+            "latest_academic_year": latest_batch.get("academic_year"),
+        },
+        "latest_batch": {
+            "academic_year": latest_batch.get("academic_year"),
+            "exam_type": latest_batch.get("exam_type"),
+            "subject_summaries": latest_subject_summaries,
+        } if latest_batch else None,
+        "subject_trends": subject_trends,
+        "class_summaries": class_summaries,
+    }
+
+
+def _build_academic_guidance_scope(user):
+    allowed_classes = None
+    allowed_subjects = None
+    role_label = user.role.title() if user.role else "Staff"
+
+    if user.role == "teacher":
+        assignments = TeacherAssignment.query.filter_by(school_id=g.school_id, teacher_id=user.id).all()
+        allowed_classes = sorted({assignment.class_name for assignment in assignments if assignment.class_name})
+        allowed_subjects = sorted({assignment.subject_name for assignment in assignments if assignment.subject_name})
+        if not allowed_classes and user.assigned_class:
+            allowed_classes = [user.assigned_class]
+        role_label = "Subject Teacher"
+    elif user.role == "homeroom":
+        allowed_classes = [user.assigned_class] if user.assigned_class else []
+        role_label = "Homeroom Teacher"
+
+    return {
+        "allowed_classes": allowed_classes,
+        "allowed_subjects": allowed_subjects,
+        "role_label": role_label,
+    }
+
+
+def _get_latest_report_scope():
+    latest_report = (
+        ReportCard.query.filter_by(school_id=g.school_id)
+        .order_by(ReportCard.created_at.desc(), ReportCard.id.desc())
+        .first()
+    )
+    if not latest_report:
+        return None, None, []
+
+    reports = ReportCard.query.filter_by(
+        school_id=g.school_id,
+        academic_term=latest_report.academic_term,
+        academic_year=latest_report.academic_year,
+    ).all()
+    return latest_report.academic_term, latest_report.academic_year, reports
 
 
 def _get_data_compliance_workflow_config(settings):
@@ -2844,6 +3094,27 @@ def normalize_subject_grades(subject_grades):
         except (TypeError, ValueError):
             return 0.0
 
+    def normalize_diagnostic_topics(raw_topics):
+        normalized_topics = []
+        for topic in raw_topics or []:
+            if not isinstance(topic, dict):
+                continue
+            topic_name = sanitize_string(topic.get("topic") or "") or ""
+            if not topic_name:
+                continue
+            score = to_number(topic.get("score"))
+            max_score = to_number(topic.get("max_score"))
+            if max_score <= 0:
+                continue
+            normalized_topics.append(
+                {
+                    "topic": topic_name,
+                    "score": round(score, 1),
+                    "max_score": round(max_score, 1),
+                }
+            )
+        return normalized_topics
+
     normalized = []
     for entry in subject_grades or []:
         if not isinstance(entry, dict):
@@ -2865,6 +3136,7 @@ def normalize_subject_grades(subject_grades):
         updated["total"] = round(total, 1)
         updated["grade"] = grade
         updated["remarks"] = remarks
+        updated["diagnostic_topics"] = normalize_diagnostic_topics(entry.get("diagnostic_topics"))
         normalized.append(updated)
 
     return normalized
@@ -2953,6 +3225,54 @@ DEFAULT_LOGIN_HELP_CONTENT = {
     ],
 }
 
+DEFAULT_PLATFORM_PUBLIC_CONTENT = {
+    "faqs": DEFAULT_LOGIN_HELP_CONTENT["faqs"],
+    "tutorials": DEFAULT_LOGIN_HELP_CONTENT["tutorials"],
+    "feature_guides": [
+        {
+            "title": "Admissions & Student Import",
+            "body": "Admit individual students, use CSV upload for bulk admissions, and manage class placement.",
+        },
+        {
+            "title": "Staff & HR Setup",
+            "body": "Create teacher, homeroom, headmaster, finance, and inventory accounts from Staff & HR.",
+        },
+        {
+            "title": "Subscription & Billing",
+            "body": "Review plan details, check current enrollment impact, and upgrade plans via Paystack payment.",
+        },
+        {
+            "title": "Reports & Approval Workflow",
+            "body": "Generate report cards, run terminal reports, and follow role-based approval flow for publication.",
+        },
+    ],
+    "security_alerts": [
+        "EduPulse support will never call, text, or message you to ask for your bank OTP, MoMo OTP, card PIN, CVV, or full password.",
+        "Do not approve transfers, share screen-control access, or follow payment instructions from personal numbers claiming to be EduPulse staff.",
+        "Only trust payment and account actions started inside your official EduPulse dashboard or confirmed through the official support email and phone lines.",
+        "If anything feels suspicious, stop immediately, do not complete the transaction, and contact official support before taking any further step.",
+    ],
+    "support": {
+        "email": "support@edupulse.com",
+        "phone": "+233 552 141 384",
+        "website": "",
+        "response_time": "within 24 hours on business days",
+    },
+    "auth": {
+        "login_title": "Welcome Back",
+        "login_subtitle": "Enter your business credentials to access the dashboard.",
+        "register_title": "Create Tenant",
+        "register_subtitle": "Register your school organization.",
+        "register_support_note": "Need help choosing a plan or completing registration?",
+    },
+    "help_center": {
+        "title": "Help Center",
+        "subtitle": "Search FAQs, browse feature guides, and find tutorial updates.",
+        "security_title": "Scam Alert",
+        "security_body": "Protect your school accounts and payment setup. Verify suspicious contact before you share any sensitive information.",
+    },
+}
+
 
 def _is_platform_owner_request():
     owner_key = (os.getenv("PLATFORM_OWNER_KEY") or "").strip()
@@ -2993,13 +3313,129 @@ def _normalize_help_content(raw_value):
     return {"faqs": faqs, "tutorials": tutorials}
 
 
+def _clone_platform_value(value):
+    return json.loads(json.dumps(value or {}))
+
+
+def _get_platform_setting_value(setting_key, default=None):
+    setting = PlatformSetting.query.filter_by(setting_key=setting_key).first()
+    if not setting:
+        return _clone_platform_value(default)
+    return _clone_platform_value(setting.setting_value)
+
+
+def _upsert_platform_setting_value(setting_key, value):
+    safe_value = _clone_platform_value(value)
+    setting = PlatformSetting.query.filter_by(setting_key=setting_key).first()
+    if not setting:
+        setting = PlatformSetting(setting_key=setting_key, setting_value=safe_value)
+        db.session.add(setting)
+    else:
+        setting.setting_value = safe_value
+    return setting
+
+
+def _normalize_platform_text_list(items, fallback_items):
+    normalized = []
+    seen = set()
+    for item in items or []:
+        label = sanitize_string(item)
+        if not label:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        normalized.append(label)
+        seen.add(key)
+    return normalized or list(fallback_items)
+
+
+def _normalize_platform_guides(items):
+    normalized = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        title = sanitize_string(item.get("title"))
+        body = sanitize_string(item.get("body"))
+        if title and body:
+            normalized.append({"title": title, "body": body})
+    return normalized or _clone_platform_value(DEFAULT_PLATFORM_PUBLIC_CONTENT["feature_guides"])
+
+
+def _normalize_platform_public_content(raw_value):
+    content = raw_value if isinstance(raw_value, dict) else {}
+    help_content = _normalize_help_content(content)
+    support_input = content.get("support") if isinstance(content.get("support"), dict) else {}
+    auth_input = content.get("auth") if isinstance(content.get("auth"), dict) else {}
+    help_center_input = content.get("help_center") if isinstance(content.get("help_center"), dict) else {}
+
+    return {
+        "faqs": help_content["faqs"],
+        "tutorials": help_content["tutorials"],
+        "feature_guides": _normalize_platform_guides(content.get("feature_guides") or []),
+        "security_alerts": _normalize_platform_text_list(
+            content.get("security_alerts") or [],
+            DEFAULT_PLATFORM_PUBLIC_CONTENT["security_alerts"],
+        ),
+        "support": {
+            "email": sanitize_string(support_input.get("email"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["support"]["email"],
+            "phone": sanitize_string(support_input.get("phone"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["support"]["phone"],
+            "website": sanitize_string(support_input.get("website")) or "",
+            "response_time": sanitize_string(support_input.get("response_time"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["support"]["response_time"],
+        },
+        "auth": {
+            "login_title": sanitize_string(auth_input.get("login_title"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["auth"]["login_title"],
+            "login_subtitle": sanitize_string(auth_input.get("login_subtitle"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["auth"]["login_subtitle"],
+            "register_title": sanitize_string(auth_input.get("register_title"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["auth"]["register_title"],
+            "register_subtitle": sanitize_string(auth_input.get("register_subtitle"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["auth"]["register_subtitle"],
+            "register_support_note": sanitize_string(auth_input.get("register_support_note"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["auth"]["register_support_note"],
+        },
+        "help_center": {
+            "title": sanitize_string(help_center_input.get("title"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["help_center"]["title"],
+            "subtitle": sanitize_string(help_center_input.get("subtitle"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["help_center"]["subtitle"],
+            "security_title": sanitize_string(help_center_input.get("security_title"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["help_center"]["security_title"],
+            "security_body": sanitize_string(help_center_input.get("security_body"))
+            or DEFAULT_PLATFORM_PUBLIC_CONTENT["help_center"]["security_body"],
+        },
+    }
+
+
+def _get_platform_public_content():
+    stored = _get_platform_setting_value(
+        PLATFORM_PUBLIC_CONTENT_SETTING_KEY,
+        DEFAULT_PLATFORM_PUBLIC_CONTENT,
+    )
+    return _normalize_platform_public_content(stored)
+
+
+def _set_platform_public_content(content):
+    normalized = _normalize_platform_public_content(content)
+    _upsert_platform_setting_value(PLATFORM_PUBLIC_CONTENT_SETTING_KEY, normalized)
+    return normalized
+
+
 @api.route("/public/help-content", methods=["GET"])
 def get_public_help_content():
     """Get global login FAQ/tutorial content for all tenants."""
-    setting = PlatformSetting.query.filter_by(setting_key="login_help_content").first()
-    if not setting:
-        return jsonify(DEFAULT_LOGIN_HELP_CONTENT)
-    return jsonify(_normalize_help_content(setting.setting_value))
+    content = _get_platform_public_content()
+    return jsonify({"faqs": content["faqs"], "tutorials": content["tutorials"]})
+
+
+@api.route("/public/platform-content", methods=["GET"])
+def get_public_platform_content():
+    """Get global tenant-facing public content managed by the platform owner."""
+    return jsonify(_get_platform_public_content())
 
 
 @api.route("/platform/help-content", methods=["GET"])
@@ -3008,10 +3444,8 @@ def get_platform_help_content():
     if not _is_platform_owner_request():
         return jsonify({"message": "Access denied: Platform owner credentials required."}), 403
 
-    setting = PlatformSetting.query.filter_by(setting_key="login_help_content").first()
-    if not setting:
-        return jsonify(DEFAULT_LOGIN_HELP_CONTENT)
-    return jsonify(_normalize_help_content(setting.setting_value))
+    content = _get_platform_public_content()
+    return jsonify({"faqs": content["faqs"], "tutorials": content["tutorials"]})
 
 
 @api.route("/platform/help-content", methods=["PUT"])
@@ -3021,22 +3455,57 @@ def update_platform_help_content():
         return jsonify({"message": "Access denied: Platform owner credentials required."}), 403
 
     data = request.get_json(silent=True) or {}
-    normalized = _normalize_help_content(
+    current = _get_platform_public_content()
+    normalized_help = _normalize_help_content(
         {
             "faqs": data.get("faqs", []),
             "tutorials": data.get("tutorials", []),
         }
     )
-
-    setting = PlatformSetting.query.filter_by(setting_key="login_help_content").first()
-    if not setting:
-        setting = PlatformSetting(setting_key="login_help_content", setting_value=normalized)
-        db.session.add(setting)
-    else:
-        setting.setting_value = normalized
+    current["faqs"] = normalized_help["faqs"]
+    current["tutorials"] = normalized_help["tutorials"]
+    normalized = _set_platform_public_content(current)
+    _upsert_platform_setting_value(
+        "login_help_content",
+        normalized_help,
+    )
 
     db.session.commit()
-    return jsonify({"message": "Global help content updated successfully.", **normalized})
+    return jsonify(
+        {
+            "message": "Global help content updated successfully.",
+            "faqs": normalized["faqs"],
+            "tutorials": normalized["tutorials"],
+        }
+    )
+
+
+@api.route("/platform/public-content", methods=["GET"])
+@jwt_required()
+def get_platform_public_content_settings():
+    """Get all tenant-facing public content for platform admin editing."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+    return jsonify(_get_platform_public_content())
+
+
+@api.route("/platform/public-content", methods=["PUT"])
+@jwt_required()
+def update_platform_public_content_settings():
+    """Update tenant-facing public content for platform admin editing."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    normalized = _set_platform_public_content(payload)
+    _upsert_platform_setting_value(
+        "login_help_content",
+        {"faqs": normalized["faqs"], "tutorials": normalized["tutorials"]},
+    )
+    db.session.commit()
+    return jsonify({"message": "Platform public content updated successfully.", **normalized})
 
 
 def _get_platform_user_from_jwt():
@@ -3052,6 +3521,17 @@ def _get_platform_user_from_jwt():
         return PlatformUser.query.filter_by(id=user_id, is_active=True).first()
     except Exception:
         return None
+
+
+@api.route("/platform/bootstrap-status", methods=["GET"])
+def get_platform_bootstrap_status():
+    """Report whether the platform owner console still needs its first admin user."""
+    return jsonify(
+        {
+            "needs_bootstrap": PlatformUser.query.count() == 0,
+            "owner_key_configured": bool((os.getenv("PLATFORM_OWNER_KEY") or "").strip()),
+        }
+    )
 
 
 @api.route("/platform/auth/login", methods=["POST"])
@@ -3139,9 +3619,15 @@ def list_platform_users():
 
 @api.route("/platform/users", methods=["POST"])
 def add_platform_user():
-    """Add new platform admin user (owner key required)."""
-    if not _is_platform_owner_request():
-        return jsonify({"message": "Access denied: Platform owner credentials required."}), 403
+    """Add new platform admin user via platform JWT, or bootstrap the first one with the owner key."""
+    verify_jwt_in_request(optional=True)
+    platform_user = _get_platform_user_from_jwt()
+    platform_user_count = PlatformUser.query.count()
+    bootstrap_request = platform_user_count == 0 and _is_platform_owner_request()
+    if not platform_user and not bootstrap_request:
+        if platform_user_count == 0:
+            return jsonify({"message": "Use the platform owner key to bootstrap the first platform admin user."}), 401
+        return jsonify({"message": "Unauthorized"}), 401
 
     try:
         data = request.get_json(silent=True) or {}
@@ -3181,15 +3667,20 @@ def add_platform_user():
 
 
 @api.route("/platform/users/<int:user_id>", methods=["DELETE"])
+@jwt_required()
 def remove_platform_user(user_id):
-    """Remove platform admin user (owner key required)."""
-    if not _is_platform_owner_request():
-        return jsonify({"message": "Access denied: Platform owner credentials required."}), 403
+    """Remove platform admin user (authenticated platform user required)."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
 
     try:
         user = PlatformUser.query.get(user_id)
         if not user:
             return jsonify({"message": "User not found"}), 404
+
+        if user.id == platform_user.id:
+            return jsonify({"message": "You cannot remove your own active platform account."}), 400
 
         db.session.delete(user)
         db.session.commit()
@@ -3353,6 +3844,19 @@ def _merge_report_template_config(existing_config, incoming_config):
         if isinstance(raw_existing_globals, dict):
             existing_globals = dict(raw_existing_globals)
 
+        # Preserve tenant-scoped metadata that should survive template switches.
+        for persistent_key in [
+            CHIEF_EXAMINER_LIBRARY_CONFIG_KEY,
+            CHIEF_EXAMINER_LIBRARY_META_KEY,
+            CHIEF_EXAMINER_LIBRARY_HISTORY_KEY,
+            EXAM_PAPER_HISTORY_KEY,
+            REPORT_TEMPLATE_HISTORY_KEY,
+            "analytics_presets",
+            ANALYTICS_PRESET_HISTORY_KEY,
+        ]:
+            if persistent_key in existing_config and persistent_key not in merged:
+                merged[persistent_key] = _clone_json_document(existing_config.get(persistent_key))
+
     incoming_globals = merged.get(GLOBAL_REPORT_SETTINGS_KEY)
     if isinstance(incoming_globals, dict):
         existing_globals.update(incoming_globals)
@@ -3361,6 +3865,46 @@ def _merge_report_template_config(existing_config, incoming_config):
         merged[GLOBAL_REPORT_SETTINGS_KEY] = existing_globals
 
     return merged
+
+
+def _get_report_template_history(settings):
+    report_template_config = _clone_json_document(settings.report_template_config)
+    history = report_template_config.get(REPORT_TEMPLATE_HISTORY_KEY) or []
+    return history if isinstance(history, list) else []
+
+
+def _write_report_template_history(settings, history_items):
+    config = _clone_json_document(settings.report_template_config)
+    cleaned_history = history_items if isinstance(history_items, list) else []
+    if cleaned_history:
+        config[REPORT_TEMPLATE_HISTORY_KEY] = cleaned_history[:REPORT_TEMPLATE_HISTORY_LIMIT]
+    else:
+        config.pop(REPORT_TEMPLATE_HISTORY_KEY, None)
+    settings.report_template_config = config
+
+
+def _build_report_template_snapshot(settings, *, actor_id, action, restored_from_snapshot_id=None):
+    return {
+        "snapshot_id": f"rts_{secrets.token_hex(6)}",
+        "report_template_id": _normalize_report_template_id(settings.report_template_id),
+        "report_template_config": _clone_json_document(settings.report_template_config),
+        "actor_id": actor_id,
+        "action": action,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "restored_from_snapshot_id": restored_from_snapshot_id,
+    }
+
+
+def _append_report_template_history(settings, *, actor_id, action, restored_from_snapshot_id=None):
+    snapshot = _build_report_template_snapshot(
+        settings,
+        actor_id=actor_id,
+        action=action,
+        restored_from_snapshot_id=restored_from_snapshot_id,
+    )
+    history = [snapshot] + _get_report_template_history(settings)
+    _write_report_template_history(settings, history)
+    return snapshot
 
 
 def _set_report_global_setting(settings, key, value):
@@ -3704,7 +4248,7 @@ def register():
     if not school_data_authority_confirmed:
         return jsonify({"message": "School data authority confirmation is required"}), 400
     if not legacy_and_exam_consent_plan_confirmed:
-        return jsonify({"message": "Legacy migration and examination notice confirmation is required"}), 400
+        return jsonify({"message": "Parent or guardian consent workflow confirmation is required before student biodata, legacy records, or examination data can be uploaded"}), 400
     
     # Validate selected plan
     valid_plans = ["Free", "Basic", "Premium"]
@@ -4259,12 +4803,14 @@ def get_school_support_contact(school_code):
         if not school:
             return jsonify({"message": "School not found"}), 404
 
+        public_content = _get_platform_public_content()
+
         return jsonify(
             {
                 "school_id": school.id,
                 "school_name": school.name,
-                "support_email": school.school_email or "support@edupulse.com",
-                "support_phone": school.school_phone or "+233 552 141 384",
+                "support_email": school.school_email or public_content["support"]["email"],
+                "support_phone": school.school_phone or public_content["support"]["phone"],
                 "support_website": school.school_website or "",
             }
         )
@@ -4353,6 +4899,12 @@ def set_report_template():
     settings.report_template_config = _merge_report_template_config(
         settings.report_template_config,
         template_config or {},
+    )
+    db.session.commit()
+    _append_report_template_history(
+        settings,
+        actor_id=int(get_jwt_identity()),
+        action="select",
     )
     db.session.commit()
 
@@ -4445,6 +4997,12 @@ def upload_report_template():
         template_config or {},
     )
     db.session.commit()
+    _append_report_template_history(
+        settings,
+        actor_id=int(get_jwt_identity()),
+        action="upload",
+    )
+    db.session.commit()
 
     return jsonify(
         {
@@ -4453,6 +5011,106 @@ def upload_report_template():
             "report_template_config": settings.report_template_config,
         }
     )
+
+
+@api.route("/school/report-template/history", methods=["GET"])
+@multi_tenant_guard
+@role_required("headmaster", "proprietor")
+@jwt_required()
+def get_report_template_history():
+    settings = _get_or_create_school_settings()
+    history = _get_report_template_history(settings)
+    actor_ids = sorted({item.get("actor_id") for item in history if item.get("actor_id")})
+    actors = (
+        User.query.filter(User.school_id == g.school_id, User.id.in_(actor_ids)).all()
+        if actor_ids
+        else []
+    )
+    actor_map = {actor.id: actor.username for actor in actors}
+
+    return jsonify(
+        {
+            "history": [
+                {
+                    "snapshot_id": item.get("snapshot_id"),
+                    "report_template_id": item.get("report_template_id"),
+                    "created_at": item.get("created_at"),
+                    "action": item.get("action"),
+                    "actor_id": item.get("actor_id"),
+                    "actor_name": actor_map.get(item.get("actor_id")),
+                    "restored_from_snapshot_id": item.get("restored_from_snapshot_id"),
+                    "is_current": _normalize_report_template_id(settings.report_template_id)
+                    == _normalize_report_template_id(item.get("report_template_id")),
+                    "has_custom_html": bool((item.get("report_template_config") or {}).get("html")),
+                    "has_custom_css": bool((item.get("report_template_config") or {}).get("css")),
+                    "has_background_image": bool((item.get("report_template_config") or {}).get("background_image_url")),
+                    "config_key_count": len((item.get("report_template_config") or {}).keys()),
+                }
+                for item in history
+            ]
+        }
+    )
+
+
+@api.route("/school/report-template/history/<string:snapshot_id>/restore", methods=["POST"])
+@multi_tenant_guard
+@role_required("headmaster", "proprietor")
+@jwt_required()
+def restore_report_template_history(snapshot_id):
+    settings = _get_or_create_school_settings()
+    snapshot = next(
+        (item for item in _get_report_template_history(settings) if item.get("snapshot_id") == snapshot_id),
+        None,
+    )
+    if not snapshot:
+        return jsonify({"message": "Report template history snapshot not found."}), 404
+
+    settings.report_template_id = _normalize_report_template_id(snapshot.get("report_template_id"))
+    settings.report_template_config = _clone_json_document(snapshot.get("report_template_config") or {})
+    db.session.commit()
+    _append_report_template_history(
+        settings,
+        actor_id=int(get_jwt_identity()),
+        action="restore",
+        restored_from_snapshot_id=snapshot_id,
+    )
+    db.session.commit()
+
+    return jsonify(
+        {
+            "message": "Report template restored.",
+            "report_template_id": settings.report_template_id,
+            "report_template_config": settings.report_template_config,
+        }
+    )
+
+
+@api.route("/school/report-template/history/<string:snapshot_id>/download", methods=["GET"])
+@multi_tenant_guard
+@role_required("headmaster", "proprietor")
+@jwt_required()
+def download_report_template_history(snapshot_id):
+    settings = _get_or_create_school_settings()
+    snapshot = next(
+        (item for item in _get_report_template_history(settings) if item.get("snapshot_id") == snapshot_id),
+        None,
+    )
+    if not snapshot:
+        return jsonify({"message": "Report template history snapshot not found."}), 404
+
+    payload = {
+        "snapshot_id": snapshot.get("snapshot_id"),
+        "report_template_id": snapshot.get("report_template_id"),
+        "created_at": snapshot.get("created_at"),
+        "action": snapshot.get("action"),
+        "restored_from_snapshot_id": snapshot.get("restored_from_snapshot_id"),
+        "report_template_config": snapshot.get("report_template_config") or {},
+    }
+    filename = secure_filename(str(snapshot.get("report_template_id") or snapshot_id)) or snapshot_id
+    response = make_response(json.dumps(payload, indent=2))
+    response.headers["Content-Type"] = "application/json"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}.json"
+    return response
 
 
 # --- 2. ACADEMIC GOVERNANCE (Teacher/Homeroom) ---
@@ -5629,11 +6287,20 @@ def create_or_update_report_card():
         f"Report card saved for {student.name} ({academic_term} {academic_year})",
     )
 
+    school = School.query.get(g.school_id)
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    report_data = report.to_dict()
+    if has_feature(get_effective_plan(school), "exam_intelligence"):
+        report_data["academic_guidance"] = build_report_guidance_payload(
+            report.subject_grades or [],
+            chief_examiner_library=_get_effective_chief_examiner_library(settings),
+        )
+
     return jsonify(
         {
             "message": "Report card saved successfully",
             "report_id": report.id,
-            "report": report.to_dict(),
+            "report": report_data,
             "term_calendar": _build_report_term_calendar(
                 g.school_id,
                 academic_term,
@@ -5670,12 +6337,19 @@ def get_report_card(student_id):
     if not report:
         return jsonify({"message": "Report card not found"}), 404
 
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     report_data = report.to_dict()
     report_data["term_calendar"] = _build_report_term_calendar(
         g.school_id,
         academic_term,
         academic_year,
     )
+    school = School.query.get(g.school_id)
+    if has_feature(get_effective_plan(school), "exam_intelligence"):
+        report_data["academic_guidance"] = build_report_guidance_payload(
+            report.subject_grades or [],
+            chief_examiner_library=_get_effective_chief_examiner_library(settings),
+        )
 
     return jsonify(report_data)
 
@@ -5941,7 +6615,14 @@ def get_terminal_report(student_id):
         return jsonify({"message": "No report data found for this student"}), 404
 
     # Convert to dict
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     report_data = report.to_dict()
+    school = School.query.get(g.school_id)
+    if has_feature(get_effective_plan(school), "exam_intelligence"):
+        report_data["academic_guidance"] = build_report_guidance_payload(
+            report.subject_grades or [],
+            chief_examiner_library=_get_effective_chief_examiner_library(settings),
+        )
 
     report_data["term_calendar"] = _build_report_term_calendar(
         g.school_id,
@@ -8599,6 +9280,7 @@ def get_live_feed():
 @api.route("/proprietor/student-rescue-agent", methods=["GET"])
 @api.route("/headmaster/student-rescue-agent", methods=["GET"])
 @multi_tenant_guard
+@feature_required("student_rescue_agent")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def get_student_rescue_agent():
@@ -8615,6 +9297,7 @@ def get_student_rescue_agent():
 @api.route("/proprietor/student-rescue-agent/contact-templates/<int:student_id>", methods=["GET"])
 @api.route("/headmaster/student-rescue-agent/contact-templates/<int:student_id>", methods=["GET"])
 @multi_tenant_guard
+@feature_required("student_rescue_agent")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def get_student_rescue_contact_templates(student_id):
@@ -8636,6 +9319,7 @@ def get_student_rescue_contact_templates(student_id):
 @api.route("/proprietor/student-rescue-agent/report", methods=["GET"])
 @api.route("/headmaster/student-rescue-agent/report", methods=["GET"])
 @multi_tenant_guard
+@feature_required("student_rescue_agent")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def get_student_rescue_report():
@@ -8666,6 +9350,7 @@ def get_student_rescue_report():
 @api.route("/proprietor/student-rescue-agent/send-email", methods=["POST"])
 @api.route("/headmaster/student-rescue-agent/send-email", methods=["POST"])
 @multi_tenant_guard
+@feature_required("student_rescue_agent")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def send_student_rescue_email():
@@ -8721,6 +9406,7 @@ def send_student_rescue_email():
 @api.route("/proprietor/student-rescue-agent/outcome", methods=["POST"])
 @api.route("/headmaster/student-rescue-agent/outcome", methods=["POST"])
 @multi_tenant_guard
+@feature_required("student_rescue_agent")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def log_student_rescue_outcome():
@@ -12569,6 +13255,800 @@ def _clone_json_document(value):
     return json.loads(json.dumps(value or {}))
 
 
+def _get_school_chief_examiner_library(settings):
+    report_template_config = _clone_json_document(
+        settings.report_template_config if settings else {}
+    )
+    return normalize_chief_examiner_library(
+        report_template_config.get(CHIEF_EXAMINER_LIBRARY_CONFIG_KEY) or {}
+    )
+
+
+def _get_school_chief_examiner_library_meta(settings):
+    report_template_config = _clone_json_document(
+        settings.report_template_config if settings else {}
+    )
+    metadata = report_template_config.get(CHIEF_EXAMINER_LIBRARY_META_KEY) or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _get_school_chief_examiner_library_history(settings):
+    report_template_config = _clone_json_document(
+        settings.report_template_config if settings else {}
+    )
+    history = report_template_config.get(CHIEF_EXAMINER_LIBRARY_HISTORY_KEY) or []
+    return history if isinstance(history, list) else []
+
+
+def _merge_school_chief_examiner_library(existing_library, incoming_library):
+    merged = normalize_chief_examiner_library(existing_library)
+    for subject_key, topics in normalize_chief_examiner_library(incoming_library).items():
+        merged.setdefault(subject_key, {}).update(topics)
+    return merged
+
+
+def _set_school_chief_examiner_library(settings, library_payload, metadata=None):
+    config = _clone_json_document(settings.report_template_config)
+    normalized_library = normalize_chief_examiner_library(library_payload)
+
+    if normalized_library:
+        config[CHIEF_EXAMINER_LIBRARY_CONFIG_KEY] = normalized_library
+    else:
+        config.pop(CHIEF_EXAMINER_LIBRARY_CONFIG_KEY, None)
+
+    metadata = metadata if isinstance(metadata, dict) else {}
+    if metadata:
+        config[CHIEF_EXAMINER_LIBRARY_META_KEY] = metadata
+    else:
+        config.pop(CHIEF_EXAMINER_LIBRARY_META_KEY, None)
+
+    settings.report_template_config = config
+
+
+def _write_school_chief_examiner_library_history(settings, history_items):
+    config = _clone_json_document(settings.report_template_config)
+    cleaned_history = history_items if isinstance(history_items, list) else []
+    if cleaned_history:
+        config[CHIEF_EXAMINER_LIBRARY_HISTORY_KEY] = cleaned_history[:CHIEF_EXAMINER_LIBRARY_HISTORY_LIMIT]
+    else:
+        config.pop(CHIEF_EXAMINER_LIBRARY_HISTORY_KEY, None)
+    settings.report_template_config = config
+
+
+def _build_chief_examiner_history_snapshot(library_payload, metadata=None):
+    metadata = metadata if isinstance(metadata, dict) else {}
+    normalized_library = normalize_chief_examiner_library(library_payload)
+    snapshot = {
+        "version_id": metadata.get("version_id") or f"cil_{secrets.token_hex(6)}",
+        "created_at": metadata.get("imported_at") or datetime.now(timezone.utc).isoformat(),
+        "created_by": metadata.get("imported_by"),
+        "source_filename": metadata.get("source_filename") or "manual-entry",
+        "subject_count": len(normalized_library),
+        "entry_count": _count_chief_examiner_entries(normalized_library),
+        "replace_existing": bool(metadata.get("replace_existing", False)),
+        "is_restore": bool(metadata.get("is_restore", False)),
+        "restored_from_version_id": metadata.get("restored_from_version_id"),
+        "library": normalized_library,
+    }
+    return snapshot
+
+
+def _append_school_chief_examiner_history(settings, library_payload, metadata=None):
+    snapshot = _build_chief_examiner_history_snapshot(library_payload, metadata)
+    history = [snapshot] + [
+        item
+        for item in _get_school_chief_examiner_library_history(settings)
+        if item.get("version_id") != snapshot["version_id"]
+    ]
+    _write_school_chief_examiner_library_history(settings, history)
+    return snapshot
+
+
+def _get_platform_chief_examiner_library_setting():
+    setting = PlatformSetting.query.filter_by(
+        setting_key=PLATFORM_CHIEF_EXAMINER_LIBRARY_SETTING_KEY
+    ).first()
+    if not setting:
+        return None
+    normalized = normalize_chief_examiner_library(setting.setting_value)
+    return normalized or None
+
+
+def _get_platform_chief_examiner_library_meta():
+    metadata = _get_platform_setting_value(
+        PLATFORM_CHIEF_EXAMINER_LIBRARY_META_SETTING_KEY,
+        {},
+    )
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _get_platform_chief_examiner_library_history():
+    history = _get_platform_setting_value(
+        PLATFORM_CHIEF_EXAMINER_LIBRARY_HISTORY_SETTING_KEY,
+        [],
+    )
+    return history if isinstance(history, list) else []
+
+
+def _set_platform_chief_examiner_library(library_payload, metadata=None):
+    normalized_library = normalize_chief_examiner_library(library_payload)
+    _upsert_platform_setting_value(
+        PLATFORM_CHIEF_EXAMINER_LIBRARY_SETTING_KEY,
+        normalized_library,
+    )
+    safe_metadata = metadata if isinstance(metadata, dict) else {}
+    if safe_metadata:
+        _upsert_platform_setting_value(
+            PLATFORM_CHIEF_EXAMINER_LIBRARY_META_SETTING_KEY,
+            safe_metadata,
+        )
+    return normalized_library
+
+
+def _write_platform_chief_examiner_library_history(history_items):
+    cleaned_history = history_items if isinstance(history_items, list) else []
+    _upsert_platform_setting_value(
+        PLATFORM_CHIEF_EXAMINER_LIBRARY_HISTORY_SETTING_KEY,
+        cleaned_history[:CHIEF_EXAMINER_LIBRARY_HISTORY_LIMIT],
+    )
+
+
+def _append_platform_chief_examiner_history(library_payload, metadata=None):
+    snapshot = _build_chief_examiner_history_snapshot(library_payload, metadata)
+    history = [snapshot] + [
+        item
+        for item in _get_platform_chief_examiner_library_history()
+        if item.get("version_id") != snapshot["version_id"]
+    ]
+    _write_platform_chief_examiner_library_history(history)
+    return snapshot
+
+
+def _get_effective_chief_examiner_library(settings=None):
+    school_library = _get_school_chief_examiner_library(settings) if settings else {}
+    platform_library = _get_platform_chief_examiner_library_setting()
+    return merge_chief_examiner_library(
+        school_library,
+        base_library=platform_library,
+    )
+
+
+def _build_effective_chief_examiner_meta(settings=None):
+    return {
+        **(_get_school_chief_examiner_library_meta(settings) if settings else {}),
+        "history_count": len(_get_school_chief_examiner_library_history(settings)) if settings else 0,
+        "platform_library_meta": _get_platform_chief_examiner_library_meta(),
+        "platform_history_count": len(_get_platform_chief_examiner_library_history()),
+        "uses_platform_default": not bool(_get_platform_chief_examiner_library_setting()),
+        "has_school_override": bool(_get_school_chief_examiner_library(settings)) if settings else False,
+    }
+
+
+def _serialize_chief_examiner_history_item(item, current_version_id=None):
+    library_payload = normalize_chief_examiner_library(item.get("library") or {})
+    return {
+        "version_id": item.get("version_id"),
+        "created_at": item.get("created_at"),
+        "created_by": item.get("created_by"),
+        "source_filename": item.get("source_filename") or "manual-entry",
+        "subject_count": item.get("subject_count") or len(library_payload),
+        "entry_count": item.get("entry_count") or _count_chief_examiner_entries(library_payload),
+        "replace_existing": bool(item.get("replace_existing", False)),
+        "is_restore": bool(item.get("is_restore", False)),
+        "restored_from_version_id": item.get("restored_from_version_id"),
+        "is_active": bool(current_version_id) and item.get("version_id") == current_version_id,
+        "subject_preview": [
+            subject.get("subject")
+            for subject in build_chief_examiner_library_payload(chief_examiner_library=library_payload)[:4]
+        ],
+    }
+
+
+def _get_exam_paper_history(settings):
+    report_template_config = _clone_json_document(
+        settings.report_template_config if settings else {}
+    )
+    history = report_template_config.get(EXAM_PAPER_HISTORY_KEY) or []
+    return history if isinstance(history, list) else []
+
+
+def _write_exam_paper_history(settings, history_items):
+    config = _clone_json_document(settings.report_template_config)
+    cleaned_history = history_items if isinstance(history_items, list) else []
+    if cleaned_history:
+        config[EXAM_PAPER_HISTORY_KEY] = cleaned_history[:EXAM_PAPER_HISTORY_LIMIT]
+    else:
+        config.pop(EXAM_PAPER_HISTORY_KEY, None)
+    settings.report_template_config = config
+
+
+def _get_exam_paper_root_id(settings, paper_id):
+    for item in _get_exam_paper_history(settings):
+        if item.get("paper_id") == paper_id:
+            return item.get("root_paper_id") or paper_id
+    return paper_id
+
+
+def _serialize_exam_paper_history_item(item, current_paper_id=None):
+    return {
+        "snapshot_id": item.get("snapshot_id"),
+        "paper_id": item.get("paper_id"),
+        "root_paper_id": item.get("root_paper_id"),
+        "parent_paper_id": item.get("parent_paper_id"),
+        "action": item.get("action"),
+        "title": item.get("title"),
+        "class_name": item.get("class_name"),
+        "subject_name": item.get("subject_name"),
+        "academic_term": item.get("academic_term"),
+        "academic_year": item.get("academic_year"),
+        "exam_type": item.get("exam_type"),
+        "status": item.get("status"),
+        "instructions": item.get("instructions") or "",
+        "question_count": len(item.get("questions") or []),
+        "question_preview": [
+            (question.get("question") or "")
+            for question in (item.get("questions") or [])[:3]
+            if isinstance(question, dict)
+        ],
+        "created_at": item.get("created_at"),
+        "actor_id": item.get("actor_id"),
+        "actor_name": item.get("actor_name"),
+        "teacher_id": item.get("teacher_id"),
+        "restored_from_snapshot_id": item.get("restored_from_snapshot_id"),
+        "is_current": item.get("paper_id") == current_paper_id,
+    }
+
+
+def _append_exam_paper_snapshot(
+    settings,
+    paper,
+    *,
+    actor_id,
+    action,
+    parent_paper_id=None,
+    root_paper_id=None,
+    restored_from_snapshot_id=None,
+):
+    history = _get_exam_paper_history(settings)
+    resolved_root_id = root_paper_id or _get_exam_paper_root_id(settings, paper.id) or paper.id
+    snapshot = {
+        "snapshot_id": f"eps_{secrets.token_hex(6)}",
+        "paper_id": paper.id,
+        "root_paper_id": resolved_root_id,
+        "parent_paper_id": parent_paper_id,
+        "action": action,
+        "actor_id": actor_id,
+        "teacher_id": paper.teacher_id,
+        "title": paper.title,
+        "class_name": paper.class_name,
+        "subject_name": paper.subject_name,
+        "academic_term": paper.academic_term,
+        "academic_year": paper.academic_year,
+        "exam_type": paper.exam_type,
+        "instructions": paper.instructions,
+        "total_marks": paper.total_marks,
+        "duration_minutes": paper.duration_minutes,
+        "questions": _clone_json_document(paper.questions),
+        "status": paper.status,
+        "finalized_at": paper.finalized_at.isoformat() if paper.finalized_at else None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "restored_from_snapshot_id": restored_from_snapshot_id,
+    }
+    next_history = [snapshot] + history
+    _write_exam_paper_history(settings, next_history)
+    return snapshot
+
+
+def _get_exam_paper_lineage(settings, paper_id):
+    root_paper_id = _get_exam_paper_root_id(settings, paper_id)
+    lineage = [
+        item
+        for item in _get_exam_paper_history(settings)
+        if (item.get("root_paper_id") or item.get("paper_id")) == root_paper_id
+    ]
+    return root_paper_id, lineage
+
+
+def _parse_chief_examiner_practice_text(value):
+    return [
+        item.strip()
+        for item in re.split(r"[;,\n]", str(value or ""))
+        if item.strip()
+    ]
+
+
+def _parse_structured_chief_examiner_text(raw_text, fallback_subject=None):
+    text = str(raw_text or "").strip()
+    if not text:
+        raise ValueError(
+            "No examiner insight text was provided. Upload a JSON file or paste text using Subject/Topic/Issue/Advice/Practice fields."
+        )
+
+    library = {}
+    current_subject = str(fallback_subject or "").strip()
+    current_topic = None
+    current_entry = {}
+    last_field = None
+
+    def flush_topic():
+        nonlocal current_topic, current_entry, last_field
+        if current_subject and current_topic and any(current_entry.values()):
+            subject_bucket = library.setdefault(current_subject, {})
+            subject_bucket[current_topic] = {
+                "issue": str(current_entry.get("issue") or "").strip(),
+                "advice": str(current_entry.get("advice") or "").strip(),
+                "practice": list(current_entry.get("practice") or []),
+            }
+        current_topic = None
+        current_entry = {}
+        last_field = None
+
+    for raw_line in list(text.splitlines()) + [""]:
+        line = raw_line.strip()
+        if not line:
+            flush_topic()
+            continue
+
+        if ":" in line:
+            field_name, field_value = line.split(":", 1)
+            field_key = field_name.strip().casefold()
+            field_value = field_value.strip()
+
+            if field_key == "subject":
+                if current_topic and any(current_entry.values()):
+                    flush_topic()
+                current_subject = field_value
+                last_field = None
+                continue
+
+            if field_key == "topic":
+                if current_topic and any(current_entry.values()):
+                    flush_topic()
+                current_topic = field_value
+                current_entry = {}
+                last_field = None
+                continue
+
+            if field_key in {"issue", "problem"}:
+                current_entry["issue"] = field_value
+                last_field = "issue"
+                continue
+
+            if field_key in {"advice", "recommendation", "focus"}:
+                current_entry["advice"] = field_value
+                last_field = "advice"
+                continue
+
+            if field_key in {"practice", "practice areas", "practice_areas", "drills"}:
+                current_entry["practice"] = _parse_chief_examiner_practice_text(field_value)
+                last_field = "practice"
+                continue
+
+        if last_field == "practice":
+            current_entry.setdefault("practice", []).extend(
+                _parse_chief_examiner_practice_text(line)
+            )
+        elif last_field in {"issue", "advice"}:
+            existing_text = str(current_entry.get(last_field) or "").strip()
+            current_entry[last_field] = f"{existing_text} {line}".strip()
+
+    normalized_library = normalize_chief_examiner_library(library)
+    if not normalized_library:
+        return _parse_narrative_chief_examiner_text(text, fallback_subject=fallback_subject)
+    return normalized_library
+
+
+CHIEF_EXAMINER_SUBJECT_ALIASES = {
+    "mathematics": "mathematics",
+    "english language": "english language",
+    "french": "french",
+    "ghanaian languages": "ghanaian languages",
+    "religious and moral education": "religious & moral education",
+    "religious & moral education": "religious & moral education",
+    "social studies": "social studies",
+    "science": "science",
+    "integrated science": "integrated science",
+    "ict": "ict",
+    "information and communication technology": "ict",
+    "information & communication technology": "ict",
+    "basic design and technology": "basic design and technology",
+    "basic design & technology": "basic design and technology",
+    "pre-technical skills": "pre-technical skills",
+    "home economics": "home economics",
+    "visual art": "visual art",
+    "creative arts": "creative arts",
+}
+
+
+def _canonicalize_chief_examiner_subject_name(value):
+    normalized = normalize_subject_key(value)
+    return CHIEF_EXAMINER_SUBJECT_ALIASES.get(normalized)
+
+
+def _extract_subject_line_candidate(line):
+    cleaned_line = re.sub(r"\s+", " ", str(line or "")).strip()
+    if not cleaned_line:
+        return None
+
+    candidate_text = re.sub(r"\.{2,}.*$", "", cleaned_line)
+    candidate_text = re.sub(r"\s+\d+(?:\s*-\s*\d+)?$", "", candidate_text)
+    candidate_text = candidate_text.replace(":", " ")
+    candidate_text = re.sub(r"^[\W_]*\d+(?:\.\d+)*[\W_]*", "", candidate_text)
+    candidate_text = re.sub(r"\((ict)\)", r"\1", candidate_text, flags=re.IGNORECASE)
+    candidate_text = re.sub(r"\btable of contents\b", "", candidate_text, flags=re.IGNORECASE)
+    if re.match(r"^(general\s+resume|general\s+résumé)", candidate_text, flags=re.IGNORECASE):
+        return None
+    if re.match(r"^(résumé|resume)\s+of\s+", candidate_text, flags=re.IGNORECASE):
+        return None
+    candidate_text = re.sub(
+        r"^(chief examiners report on|chief examiner report on|examiner report on|report on)\s+",
+        "",
+        candidate_text,
+        flags=re.IGNORECASE,
+    )
+    candidate_text = re.sub(r"\b(paper|section|subject)\s*[12]?\b", " ", candidate_text, flags=re.IGNORECASE)
+    candidate = normalize_subject_key(candidate_text)
+    canonical_candidate = _canonicalize_chief_examiner_subject_name(candidate)
+    if canonical_candidate:
+        return canonical_candidate
+
+    for alias, canonical_subject in CHIEF_EXAMINER_SUBJECT_ALIASES.items():
+        if candidate == alias:
+            return canonical_subject
+        if candidate.startswith(f"{alias} ") or candidate.endswith(f" {alias}") or f" {alias} " in f" {candidate} ":
+            return canonical_subject
+    return None
+
+
+def _split_text_sentences(text):
+    return [
+        segment.strip()
+        for segment in re.split(r"(?<=[.!?])\s+", str(text or "").strip())
+        if segment.strip()
+    ]
+
+
+def _clean_examiner_summary_text(value):
+    cleaned = re.sub(r"\(\s*[ivxlcdm]+\s*\)", " ", str(value or ""), flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .;:-")
+    return cleaned
+
+
+def _truncate_examiner_summary(text, max_chars=220):
+    cleaned = _clean_examiner_summary_text(text)
+    if len(cleaned) <= max_chars:
+        return cleaned
+    truncated = cleaned[:max_chars].rsplit(" ", 1)[0].strip()
+    return f"{truncated}..." if truncated else cleaned[:max_chars]
+
+
+def _extract_examiner_section(block_text, markers, stop_markers=None):
+    text = _clean_examiner_summary_text(block_text)
+    lowered = text.casefold()
+    start_index = None
+    matched_marker = ""
+
+    for marker in markers:
+        marker_index = lowered.find(marker.casefold())
+        if marker_index == -1:
+            continue
+        if start_index is None or marker_index < start_index:
+            start_index = marker_index
+            matched_marker = marker
+
+    if start_index is None:
+        return ""
+
+    section_start = start_index + len(matched_marker)
+    section_end = len(text)
+    for stop_marker in stop_markers or []:
+        stop_index = lowered.find(stop_marker.casefold(), section_start)
+        if stop_index != -1 and stop_index < section_end:
+            section_end = stop_index
+
+    return _clean_examiner_summary_text(text[section_start:section_end])
+
+
+def _pick_examiner_sentence(text, keywords=None):
+    sentences = _split_text_sentences(_clean_examiner_summary_text(text))
+    if not sentences:
+        return ""
+    for sentence in sentences:
+        lowered = sentence.casefold()
+        if keywords and any(keyword in lowered for keyword in keywords):
+            return sentence
+    return sentences[0]
+
+
+def _summarize_examiner_issue(block_text):
+    issue_source = _extract_examiner_section(
+        block_text,
+        markers=[
+            "summary of candidates' weaknesses",
+            "summary of candidates’ weaknesses",
+            "candidates' weaknesses",
+            "candidates’ weaknesses",
+            "weaknesses",
+        ],
+        stop_markers=[
+            "suggested remedies",
+            "detailed comments",
+            "summary of candidates' strengths",
+            "summary of candidates’ strengths",
+            "strengths",
+        ],
+    ) or block_text
+    issue_sentence = _pick_examiner_sentence(
+        issue_source,
+        keywords=["weak", "poor", "difficulty", "struggle", "unable", "fail", "mistake", "challenge", "confus"],
+    )
+    return _truncate_examiner_summary(issue_sentence or issue_source)
+
+
+def _summarize_examiner_advice(block_text, default_advice):
+    advice_source = _extract_examiner_section(
+        block_text,
+        markers=["suggested remedies", "remedies", "recommendations", "recommendation"],
+        stop_markers=["detailed comments"],
+    ) or block_text
+    advice_sentence = _pick_examiner_sentence(
+        advice_source,
+        keywords=["should", "must", "need to", "recommend", "suggest", "teach", "train", "revise", "practise", "practice"],
+    )
+    return _truncate_examiner_summary(advice_sentence or _derive_narrative_advice(block_text, default_advice))
+
+
+def _derive_narrative_advice(block_text, default_advice):
+    sentences = _split_text_sentences(block_text)
+    for sentence in sentences:
+        lowered = sentence.casefold()
+        if any(marker in lowered for marker in ["should", "must", "need to", "teachers should", "candidates should", "recommend"]):
+            return sentence
+    return default_advice
+
+
+def _parse_narrative_chief_examiner_text(raw_text, fallback_subject=None):
+    text = str(raw_text or "").strip()
+    if not text:
+        raise ValueError(
+            "No valid examiner insights were found. Use a JSON file or structured text like: Subject: Mathematics, Topic: Geometry, Issue: ..., Advice: ..., Practice: ..."
+        )
+
+    base_library = merge_chief_examiner_library()
+    current_subject = normalize_subject_key(fallback_subject)
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+    inferred_library = {}
+
+    def add_generic_entry(subject_key, block_text, default_topic_name="general performance"):
+        normalized_block_text = str(block_text or "").strip()
+        if not normalized_block_text or not subject_key:
+            return False
+
+        topic_bucket = inferred_library.setdefault(subject_key, {})
+        topic_name = default_topic_name
+        suffix = 2
+        while topic_name in topic_bucket:
+            topic_name = f"{default_topic_name} {suffix}"
+            suffix += 1
+
+        topic_bucket[topic_name] = {
+            "issue": _summarize_examiner_issue(normalized_block_text),
+            "advice": _summarize_examiner_advice(
+                normalized_block_text,
+                "Convert the main examiner concerns into targeted reteaching and topic drills before the next assessment.",
+            ),
+            "practice": [],
+        }
+        return True
+
+    subject_sections = []
+    active_subject = current_subject if current_subject in base_library else None
+    active_lines = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if active_lines:
+                active_lines.append("")
+            continue
+
+        subject_candidate = _extract_subject_line_candidate(line)
+        if subject_candidate:
+            if active_subject and active_lines:
+                subject_sections.append((active_subject, "\n".join(active_lines).strip()))
+            active_subject = subject_candidate
+            active_lines = []
+            continue
+
+        if active_subject:
+            active_lines.append(line)
+
+    if active_subject and active_lines:
+        subject_sections.append((active_subject, "\n".join(active_lines).strip()))
+
+    for subject_key, section_text in subject_sections:
+        section_blocks = [block.strip() for block in re.split(r"\n\s*\n", section_text) if block.strip()]
+        for section_block in section_blocks:
+            normalized_section_block = normalize_topic_key(section_block)
+            matched_topic = False
+            for topic_key, default_entry in base_library.get(subject_key, {}).items():
+                if topic_key not in normalized_section_block:
+                    continue
+                matched_topic = True
+                topic_bucket = inferred_library.setdefault(subject_key, {})
+                topic_bucket[topic_key] = {
+                    "issue": _summarize_examiner_issue(section_block),
+                    "advice": _summarize_examiner_advice(section_block, default_entry.get("advice") or ""),
+                    "practice": list(default_entry.get("practice") or []),
+                }
+
+            if matched_topic:
+                continue
+
+            if len(section_block.split()) >= 12:
+                add_generic_entry(subject_key, section_block)
+
+    for block in blocks:
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if lines:
+            subject_candidate = _extract_subject_line_candidate(lines[0])
+            if subject_candidate:
+                current_subject = subject_candidate
+                if len(lines) == 1:
+                    continue
+                block = " ".join(lines[1:]).strip()
+
+        if not current_subject or current_subject not in base_library:
+            continue
+
+        subject_topics = base_library.get(current_subject, {})
+        matched_any_topic = False
+        normalized_block = normalize_topic_key(block)
+
+        for topic_key, default_entry in subject_topics.items():
+            if topic_key not in normalized_block:
+                continue
+            matched_any_topic = True
+            topic_bucket = inferred_library.setdefault(current_subject, {})
+            topic_bucket[topic_key] = {
+                "issue": _summarize_examiner_issue(block),
+                "advice": _summarize_examiner_advice(block, default_entry.get("advice") or ""),
+                "practice": list(default_entry.get("practice") or []),
+            }
+
+        if matched_any_topic:
+            continue
+
+        weakness_markers = ["weak", "difficulty", "poor", "struggle", "unable", "mistake", "confuse", "fail"]
+        if any(marker in normalized_block for marker in weakness_markers) or len(block.split()) >= 12:
+            add_generic_entry(current_subject, block)
+
+    normalized_library = normalize_chief_examiner_library(inferred_library)
+    if not normalized_library:
+        raise ValueError(
+            "No valid examiner insights were found. Use the template JSON or structured text with Subject, Topic, Issue, Advice, and Practice fields."
+        )
+    return normalized_library
+
+
+def _count_chief_examiner_entries(library_payload):
+    normalized = normalize_chief_examiner_library(library_payload)
+    return sum(len(topics) for topics in normalized.values())
+
+
+def _build_chief_examiner_library_import_payload(uploaded=None, payload=None, form_data=None):
+    payload = payload if isinstance(payload, dict) else {}
+    form_data = form_data or {}
+
+    if uploaded:
+        original_name = uploaded.filename or ""
+        if not original_name:
+            raise ValueError("A filename is required for the examiner report upload.")
+        file_ext = os.path.splitext(original_name)[1].lower()
+        if file_ext == ".json":
+            try:
+                uploaded.stream.seek(0)
+                loaded_payload = json.load(uploaded.stream)
+            except Exception as exc:
+                raise ValueError(f"Invalid examiner insight JSON file: {exc}") from exc
+            return normalize_chief_examiner_library(loaded_payload), original_name
+
+        if file_ext not in {".txt", ".md", ".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
+            raise ValueError(
+                "Supported examiner report formats are JSON, TXT, MD, PDF, PNG, JPG, JPEG, and WEBP."
+            )
+
+        report_text = form_data.get("report_text") or form_data.get("extracted_text") or ""
+        extracted_text = _load_exam_document_text(uploaded, file_ext, result_text=report_text)
+        subject_name = form_data.get("subject") or payload.get("subject")
+        return _parse_structured_chief_examiner_text(extracted_text, fallback_subject=subject_name), original_name
+
+    structured_payload = (
+        payload.get("library")
+        or payload.get("subjects")
+        or form_data.get("library")
+        or payload
+    )
+    normalized_library = normalize_chief_examiner_library(structured_payload)
+    if normalized_library:
+        return normalized_library, payload.get("source_filename") or "manual-entry"
+
+    report_text = (
+        payload.get("report_text")
+        or payload.get("extracted_text")
+        or form_data.get("report_text")
+        or form_data.get("extracted_text")
+        or ""
+    )
+    if report_text:
+        return _parse_structured_chief_examiner_text(
+            report_text,
+            fallback_subject=payload.get("subject") or form_data.get("subject"),
+        ), payload.get("source_filename") or form_data.get("source_filename") or "manual-text"
+
+    raise ValueError(
+        "Provide a JSON library, a structured text payload, or upload an examiner report file."
+    )
+
+
+def _build_chief_examiner_library_batch_import_payload(uploaded_files=None, payload=None, form_data=None):
+    payload = payload if isinstance(payload, dict) else {}
+    form_data = form_data or {}
+    uploaded_files = [
+        uploaded
+        for uploaded in (uploaded_files or [])
+        if uploaded and str(getattr(uploaded, "filename", "") or "").strip()
+    ]
+
+    if not uploaded_files:
+        imported_library, source_filename = _build_chief_examiner_library_import_payload(
+            payload=payload,
+            form_data=form_data,
+        )
+        return imported_library, {
+            "source_filename": source_filename,
+            "source_filenames": [source_filename] if source_filename else [],
+            "file_count": 0,
+        }
+
+    if len(uploaded_files) == 1:
+        imported_library, source_filename = _build_chief_examiner_library_import_payload(
+            uploaded=uploaded_files[0],
+            payload=payload,
+            form_data=form_data,
+        )
+        return imported_library, {
+            "source_filename": source_filename,
+            "source_filenames": [source_filename],
+            "file_count": 1,
+        }
+
+    if (form_data.get("report_text") or form_data.get("extracted_text") or payload.get("report_text") or payload.get("extracted_text")):
+        raise ValueError(
+            "Structured report text can only be used with a single examiner report upload. Remove the pasted text when importing multiple files."
+        )
+
+    merged_library = {}
+    source_filenames = []
+    for uploaded in uploaded_files:
+        imported_library, source_filename = _build_chief_examiner_library_import_payload(
+            uploaded=uploaded,
+            payload=payload,
+            form_data=form_data,
+        )
+        merged_library = _merge_school_chief_examiner_library(merged_library, imported_library)
+        source_filenames.append(source_filename)
+
+    if not merged_library:
+        raise ValueError("No valid examiner insights were found across the uploaded examiner reports.")
+
+    return merged_library, {
+        "source_filename": f"batch-import ({len(source_filenames)} files)",
+        "source_filenames": source_filenames,
+        "file_count": len(source_filenames),
+    }
+
+
 def _analytics_preset_name_key(name):
     return (name or "").strip().casefold()
 
@@ -12583,6 +14063,90 @@ def _get_analytics_preset_config(settings):
         presets = []
     default_preset_name = analytics_config.get("default_preset_name")
     return report_template_config, analytics_config, presets, default_preset_name
+
+
+def _get_analytics_preset_history(settings):
+    report_template_config = _clone_json_document(settings.report_template_config)
+    history = report_template_config.get(ANALYTICS_PRESET_HISTORY_KEY) or []
+    return history if isinstance(history, list) else []
+
+
+def _write_analytics_preset_history(settings, history_items):
+    config = _clone_json_document(settings.report_template_config)
+    cleaned_history = history_items if isinstance(history_items, list) else []
+    if cleaned_history:
+        config[ANALYTICS_PRESET_HISTORY_KEY] = cleaned_history[:ANALYTICS_PRESET_HISTORY_LIMIT]
+    else:
+        config.pop(ANALYTICS_PRESET_HISTORY_KEY, None)
+    settings.report_template_config = config
+
+
+def _build_analytics_preset_snapshot(
+    analytics_config,
+    *,
+    actor_id,
+    action,
+    focus_preset_name=None,
+    restored_from_snapshot_id=None,
+):
+    normalized_config = _clone_json_document(analytics_config)
+    presets = normalized_config.get("presets") or []
+    return {
+        "snapshot_id": f"aps_{secrets.token_hex(6)}",
+        "analytics_config": normalized_config,
+        "actor_id": actor_id,
+        "action": action,
+        "focus_preset_name": focus_preset_name,
+        "default_preset_name": normalized_config.get("default_preset_name"),
+        "preset_count": len(presets) if isinstance(presets, list) else 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "restored_from_snapshot_id": restored_from_snapshot_id,
+    }
+
+
+def _append_analytics_preset_history(
+    settings,
+    analytics_config,
+    *,
+    actor_id,
+    action,
+    focus_preset_name=None,
+    restored_from_snapshot_id=None,
+):
+    snapshot = _build_analytics_preset_snapshot(
+        analytics_config,
+        actor_id=actor_id,
+        action=action,
+        focus_preset_name=focus_preset_name,
+        restored_from_snapshot_id=restored_from_snapshot_id,
+    )
+    history = [snapshot] + _get_analytics_preset_history(settings)
+    _write_analytics_preset_history(settings, history)
+    return snapshot
+
+
+def _serialize_analytics_preset_history_item(item, current_config_signature=None):
+    analytics_config = _clone_json_document(item.get("analytics_config") or {})
+    presets = analytics_config.get("presets") or []
+    preset_names = [
+        preset.get("name")
+        for preset in presets
+        if isinstance(preset, dict) and preset.get("name")
+    ]
+    config_signature = json.dumps(analytics_config, sort_keys=True)
+    return {
+        "snapshot_id": item.get("snapshot_id"),
+        "action": item.get("action"),
+        "focus_preset_name": item.get("focus_preset_name"),
+        "default_preset_name": item.get("default_preset_name"),
+        "preset_count": item.get("preset_count") or len(preset_names),
+        "preset_names": preset_names[:8],
+        "analytics_config": analytics_config,
+        "created_at": item.get("created_at"),
+        "actor_id": item.get("actor_id"),
+        "restored_from_snapshot_id": item.get("restored_from_snapshot_id"),
+        "is_current": bool(current_config_signature) and config_signature == current_config_signature,
+    }
 
 
 def _normalize_analytics_preset_payload(payload):
@@ -12618,6 +14182,7 @@ def _normalize_analytics_preset_payload(payload):
 
 @api.route("/analytics/presets", methods=["GET"])
 @multi_tenant_guard
+@feature_required("advanced_analytics")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def get_analytics_presets():
@@ -12636,10 +14201,12 @@ def get_analytics_presets():
 
 @api.route("/analytics/presets", methods=["POST"])
 @multi_tenant_guard
+@feature_required("advanced_analytics")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def save_analytics_preset():
     try:
+        user_id = int(get_jwt_identity())
         payload = request.get_json(silent=True) or {}
         preset = _normalize_analytics_preset_payload(payload)
         preset_name_key = _analytics_preset_name_key(preset["name"])
@@ -12663,6 +14230,13 @@ def save_analytics_preset():
         analytics_config["default_preset_name"] = default_preset_name
         report_template_config["analytics_presets"] = analytics_config
         settings.report_template_config = _clone_json_document(report_template_config)
+        _append_analytics_preset_history(
+            settings,
+            analytics_config,
+            actor_id=user_id,
+            action="save",
+            focus_preset_name=preset["name"],
+        )
         db.session.commit()
 
         return jsonify(
@@ -12681,10 +14255,12 @@ def save_analytics_preset():
 
 @api.route("/analytics/presets/<string:preset_name>/default", methods=["PUT"])
 @multi_tenant_guard
+@feature_required("advanced_analytics")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def set_default_analytics_preset(preset_name):
     try:
+        user_id = int(get_jwt_identity())
         settings = _get_or_create_school_settings()
         report_template_config, analytics_config, presets, _ = _get_analytics_preset_config(settings)
         matching_preset = next(
@@ -12704,6 +14280,13 @@ def set_default_analytics_preset(preset_name):
         analytics_config["default_preset_name"] = resolved_preset_name
         report_template_config["analytics_presets"] = analytics_config
         settings.report_template_config = _clone_json_document(report_template_config)
+        _append_analytics_preset_history(
+            settings,
+            analytics_config,
+            actor_id=user_id,
+            action="set_default",
+            focus_preset_name=resolved_preset_name,
+        )
         db.session.commit()
 
         return jsonify(
@@ -12719,10 +14302,12 @@ def set_default_analytics_preset(preset_name):
 
 @api.route("/analytics/presets/<string:preset_name>", methods=["DELETE"])
 @multi_tenant_guard
+@feature_required("advanced_analytics")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def delete_analytics_preset(preset_name):
     try:
+        user_id = int(get_jwt_identity())
         settings = _get_or_create_school_settings()
         report_template_config, analytics_config, presets, default_preset_name = _get_analytics_preset_config(settings)
         preset_name_key = _analytics_preset_name_key(preset_name)
@@ -12743,6 +14328,13 @@ def delete_analytics_preset(preset_name):
         analytics_config["default_preset_name"] = default_preset_name
         report_template_config["analytics_presets"] = analytics_config
         settings.report_template_config = _clone_json_document(report_template_config)
+        _append_analytics_preset_history(
+            settings,
+            analytics_config,
+            actor_id=user_id,
+            action="delete",
+            focus_preset_name=(removed_preset or {}).get("name"),
+        )
         db.session.commit()
 
         return jsonify(
@@ -12756,8 +14348,120 @@ def delete_analytics_preset(preset_name):
         return jsonify({"message": "Error deleting analytics preset", "error": str(e)}), 500
 
 
+@api.route("/analytics/presets/history", methods=["GET"])
+@multi_tenant_guard
+@feature_required("advanced_analytics")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def get_analytics_preset_history():
+    try:
+        settings = _get_or_create_school_settings()
+        _, analytics_config, _, _ = _get_analytics_preset_config(settings)
+        history = _get_analytics_preset_history(settings)
+        actor_ids = sorted({item.get("actor_id") for item in history if item.get("actor_id")})
+        actors = (
+            User.query.filter(User.school_id == g.school_id, User.id.in_(actor_ids)).all()
+            if actor_ids
+            else []
+        )
+        actor_map = {actor.id: actor.username for actor in actors}
+        current_config_signature = json.dumps(_clone_json_document(analytics_config), sort_keys=True)
+
+        return jsonify(
+            {
+                "history": [
+                    {
+                        **_serialize_analytics_preset_history_item(
+                            item,
+                            current_config_signature=current_config_signature,
+                        ),
+                        "actor_name": actor_map.get(item.get("actor_id")),
+                    }
+                    for item in history
+                ]
+            }
+        )
+    except Exception as e:
+        return jsonify({"message": "Error loading analytics preset history", "error": str(e)}), 500
+
+
+@api.route("/analytics/presets/history/<string:snapshot_id>/restore", methods=["POST"])
+@multi_tenant_guard
+@feature_required("advanced_analytics")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def restore_analytics_preset_history(snapshot_id):
+    try:
+        user_id = int(get_jwt_identity())
+        settings = _get_or_create_school_settings()
+        history = _get_analytics_preset_history(settings)
+        snapshot = next((item for item in history if item.get("snapshot_id") == snapshot_id), None)
+        if not snapshot:
+            return jsonify({"message": "Analytics preset history snapshot not found."}), 404
+
+        report_template_config, _, _, _ = _get_analytics_preset_config(settings)
+        analytics_config = _clone_json_document(snapshot.get("analytics_config") or {})
+        report_template_config["analytics_presets"] = analytics_config
+        settings.report_template_config = _clone_json_document(report_template_config)
+        _append_analytics_preset_history(
+            settings,
+            analytics_config,
+            actor_id=user_id,
+            action="restore",
+            focus_preset_name=snapshot.get("focus_preset_name") or snapshot.get("default_preset_name"),
+            restored_from_snapshot_id=snapshot_id,
+        )
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Analytics preset history restored.",
+                "presets": analytics_config.get("presets") or [],
+                "default_preset_name": analytics_config.get("default_preset_name") or "",
+            }
+        )
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error restoring analytics preset history", "error": str(e)}), 500
+
+
+@api.route("/analytics/presets/history/<string:snapshot_id>/download", methods=["GET"])
+@multi_tenant_guard
+@feature_required("advanced_analytics")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def download_analytics_preset_history(snapshot_id):
+    try:
+        settings = _get_or_create_school_settings()
+        snapshot = next(
+            (item for item in _get_analytics_preset_history(settings) if item.get("snapshot_id") == snapshot_id),
+            None,
+        )
+        if not snapshot:
+            return jsonify({"message": "Analytics preset history snapshot not found."}), 404
+
+        payload = {
+            "snapshot_id": snapshot.get("snapshot_id"),
+            "action": snapshot.get("action"),
+            "focus_preset_name": snapshot.get("focus_preset_name"),
+            "default_preset_name": snapshot.get("default_preset_name"),
+            "created_at": snapshot.get("created_at"),
+            "restored_from_snapshot_id": snapshot.get("restored_from_snapshot_id"),
+            "analytics_config": _clone_json_document(snapshot.get("analytics_config") or {}),
+        }
+        filename_seed = snapshot.get("focus_preset_name") or snapshot.get("default_preset_name") or snapshot_id
+        filename = secure_filename(str(filename_seed)) or snapshot_id
+        response = make_response(json.dumps(payload, indent=2))
+        response.headers["Content-Type"] = "application/json"
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}.json"
+        return response
+    except Exception as e:
+        return jsonify({"message": "Error downloading analytics preset history", "error": str(e)}), 500
+
+
 @api.route("/analytics/exam-imports", methods=["GET"])
 @multi_tenant_guard
+@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def list_exam_import_batches():
@@ -12771,6 +14475,7 @@ def list_exam_import_batches():
 
 @api.route("/analytics/exam-imports", methods=["POST"])
 @multi_tenant_guard
+@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def upload_exam_import_batch():
@@ -12871,6 +14576,7 @@ def upload_exam_import_batch():
 
 @api.route("/analytics/exam-imports/<string:batch_id>/download", methods=["GET"])
 @multi_tenant_guard
+@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def download_exam_import_batch(batch_id):
@@ -12889,18 +14595,506 @@ def download_exam_import_batch(batch_id):
 
 @api.route("/analytics/exam-intelligence", methods=["GET"])
 @multi_tenant_guard
-@role_required("proprietor", "headmaster")
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster", "teacher")
 @jwt_required()
 def get_exam_intelligence_dashboard():
     try:
         settings = _get_or_create_school_settings()
+        current_user = getattr(g, "current_user", None)
+        if current_user and current_user.role == "teacher":
+            return jsonify(_build_teacher_exam_intelligence_payload(settings, current_user.id))
         return jsonify(_build_exam_intelligence_payload(settings))
     except Exception as e:
         return jsonify({"message": "Error loading exam intelligence dashboard", "error": str(e)}), 500
 
 
+@api.route("/analytics/academic-guidance", methods=["GET"])
+@multi_tenant_guard
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster", "teacher", "homeroom")
+@jwt_required()
+def get_academic_guidance_dashboard():
+    user = User.query.get(int(get_jwt_identity()))
+    if not user:
+        return jsonify({"message": "User not found."}), 404
+
+    academic_term, academic_year, reports = _get_latest_report_scope()
+    scope = _build_academic_guidance_scope(user)
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    effective_library = _get_effective_chief_examiner_library(settings)
+    payload = build_academic_guidance_summary(
+        reports,
+        allowed_classes=scope["allowed_classes"],
+        allowed_subjects=scope["allowed_subjects"],
+        chief_examiner_library=effective_library,
+    )
+    payload["scope"] = {
+        "role": user.role,
+        "role_label": scope["role_label"],
+        "allowed_classes": scope["allowed_classes"] or [],
+        "allowed_subjects": scope["allowed_subjects"] or [],
+        "academic_term": academic_term,
+        "academic_year": academic_year,
+    }
+    payload["library_meta"] = _build_effective_chief_examiner_meta(settings)
+    return jsonify(payload)
+
+
+@api.route("/platform/chief-examiner-library", methods=["GET"])
+@jwt_required()
+def get_platform_chief_examiner_library():
+    """Get the platform-managed chief examiner library."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    platform_library = _get_platform_chief_examiner_library_setting()
+    metadata = _get_platform_chief_examiner_library_meta()
+    return jsonify(
+        {
+            "subjects": build_chief_examiner_library_payload(
+                chief_examiner_library=platform_library
+            ),
+            "meta": {
+                **metadata,
+                "history_count": len(_get_platform_chief_examiner_library_history()),
+                "uses_fallback_default": not bool(platform_library),
+            },
+        }
+    )
+
+
+@api.route("/platform/chief-examiner-library/import", methods=["POST"])
+@jwt_required()
+def import_platform_chief_examiner_library():
+    """Import or merge the platform-managed chief examiner library."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    try:
+        payload = request.get_json(silent=True) or {}
+        uploaded_files = request.files.getlist("file") or request.files.getlist("files")
+        imported_library, import_meta = _build_chief_examiner_library_batch_import_payload(
+            uploaded_files=uploaded_files,
+            payload=payload,
+            form_data=request.form,
+        )
+
+        replace_existing = str(
+            request.form.get("replace_existing")
+            or payload.get("replace_existing")
+            or ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+        current_library = _get_platform_chief_examiner_library_setting() or {}
+        next_library = imported_library
+        if not replace_existing:
+            next_library = _merge_school_chief_examiner_library(current_library, imported_library)
+
+        metadata = {
+            "version_id": f"cil_{secrets.token_hex(6)}",
+            "imported_at": datetime.now(timezone.utc).isoformat(),
+            "imported_by": platform_user.username,
+            "source_filename": import_meta["source_filename"],
+            "source_filenames": import_meta["source_filenames"],
+            "file_count": import_meta["file_count"],
+            "subject_count": len(next_library),
+            "entry_count": _count_chief_examiner_entries(next_library),
+            "replace_existing": replace_existing,
+        }
+        _set_platform_chief_examiner_library(next_library, metadata)
+        _append_platform_chief_examiner_history(next_library, metadata)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Platform chief examiner insight library imported.",
+                "meta": {
+                    **metadata,
+                    "history_count": len(_get_platform_chief_examiner_library_history()),
+                },
+                "subjects": build_chief_examiner_library_payload(
+                    chief_examiner_library=next_library
+                ),
+            }
+        ), 201
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+    except Exception as exc:
+        return jsonify(
+            {
+                "message": "Error importing platform chief examiner library",
+                "error": str(exc),
+            }
+        ), 500
+
+
+@api.route("/platform/chief-examiner-library/history", methods=["GET"])
+@jwt_required()
+def get_platform_chief_examiner_library_history():
+    """Get platform chief examiner library history."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    metadata = _get_platform_chief_examiner_library_meta()
+    current_version_id = metadata.get("version_id")
+    history = [
+        _serialize_chief_examiner_history_item(item, current_version_id=current_version_id)
+        for item in _get_platform_chief_examiner_library_history()
+    ]
+    return jsonify({"history": history, "current_version_id": current_version_id})
+
+
+@api.route("/platform/chief-examiner-library/history/<string:version_id>/restore", methods=["POST"])
+@jwt_required()
+def restore_platform_chief_examiner_library_history(version_id):
+    """Restore a platform chief examiner library snapshot."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    history = _get_platform_chief_examiner_library_history()
+    matching_snapshot = next(
+        (item for item in history if item.get("version_id") == version_id),
+        None,
+    )
+    if not matching_snapshot:
+        return jsonify({"message": "Chief examiner library version not found."}), 404
+
+    restored_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
+    metadata = {
+        "version_id": f"cil_{secrets.token_hex(6)}",
+        "imported_at": datetime.now(timezone.utc).isoformat(),
+        "imported_by": platform_user.username,
+        "source_filename": matching_snapshot.get("source_filename") or "history-restore",
+        "subject_count": len(restored_library),
+        "entry_count": _count_chief_examiner_entries(restored_library),
+        "replace_existing": True,
+        "is_restore": True,
+        "restored_from_version_id": version_id,
+    }
+    _set_platform_chief_examiner_library(restored_library, metadata)
+    _append_platform_chief_examiner_history(restored_library, metadata)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "message": "Platform chief examiner insight library restored.",
+            "meta": {
+                **metadata,
+                "history_count": len(_get_platform_chief_examiner_library_history()),
+            },
+            "subjects": build_chief_examiner_library_payload(
+                chief_examiner_library=restored_library
+            ),
+        }
+    )
+
+
+@api.route("/platform/chief-examiner-library/history/<string:version_id>/download", methods=["GET"])
+@jwt_required()
+def download_platform_chief_examiner_library_history(version_id):
+    """Download a platform chief examiner library snapshot."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    matching_snapshot = next(
+        (item for item in _get_platform_chief_examiner_library_history() if item.get("version_id") == version_id),
+        None,
+    )
+    if not matching_snapshot:
+        return jsonify({"message": "Chief examiner library version not found."}), 404
+
+    snapshot_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
+    export_payload = {
+        "version_id": matching_snapshot.get("version_id"),
+        "source_filename": matching_snapshot.get("source_filename") or "manual-entry",
+        "created_at": matching_snapshot.get("created_at"),
+        "created_by": matching_snapshot.get("created_by"),
+        "replace_existing": bool(matching_snapshot.get("replace_existing", False)),
+        "is_restore": bool(matching_snapshot.get("is_restore", False)),
+        "restored_from_version_id": matching_snapshot.get("restored_from_version_id"),
+        "subjects": build_chief_examiner_library_payload(chief_examiner_library=snapshot_library),
+    }
+
+    safe_basename = secure_filename(str(matching_snapshot.get("source_filename") or version_id)) or version_id
+    if not safe_basename.lower().endswith(".json"):
+        safe_basename = f"{os.path.splitext(safe_basename)[0] or version_id}.json"
+
+    response = make_response(json.dumps(export_payload, indent=2))
+    response.headers["Content-Type"] = "application/json"
+    response.headers["Content-Disposition"] = f"attachment; filename={safe_basename}"
+    return response
+
+
+@api.route("/analytics/chief-examiner-library/import", methods=["POST"])
+@multi_tenant_guard
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def import_chief_examiner_library():
+    try:
+        settings = _get_or_create_school_settings()
+        payload = request.get_json(silent=True) or {}
+        uploaded_files = request.files.getlist("file") or request.files.getlist("files")
+        imported_library, import_meta = _build_chief_examiner_library_batch_import_payload(
+            uploaded_files=uploaded_files,
+            payload=payload,
+            form_data=request.form,
+        )
+
+        replace_existing = str(
+            request.form.get("replace_existing")
+            or payload.get("replace_existing")
+            or ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+        next_library = imported_library
+        if not replace_existing:
+            next_library = _merge_school_chief_examiner_library(
+                _get_school_chief_examiner_library(settings),
+                imported_library,
+            )
+
+        metadata = {
+            "version_id": f"cil_{secrets.token_hex(6)}",
+            "imported_at": datetime.now(timezone.utc).isoformat(),
+            "imported_by": int(get_jwt_identity()),
+            "source_filename": import_meta["source_filename"],
+            "source_filenames": import_meta["source_filenames"],
+            "file_count": import_meta["file_count"],
+            "subject_count": len(next_library),
+            "entry_count": _count_chief_examiner_entries(next_library),
+            "replace_existing": replace_existing,
+        }
+        _set_school_chief_examiner_library(settings, next_library, metadata)
+        _append_school_chief_examiner_history(settings, next_library, metadata)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Chief examiner insight library imported.",
+                "meta": metadata,
+                "history_count": len(_get_school_chief_examiner_library_history(settings)),
+                "subjects": build_chief_examiner_library_payload(
+                    chief_examiner_library=next_library
+                ),
+            }
+        ), 201
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+    except Exception as exc:
+        return jsonify(
+            {
+                "message": "Error importing chief examiner library",
+                "error": str(exc),
+            }
+        ), 500
+
+
+@api.route("/analytics/chief-examiner-library/template", methods=["GET"])
+@multi_tenant_guard
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def download_chief_examiner_library_template():
+    template_payload = {
+        "source_filename": "waec-chief-examiner-template.json",
+        "subjects": [
+            {
+                "subject": "Mathematics",
+                "topics": [
+                    {
+                        "topic": "Geometry",
+                        "issue": "students often give final answers without supporting geometric reasons",
+                        "advice": "reteach proof language, labelled diagrams, and theorem-based explanations",
+                        "practice": ["circle theorems", "angle properties", "construction and loci"],
+                    }
+                ],
+            },
+            {
+                "subject": "English Language",
+                "topics": [
+                    {
+                        "topic": "Composition",
+                        "issue": "students lose marks through weak paragraph structure and limited vocabulary",
+                        "advice": "use planning outlines before timed essay practice",
+                        "practice": ["essay planning", "paragraph development", "formal letter writing"],
+                    }
+                ],
+            },
+        ],
+        "structured_text_example": textwrap.dedent(
+            """
+            Subject: Mathematics
+            Topic: Mensuration
+            Issue: students confuse area and volume formula selection in compound shapes
+            Advice: reteach formula choice before calculation speed drills
+            Practice: surface area; volume of prisms; unit conversion
+            """
+        ).strip(),
+        "notes": [
+            "You can upload this JSON file directly to /api/analytics/chief-examiner-library/import.",
+            "You can also upload a TXT, MD, PDF, or image file if its content is structured with Subject, Topic, Issue, Advice, and Practice fields.",
+            "When replace_existing is false, imported insights are merged into the school library instead of replacing it.",
+        ],
+    }
+
+    response = make_response(json.dumps(template_payload, indent=2))
+    response.headers["Content-Type"] = "application/json"
+    response.headers["Content-Disposition"] = "attachment; filename=chief_examiner_library_template.json"
+    return response
+
+
+@api.route("/analytics/chief-examiner-library/history", methods=["GET"])
+@multi_tenant_guard
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def get_chief_examiner_library_history():
+    settings = _get_or_create_school_settings()
+    metadata = _get_school_chief_examiner_library_meta(settings)
+    current_version_id = metadata.get("version_id")
+    history = [
+        _serialize_chief_examiner_history_item(item, current_version_id=current_version_id)
+        for item in _get_school_chief_examiner_library_history(settings)
+    ]
+    return jsonify({
+        "history": history,
+        "current_version_id": current_version_id,
+    })
+
+
+@api.route("/analytics/chief-examiner-library/history/<string:version_id>/restore", methods=["POST"])
+@multi_tenant_guard
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def restore_chief_examiner_library_history(version_id):
+    settings = _get_or_create_school_settings()
+    history = _get_school_chief_examiner_library_history(settings)
+    matching_snapshot = next(
+        (item for item in history if item.get("version_id") == version_id),
+        None,
+    )
+    if not matching_snapshot:
+        return jsonify({"message": "Chief examiner library version not found."}), 404
+
+    restored_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
+    metadata = {
+        "version_id": f"cil_{secrets.token_hex(6)}",
+        "imported_at": datetime.now(timezone.utc).isoformat(),
+        "imported_by": int(get_jwt_identity()),
+        "source_filename": matching_snapshot.get("source_filename") or "history-restore",
+        "subject_count": len(restored_library),
+        "entry_count": _count_chief_examiner_entries(restored_library),
+        "replace_existing": True,
+        "is_restore": True,
+        "restored_from_version_id": version_id,
+    }
+    _set_school_chief_examiner_library(settings, restored_library, metadata)
+    _append_school_chief_examiner_history(settings, restored_library, metadata)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "message": "Chief examiner insight library restored.",
+            "meta": metadata,
+            "subjects": build_chief_examiner_library_payload(
+                chief_examiner_library=restored_library
+            ),
+            "history_count": len(_get_school_chief_examiner_library_history(settings)),
+        }
+    )
+
+
+@api.route("/analytics/chief-examiner-library/history/<string:version_id>/download", methods=["GET"])
+@multi_tenant_guard
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def download_chief_examiner_library_history(version_id):
+    settings = _get_or_create_school_settings()
+    matching_snapshot = next(
+        (item for item in _get_school_chief_examiner_library_history(settings) if item.get("version_id") == version_id),
+        None,
+    )
+    if not matching_snapshot:
+        return jsonify({"message": "Chief examiner library version not found."}), 404
+
+    snapshot_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
+    export_payload = {
+        "version_id": matching_snapshot.get("version_id"),
+        "source_filename": matching_snapshot.get("source_filename") or "manual-entry",
+        "created_at": matching_snapshot.get("created_at"),
+        "created_by": matching_snapshot.get("created_by"),
+        "replace_existing": bool(matching_snapshot.get("replace_existing", False)),
+        "is_restore": bool(matching_snapshot.get("is_restore", False)),
+        "restored_from_version_id": matching_snapshot.get("restored_from_version_id"),
+        "subjects": [
+            {
+                "subject": subject_name.title() if subject_name != "ict" else "ICT",
+                "topics": [
+                    {
+                        "topic": topic_name.title(),
+                        "issue": entry.get("issue"),
+                        "advice": entry.get("advice"),
+                        "practice": entry.get("practice") or [],
+                    }
+                    for topic_name, entry in sorted((topics or {}).items())
+                ],
+            }
+            for subject_name, topics in sorted(snapshot_library.items())
+        ],
+    }
+
+    safe_basename = secure_filename(str(matching_snapshot.get("source_filename") or version_id)) or version_id
+    if not safe_basename.lower().endswith(".json"):
+        safe_basename = f"{os.path.splitext(safe_basename)[0] or version_id}.json"
+
+    response = make_response(json.dumps(export_payload, indent=2))
+    response.headers["Content-Type"] = "application/json"
+    response.headers["Content-Disposition"] = f"attachment; filename={safe_basename}"
+    return response
+
+
+@api.route("/analytics/chief-examiner-library", methods=["GET"])
+@multi_tenant_guard
+@feature_required("exam_intelligence")
+@role_required("proprietor", "headmaster", "teacher", "homeroom")
+@jwt_required()
+def get_chief_examiner_library():
+    user = User.query.get(int(get_jwt_identity()))
+    if not user:
+        return jsonify({"message": "User not found."}), 404
+
+    scope = _build_academic_guidance_scope(user)
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    effective_library = _get_effective_chief_examiner_library(settings)
+    return jsonify(
+        {
+            "subjects": build_chief_examiner_library_payload(
+                scope["allowed_subjects"],
+                chief_examiner_library=effective_library,
+            ),
+            "scope": {
+                "role": user.role,
+                "role_label": scope["role_label"],
+                "allowed_classes": scope["allowed_classes"] or [],
+                "allowed_subjects": scope["allowed_subjects"] or [],
+            },
+            "library_meta": _build_effective_chief_examiner_meta(settings),
+        }
+    )
+
+
 @api.route("/analytics/class-performance", methods=["GET"])
 @multi_tenant_guard
+@feature_required("advanced_analytics")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def get_class_performance():
@@ -13744,6 +15938,16 @@ def create_exam_paper():
         
         db.session.add(paper)
         db.session.commit()
+
+        settings = _get_or_create_school_settings()
+        _append_exam_paper_snapshot(
+            settings,
+            paper,
+            actor_id=user_id,
+            action="create",
+            root_paper_id=paper.id,
+        )
+        db.session.commit()
         
         log_action(user_id, g.school_id, "EXAM_PAPER_CREATED", 
                   f"Created exam paper: {paper.title} for {paper.class_name} {paper.subject_name}")
@@ -13783,6 +15987,8 @@ def get_exam_papers():
         
         papers = query.order_by(ExamPaper.created_at.desc()).all()
 
+        settings = _get_or_create_school_settings()
+
         return jsonify([
             {
                 "id": p.id,
@@ -13799,6 +16005,7 @@ def get_exam_papers():
                 "created_at": p.created_at.isoformat() if p.created_at else None,
                 "updated_at": p.updated_at.isoformat() if p.updated_at else None,
                 "finalized_at": p.finalized_at.isoformat() if p.finalized_at else None,
+                "root_paper_id": _get_exam_paper_root_id(settings, p.id),
             }
             for p in papers
         ])
@@ -13843,12 +16050,88 @@ def get_exam_paper(paper_id):
             "duration_minutes": paper.duration_minutes,
             "questions": paper.questions,
             "status": paper.status,
+            "root_paper_id": _get_exam_paper_root_id(_get_or_create_school_settings(), paper.id),
             "created_at": paper.created_at.isoformat() if paper.created_at else None,
             "updated_at": paper.updated_at.isoformat() if paper.updated_at else None,
             "finalized_at": paper.finalized_at.isoformat() if paper.finalized_at else None
         })
     except Exception as e:
         return jsonify({"message": "Error fetching exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/<int:paper_id>/duplicate", methods=["POST"])
+@multi_tenant_guard
+@feature_required("exam_papers")
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def duplicate_exam_paper(paper_id):
+    """Create a draft copy of an exam paper so the original remains unchanged."""
+    try:
+        user_id = int(get_jwt_identity())
+        source_paper = ExamPaper.query.filter_by(
+            id=paper_id,
+            school_id=g.school_id,
+        ).first_or_404()
+
+        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
+        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
+        can_view = (
+            source_paper.teacher_id == user_id
+            or "headmaster" in role_set
+            or "proprietor" in role_set
+        )
+        if not can_view:
+            return jsonify({"message": "Access denied to this exam paper."}), 403
+
+        payload = request.get_json(silent=True) or {}
+        cloned_paper = ExamPaper(
+            school_id=g.school_id,
+            teacher_id=user_id,
+            class_name=payload.get("class_name") or source_paper.class_name,
+            subject_name=payload.get("subject_name") or source_paper.subject_name,
+            title=(payload.get("title") or f"{source_paper.title} (Copy)").strip(),
+            academic_term=payload.get("academic_term") or source_paper.academic_term,
+            academic_year=payload.get("academic_year") or source_paper.academic_year,
+            exam_type=payload.get("exam_type") or source_paper.exam_type,
+            instructions=payload.get("instructions") if "instructions" in payload else source_paper.instructions,
+            total_marks=payload.get("total_marks") if "total_marks" in payload else source_paper.total_marks,
+            duration_minutes=payload.get("duration_minutes") if "duration_minutes" in payload else source_paper.duration_minutes,
+            questions=_clone_json_document(payload.get("questions") if "questions" in payload else source_paper.questions),
+            status="draft",
+            finalized_at=None,
+        )
+
+        db.session.add(cloned_paper)
+        db.session.commit()
+
+        settings = _get_or_create_school_settings()
+        _append_exam_paper_snapshot(
+            settings,
+            cloned_paper,
+            actor_id=user_id,
+            action="duplicate",
+            parent_paper_id=source_paper.id,
+            root_paper_id=_get_exam_paper_root_id(settings, source_paper.id),
+        )
+        db.session.commit()
+
+        log_action(
+            user_id,
+            g.school_id,
+            "EXAM_PAPER_DUPLICATED",
+            f"Duplicated exam paper '{source_paper.title}' into '{cloned_paper.title}'",
+        )
+
+        return jsonify(
+            {
+                "message": "Exam paper duplicated successfully",
+                "paper_id": cloned_paper.id,
+                "source_paper_id": source_paper.id,
+            }
+        ), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error duplicating exam paper", "error": str(e)}), 500
 
 
 @api.route("/exams/papers/<int:paper_id>", methods=["PUT"])
@@ -13896,6 +16179,16 @@ def update_exam_paper(paper_id):
         paper.updated_at = datetime.now(timezone.utc)
         db.session.commit()
 
+        settings = _get_or_create_school_settings()
+        _append_exam_paper_snapshot(
+            settings,
+            paper,
+            actor_id=user_id,
+            action="update",
+            root_paper_id=_get_exam_paper_root_id(settings, paper.id),
+        )
+        db.session.commit()
+
         log_action(
             user_id,
             g.school_id,
@@ -13907,6 +16200,174 @@ def update_exam_paper(paper_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "Error updating exam paper", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/<int:paper_id>/history", methods=["GET"])
+@multi_tenant_guard
+@feature_required("exam_papers")
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def get_exam_paper_history(paper_id):
+    try:
+        user_id = int(get_jwt_identity())
+        paper = ExamPaper.query.filter_by(id=paper_id, school_id=g.school_id).first_or_404()
+
+        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
+        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
+        can_view = (
+            paper.teacher_id == user_id
+            or "headmaster" in role_set
+            or "proprietor" in role_set
+        )
+        if not can_view:
+            return jsonify({"message": "Access denied to this exam paper."}), 403
+
+        settings = _get_or_create_school_settings()
+        root_paper_id, lineage = _get_exam_paper_lineage(settings, paper.id)
+        actor_ids = sorted({item.get("actor_id") for item in lineage if item.get("actor_id")})
+        actors = (
+            User.query.filter(User.school_id == g.school_id, User.id.in_(actor_ids)).all()
+            if actor_ids
+            else []
+        )
+        actor_map = {actor.id: actor.username for actor in actors}
+        return jsonify(
+            {
+                "paper_id": paper.id,
+                "root_paper_id": root_paper_id,
+                "history": [
+                    _serialize_exam_paper_history_item(
+                        {**item, "actor_name": actor_map.get(item.get("actor_id"))},
+                        current_paper_id=paper.id,
+                    )
+                    for item in lineage
+                ],
+            }
+        )
+    except Exception as e:
+        return jsonify({"message": "Error loading exam paper history", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/history/<string:snapshot_id>/download", methods=["GET"])
+@multi_tenant_guard
+@feature_required("exam_papers")
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def download_exam_paper_snapshot(snapshot_id):
+    try:
+        user_id = int(get_jwt_identity())
+        settings = _get_or_create_school_settings()
+        snapshot = next(
+            (item for item in _get_exam_paper_history(settings) if item.get("snapshot_id") == snapshot_id),
+            None,
+        )
+        if not snapshot:
+            return jsonify({"message": "Exam paper history snapshot not found."}), 404
+
+        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
+        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
+        can_download = (
+            snapshot.get("teacher_id") == user_id
+            or "headmaster" in role_set
+            or "proprietor" in role_set
+        )
+        if not can_download:
+            return jsonify({"message": "Access denied to this exam paper history snapshot."}), 403
+
+        payload = {
+            "snapshot_id": snapshot.get("snapshot_id"),
+            "paper_id": snapshot.get("paper_id"),
+            "root_paper_id": snapshot.get("root_paper_id"),
+            "title": snapshot.get("title"),
+            "class_name": snapshot.get("class_name"),
+            "subject_name": snapshot.get("subject_name"),
+            "academic_term": snapshot.get("academic_term"),
+            "academic_year": snapshot.get("academic_year"),
+            "exam_type": snapshot.get("exam_type"),
+            "instructions": snapshot.get("instructions"),
+            "total_marks": snapshot.get("total_marks"),
+            "duration_minutes": snapshot.get("duration_minutes"),
+            "questions": snapshot.get("questions") or [],
+            "status": snapshot.get("status"),
+            "action": snapshot.get("action"),
+            "created_at": snapshot.get("created_at"),
+            "restored_from_snapshot_id": snapshot.get("restored_from_snapshot_id"),
+        }
+        filename = secure_filename(str(snapshot.get("title") or snapshot_id)) or snapshot_id
+        response = make_response(json.dumps(payload, indent=2))
+        response.headers["Content-Type"] = "application/json"
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}.json"
+        return response
+    except Exception as e:
+        return jsonify({"message": "Error downloading exam paper history snapshot", "error": str(e)}), 500
+
+
+@api.route("/exams/papers/history/<string:snapshot_id>/restore", methods=["POST"])
+@multi_tenant_guard
+@feature_required("exam_papers")
+@role_required("teacher", "homeroom", "headmaster")
+@jwt_required()
+def restore_exam_paper_snapshot(snapshot_id):
+    try:
+        user_id = int(get_jwt_identity())
+        settings = _get_or_create_school_settings()
+        snapshot = next(
+            (item for item in _get_exam_paper_history(settings) if item.get("snapshot_id") == snapshot_id),
+            None,
+        )
+        if not snapshot:
+            return jsonify({"message": "Exam paper history snapshot not found."}), 404
+
+        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
+        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
+        can_restore = (
+            snapshot.get("teacher_id") == user_id
+            or "headmaster" in role_set
+            or "proprietor" in role_set
+        )
+        if not can_restore:
+            return jsonify({"message": "Access denied to this exam paper history snapshot."}), 403
+
+        restored_paper = ExamPaper(
+            school_id=g.school_id,
+            teacher_id=user_id,
+            class_name=snapshot.get("class_name") or "",
+            subject_name=snapshot.get("subject_name") or "",
+            title=f"{snapshot.get('title') or 'Exam Paper'} (Restored Copy)",
+            academic_term=snapshot.get("academic_term"),
+            academic_year=snapshot.get("academic_year"),
+            exam_type=snapshot.get("exam_type"),
+            instructions=snapshot.get("instructions"),
+            total_marks=snapshot.get("total_marks"),
+            duration_minutes=snapshot.get("duration_minutes"),
+            questions=_clone_json_document(snapshot.get("questions") or []),
+            status="draft",
+            finalized_at=None,
+        )
+        db.session.add(restored_paper)
+        db.session.commit()
+
+        _append_exam_paper_snapshot(
+            settings,
+            restored_paper,
+            actor_id=user_id,
+            action="restore",
+            parent_paper_id=snapshot.get("paper_id"),
+            root_paper_id=snapshot.get("root_paper_id") or snapshot.get("paper_id") or restored_paper.id,
+            restored_from_snapshot_id=snapshot_id,
+        )
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Exam paper restored as a new draft copy.",
+                "paper_id": restored_paper.id,
+                "snapshot_id": snapshot_id,
+            }
+        ), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error restoring exam paper history snapshot", "error": str(e)}), 500
 
 
 @api.route("/exams/papers/<int:paper_id>", methods=["DELETE"])
@@ -14485,6 +16946,7 @@ def get_school_settings():
             "legacy_consent_evidence_artifact_count": len(legacy_migration.get("evidence_artifacts") or []),
             "bece_result_processing_enabled": bool(legacy_migration.get("bece_result_processing_enabled", False)),
             "bece_parent_notice_confirmed": bool(legacy_migration.get("bece_parent_notice_confirmed", False)),
+            "teacher_class_level_exam_summaries_enabled": bool(_get_report_global_settings(settings).get(TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY, False)),
         }
     ), 200
 
@@ -14658,6 +17120,13 @@ def update_school_settings():
     if "bece_parent_notice_confirmed" in data:
         compliance_workflow["legacy_migration"]["bece_parent_notice_confirmed"] = bool(data.get("bece_parent_notice_confirmed"))
         compliance_changed_fields.append("bece_parent_notice_confirmed")
+    if "teacher_class_level_exam_summaries_enabled" in data:
+        _set_report_global_setting(
+            settings,
+            TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY,
+            bool(data.get("teacher_class_level_exam_summaries_enabled")),
+        )
+        changed_fields.append("teacher_class_level_exam_summaries_enabled")
     if compliance_changed_fields:
         _set_data_compliance_workflow_config(settings, compliance_workflow)
         changed_fields.extend(compliance_changed_fields)

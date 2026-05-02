@@ -715,7 +715,7 @@ By using EduPulse SMT, you acknowledge that:
 3. You understand your rights under the Ghana Data Protection Act, 2012 (Act 843)
 4. You can withdraw consent at any time by contacting danielasareanyinam2020@gmail.com
 
-For schools: By registering your school on EduPulse SMT, you represent that you have obtained all necessary consents from students, parents/guardians, and staff members for the processing of their personal data through the EduPulse SMT platform.
+For schools: By registering your school on EduPulse SMT, you represent that you will send the required parent or guardian consent form before uploading student biodata into the platform, and that you have obtained all necessary consents from students, parents/guardians, and staff members for the processing of their personal data through EduPulse SMT.
 
 ---
 

@@ -1,13 +1,16 @@
 import json
+import sys
 from io import BytesIO
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 from reportlab.pdfgen import canvas
 
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import AcademicTerm, Payment, School, SchoolSettings, Student, User, db
+from backend.api.models import AcademicTerm, ExamPaper, Payment, PlatformSetting, PlatformUser, School, SchoolSettings, Student, TeacherAssignment, User, db
 from backend.api.models import ReportCard
+from backend.utils import generate_descriptive_analysis
 
 
 def _proprietor_headers(app, school_id, proprietor_id):
@@ -28,6 +31,233 @@ def _headmaster_headers(app, school_id, headmaster_id):
         "X-School-ID": school_id,
         "Content-Type": "application/json",
     }
+
+
+def _teacher_headers(app, school_id, teacher_id):
+    with app.app_context():
+        token = create_access_token(identity=str(teacher_id))
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-School-ID": school_id,
+        "Content-Type": "application/json",
+    }
+
+
+def _homeroom_headers(app, school_id, homeroom_id):
+    with app.app_context():
+        token = create_access_token(identity=str(homeroom_id))
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-School-ID": school_id,
+        "Content-Type": "application/json",
+    }
+
+
+def _platform_headers(app, platform_user_id):
+    with app.app_context():
+        token = create_access_token(identity=f"platform:{platform_user_id}")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+
+def test_platform_public_content_round_trip(client, app):
+    platform_user = PlatformUser(username="platform-owner", email="owner@example.com")
+    platform_user.set_password("secret123")
+    db.session.add(platform_user)
+    db.session.commit()
+
+    headers = _platform_headers(app, platform_user.id)
+    payload = {
+        "faqs": [{"question": "How do we get help?", "answer": "Use the official support contacts below."}],
+        "tutorials": [{"title": "Intro walkthrough", "url": "https://example.com/video"}],
+        "feature_guides": [{"title": "Exam Intelligence", "body": "Shared insights are managed centrally."}],
+        "security_alerts": ["Never share your OTP with anyone claiming to be EduPulse support."],
+        "support": {
+            "email": "helpdesk@edupulse.com",
+            "phone": "+233 500 111 222",
+            "website": "https://edupulse.com/support",
+            "response_time": "same business day",
+        },
+        "auth": {
+            "login_title": "Access EduPulse",
+            "login_subtitle": "Use your verified school credentials.",
+            "register_title": "Start a School Workspace",
+            "register_subtitle": "Create a secure tenant account.",
+            "register_support_note": "Need onboarding help? Contact the platform team.",
+        },
+        "help_center": {
+            "title": "Support Hub",
+            "subtitle": "Search product guides and platform notices.",
+            "security_title": "Fraud Warning",
+            "security_body": "Confirm suspicious requests before acting.",
+        },
+    }
+
+    update_response = client.put("/api/platform/public-content", headers=headers, data=json.dumps(payload))
+    assert update_response.status_code == 200
+
+    public_response = client.get("/api/public/platform-content")
+    assert public_response.status_code == 200
+    public_payload = public_response.get_json()
+    assert public_payload["support"]["email"] == "helpdesk@edupulse.com"
+    assert public_payload["auth"]["register_title"] == "Start a School Workspace"
+    assert public_payload["feature_guides"][0]["title"] == "Exam Intelligence"
+
+    help_response = client.get("/api/public/help-content")
+    assert help_response.status_code == 200
+    help_payload = help_response.get_json()
+    assert help_payload["faqs"][0]["question"] == "How do we get help?"
+
+
+def test_platform_user_management_uses_platform_jwt(client, app):
+    platform_user = PlatformUser(username="console-admin", email="console-admin@example.com")
+    platform_user.set_password("secret123")
+    db.session.add(platform_user)
+    db.session.commit()
+
+    headers = _platform_headers(app, platform_user.id)
+    create_response = client.post(
+        "/api/platform/users",
+        headers=headers,
+        data=json.dumps(
+            {
+                "username": "second-admin",
+                "email": "second-admin@example.com",
+                "password": "password123",
+            }
+        ),
+    )
+    assert create_response.status_code == 201
+    created_user_id = create_response.get_json()["user"]["id"]
+
+    list_response = client.get("/api/platform/users", headers=headers)
+    assert list_response.status_code == 200
+    usernames = {item["username"] for item in list_response.get_json()["users"]}
+    assert "second-admin" in usernames
+
+    delete_response = client.delete(f"/api/platform/users/{created_user_id}", headers=headers)
+    assert delete_response.status_code == 200
+
+    self_delete_response = client.delete(f"/api/platform/users/{platform_user.id}", headers=headers)
+    assert self_delete_response.status_code == 400
+
+
+def test_platform_bootstrap_creates_first_admin_with_owner_key(client, monkeypatch):
+    monkeypatch.setenv("PLATFORM_OWNER_KEY", "bootstrap-secret")
+
+    status_response = client.get("/api/platform/bootstrap-status")
+    assert status_response.status_code == 200
+    assert status_response.get_json()["needs_bootstrap"] is True
+
+    create_response = client.post(
+        "/api/platform/users",
+        headers={"X-Platform-Owner-Key": "bootstrap-secret", "Content-Type": "application/json"},
+        data=json.dumps(
+            {
+                "username": "bootstrap-admin",
+                "email": "bootstrap-admin@example.com",
+                "password": "password123",
+            }
+        ),
+    )
+    assert create_response.status_code == 201
+
+    status_response_after = client.get("/api/platform/bootstrap-status")
+    assert status_response_after.status_code == 200
+    assert status_response_after.get_json()["needs_bootstrap"] is False
+
+
+def test_platform_chief_examiner_library_import_accepts_multiple_report_files(client, app, monkeypatch):
+    platform_user = PlatformUser(username="platform-batch", email="platform-batch@example.com")
+    platform_user.set_password("secret123")
+    db.session.add(platform_user)
+    db.session.commit()
+
+    def fake_load_exam_document_text(uploaded, file_ext, result_text=None):
+        if uploaded.filename == "bece-2017.pdf":
+            return (
+                "1. MATHEMATICS\n"
+                "Candidates often gave geometry answers without supporting reasons. Teachers should insist on labelled diagrams and theorem-based explanations."
+            )
+        if uploaded.filename == "bece-2023.pdf":
+            return (
+                "2. ENGLISH LANGUAGE\n"
+                "Candidates wrote long irrelevant responses in comprehension. Teachers should train learners to answer directly from the question stem."
+            )
+        raise AssertionError(f"Unexpected file received in test: {uploaded.filename}")
+
+    monkeypatch.setattr("backend.routes._load_exam_document_text", fake_load_exam_document_text)
+
+    headers = {key: value for key, value in _platform_headers(app, platform_user.id).items() if key != "Content-Type"}
+    response = client.post(
+        "/api/platform/chief-examiner-library/import",
+        headers=headers,
+        data={
+            "replace_existing": "true",
+            "file": [
+                (BytesIO(b"%PDF-1.4 2017"), "bece-2017.pdf"),
+                (BytesIO(b"%PDF-1.4 2023"), "bece-2023.pdf"),
+            ],
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["meta"]["file_count"] == 2
+    assert payload["meta"]["source_filename"] == "batch-import (2 files)"
+    assert payload["meta"]["source_filenames"] == ["bece-2017.pdf", "bece-2023.pdf"]
+
+    subject_names = {subject["subject"] for subject in payload["subjects"]}
+    assert "Mathematics" in subject_names
+    assert "English Language" in subject_names
+
+
+def test_tenant_chief_examiner_library_merges_platform_and_school_overrides(client, app, test_school, test_proprietor):
+    test_school.subscription_plan = "Premium"
+    db.session.add(
+        PlatformSetting(
+            setting_key="platform_chief_examiner_library",
+            setting_value={
+                "science": {
+                    "experiments": {
+                        "issue": "students miss control variables in practical write-ups",
+                        "advice": "teach a fixed planning format before experiments",
+                        "practice": ["control variables", "observation tables"],
+                    }
+                }
+            },
+        )
+    )
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if not settings:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+    settings.report_template_config = {
+        "chief_examiner_library": {
+            "mathematics": {
+                "geometry": {
+                    "issue": "students skip geometric reasons in proofs",
+                    "advice": "insist on theorem statements before the final answer",
+                    "practice": ["proof writing", "theorem drills"],
+                }
+            }
+        }
+    }
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/analytics/chief-examiner-library", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    subject_names = {subject["subject"] for subject in payload["subjects"]}
+    assert "Science" in subject_names
+    assert "Mathematics" in subject_names
+    assert payload["library_meta"]["has_school_override"] is True
+    assert payload["library_meta"]["uses_platform_default"] is False
 
 
 def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test_school, test_proprietor):
@@ -206,6 +436,838 @@ def test_student_rescue_agent_returns_prioritized_actions(client, app, test_scho
     assert "contact the school today" in student_payload["contact_templates"]["sms_body"].lower()
 
 
+def test_descriptive_analysis_includes_diagnostic_mock_and_pathway_guidance(client, app, test_school):
+    guided_student = Student(
+        school_id=test_school.id,
+        first_name="Adwoa",
+        surname="Bonsu",
+        name="Adwoa Bonsu",
+        student_code="S940",
+        current_class="JHS 3",
+        parent_name="Yaw Bonsu",
+    )
+    db.session.add(guided_student)
+    db.session.flush()
+
+    report = ReportCard(
+        school_id=test_school.id,
+        student_id=guided_student.id,
+        academic_term="Term 2",
+        academic_year="2025/2026",
+        class_name="JHS 3",
+        term_average=67.5,
+        attendance_percentage=91.0,
+        overall_position="6th",
+        out_of_students=32,
+        subject_grades=[
+            {
+                "subject": "Mathematics",
+                "total": 74,
+                "diagnostic_topics": [
+                    {"topic": "Geometry", "score": 5, "max_score": 15},
+                    {"topic": "Algebra", "score": 13, "max_score": 15},
+                ],
+            },
+            {
+                "subject": "Science",
+                "total": 78,
+                "diagnostic_topics": [
+                    {"topic": "Scientific Units", "score": 4, "max_score": 10},
+                ],
+            },
+            {"subject": "ICT", "total": 71},
+            {"subject": "English Language", "total": 66},
+        ],
+        status="Approved",
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    narrative = generate_descriptive_analysis(guided_student.id)
+
+    assert "Diagnostic mock insights:" in narrative
+    assert "Chief examiner reviews show" in narrative
+    assert "Geometry" in narrative
+    assert "SHS pathway signal:" in narrative
+    assert "General Science" in narrative
+
+
+def test_teacher_academic_guidance_is_limited_to_assigned_subjects(client, app, test_school, test_teacher):
+    student = Student(
+        school_id=test_school.id,
+        first_name="Mawuli",
+        surname="Kumah",
+        name="Mawuli Kumah",
+        student_code="S950",
+        current_class="JHS 1",
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    assignment = TeacherAssignment(
+        school_id=test_school.id,
+        teacher_id=test_teacher.id,
+        class_name="JHS 1",
+        subject_name="Mathematics",
+    )
+    db.session.add(assignment)
+
+    report = ReportCard(
+        school_id=test_school.id,
+        student_id=student.id,
+        academic_term="Term 2",
+        academic_year="2025/2026",
+        class_name="JHS 1",
+        subject_grades=[
+            {"subject": "Mathematics", "total": 61, "diagnostic_topics": [{"topic": "Geometry", "score": 4, "max_score": 15}]},
+            {"subject": "Science", "total": 58, "diagnostic_topics": [{"topic": "Scientific Units", "score": 3, "max_score": 10}]},
+        ],
+        status="Approved",
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    headers = _teacher_headers(app, test_school.id, test_teacher.id)
+    response = client.get("/api/analytics/academic-guidance", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["scope"]["role"] == "teacher"
+    assert payload["scope"]["allowed_subjects"] == ["Mathematics"]
+    assert len(payload["diagnostic_hotspots"]) == 1
+    assert payload["diagnostic_hotspots"][0]["subject"] == "Mathematics"
+
+    db.session.delete(assignment)
+    db.session.delete(report)
+    db.session.delete(student)
+    db.session.commit()
+
+
+def test_homeroom_academic_guidance_is_limited_to_assigned_class(client, app, test_school):
+    homeroom = User(
+        username="homeroom1",
+        school_id=test_school.id,
+        role="homeroom",
+        email="homeroom@test.edu",
+        assigned_class="JHS 1",
+    )
+    homeroom.set_password("HomeroomPass123")
+    db.session.add(homeroom)
+    db.session.flush()
+
+    class_student = Student(
+        school_id=test_school.id,
+        first_name="Akua",
+        surname="Boateng",
+        name="Akua Boateng",
+        student_code="S960",
+        current_class="JHS 1",
+    )
+    other_student = Student(
+        school_id=test_school.id,
+        first_name="Kojo",
+        surname="Amoah",
+        name="Kojo Amoah",
+        student_code="S961",
+        current_class="JHS 2",
+    )
+    db.session.add_all([class_student, other_student])
+    db.session.flush()
+
+    class_report = ReportCard(
+            school_id=test_school.id,
+            student_id=class_student.id,
+            academic_term="Term 2",
+            academic_year="2025/2026",
+            class_name="JHS 1",
+            subject_grades=[
+                {"subject": "Mathematics", "total": 60, "diagnostic_topics": [{"topic": "Geometry", "score": 3, "max_score": 15}]},
+                {"subject": "Science", "total": 62, "diagnostic_topics": [{"topic": "Scientific Units", "score": 4, "max_score": 10}]},
+            ],
+            status="Approved",
+        )
+    other_report = ReportCard(
+            school_id=test_school.id,
+            student_id=other_student.id,
+            academic_term="Term 2",
+            academic_year="2025/2026",
+            class_name="JHS 2",
+            subject_grades=[
+                {"subject": "English Language", "total": 59, "diagnostic_topics": [{"topic": "Grammar", "score": 2, "max_score": 10}]},
+            ],
+            status="Approved",
+        )
+    db.session.add_all([class_report, other_report])
+    db.session.commit()
+
+    headers = _homeroom_headers(app, test_school.id, homeroom.id)
+    response = client.get("/api/analytics/academic-guidance", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["scope"]["role"] == "homeroom"
+    assert payload["scope"]["allowed_classes"] == ["JHS 1"]
+    subjects = {item["subject"] for item in payload["diagnostic_hotspots"]}
+    assert "Mathematics" in subjects
+    assert "Science" in subjects
+    assert "English Language" not in subjects
+
+    db.session.delete(class_report)
+    db.session.delete(other_report)
+    db.session.delete(homeroom)
+    db.session.delete(class_student)
+    db.session.delete(other_student)
+    db.session.commit()
+
+
+def test_school_uploaded_chief_examiner_library_updates_guidance(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    import_response = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        json={
+            "replace_existing": True,
+            "source_filename": "waec-chief-examiner-2025.json",
+            "subjects": [
+                {
+                    "subject": "Mathematics",
+                    "topics": [
+                        {
+                            "topic": "Mensuration",
+                            "issue": "students confuse area and volume formula selection in compound shapes",
+                            "advice": "reteach formula choice before calculation speed drills",
+                            "practice": ["surface area", "volume of prisms"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert import_response.status_code == 201
+    imported_payload = import_response.get_json()
+    assert imported_payload["meta"]["source_filename"] == "waec-chief-examiner-2025.json"
+    assert imported_payload["meta"]["entry_count"] >= 1
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Yaw",
+        surname="Adu",
+        name="Yaw Adu",
+        student_code="S970",
+        current_class="JHS 3",
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    report = ReportCard(
+        school_id=test_school.id,
+        student_id=student.id,
+        academic_term="Term 2",
+        academic_year="2025/2026",
+        class_name="JHS 3",
+        subject_grades=[
+            {
+                "subject": "Mathematics",
+                "total": 57,
+                "diagnostic_topics": [
+                    {"topic": "Mensuration", "score": 3, "max_score": 12}
+                ],
+            }
+        ],
+        status="Approved",
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    library_response = client.get("/api/analytics/chief-examiner-library", headers=headers)
+    assert library_response.status_code == 200
+    library_payload = library_response.get_json()
+    mathematics_subject = next(
+        item for item in library_payload["subjects"] if item["subject"] == "Mathematics"
+    )
+    mensuration_topic = next(
+        item for item in mathematics_subject["topics"] if item["topic"] == "Mensuration"
+    )
+    assert mensuration_topic["advice"] == "reteach formula choice before calculation speed drills"
+    assert library_payload["library_meta"]["source_filename"] == "waec-chief-examiner-2025.json"
+
+    guidance_response = client.get("/api/analytics/academic-guidance", headers=headers)
+    assert guidance_response.status_code == 200
+    guidance_payload = guidance_response.get_json()
+    hotspot = next(
+        item for item in guidance_payload["diagnostic_hotspots"]
+        if item["subject"] == "Mathematics" and item["topic"] == "Mensuration"
+    )
+    assert hotspot["advice"] == "reteach formula choice before calculation speed drills"
+    assert hotspot["chief_examiner_issue"] == "students confuse area and volume formula selection in compound shapes"
+
+    db.session.delete(report)
+    db.session.delete(student)
+    db.session.commit()
+
+
+def test_chief_examiner_library_template_download(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/analytics/chief-examiner-library/template", headers=headers)
+
+    assert response.status_code == 200
+    assert response.headers["Content-Type"].startswith("application/json")
+    assert "chief_examiner_library_template.json" in response.headers["Content-Disposition"]
+
+    payload = json.loads(response.data.decode("utf-8"))
+    assert payload["subjects"]
+    assert payload["subjects"][0]["topics"]
+    assert "Subject: Mathematics" in payload["structured_text_example"]
+
+
+def test_chief_examiner_library_history_and_restore(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    first_import = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        json={
+            "replace_existing": True,
+            "source_filename": "examiner-v1.json",
+            "subjects": [
+                {
+                    "subject": "Mathematics",
+                    "topics": [
+                        {
+                            "topic": "Mensuration",
+                            "issue": "students struggle to choose the correct mensuration formula",
+                            "advice": "reteach formula selection before timed work",
+                            "practice": ["surface area"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert first_import.status_code == 201
+    first_version_id = first_import.get_json()["meta"]["version_id"]
+
+    second_import = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        json={
+            "replace_existing": True,
+            "source_filename": "examiner-v2.json",
+            "subjects": [
+                {
+                    "subject": "Science",
+                    "topics": [
+                        {
+                            "topic": "Experiments",
+                            "issue": "students skip key observations during practical write-ups",
+                            "advice": "practise observation-result-conclusion formatting",
+                            "practice": ["observation tables"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert second_import.status_code == 201
+    second_version_id = second_import.get_json()["meta"]["version_id"]
+
+    history_response = client.get("/api/analytics/chief-examiner-library/history", headers=headers)
+    assert history_response.status_code == 200
+    history_payload = history_response.get_json()
+    assert history_payload["current_version_id"] == second_version_id
+    assert len(history_payload["history"]) >= 2
+    assert history_payload["history"][0]["version_id"] == second_version_id
+    assert history_payload["history"][0]["is_active"] is True
+    assert any(item["version_id"] == first_version_id for item in history_payload["history"])
+
+    restore_response = client.post(
+        f"/api/analytics/chief-examiner-library/history/{first_version_id}/restore",
+        headers=headers,
+    )
+    assert restore_response.status_code == 200
+    restored_payload = restore_response.get_json()
+    assert restored_payload["meta"]["is_restore"] is True
+    assert restored_payload["meta"]["restored_from_version_id"] == first_version_id
+
+    library_response = client.get("/api/analytics/chief-examiner-library", headers=headers)
+    assert library_response.status_code == 200
+    library_payload = library_response.get_json()
+    assert library_payload["library_meta"]["source_filename"] == "examiner-v1.json"
+    assert library_payload["library_meta"]["history_count"] >= 3
+    mathematics_subject = next(item for item in library_payload["subjects"] if item["subject"] == "Mathematics")
+    mensuration_topic = next(item for item in mathematics_subject["topics"] if item["topic"] == "Mensuration")
+    assert mensuration_topic["advice"] == "reteach formula selection before timed work"
+
+
+def test_chief_examiner_library_history_version_can_be_downloaded(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    import_response = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        json={
+            "replace_existing": True,
+            "source_filename": "downloadable-examiner.json",
+            "subjects": [
+                {
+                    "subject": "Mathematics",
+                    "topics": [
+                        {
+                            "topic": "Algebra",
+                            "issue": "students skip working steps",
+                            "advice": "insist on step-by-step simplification",
+                            "practice": ["linear equations"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    version_id = import_response.get_json()["meta"]["version_id"]
+
+    response = client.get(
+        f"/api/analytics/chief-examiner-library/history/{version_id}/download",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["Content-Type"].startswith("application/json")
+    assert "downloadable-examiner.json" in response.headers["Content-Disposition"]
+
+    payload = json.loads(response.data.decode("utf-8"))
+    assert payload["version_id"] == version_id
+    assert payload["subjects"]
+    assert payload["subjects"][0]["subject"] == "Mathematics"
+
+
+def test_chief_examiner_library_import_accepts_narrative_text(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+    narrative_text = (
+        "Mathematics\n\n"
+        "Candidates showed weakness in geometry because many of them gave final answers without geometric reasons. "
+        "Teachers should reteach theorem wording and insist on labelled diagrams in every proof question."
+    )
+
+    response = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        data={
+            "report_text": narrative_text,
+            "replace_existing": "true",
+            "source_filename": "chief-examiner-narrative.txt",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    mathematics_subject = next(item for item in payload["subjects"] if item["subject"] == "Mathematics")
+    geometry_topic = next(item for item in mathematics_subject["topics"] if item["topic"] == "Geometry")
+    assert "final answers without geometric reasons" in geometry_topic["issue"]
+    assert "Teachers should reteach theorem wording" in geometry_topic["advice"]
+
+
+def test_chief_examiner_library_import_accepts_numbered_subject_sections(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+    narrative_text = (
+        "2023 BECE Chief Examiners Report\n\n"
+        "1. MATHEMATICS\n"
+        "Candidates performed poorly in constructions and often gave answers to geometry questions without supporting reasons. "
+        "Teachers should emphasise labelled diagrams and step-by-step explanations.\n\n"
+        "2. ENGLISH LANGUAGE\n"
+        "Candidates wrote long irrelevant responses and failed to answer comprehension questions precisely. "
+        "Teachers should train learners to respond briefly and directly to the question stem."
+    )
+
+    response = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        data={
+            "report_text": narrative_text,
+            "replace_existing": "true",
+            "source_filename": "chief-examiner-pdf-like.txt",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+
+    mathematics_subject = next(item for item in payload["subjects"] if item["subject"] == "Mathematics")
+    assert any(
+        "without supporting reasons" in topic["issue"] or "constructions" in topic["issue"]
+        for topic in mathematics_subject["topics"]
+    )
+
+    english_subject = next(item for item in payload["subjects"] if item["subject"] == "English Language")
+    assert any("comprehension questions precisely" in topic["issue"] for topic in english_subject["topics"])
+
+
+def test_chief_examiner_library_import_recognizes_extended_subject_headings_and_summarizes_text(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+    narrative_text = (
+        "2023 BECE Chief Examiners Report\n\n"
+        "3. ENGLISH LANGUAGE\n"
+        "GENERAL COMMENTS The standard of the paper compared favourably with previous years. "
+        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates wrote long irrelevant responses in comprehension and lost marks through weak paragraphing. "
+        "SUGGESTED REMEDIES Teachers should train learners to answer directly from the question stem and practise paragraph development.\n\n"
+        "4. FRENCH\n"
+        "SUMMARY OF CANDIDATES' WEAKNESSES Some candidates struggled to form correct sentences and misused common expressions. "
+        "SUGGESTED REMEDIES Teachers should increase oral drills and short sentence-building practice.\n\n"
+        "5. GHANAIAN LANGUAGES\n"
+        "SUMMARY OF CANDIDATES' WEAKNESSES Some candidates gave incomplete answers and weak explanations in grammar tasks. "
+        "SUGGESTED REMEDIES Teachers should focus on grammar drills and short written responses.\n\n"
+        "12. INTEGRATED SCIENCE\n"
+        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates omitted units and skipped key observations in practical questions. "
+        "SUGGESTED REMEDIES Teachers should revise units and observation tables before the next examination.\n\n"
+        "15. HOME ECONOMICS\n"
+        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates gave vague answers and mixed up practical procedures. "
+        "SUGGESTED REMEDIES Teachers should use more practical demonstrations and step-by-step explanations.\n\n"
+        "16. VISUAL ART\n"
+        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates produced ideas without clearly explaining the design choices behind them. "
+        "SUGGESTED REMEDIES Teachers should guide learners to explain colour, form, and purpose in their design work."
+    )
+
+    response = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        data={
+            "report_text": narrative_text,
+            "replace_existing": "true",
+            "source_filename": "chief-examiner-2023.txt",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    subject_names = {subject["subject"] for subject in payload["subjects"]}
+    assert {"English Language", "French", "Ghanaian Languages", "Integrated Science", "Home Economics", "Visual Art"}.issubset(subject_names)
+
+    english_subject = next(item for item in payload["subjects"] if item["subject"] == "English Language")
+    english_topic = english_subject["topics"][0]
+    assert len(english_topic["issue"]) < 240
+    assert "GENERAL COMMENTS" not in english_topic["issue"]
+    assert english_topic["advice"]
+    assert len(english_topic["advice"]) < 240
+
+
+def test_chief_examiner_library_import_uses_pdf_ocr_fallback_when_pdf_text_is_empty(client, app, test_school, test_proprietor, monkeypatch):
+    class EmptyPdfPage:
+        def extract_text(self):
+            return ""
+
+    class EmptyPdfDocument:
+        pages = [EmptyPdfPage()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=lambda *_args, **_kwargs: EmptyPdfDocument()))
+    monkeypatch.setattr(
+        "backend.routes._extract_text_from_pdf_with_ocr",
+        lambda _file_bytes: (
+            "1. MATHEMATICS\n"
+            "Candidates performed poorly in constructions and often gave answers to geometry questions without supporting reasons. "
+            "Teachers should emphasise labelled diagrams and step-by-step explanations."
+        ),
+    )
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    multipart_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+    response = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=multipart_headers,
+        data={
+            "replace_existing": "true",
+            "file": (BytesIO(b"%PDF-1.4 scanned chief examiner report"), "chief-examiner-scan.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    mathematics_subject = next(item for item in payload["subjects"] if item["subject"] == "Mathematics")
+    assert any(
+        "without supporting reasons" in topic["issue"] or "constructions" in topic["issue"]
+        for topic in mathematics_subject["topics"]
+    )
+
+
+def test_teacher_can_duplicate_exam_paper_without_overwriting_original(client, app, test_school, test_teacher):
+    headers = _teacher_headers(app, test_school.id, test_teacher.id)
+
+    create_response = client.post(
+        "/api/exams/papers",
+        headers=headers,
+        json={
+            "title": "JHS 2 Mathematics Mock",
+            "class_name": "JHS 2",
+            "subject_name": "Mathematics",
+            "academic_term": "Term 2",
+            "academic_year": "2025/2026",
+            "exam_type": "Mock Exam",
+            "instructions": "Answer all questions.",
+            "total_marks": 50,
+            "duration_minutes": 60,
+            "questions": [
+                {"type": "structured", "question": "Solve 2x + 3 = 11", "marks": 5}
+            ],
+            "status": "finalized",
+        },
+    )
+    assert create_response.status_code == 201
+    paper_id = create_response.get_json()["paper_id"]
+
+    duplicate_response = client.post(
+        f"/api/exams/papers/{paper_id}/duplicate",
+        headers=headers,
+        json={"title": "JHS 2 Mathematics Mock Revision Copy"},
+    )
+    assert duplicate_response.status_code == 201
+    duplicated_paper_id = duplicate_response.get_json()["paper_id"]
+    assert duplicated_paper_id != paper_id
+
+    original_response = client.get(f"/api/exams/papers/{paper_id}", headers=headers)
+    duplicate_detail_response = client.get(f"/api/exams/papers/{duplicated_paper_id}", headers=headers)
+    assert original_response.status_code == 200
+    assert duplicate_detail_response.status_code == 200
+
+    original_payload = original_response.get_json()
+    duplicate_payload = duplicate_detail_response.get_json()
+    assert original_payload["title"] == "JHS 2 Mathematics Mock"
+    assert original_payload["status"] == "finalized"
+    assert duplicate_payload["title"] == "JHS 2 Mathematics Mock Revision Copy"
+    assert duplicate_payload["status"] == "draft"
+    assert duplicate_payload["questions"] == original_payload["questions"]
+
+    for paper in ExamPaper.query.filter(ExamPaper.id.in_([paper_id, duplicated_paper_id])).all():
+        db.session.delete(paper)
+    db.session.commit()
+
+
+def test_teacher_exam_paper_history_and_restore_snapshot(client, app, test_school, test_teacher):
+    headers = _teacher_headers(app, test_school.id, test_teacher.id)
+
+    create_response = client.post(
+        "/api/exams/papers",
+        headers=headers,
+        json={
+            "title": "Integrated Science Mock",
+            "class_name": "JHS 2",
+            "subject_name": "Science",
+            "academic_term": "Term 2",
+            "academic_year": "2025/2026",
+            "exam_type": "Mock Exam",
+            "instructions": "Answer all questions.",
+            "total_marks": 40,
+            "duration_minutes": 50,
+            "questions": [
+                {"type": "structured", "question": "Name two sense organs", "marks": 4}
+            ],
+            "status": "draft",
+        },
+    )
+    assert create_response.status_code == 201
+    paper_id = create_response.get_json()["paper_id"]
+
+    update_response = client.put(
+        f"/api/exams/papers/{paper_id}",
+        headers=headers,
+        json={
+            "title": "Integrated Science Mock Updated",
+            "questions": [
+                {"type": "structured", "question": "Name three sense organs", "marks": 6}
+            ],
+            "status": "draft",
+        },
+    )
+    assert update_response.status_code == 200
+
+    history_response = client.get(f"/api/exams/papers/{paper_id}/history", headers=headers)
+    assert history_response.status_code == 200
+    history_payload = history_response.get_json()
+    assert history_payload["root_paper_id"] == paper_id
+    assert len(history_payload["history"]) >= 2
+    create_snapshot = next(item for item in history_payload["history"] if item["action"] == "create")
+    update_snapshot = next(item for item in history_payload["history"] if item["action"] == "update")
+    assert update_snapshot["title"] == "Integrated Science Mock Updated"
+
+    restore_response = client.post(
+        f"/api/exams/papers/history/{create_snapshot['snapshot_id']}/restore",
+        headers=headers,
+    )
+    assert restore_response.status_code == 201
+    restored_paper_id = restore_response.get_json()["paper_id"]
+    assert restored_paper_id != paper_id
+
+    restored_detail = client.get(f"/api/exams/papers/{restored_paper_id}", headers=headers)
+    assert restored_detail.status_code == 200
+    restored_payload = restored_detail.get_json()
+    assert restored_payload["title"].endswith("(Restored Copy)")
+    assert restored_payload["status"] == "draft"
+    assert restored_payload["questions"][0]["question"] == "Name two sense organs"
+
+    for paper in ExamPaper.query.filter(ExamPaper.id.in_([paper_id, restored_paper_id])).all():
+        db.session.delete(paper)
+    db.session.commit()
+
+
+def test_exam_paper_history_snapshot_can_be_downloaded(client, app, test_school, test_teacher):
+    headers = _teacher_headers(app, test_school.id, test_teacher.id)
+    create_response = client.post(
+        "/api/exams/papers",
+        headers=headers,
+        json={
+            "title": "English Quiz",
+            "class_name": "JHS 1",
+            "subject_name": "English Language",
+            "academic_term": "Term 1",
+            "academic_year": "2025/2026",
+            "exam_type": "Quiz",
+            "instructions": "Answer briefly.",
+            "total_marks": 20,
+            "duration_minutes": 30,
+            "questions": [
+                {"type": "short", "question": "Define a noun.", "marks": 5}
+            ],
+            "status": "draft",
+        },
+    )
+    paper_id = create_response.get_json()["paper_id"]
+
+    history_response = client.get(f"/api/exams/papers/{paper_id}/history", headers=headers)
+    snapshot_id = history_response.get_json()["history"][0]["snapshot_id"]
+    assert history_response.get_json()["history"][0]["actor_name"] == test_teacher.username
+
+    download_response = client.get(
+        f"/api/exams/papers/history/{snapshot_id}/download",
+        headers=headers,
+    )
+    assert download_response.status_code == 200
+    assert download_response.headers["Content-Type"].startswith("application/json")
+    payload = json.loads(download_response.data.decode("utf-8"))
+    assert payload["snapshot_id"] == snapshot_id
+    assert payload["title"] == "English Quiz"
+
+    for paper in ExamPaper.query.filter(ExamPaper.id == paper_id).all():
+        db.session.delete(paper)
+    db.session.commit()
+
+
+def test_report_template_history_restore_and_download(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    first_response = client.post(
+        "/api/school/report-template",
+        headers=headers,
+        json={"report_template_id": "gradman_v1"},
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/api/school/report-template",
+        headers=headers,
+        json={"report_template_id": "parent_focus"},
+    )
+    assert second_response.status_code == 200
+
+    history_response = client.get("/api/school/report-template/history", headers=headers)
+    assert history_response.status_code == 200
+    history_payload = history_response.get_json()
+    assert len(history_payload["history"]) >= 2
+    assert history_payload["history"][0]["actor_name"] == test_proprietor.username
+
+    gradman_snapshot = next(
+        item for item in history_payload["history"] if item["report_template_id"] == "gradman_v1"
+    )
+
+    download_response = client.get(
+        f"/api/school/report-template/history/{gradman_snapshot['snapshot_id']}/download",
+        headers=headers,
+    )
+    assert download_response.status_code == 200
+    template_payload = json.loads(download_response.data.decode("utf-8"))
+    assert template_payload["report_template_id"] == "gradman_v1"
+
+    restore_response = client.post(
+        f"/api/school/report-template/history/{gradman_snapshot['snapshot_id']}/restore",
+        headers=headers,
+    )
+    assert restore_response.status_code == 200
+    assert restore_response.get_json()["report_template_id"] == "gradman_v1"
+
+
+def test_analytics_preset_history_restore_and_download(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    first_response = client.post(
+        "/api/analytics/presets",
+        headers=headers,
+        json={
+            "name": "Board View",
+            "filters": {
+                "academicTerm": "Term 1",
+                "academicYear": "2025/2026",
+                "analysisMode": "multi-year",
+                "activeView": "visualization",
+            },
+            "is_default": False,
+        },
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/api/analytics/presets",
+        headers=headers,
+        json={
+            "name": "Cohort Watch",
+            "filters": {
+                "academicTerm": "Term 2",
+                "academicYear": "2026/2027",
+                "cohortFromClass": "JHS 1",
+                "cohortToClass": "JHS 2",
+                "analysisMode": "multi-year",
+                "activeView": "visualization",
+            },
+            "is_default": True,
+        },
+    )
+    assert second_response.status_code == 200
+
+    history_response = client.get("/api/analytics/presets/history", headers=headers)
+    assert history_response.status_code == 200
+    history_payload = history_response.get_json()
+    assert len(history_payload["history"]) >= 2
+    assert history_payload["history"][0]["actor_name"] == test_proprietor.username
+
+    board_view_snapshot = next(
+        item for item in history_payload["history"] if item["focus_preset_name"] == "Board View"
+    )
+
+    download_response = client.get(
+        f"/api/analytics/presets/history/{board_view_snapshot['snapshot_id']}/download",
+        headers=headers,
+    )
+    assert download_response.status_code == 200
+    payload = json.loads(download_response.data.decode("utf-8"))
+    assert payload["focus_preset_name"] == "Board View"
+    assert payload["analytics_config"]["presets"][0]["name"] == "Board View"
+
+    restore_response = client.post(
+        f"/api/analytics/presets/history/{board_view_snapshot['snapshot_id']}/restore",
+        headers=headers,
+    )
+    assert restore_response.status_code == 200
+    restored_payload = restore_response.get_json()
+    assert restored_payload["default_preset_name"] == ""
+    assert [item["name"] for item in restored_payload["presets"]] == ["Board View"]
+
+
 def test_student_rescue_outcome_logging_returns_recent_history(client, app, test_school, test_proprietor):
     rescue_student = Student(
         school_id=test_school.id,
@@ -250,6 +1312,86 @@ def test_student_rescue_outcome_logging_returns_recent_history(client, app, test
     student_payload = next(item for item in rescue_payload["students"] if item["name"] == "Abena Asare")
     assert student_payload["last_outcome"]["action_code"] == "guardian_called"
     assert student_payload["recent_outcomes"][0]["actor_name"] == test_proprietor.username
+
+
+def test_basic_plan_blocks_student_rescue_agent_routes(client, app, test_school, test_proprietor):
+    test_school.subscription_plan = "Basic"
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/proprietor/student-rescue-agent", headers=headers)
+
+    assert response.status_code == 403
+    payload = response.get_json()
+    assert payload["current_plan"] == "Basic"
+    assert payload["required_plan"] == "Premium"
+
+
+def test_basic_plan_blocks_academic_guidance_routes(client, app, test_school, test_teacher):
+    test_school.subscription_plan = "Basic"
+    db.session.commit()
+
+    headers = _teacher_headers(app, test_school.id, test_teacher.id)
+    response = client.get("/api/analytics/academic-guidance", headers=headers)
+
+    assert response.status_code == 403
+    payload = response.get_json()
+    assert payload["current_plan"] == "Basic"
+    assert payload["required_plan"] == "Premium"
+
+
+def test_basic_plan_report_builder_response_omits_academic_guidance(client, app, test_school, test_proprietor):
+    test_school.subscription_plan = "Basic"
+    student = Student(
+        school_id=test_school.id,
+        first_name="Efua",
+        surname="Owusu",
+        name="Efua Owusu",
+        student_code="S990",
+        current_class="JHS 1",
+        parent_name="Kofi Owusu",
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    report = ReportCard(
+        school_id=test_school.id,
+        student_id=student.id,
+        academic_term="Term 2",
+        academic_year="2025/2026",
+        class_name="JHS 1",
+        term_average=76.0,
+        attendance_percentage=92.0,
+        overall_position="5th",
+        out_of_students=24,
+        subject_grades=[{"subject": "Mathematics", "total": 78}],
+        status="Approved",
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(
+        f"/api/homeroom/report-builder/report/{student.id}?academic_term=Term 2&academic_year=2025/2026",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert "academic_guidance" not in payload
+
+
+def test_basic_plan_blocks_advanced_analytics_routes(client, app, test_school, test_proprietor):
+    test_school.subscription_plan = "Basic"
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/analytics/presets", headers=headers)
+
+    assert response.status_code == 403
+    payload = response.get_json()
+    assert payload["current_plan"] == "Basic"
+    assert payload["required_plan"] == "Premium"
 
 
 def test_student_rescue_email_send_logs_outcome(client, app, test_school, test_proprietor, monkeypatch):
@@ -498,6 +1640,7 @@ def test_school_settings_persist_legacy_migration_and_bece_compliance_flags(clie
                 "legacy_consent_evidence_notes": "Signed forms filed in the admissions office.",
                 "bece_result_processing_enabled": True,
                 "bece_parent_notice_confirmed": True,
+                "teacher_class_level_exam_summaries_enabled": True,
             }
         ),
     )
@@ -513,6 +1656,7 @@ def test_school_settings_persist_legacy_migration_and_bece_compliance_flags(clie
     assert payload["legacy_consent_evidence_notes"] == "Signed forms filed in the admissions office."
     assert payload["bece_result_processing_enabled"] is True
     assert payload["bece_parent_notice_confirmed"] is True
+    assert payload["teacher_class_level_exam_summaries_enabled"] is True
 
 
 def test_legacy_consent_evidence_upload_list_and_download(client, app, test_school, test_proprietor, tmp_path):
@@ -692,6 +1836,172 @@ def test_exam_intelligence_parses_text_based_pdf_automatically(client, app, test
     assert batch["candidate_count"] == 2
     assert batch["source_format"] == "pdf"
     assert batch["parse_mode"] == "pdf_text"
+
+
+def test_teacher_receives_restricted_subject_level_exam_summary(client, app, test_school, test_proprietor, test_teacher, tmp_path):
+    from backend.api.models import TeacherAssignment
+
+    app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
+    proprietor_headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    settings_response = client.post(
+        "/api/school/settings",
+        headers=proprietor_headers,
+        data=json.dumps(
+            {
+                "data_compliance_school_authority_confirmed": True,
+                "legacy_parent_notice_dispatched": True,
+                "legacy_consent_collection_completed": True,
+                "bece_result_processing_enabled": True,
+                "bece_parent_notice_confirmed": True,
+            }
+        ),
+    )
+    assert settings_response.status_code == 200
+
+    assignment = TeacherAssignment(
+        school_id=test_school.id,
+        teacher_id=test_teacher.id,
+        class_name="JHS 1",
+        subject_name="Mathematics",
+    )
+    db.session.add(assignment)
+    db.session.commit()
+
+    multipart_headers = {key: value for key, value in proprietor_headers.items() if key != "Content-Type"}
+    upload_response = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2025/2026",
+            "result_text": (
+                "Ama | Female | Mathematics | 82 | A1\n"
+                "Ama | Female | English Language | 79 | B2\n"
+                "Kojo | Male | Mathematics | 66 | C4\n"
+                "Kojo | Male | English Language | 63 | C5\n"
+            ),
+            "file": (BytesIO(b"%PDF-1.4 teacher-summary"), "teacher-summary.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 201
+
+    teacher_headers = _teacher_headers(app, test_school.id, test_teacher.id)
+    teacher_response = client.get("/api/analytics/exam-intelligence", headers=teacher_headers)
+    assert teacher_response.status_code == 200
+    payload = teacher_response.get_json()
+    assert payload["view_scope"] == "teacher_subject_summary"
+    assert payload["raw_access"] is False
+    assert payload["class_level_summaries_enabled"] is False
+    assert payload["assigned_subjects"] == ["Mathematics"]
+    assert payload["summary"]["tracked_subjects"] == 1
+    assert payload["latest_batch"]["academic_year"] == "2025/2026"
+    assert len(payload["latest_batch"]["subject_summaries"]) == 1
+    assert payload["latest_batch"]["subject_summaries"][0]["subject"] == "Mathematics"
+    assert len(payload["subject_trends"]) == 1
+    assert payload["subject_trends"][0]["subject"] == "Mathematics"
+    assert payload["class_summaries"] == []
+
+    denied_download_response = client.get(
+        f"/api/analytics/exam-imports/{upload_response.get_json()['batch']['id']}/download",
+        headers=teacher_headers,
+    )
+    assert denied_download_response.status_code == 403
+
+    db.session.delete(assignment)
+    db.session.commit()
+
+
+def test_teacher_receives_class_level_exam_summary_when_setting_enabled(client, app, test_school, test_proprietor, test_teacher, tmp_path):
+    from backend.api.models import TeacherAssignment
+
+    app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
+    proprietor_headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+
+    settings_response = client.post(
+        "/api/school/settings",
+        headers=proprietor_headers,
+        data=json.dumps(
+            {
+                "data_compliance_school_authority_confirmed": True,
+                "legacy_parent_notice_dispatched": True,
+                "legacy_consent_collection_completed": True,
+                "bece_result_processing_enabled": True,
+                "bece_parent_notice_confirmed": True,
+                "teacher_class_level_exam_summaries_enabled": True,
+            }
+        ),
+    )
+    assert settings_response.status_code == 200
+
+    test_teacher.assigned_class = "JHS 1"
+    db.session.add(test_teacher)
+    assignment = TeacherAssignment(
+        school_id=test_school.id,
+        teacher_id=test_teacher.id,
+        class_name="JHS 1",
+        subject_name="Mathematics",
+    )
+    db.session.add(assignment)
+
+    student_one = Student.query.filter_by(school_id=test_school.id, student_code="STU001").first()
+    if not student_one:
+        student_one = Student(
+            school_id=test_school.id,
+            first_name="Ama",
+            surname="Mensah",
+            name="Ama Mensah",
+            student_code="STU001",
+            current_class="JHS 1",
+        )
+        db.session.add(student_one)
+
+    student_two = Student.query.filter_by(school_id=test_school.id, student_code="STU002").first()
+    if not student_two:
+        student_two = Student(
+            school_id=test_school.id,
+            first_name="Kojo",
+            surname="Owusu",
+            name="Kojo Owusu",
+            student_code="STU002",
+            current_class="JHS 1",
+        )
+        db.session.add(student_two)
+    db.session.commit()
+
+    csv_bytes = (
+        "candidate_id,candidate_name,class_name,gender,subject,score,grade\n"
+        "STU001,Ama Mensah,JHS 1,Female,Mathematics,82,A1\n"
+        "STU001,Ama Mensah,JHS 1,Female,English Language,79,B2\n"
+        "STU002,Kojo Owusu,JHS 1,Male,Mathematics,66,C4\n"
+        "STU002,Kojo Owusu,JHS 1,Male,English Language,63,C5\n"
+    ).encode("utf-8")
+    multipart_headers = {key: value for key, value in proprietor_headers.items() if key != "Content-Type"}
+    upload_response = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2025/2026",
+            "file": (BytesIO(csv_bytes), "teacher-class-summary.csv"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 201
+
+    teacher_headers = _teacher_headers(app, test_school.id, test_teacher.id)
+    teacher_response = client.get("/api/analytics/exam-intelligence", headers=teacher_headers)
+    assert teacher_response.status_code == 200
+    payload = teacher_response.get_json()
+    assert payload["class_level_summaries_enabled"] is True
+    assert len(payload["class_summaries"]) == 1
+    assert payload["class_summaries"][0]["class_name"] == "JHS 1"
+    assert payload["class_summaries"][0]["candidate_count"] == 2
+    assert payload["class_summaries"][0]["subject_summaries"][0]["subject"] == "Mathematics"
+
+    db.session.delete(assignment)
+    db.session.commit()
 
 
 def test_payment_codes_include_convenience_fee_breakdown_and_cash_alternative(client, app, test_school, test_proprietor, test_students):

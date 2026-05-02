@@ -12,25 +12,77 @@ describe('PerformanceAnalytics', () => {
   beforeEach(() => {
     localStorage.setItem('token', 'token-1');
     localStorage.setItem('school_id', 'TEST-001');
+    localStorage.setItem('subscription_plan', 'Premium');
+
+    const boardViewPreset = {
+      name: 'Board View',
+      filters: {
+        academicTerm: 'Term 1',
+        academicYear: '2025/2026',
+        cohortFromClass: '',
+        cohortToClass: '',
+        analysisMode: 'multi-year',
+        activeView: 'visualization',
+      },
+    };
+
+    const overviewQuickCheckPreset = {
+      name: 'Overview Quick Check',
+      filters: {
+        academicTerm: 'Term 2',
+        academicYear: '2026/2027',
+        cohortFromClass: 'JHS 1',
+        cohortToClass: 'JHS 2',
+        analysisMode: 'multi-year',
+        activeView: 'visualization',
+      },
+    };
 
     axios.get.mockImplementation((url) => {
       if (url === '/api/analytics/presets') {
         return Promise.resolve({
           data: {
-            presets: [
+            presets: [boardViewPreset],
+            default_preset_name: 'Board View',
+          },
+        });
+      }
+
+      if (url === '/api/analytics/presets/history') {
+        return Promise.resolve({
+          data: {
+            history: [
               {
-                name: 'Board View',
-                filters: {
-                  academicTerm: 'Term 1',
-                  academicYear: '2025/2026',
-                  cohortFromClass: '',
-                  cohortToClass: '',
-                  analysisMode: 'multi-year',
-                  activeView: 'visualization',
+                snapshot_id: 'aps-current',
+                action: 'save',
+                focus_preset_name: 'Board View',
+                default_preset_name: 'Board View',
+                preset_count: 1,
+                preset_names: ['Board View'],
+                analytics_config: {
+                  presets: [boardViewPreset],
+                  default_preset_name: 'Board View',
                 },
+                actor_name: 'headmaster',
+                created_at: '2026-01-03T10:00:00Z',
+                is_current: true,
+              },
+              {
+                snapshot_id: 'aps-older',
+                action: 'save',
+                focus_preset_name: 'Overview Quick Check',
+                default_preset_name: '',
+                preset_count: 1,
+                preset_names: ['Overview Quick Check'],
+                analytics_config: {
+                  presets: [overviewQuickCheckPreset],
+                  default_preset_name: '',
+                },
+                actor_name: 'headmaster',
+                created_at: '2025-12-01T10:00:00Z',
+                is_current: false,
               },
             ],
-            default_preset_name: 'Board View',
           },
         });
       }
@@ -101,17 +153,28 @@ describe('PerformanceAnalytics', () => {
       });
     });
 
-    axios.post.mockImplementation((_url, payload) => Promise.resolve({
-      data: {
-        presets: [
-          {
-            name: payload.name,
-            filters: payload.filters,
+    axios.post.mockImplementation((url, payload) => {
+      if (url === '/api/analytics/presets/history/aps-older/restore') {
+        return Promise.resolve({
+          data: {
+            presets: [overviewQuickCheckPreset],
+            default_preset_name: '',
           },
-        ],
-        default_preset_name: payload.is_default ? payload.name : 'Board View',
-      },
-    }));
+        });
+      }
+
+      return Promise.resolve({
+        data: {
+          presets: [
+            {
+              name: payload.name,
+              filters: payload.filters,
+            },
+          ],
+          default_preset_name: payload.is_default ? payload.name : 'Board View',
+        },
+      });
+    });
 
     axios.put.mockImplementation((url) => Promise.resolve({
       data: {
@@ -265,6 +328,23 @@ describe('PerformanceAnalytics', () => {
 
     await waitFor(() => {
       expect(axios.put).toHaveBeenCalledWith('/api/analytics/presets/Overview%20Quick%20Check/default', {}, expect.any(Object));
+    });
+  });
+
+  it('shows preset history diffs and restores an older snapshot', async () => {
+    render(<PerformanceAnalytics defaultView="visualization" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Preset History/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Snapshot includes Overview Quick Check/i)).toBeInTheDocument();
+    expect(screen.getByText(/Current shelf includes Board View that would be removed/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Restore Snapshot/i }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith('/api/analytics/presets/history/aps-older/restore', {}, expect.any(Object));
     });
   });
 });

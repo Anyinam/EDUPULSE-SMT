@@ -2,6 +2,67 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useBranding } from '../hooks/useBranding';
 
+const PAPER_ACTION_LABELS = {
+  create: 'Created',
+  update: 'Updated',
+  duplicate: 'Duplicated',
+  restore: 'Restored',
+};
+
+const PAPER_STATUS_META = {
+  draft: { label: 'Working Copy', tone: 'bg-amber-100 text-amber-800' },
+  finalized: { label: 'Published', tone: 'bg-emerald-100 text-emerald-800' },
+  submitted_headmaster: { label: 'Awaiting Headmaster', tone: 'bg-blue-100 text-blue-800' },
+  submitted_proprietor: { label: 'Awaiting Proprietor', tone: 'bg-indigo-100 text-indigo-800' },
+  returned_by_headmaster: { label: 'Needs Revision', tone: 'bg-rose-100 text-rose-800' },
+  returned_by_proprietor: { label: 'Needs Revision', tone: 'bg-rose-100 text-rose-800' },
+};
+
+function getPaperStatusMeta(status) {
+  return PAPER_STATUS_META[status] || {
+    label: String(status || 'Draft').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+    tone: 'bg-slate-100 text-slate-700',
+  };
+}
+
+function buildPaperHistoryPreview(currentPaper, snapshot) {
+  if (!snapshot) {
+    return [];
+  }
+
+  const currentQuestionCount = Array.isArray(currentPaper?.questions) ? currentPaper.questions.length : 0;
+  const currentFirstQuestion = currentPaper?.questions?.[0]?.question || '';
+  const snapshotFirstQuestion = snapshot.question_preview?.[0] || '';
+  const rows = [];
+  const comparisons = [
+    ['Title', snapshot.title || '', currentPaper?.title || ''],
+    ['Class', snapshot.class_name || '', currentPaper?.class_name || ''],
+    ['Subject', snapshot.subject_name || '', currentPaper?.subject_name || ''],
+    ['Term', snapshot.academic_term || '', currentPaper?.academic_term || ''],
+    ['Year', snapshot.academic_year || '', currentPaper?.academic_year || ''],
+    ['Exam type', snapshot.exam_type || '', currentPaper?.exam_type || ''],
+    ['Status', getPaperStatusMeta(snapshot.status).label, getPaperStatusMeta(currentPaper?.status).label],
+    ['Question count', String(snapshot.question_count || 0), String(currentQuestionCount)],
+  ];
+
+  comparisons.forEach(([label, snapshotValue, currentValue]) => {
+    if ((snapshotValue || '') !== (currentValue || '')) {
+      rows.push(`${label}: ${snapshotValue || 'None'} instead of ${currentValue || 'None'}.`);
+    }
+  });
+
+  const snapshotInstructions = String(snapshot.instructions || '').trim();
+  const currentInstructions = String(currentPaper?.instructions || '').trim();
+  if (snapshotInstructions !== currentInstructions) {
+    rows.push('Instructions differ from the current working copy.');
+  }
+  if (snapshotFirstQuestion !== currentFirstQuestion) {
+    rows.push(`Lead question: ${snapshotFirstQuestion || 'No question'} instead of ${currentFirstQuestion || 'No question'}.`);
+  }
+
+  return rows;
+}
+
 /**
  * Exam Paper Editor - For teachers to create and manage exam question papers
  * Features:
@@ -67,6 +128,10 @@ export default function ExamPapers() {
   const [saveState, setSaveState] = useState('idle');
   const [imageProcessing, setImageProcessing] = useState(false);
   const [imageDropActive, setImageDropActive] = useState(false);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyBusyId, setHistoryBusyId] = useState('');
+  const [selectedHistorySnapshotId, setSelectedHistorySnapshotId] = useState('');
   
   // Auth headers
   const getAuthHeaders = () => ({
@@ -182,6 +247,34 @@ export default function ExamPapers() {
       setLoading(false);
     }
   };
+
+  const fetchPaperHistory = async (paperId) => {
+    if (!paperId) {
+      setHistoryItems([]);
+      setSelectedHistorySnapshotId('');
+      return;
+    }
+
+    try {
+      setHistoryLoading(true);
+      const res = await axios.get(`/api/exams/papers/${paperId}/history`, getAuthHeaders());
+      const nextHistoryItems = Array.isArray(res.data?.history) ? res.data.history : [];
+      setHistoryItems(nextHistoryItems);
+      setSelectedHistorySnapshotId((currentValue) => {
+        if (nextHistoryItems.some((item) => item.snapshot_id === currentValue)) {
+          return currentValue;
+        }
+        const preferredItem = nextHistoryItems.find((item) => !item.is_current) || nextHistoryItems[0];
+        return preferredItem?.snapshot_id || '';
+      });
+    } catch (err) {
+      console.error('Failed to load exam paper history', err);
+      setHistoryItems([]);
+      setSelectedHistorySnapshotId('');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
   
   const createNewPaper = () => {
     setPaperData({
@@ -200,6 +293,8 @@ export default function ExamPapers() {
     setSelectedPaper(null);
     setIsEditor(true);
     setSaveState('idle');
+    setHistoryItems([]);
+    setSelectedHistorySnapshotId('');
   };
 
   const restoreLocalDraft = () => {
@@ -228,6 +323,7 @@ export default function ExamPapers() {
       setPaperData(res.data);
       setSelectedPaper(res.data);
       setIsEditor(true);
+      fetchPaperHistory(paperId);
     } catch (err) {
       console.error('Failed to load paper:', err);
       alert('Error loading exam paper');
@@ -263,6 +359,7 @@ export default function ExamPapers() {
         if (!silent) alert('Exam paper saved successfully!');
         setSaveState('saved');
         fetchPapers();
+        fetchPaperHistory(selectedPaper.id);
         return selectedPaper.id;
       } else {
         // Create new
@@ -274,6 +371,7 @@ export default function ExamPapers() {
         if (!silent) alert('Exam paper saved successfully!');
         setSaveState('saved');
         fetchPapers();
+        fetchPaperHistory(paperId);
         return paperId;
       }
     } catch (err) {
@@ -325,12 +423,71 @@ export default function ExamPapers() {
       if (selectedPaper?.id === paperId) {
         setIsEditor(false);
         setSelectedPaper(null);
+        setHistoryItems([]);
+        setSelectedHistorySnapshotId('');
       }
     } catch (err) {
       console.error('Failed to delete paper:', err);
       alert('Error deleting exam paper');
     }
   };
+
+  const duplicatePaper = async (paperId, titleOverride = '') => {
+    try {
+      const payload = titleOverride ? { title: titleOverride } : {};
+      const res = await axios.post(`/api/exams/papers/${paperId}/duplicate`, payload, getAuthHeaders());
+      const duplicatedPaperId = res.data?.paper_id;
+      await fetchPapers();
+      if (duplicatedPaperId) {
+        await loadPaper(duplicatedPaperId);
+      }
+      alert(res.data?.message || 'Exam paper duplicated successfully.');
+    } catch (err) {
+      console.error('Failed to duplicate paper:', err);
+      alert('Error duplicating exam paper: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const restoreHistorySnapshot = async (snapshotId) => {
+    try {
+      setHistoryBusyId(snapshotId);
+      const res = await axios.post(`/api/exams/papers/history/${snapshotId}/restore`, {}, getAuthHeaders());
+      const restoredPaperId = res.data?.paper_id;
+      await fetchPapers();
+      if (restoredPaperId) {
+        await loadPaper(restoredPaperId);
+      }
+      alert(res.data?.message || 'Exam paper restored as a new draft copy.');
+    } catch (err) {
+      console.error('Failed to restore paper snapshot:', err);
+      alert('Error restoring exam paper version: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setHistoryBusyId('');
+    }
+  };
+
+  const downloadHistorySnapshot = async (snapshotId, fallbackName) => {
+    try {
+      const res = await axios.get(`/api/exams/papers/history/${snapshotId}/download`, {
+        ...getAuthHeaders(),
+        responseType: 'blob'
+      });
+      const blobUrl = window.URL.createObjectURL(new Blob([res.data], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fallbackName || `${snapshotId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Failed to download paper snapshot:', err);
+      alert('Error downloading exam paper version: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const selectedHistoryItem = historyItems.find((item) => item.snapshot_id === selectedHistorySnapshotId) || null;
+  const historyPreview = buildPaperHistoryPreview(paperData, selectedHistoryItem);
   
   const addQuestion = () => {
     if (!newQuestion.question) {
@@ -676,6 +833,12 @@ ${aiPrompt.teacher_instructions || 'None'}`;
                     Edit
                   </button>
                   <button
+                    onClick={() => duplicatePaper(paper.id)}
+                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-semibold"
+                  >
+                    Duplicate
+                  </button>
+                  <button
                     onClick={() => deletePaper(paper.id)}
                     className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-semibold"
                   >
@@ -707,6 +870,14 @@ ${aiPrompt.teacher_instructions || 'None'}`;
           >
             ← Back to List
           </button>
+          {selectedPaper?.id && (
+            <button
+              onClick={() => duplicatePaper(selectedPaper.id, `${paperData.title || 'Exam Paper'} (Copy)`)}
+              className="px-6 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors font-semibold"
+            >
+              Duplicate Version
+            </button>
+          )}
           <button
             onClick={() => savePaper('draft')}
             disabled={loading}
@@ -887,6 +1058,92 @@ ${aiPrompt.teacher_instructions || 'None'}`;
           />
         </div>
       </div>
+
+      {selectedPaper?.id && (
+        <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-blue-900 mb-1">Version History</h2>
+              <p className="text-sm text-slate-600">Each save, duplicate, and restore creates a recoverable snapshot for this paper family.</p>
+            </div>
+            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">
+              {historyItems.length} snapshot{historyItems.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {historyLoading ? (
+            <p className="mt-4 text-sm text-slate-500">Loading version history...</p>
+          ) : historyItems.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500">No history snapshots yet for this paper.</p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Snapshot Preview</p>
+                {selectedHistoryItem ? (
+                  historyPreview.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-500">This snapshot matches the current paper.</p>
+                  ) : (
+                    <div className="mt-2 space-y-1">
+                      {historyPreview.map((line) => (
+                        <p key={line} className="text-sm text-slate-600">{line}</p>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">Choose a snapshot to preview the differences before restoring it.</p>
+                )}
+              </div>
+
+              {historyItems.map((item) => (
+                <div key={item.snapshot_id} className={`rounded-xl border p-4 ${selectedHistorySnapshotId === item.snapshot_id ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200'}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-bold text-slate-800">{item.title}</p>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-700">{PAPER_ACTION_LABELS[item.action] || item.action}</span>
+                        <span className={`rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-wide ${getPaperStatusMeta(item.status).tone}`}>{getPaperStatusMeta(item.status).label}</span>
+                        {item.is_current && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-800">Current</span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.class_name} • {item.subject_name} • {item.question_count} questions • {item.created_at ? new Date(item.created_at).toLocaleString() : 'Recently'}
+                      </p>
+                      {item.actor_name && (
+                        <p className="mt-1 text-xs text-slate-500">By {item.actor_name}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedHistorySnapshotId(item.snapshot_id)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        {selectedHistorySnapshotId === item.snapshot_id ? 'Previewing' : 'Preview Diff'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadHistorySnapshot(item.snapshot_id, `${item.title || item.snapshot_id}.json`)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        Download JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => restoreHistorySnapshot(item.snapshot_id)}
+                        disabled={historyBusyId === item.snapshot_id}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        {historyBusyId === item.snapshot_id ? 'Restoring...' : 'Restore As Draft'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Questions Section */}
       <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">

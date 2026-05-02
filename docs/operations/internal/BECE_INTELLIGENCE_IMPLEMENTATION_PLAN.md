@@ -135,6 +135,14 @@ Before the BECE module is switched on for a school, the product should verify:
 5. imports are audited, and
 6. exported reports avoid unauthorised disclosure of identifiable minors' exam data.
 
+Access control rule:
+
+1. Raw candidate results are restricted to the proprietor and headmaster only.
+2. Summary analytics are available to the proprietor and headmaster by default.
+3. Teachers receive restricted subject-level summaries automatically for their assigned subjects.
+4. Any future class-level teacher summaries must be controlled by a separate school setting and must not expose school-wide raw candidate data.
+5. Finance, kitchen, inventory, parents, and students do not receive access to school-wide examination data.
+
 ## UI Surfaces To Add Later
 
 1. Proprietor or headmaster exam import dashboard
@@ -147,11 +155,15 @@ Before the BECE module is switched on for a school, the product should verify:
 
 ## Operational Questions For Counsel And Product
 
-1. Does each school already have a lawful basis to import historical BECE records, or is additional parent notice required?
+1. EduPulse should not assume that every school automatically has a lawful basis to import historical BECE records.
+	For new applicants, the school may rely on the consent or notice accepted on the school apply page where that matches the school's lawful basis.
+	Before a school uploads any student biodata into EduPulse SMT outside that admissions flow, the school must send the parent or guardian consent form provided with registration, or an approved equivalent, and retain the resulting evidence.
+	For students already enrolled before EduPulse SMT, the school must send and collect the required manual notice or consent forms before historical exam records are imported.
+	EduPulse acts as data processor and may rely on the school, as controller, to carry out that process and retain the supporting evidence.
 2. What wording should schools use if they want to analyze existing students' external exam history inside EduPulse SMT?
 3. What exact data formats do schools usually receive from WAEC?
 4. Is the first importer PDF-first, CSV-first, or spreadsheet-first?
-5. Which EduPulse roles can view raw candidate results, and which roles should see only summaries?
+5. What exact class-level summary outputs should be unlocked when the school enables the separate teacher class-summary setting, without exposing school-wide raw candidate data?
 
 ## Recommended Next Build Order
 

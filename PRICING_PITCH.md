@@ -107,10 +107,9 @@ School with 200 students (170 over base):
 Everything in Basic, plus:
 
 **🤖 AI & Predictive Intelligence**
-- ✅ AI Student Pulse (Sack-Risk Prediction)
-  - Financial health scoring (60% weight)
-  - Academic health scoring (40% weight)
-  - Real-time intervention recommendations
+- ✅ Rescue Activity Center for at-risk learner follow-up
+- ✅ Academic Guidance panel with shared chief examiner insights
+- ✅ Exam Intelligence workflows for subject trends and external exam support
 - ✅ AI-Generated Narratives for student reports
 - ✅ Predictive Risk Scoring (0-100 scale)
 - ✅ Correlation: Academic performance + Financial payment consistency
@@ -132,10 +131,10 @@ Everything in Basic, plus:
 - ✅ Real-time Balance Updates by Student
 
 **📝 Advanced Admissions**
-- ✅ AI Question Generation for entrance tests
-- ✅ Subject-based question pools
-- ✅ Difficulty level customization
-- ✅ Candidate screening automation
+- ✅ Parent-facing admissions application and status tracking
+- ✅ School-side admissions review workflows
+- ✅ AI-assisted admissions support and structured intake
+- ✅ Candidate screening support workflows
 
 **📊 Advanced Features**
 - ✅ Proprietor Dashboard (Live Feed)
@@ -153,6 +152,29 @@ Everything in Basic, plus:
 - ✅ Payment reconciliation tools
 - ✅ Enhanced DSAR workflow support
 - ✅ Webhook signature verification
+
+---
+
+## 🌍 Sustainability, Social Impact, and SDG Framing
+
+EduPulse pricing is designed to support both commercial sustainability and education impact.
+
+### Sustainability
+- Free tier lowers adoption friction for smaller schools.
+- Basic tier monetizes core operational value.
+- Premium tier funds deeper analytics, intervention, admissions, and governance workflows.
+
+### Social Impact
+- Schools reduce leakage and protect operating cashflow.
+- Learner-risk workflows support earlier intervention.
+- Parent-facing admissions and payment flows reduce access friction.
+
+### SDG Alignment
+- **SDG 4**: Quality Education
+- **SDG 8**: Decent Work and Economic Growth
+- **SDG 9**: Industry, Innovation and Infrastructure
+- **SDG 10**: Reduced Inequalities
+- **SDG 16**: Peace, Justice and Strong Institutions
 
 ---
 

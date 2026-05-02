@@ -24,6 +24,7 @@ These procedures apply to:
 4. Every operational promise must be tied to a ticket, email thread, or audit log.
 5. Billing exceptions must be documented; informal WhatsApp approvals are not enough.
 6. Sensitive actions must follow tenant isolation, role permissions, and password verification controls already built into the platform.
+7. No live student, guardian, admissions, report-card, or external examination import should proceed until the school has completed the required commercial acceptance and applicable privacy or data-processing paperwork.
 
 ## Roles And Ownership
 
@@ -56,7 +57,7 @@ Move the school from interest to first successful login, first core workflow usa
 3. Classify the opportunity.
    Mark the school as `Free`, `Basic`, `Premium`, or `Enterprise-style` based on student volume and requested features.
 4. Send the onboarding email and information request.
-   Request authorized signatory, billing contact, branding assets, import files, and training availability.
+   Request authorized signatory, billing contact, data-protection contact, branding assets, import files, and training availability.
 5. Verify readiness before account creation.
    Do not proceed until minimum required inputs are available: school identity, owner contact, intended plan, and at least one implementation contact.
 6. Create the school organization and proprietor account.
@@ -90,16 +91,20 @@ The school submits student, staff, or historical data for migration.
 ### Official Procedure
 
 1. Confirm the import owner on the school side.
-2. Receive files through an approved channel.
-3. Validate the file format before import.
+2. Confirm legal and policy readiness before import.
+   Verify the school has accepted the required terms, privacy notices, and any applicable data-processing paperwork for the import type.
+3. Receive files through an approved channel.
+4. Validate the file format before import.
    Check required columns, duplicate records, class naming consistency, and contact field structure.
-4. Back up the current tenant data state.
-5. Run a staging import or dry-run validation when the volume is high or the data is messy.
-6. Share import exceptions with the school for correction.
-7. Execute production import only after approval.
-8. Verify sample records with the school.
+5. Confirm lawful-purpose scope for sensitive imports.
+   For admissions files, report-card images, WAEC or BECE results, or chief examiner materials, confirm the school is uploading only data it is authorized to use for legitimate educational purposes.
+6. Back up the current tenant data state.
+7. Run a staging import or dry-run validation when the volume is high or the data is messy.
+8. Share import exceptions with the school for correction.
+9. Execute production import only after approval.
+10. Verify sample records with the school.
    Check at least one student, one class, one staff record, and one guardian/contact path where available.
-9. Log completion.
+11. Log completion.
    Record import date, operator, source file, affected modules, and issues found.
 
 ### Exit Criteria

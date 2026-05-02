@@ -20,9 +20,9 @@ import HolidayCalendar from '../components/HolidayCalendar';
 import AuditReport from '../components/AuditReport';
 import PerformanceAnalytics from '../components/PerformanceAnalytics';
 import ExamIntelligencePanel from '../components/ExamIntelligencePanel';
+import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import ExamInboxPanel from '../components/ExamInboxPanel';
-import StudentRescueAgent from '../components/StudentRescueAgent';
 import RescueActivityCenter from './RescueActivityCenter';
 
 export default function ProprietorPanel() {
@@ -236,10 +236,6 @@ export default function ProprietorPanel() {
               />
             </div>
 
-            <div className="mb-8">
-              <ExamIntelligencePanel />
-            </div>
-
             {/* Report Card Approvals Section */}
             {reportApprovals.length > 0 && (
               <div className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-purple-100">
@@ -298,10 +294,6 @@ export default function ProprietorPanel() {
               <AIInsights showPremiumOnly={plan === 'Free Tier'} />
             </div>
 
-            <div className="mb-8">
-              <StudentRescueAgent showPremiumOnly={plan === 'Free Tier'} />
-            </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <RemoteOversight />
               <div className="space-y-6">
@@ -355,6 +347,11 @@ export default function ProprietorPanel() {
           <TransactionHistory />
         ) : activeTab === 'payment-tracker' ? (
           <StudentPaymentTracker />
+        ) : activeTab === 'exam-intelligence' ? (
+          <div className="space-y-8">
+            <AcademicGuidancePanel title="Strategic Academic Guidance Overview" />
+            <ExamIntelligencePanel />
+          </div>
         ) : activeTab === 'rescue-activity' ? (
           <RescueActivityCenter />
         ) : activeTab === 'terminal-reports' ? (
@@ -488,6 +485,16 @@ export default function ProprietorPanel() {
                       <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
                         <p className="text-xs font-bold text-purple-600 uppercase mb-2">🤖 AI Performance Analysis</p>
                         <p className="text-sm text-purple-900 italic">{viewingReport.ai_performance_analysis}</p>
+                      </div>
+                    )}
+
+                    {viewingReport.academic_guidance?.printable_card?.headline && (
+                      <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                        <p className="text-xs font-bold text-emerald-600 uppercase mb-2">🎯 SHS Pathway Card</p>
+                        <p className="text-sm font-bold text-emerald-900">{viewingReport.academic_guidance.printable_card.headline}</p>
+                        {viewingReport.academic_guidance.printable_card.focus_note && (
+                          <p className="mt-2 text-sm text-emerald-900">{viewingReport.academic_guidance.printable_card.focus_note}</p>
+                        )}
                       </div>
                     )}
 

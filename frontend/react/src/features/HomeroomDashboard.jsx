@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import PaymentEntry from './PaymentEntry';
 import TimetableManager from '../components/TimetableManager';
+import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import { useBranding } from '../hooks/useBranding';
 
 /**
@@ -119,6 +120,9 @@ export default function Homeroom() {
         <div className="mb-8">
           <TimetableManager title="My Teaching Schedule" scope="mine" canManage={false} />
         </div>
+            <div className="mb-8">
+              <AcademicGuidancePanel title="My Homeroom Diagnostic Guidance" />
+            </div>
             <div className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
               {isHomeroom && <PaymentEntry students={students} />}
             </div>

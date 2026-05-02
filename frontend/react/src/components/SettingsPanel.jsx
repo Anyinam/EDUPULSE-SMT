@@ -190,6 +190,46 @@ const PREVIEW_TEMPLATE_THEMES = {
   }
 };
 
+const TEMPLATE_HISTORY_ACTION_LABELS = {
+  activate: 'Activated',
+  upload: 'Uploaded',
+  restore: 'Restored',
+};
+
+function buildTemplateHistoryPreview(activeTemplateId, activeTemplateConfig, snapshot) {
+  if (!snapshot) {
+    return [];
+  }
+
+  const rows = [];
+  const currentConfig = activeTemplateConfig || {};
+  const currentTemplateId = TEMPLATE_ALIAS_TO_CANONICAL[activeTemplateId] || activeTemplateId || '';
+
+  if ((snapshot.report_template_id || '') !== currentTemplateId) {
+    rows.push(`Template: ${snapshot.report_template_id || 'None'} instead of ${currentTemplateId || 'None'}.`);
+  }
+
+  const booleanComparisons = [
+    ['Custom HTML', snapshot.has_custom_html, Boolean(currentConfig.html)],
+    ['Custom CSS', snapshot.has_custom_css, Boolean(currentConfig.css)],
+    ['Background image', snapshot.has_background_image, Boolean(currentConfig.background_image_url)],
+  ];
+
+  booleanComparisons.forEach(([label, snapshotValue, currentValue]) => {
+    if (Boolean(snapshotValue) !== Boolean(currentValue)) {
+      rows.push(`${label}: ${snapshotValue ? 'Enabled' : 'Disabled'} instead of ${currentValue ? 'Enabled' : 'Disabled'}.`);
+    }
+  });
+
+  const snapshotConfigCount = Number(snapshot.config_key_count || 0);
+  const currentConfigCount = Object.keys(currentConfig || {}).length;
+  if (snapshotConfigCount !== currentConfigCount) {
+    rows.push(`Config keys: ${snapshotConfigCount} instead of ${currentConfigCount}.`);
+  }
+
+  return rows;
+}
+
 export default function SettingsPanel() {
   const [settings, setSettings] = useState({
     school_name: '',
@@ -231,6 +271,7 @@ export default function SettingsPanel() {
     legacy_consent_evidence_artifact_count: 0,
     bece_result_processing_enabled: false,
     bece_parent_notice_confirmed: false,
+    teacher_class_level_exam_summaries_enabled: false,
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
@@ -252,6 +293,9 @@ export default function SettingsPanel() {
   const [activeTemplate, setActiveTemplate] = useState('sample1');
   const [activeTemplateConfig, setActiveTemplateConfig] = useState({});
   const [templateMessage, setTemplateMessage] = useState('');
+  const [templateHistory, setTemplateHistory] = useState([]);
+  const [templateHistoryBusyId, setTemplateHistoryBusyId] = useState('');
+  const [selectedTemplateHistorySnapshotId, setSelectedTemplateHistorySnapshotId] = useState('');
   const [customTemplateUpload, setCustomTemplateUpload] = useState({
     templateName: '',
     htmlFile: null,
@@ -390,6 +434,7 @@ export default function SettingsPanel() {
           legacy_consent_evidence_artifact_count: Number(data.legacy_consent_evidence_artifact_count || 0),
           bece_result_processing_enabled: Boolean(data.bece_result_processing_enabled),
           bece_parent_notice_confirmed: Boolean(data.bece_parent_notice_confirmed),
+          teacher_class_level_exam_summaries_enabled: Boolean(data.teacher_class_level_exam_summaries_enabled),
         }));
         setMaskedBankSnapshot({
           bank_name: data.bank_name || '',
@@ -462,8 +507,70 @@ export default function SettingsPanel() {
       const canonicalId = res.data.report_template_id || 'gradman_v1';
       setActiveTemplate(TEMPLATE_CANONICAL_TO_ALIAS[canonicalId] || canonicalId);
       setActiveTemplateConfig(res.data.report_template_config || {});
+
+      const historyRes = await axios.get('/api/school/report-template/history', { headers });
+      const nextHistory = Array.isArray(historyRes.data?.history) ? historyRes.data.history : [];
+      setTemplateHistory(nextHistory);
+      setSelectedTemplateHistorySnapshotId((currentValue) => {
+        if (nextHistory.some((item) => item.snapshot_id === currentValue)) {
+          return currentValue;
+        }
+        const preferredItem = nextHistory.find((item) => !item.is_current) || nextHistory[0];
+        return preferredItem?.snapshot_id || '';
+      });
     } catch (err) {
       console.error('Failed to load active template');
+    }
+  };
+
+  const handleTemplateHistoryRestore = async (snapshotId) => {
+    try {
+      setTemplateHistoryBusyId(snapshotId);
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+      const response = await axios.post(`/api/school/report-template/history/${snapshotId}/restore`, {}, { headers });
+      const canonicalId = response.data.report_template_id || 'gradman_v1';
+      setActiveTemplate(TEMPLATE_CANONICAL_TO_ALIAS[canonicalId] || canonicalId);
+      setActiveTemplateConfig(response.data.report_template_config || {});
+      setTemplateMessage('✅ Report template restored successfully');
+      fetchActiveTemplate();
+      setTimeout(() => setTemplateMessage(''), 4000);
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Failed to restore report template history.';
+      setTemplateMessage(`❌ ${errorMsg}`);
+      setTimeout(() => setTemplateMessage(''), 5000);
+    } finally {
+      setTemplateHistoryBusyId('');
+    }
+  };
+
+  const selectedTemplateHistoryItem = templateHistory.find((item) => item.snapshot_id === selectedTemplateHistorySnapshotId) || null;
+  const templateHistoryPreview = buildTemplateHistoryPreview(activeTemplate, activeTemplateConfig, selectedTemplateHistoryItem);
+
+  const handleTemplateHistoryDownload = async (snapshotId, fallbackName) => {
+    try {
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+      const response = await axios.get(`/api/school/report-template/history/${snapshotId}/download`, {
+        headers,
+        responseType: 'blob'
+      });
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fallbackName || `${snapshotId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Failed to download report template snapshot.';
+      setTemplateMessage(`❌ ${errorMsg}`);
+      setTimeout(() => setTemplateMessage(''), 5000);
     }
   };
 
@@ -1137,6 +1244,7 @@ export default function SettingsPanel() {
         legacy_consent_evidence_notes: settings.legacy_consent_evidence_notes,
         bece_result_processing_enabled: settings.bece_result_processing_enabled,
         bece_parent_notice_confirmed: settings.bece_parent_notice_confirmed,
+        teacher_class_level_exam_summaries_enabled: settings.teacher_class_level_exam_summaries_enabled,
       };
 
       if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
@@ -1853,7 +1961,7 @@ export default function SettingsPanel() {
         <div className="border-t pt-6 mt-8">
           <h3 className="text-lg font-bold text-slate-800 mb-4">🔐 Data Compliance & Legacy Migration</h3>
           <p className="text-sm text-slate-600 mb-4">
-            Track the school-side consent workflow for existing student record migration and any future WAEC or BECE result processing.
+            Track parent notice, consent, and exam-readiness records for this school.
           </p>
 
           <div className="space-y-5">
@@ -1869,7 +1977,7 @@ export default function SettingsPanel() {
                   />
                   <span>
                     <span className="block text-sm font-bold text-slate-700">School data authority confirmed for this tenant</span>
-                    <span className="block text-xs text-slate-500">Use this for existing schools that joined before the new registration acknowledgement flow was added. This unlocks BECE or WAEC import for the current school after you save.</span>
+                    <span className="block text-xs text-slate-500">Use this for older school accounts that joined before this record was added. Save once the school&apos;s registration acknowledgement has been confirmed.</span>
                   </span>
                 </label>
               </div>
@@ -1887,7 +1995,7 @@ export default function SettingsPanel() {
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Legacy Student Record Migration</h4>
-              <p className="mt-1 text-sm text-slate-600">Use these fields to track whether the school has sent notices and collected the required parent or guardian approvals before moving old records into EduPulse SMT.</p>
+              <p className="mt-1 text-sm text-slate-600">Use these fields to record the school&apos;s notice and consent status before old student records are moved into the system.</p>
               <div className="mt-4 space-y-3">
                 <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
                   <input
@@ -1898,7 +2006,7 @@ export default function SettingsPanel() {
                   />
                   <span>
                     <span className="block text-sm font-bold text-slate-700">Parent or guardian notice dispatched</span>
-                    <span className="block text-xs text-slate-500">Confirm that the school has sent the retrospective notice or consent form for students who were already enrolled before EduPulse SMT was introduced.</span>
+                    <span className="block text-xs text-slate-500">Confirm that the school has sent the required notice or consent form for older student records.</span>
                   </span>
                 </label>
                 <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
@@ -1910,7 +2018,7 @@ export default function SettingsPanel() {
                   />
                   <span>
                     <span className="block text-sm font-bold text-slate-700">Consent collection completed</span>
-                    <span className="block text-xs text-slate-500">Tick this only when the school has gathered the required approvals for the migration campaign.</span>
+                    <span className="block text-xs text-slate-500">Tick this when the school has finished collecting the required approvals.</span>
                   </span>
                 </label>
               </div>
@@ -1932,7 +2040,7 @@ export default function SettingsPanel() {
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">WAEC / BECE Data Readiness</h4>
-              <p className="mt-1 text-sm text-slate-600">These checks do not activate a WAEC integration by themselves. They record that the school has prepared the notice and consent basis before EduPulse SMT is used for external examination analytics.</p>
+              <p className="mt-1 text-sm text-slate-600">Record whether the school is ready to work with WAEC or BECE data.</p>
               <div className="mt-4 space-y-3">
                 <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
                   <input
@@ -1943,7 +2051,7 @@ export default function SettingsPanel() {
                   />
                   <span>
                     <span className="block text-sm font-bold text-slate-700">Enable school readiness for WAEC / BECE result processing</span>
-                    <span className="block text-xs text-slate-500">Use this when the school intends to import external examination result lists or trend data into EduPulse SMT.</span>
+                    <span className="block text-xs text-slate-500">Turn this on when the school is ready to import WAEC or BECE result lists or trend data.</span>
                   </span>
                 </label>
                 <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
@@ -1954,8 +2062,20 @@ export default function SettingsPanel() {
                     className="mt-1 h-4 w-4 rounded border-slate-300"
                   />
                   <span>
-                    <span className="block text-sm font-bold text-slate-700">Parent notice or consent basis confirmed for WAEC / BECE analytics</span>
-                    <span className="block text-xs text-slate-500">Tick this only when the school has confirmed the lawful basis for using student examination results in school-level academic analytics.</span>
+                    <span className="block text-sm font-bold text-slate-700">School confirms the lawful basis for WAEC / BECE analytics</span>
+                    <span className="block text-xs text-slate-500">Tick this when the school has completed the required notice or consent steps for the students covered by the upload.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.teacher_class_level_exam_summaries_enabled}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, teacher_class_level_exam_summaries_enabled: e.target.checked }))}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-700">Allow future class-level teacher exam summaries</span>
+                    <span className="block text-xs text-slate-500">Use this if the school wants teachers to see class-level exam summaries later on.</span>
                   </span>
                 </label>
               </div>
@@ -2320,6 +2440,96 @@ export default function SettingsPanel() {
           </form>
         </div>
       )}
+
+      <div className="mt-10 border-t pt-8">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-xl font-bold text-slate-800">Template Version History</h3>
+            <p className="text-sm text-slate-600">Every activation, upload, and restore is kept as a recoverable snapshot for your school.</p>
+          </div>
+          <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">
+            {templateHistory.length} snapshot{templateHistory.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          {templateHistory.length === 0 ? (
+            <p className="text-sm text-slate-500">No template history has been recorded yet.</p>
+          ) : (
+            <>
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Snapshot Preview</p>
+                {selectedTemplateHistoryItem ? (
+                  templateHistoryPreview.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-500">This snapshot matches the active template.</p>
+                  ) : (
+                    <div className="mt-2 space-y-1">
+                      {templateHistoryPreview.map((line) => (
+                        <p key={line} className="text-sm text-slate-600">{line}</p>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">Choose a template snapshot to preview the restore impact.</p>
+                )}
+              </div>
+
+              {templateHistory.map((item) => (
+              <div key={item.snapshot_id} className={`rounded-xl border bg-white p-4 ${selectedTemplateHistorySnapshotId === item.snapshot_id ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200'}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-bold text-slate-800">{item.report_template_id}</p>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-700">{TEMPLATE_HISTORY_ACTION_LABELS[item.action] || item.action}</span>
+                      {item.is_current && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-800">Active Template</span>
+                      )}
+                      {item.has_custom_html && (
+                        <span className="rounded-full bg-indigo-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-indigo-800">Custom HTML</span>
+                      )}
+                      {item.has_custom_css && (
+                        <span className="rounded-full bg-violet-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-violet-800">Custom CSS</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {item.created_at ? new Date(item.created_at).toLocaleString() : 'Recently'}
+                      {item.actor_name ? ` • by ${item.actor_name}` : ''}
+                    </p>
+                    {item.restored_from_snapshot_id && (
+                      <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400">Restored from {item.restored_from_snapshot_id}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTemplateHistorySnapshotId(item.snapshot_id)}
+                      className="px-3 py-2 text-xs font-bold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                    >
+                      {selectedTemplateHistorySnapshotId === item.snapshot_id ? 'Previewing' : 'Preview Diff'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTemplateHistoryDownload(item.snapshot_id, `${item.report_template_id || item.snapshot_id}.json`)}
+                      className="px-3 py-2 text-xs font-bold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                    >
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTemplateHistoryRestore(item.snapshot_id)}
+                      disabled={item.is_current || templateHistoryBusyId === item.snapshot_id}
+                      className="px-3 py-2 text-xs font-bold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {templateHistoryBusyId === item.snapshot_id ? 'Restoring...' : item.is_current ? 'Current' : 'Restore'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Premium Upsell for Free/Basic Tiers */}
       {subscriptionPlan !== 'Premium' && (

@@ -776,6 +776,24 @@ export default function TerminalReportPrinter() {
             </div>
           )}
 
+          {previewData.academic_guidance?.printable_card?.headline && (
+            <div className="bg-linear-to-br from-emerald-50 to-lime-50 border border-emerald-200 rounded-2xl p-6">
+              <h4 className="text-lg font-bold text-emerald-800 mb-3">🎯 SHS Pathway Card</h4>
+              <div className="bg-white rounded-lg p-4 border border-emerald-100 text-sm text-slate-700 space-y-2">
+                <p className="font-bold text-emerald-900">{previewData.academic_guidance.printable_card.headline}</p>
+                {previewData.academic_guidance.printable_card.pathway_fit_score !== null && (
+                  <p>Fit score: {Number(previewData.academic_guidance.printable_card.pathway_fit_score || 0).toFixed(1)}%</p>
+                )}
+                {previewData.academic_guidance.printable_card.focus_note && (
+                  <p>{previewData.academic_guidance.printable_card.focus_note}</p>
+                )}
+                {previewData.academic_guidance.printable_card.secondary_pathway && (
+                  <p>Secondary option: {previewData.academic_guidance.printable_card.secondary_pathway}</p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Headmaster Remarks */}
           <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-4">

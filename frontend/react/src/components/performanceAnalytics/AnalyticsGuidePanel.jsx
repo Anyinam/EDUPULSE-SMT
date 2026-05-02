@@ -6,6 +6,10 @@ export default function AnalyticsGuidePanel({
   presetFeedback,
   savedPresets,
   defaultPresetName,
+  presetHistory,
+  selectedPresetHistoryId,
+  presetHistoryPreview,
+  presetHistoryBusyId,
   onSetAnalysisMode,
   onPresetNameChange,
   onSavePreset,
@@ -13,7 +17,17 @@ export default function AnalyticsGuidePanel({
   onApplyPreset,
   onDeletePreset,
   onSetDefaultPreset,
+  onSelectPresetHistory,
+  onRestorePresetHistory,
+  onDownloadPresetHistory,
 }) {
+  const historyActionLabels = {
+    save: 'Saved',
+    set_default: 'Default updated',
+    delete: 'Removed',
+    restore: 'Restored',
+  };
+
   return (
     <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -107,6 +121,95 @@ export default function AnalyticsGuidePanel({
             );
           })}
         </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-slate-800">Preset History</p>
+            <p className="mt-1 text-xs text-slate-500">Every save, default change, delete, and restore keeps a recoverable preset shelf snapshot.</p>
+          </div>
+          <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+            {presetHistory.length} snapshot{presetHistory.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        {presetHistory.length === 0 ? (
+          <p className="mt-3 text-xs text-slate-500">No preset history yet.</p>
+        ) : (
+          <>
+            <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Snapshot Preview</p>
+              {presetHistoryPreview.length === 0 ? (
+                <p className="mt-2 text-xs text-slate-500">This snapshot matches the current preset shelf.</p>
+              ) : (
+                <div className="mt-2 space-y-1">
+                  {presetHistoryPreview.map((line) => (
+                    <p key={line} className="text-xs text-slate-600">{line}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {presetHistory.map((item) => {
+                const isSelected = item.snapshot_id === selectedPresetHistoryId;
+                return (
+                  <div
+                    key={item.snapshot_id}
+                    className={`rounded-lg border p-3 ${isSelected ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200 bg-white'}`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-bold text-slate-800">{item.focus_preset_name || item.default_preset_name || 'Preset shelf snapshot'}</p>
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                            {historyActionLabels[item.action] || item.action}
+                          </span>
+                          {item.is_current && (
+                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-800">Current</span>
+                          )}
+                          {item.default_preset_name && (
+                            <span className="rounded-full bg-blue-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-blue-800">Default: {item.default_preset_name}</span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {item.preset_count} preset{item.preset_count === 1 ? '' : 's'}
+                          {item.actor_name ? ` • by ${item.actor_name}` : ''}
+                          {item.created_at ? ` • ${new Date(item.created_at).toLocaleString()}` : ''}
+                        </p>
+                        {Array.isArray(item.preset_names) && item.preset_names.length > 0 && (
+                          <p className="mt-1 text-xs text-slate-500">Includes: {item.preset_names.join(', ')}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => onSelectPresetHistory(item.snapshot_id)}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          {isSelected ? 'Previewing' : 'Preview Diff'}
+                        </button>
+                        <button
+                          onClick={() => onDownloadPresetHistory(item.snapshot_id, `${item.focus_preset_name || item.default_preset_name || item.snapshot_id}.json`)}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          Download
+                        </button>
+                        <button
+                          onClick={() => onRestorePresetHistory(item.snapshot_id)}
+                          disabled={item.is_current || presetHistoryBusyId === item.snapshot_id}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {presetHistoryBusyId === item.snapshot_id ? 'Restoring...' : item.is_current ? 'Current' : 'Restore Snapshot'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

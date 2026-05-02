@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import TimetableManager from '../components/TimetableManager';
 import TeacherAlerts from '../components/TeacherAlerts';
+import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import ExamPapers from './ExamPapers';
 import { useBranding } from '../hooks/useBranding';
 
@@ -45,6 +46,8 @@ export default function TeacherDashboard() {
   const [selectedNote, setSelectedNote] = useState(null);
   const [feedbackModal, setFeedbackModal] = useState(false);
   const [feedbackNote, setFeedbackNote] = useState(null);
+  const [examSubjectSummary, setExamSubjectSummary] = useState(null);
+  const [examSubjectSummaryError, setExamSubjectSummaryError] = useState('');
   const { branding } = useBranding();
 
   // Helper to get auth headers
@@ -259,6 +262,32 @@ export default function TeacherDashboard() {
       }
     };
     checkHeadmaster();
+  }, []);
+
+  useEffect(() => {
+    const fetchExamSubjectSummary = async () => {
+      try {
+        const res = await axios.get('/api/analytics/exam-intelligence', getAuthHeaders());
+        if (res.data?.view_scope === 'teacher_subject_summary') {
+          setExamSubjectSummary(res.data);
+          setExamSubjectSummaryError('');
+        } else {
+          setExamSubjectSummary(null);
+          setExamSubjectSummaryError('');
+        }
+      } catch (err) {
+        const status = err.response?.status;
+        if (status === 403 || status === 404) {
+          setExamSubjectSummary(null);
+          setExamSubjectSummaryError('');
+          return;
+        }
+        console.error('Failed to load teacher exam subject summary', err);
+        setExamSubjectSummary(null);
+        setExamSubjectSummaryError(err.response?.data?.message || 'Failed to load subject-level exam summaries.');
+      }
+    };
+    fetchExamSubjectSummary();
   }, []);
 
   const updateLessonField = (field, value) => {
@@ -556,6 +585,128 @@ export default function TeacherDashboard() {
       {/* Teacher Alerts - Promotion & Repetition Notifications */}
       <div className="mb-8">
         <TeacherAlerts />
+      </div>
+
+      {examSubjectSummary && (
+        <div className="mb-8 rounded-xl border border-emerald-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Exam Subject Summary</p>
+              <h2 className="mt-2 text-2xl font-bold text-gray-800">My Subject-Level BECE and WAEC Signals</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                These summaries are shown automatically for your assigned subjects only. Raw candidate-level exam records remain restricted to school leadership.
+              </p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+              {examSubjectSummary.summary?.latest_academic_year || 'No latest year yet'}
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {(examSubjectSummary.assigned_subjects || []).map((subject) => (
+              <span key={subject} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                {subject}
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl bg-slate-900 p-4 text-white">
+              <p className="text-xs uppercase tracking-wide text-slate-300">Tracked Subjects</p>
+              <p className="mt-2 text-3xl font-black">{examSubjectSummary.summary?.tracked_subjects || 0}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Latest Subject Count</p>
+              <p className="mt-2 text-3xl font-black text-slate-900">{examSubjectSummary.summary?.latest_subject_count || 0}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-4 md:col-span-2">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Assigned Classes</p>
+              <p className="mt-2 text-sm font-bold text-slate-900">{(examSubjectSummary.assigned_classes || []).join(', ') || 'No class assignment recorded'}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <p className="font-bold text-slate-800">Class-level summary setting</p>
+            <p className="mt-1">
+              {examSubjectSummary.class_level_summaries_enabled
+                ? 'Your school has enabled class-level teacher summaries. Only assigned classes and assigned subjects are shown below when matching student records are available.'
+                : 'Your school has not enabled class-level teacher summaries. You are currently limited to automatic subject-level summaries only.'}
+            </p>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">Latest Subject Snapshot</h3>
+              <div className="mt-4 space-y-3">
+                {(examSubjectSummary.latest_batch?.subject_summaries || []).length === 0 ? (
+                  <p className="text-sm text-slate-500">No subject-level exam summary is available yet for your assignments.</p>
+                ) : (
+                  examSubjectSummary.latest_batch.subject_summaries.map((item) => (
+                    <div key={item.subject} className="rounded-lg bg-slate-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-slate-800">{item.subject}</p>
+                        <span className="text-xs font-bold text-slate-500">{item.entries} entries</span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-600">Average {Number(item.average_score || 0).toFixed(1)} • Pass rate {Number(item.pass_rate || 0).toFixed(1)}%</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">Subject Trend Movement</h3>
+              <div className="mt-4 space-y-3">
+                {(examSubjectSummary.subject_trends || []).length === 0 ? (
+                  <p className="text-sm text-slate-500">Trend data will appear here once your subjects have at least one imported batch.</p>
+                ) : (
+                  examSubjectSummary.subject_trends.map((item) => (
+                    <div key={item.subject} className="rounded-lg bg-slate-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-slate-800">{item.subject}</p>
+                        <span className={`text-xs font-bold ${item.delta === null ? 'text-slate-500' : item.delta >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                          {item.delta === null ? 'No prior baseline' : `${item.delta >= 0 ? '+' : ''}${item.delta.toFixed(1)} pts`}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-600">Latest average {Number(item.latest_average || 0).toFixed(1)} • Pass rate {Number(item.latest_pass_rate || 0).toFixed(1)}%</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {examSubjectSummary.class_level_summaries_enabled && (
+            <div className="mt-6 rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">Assigned Class Summaries</h3>
+              <div className="mt-4 space-y-3">
+                {(examSubjectSummary.class_summaries || []).length === 0 ? (
+                  <p className="text-sm text-slate-500">No class-level summary could be derived yet for your assigned classes. This usually means the imported exam rows could not be matched to enrolled student records or did not include class information.</p>
+                ) : (
+                  examSubjectSummary.class_summaries.map((item) => (
+                    <div key={item.class_name} className="rounded-lg bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-slate-800">{item.class_name}</p>
+                        <span className="text-xs font-bold text-slate-500">{item.candidate_count} candidates • {item.subject_entry_count} entries</span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-600">Average {Number(item.average_score || 0).toFixed(1)} • Pass rate {Number(item.pass_rate || 0).toFixed(1)}%</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {examSubjectSummaryError && (
+        <div className="mb-8 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          {examSubjectSummaryError}
+        </div>
+      )}
+
+      <div className="mb-8">
+        <AcademicGuidancePanel title="My Diagnostic Mock Guidance" />
       </div>
 
       {/* Tabs Navigation */}

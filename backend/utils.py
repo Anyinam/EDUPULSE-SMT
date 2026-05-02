@@ -3,6 +3,14 @@ import mimetypes
 import os
 from datetime import datetime, timezone
 
+from backend.academic_guidance import (
+    build_pathway_recommendations,
+    merge_chief_examiner_library,
+    match_chief_examiner_insight,
+    normalize_chief_examiner_library,
+    normalize_subject_key,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,7 +115,7 @@ def generate_descriptive_analysis(student_id):
     Generate comprehensive performance analysis including multi-term trends.
     Analyzes current performance + trends from previous terms.
     """
-    from backend.api.models import ReportCard, Student, StudentGrade
+    from backend.api.models import PlatformSetting, ReportCard, SchoolSettings, Student, StudentGrade
 
     student = Student.query.get(student_id)
     if not student:
@@ -122,6 +130,23 @@ def generate_descriptive_analysis(student_id):
 
     if not all_reports:
         return f"{student.name} has no finalized reports yet."
+
+    school_settings = SchoolSettings.query.filter_by(school_id=student.school_id).first()
+    school_library = normalize_chief_examiner_library(
+        (school_settings.report_template_config or {}).get("chief_examiner_library")
+        if school_settings and isinstance(school_settings.report_template_config, dict)
+        else {}
+    )
+    platform_setting = PlatformSetting.query.filter_by(
+        setting_key="platform_chief_examiner_library"
+    ).first()
+    platform_library = normalize_chief_examiner_library(
+        platform_setting.setting_value if platform_setting else {}
+    )
+    effective_library = merge_chief_examiner_library(
+        school_library,
+        base_library=platform_library or None,
+    )
 
     # Get current (latest) report
     current_report = all_reports[-1]
@@ -176,6 +201,46 @@ def generate_descriptive_analysis(student_id):
         g.get("subject") for g in current_grades if float(g.get("total", 0)) < 50
     ]
 
+    diagnostic_notes = []
+    for grade in current_grades:
+        subject_name = grade.get("subject") or "Subject"
+        diagnostic_topics = grade.get("diagnostic_topics") or []
+        for topic in diagnostic_topics:
+            if not isinstance(topic, dict):
+                continue
+            topic_name = str(topic.get("topic") or "").strip()
+            if not topic_name:
+                continue
+            try:
+                topic_score = float(topic.get("score") or 0.0)
+            except (TypeError, ValueError):
+                topic_score = 0.0
+            try:
+                topic_max = float(topic.get("max_score") or 0.0)
+            except (TypeError, ValueError):
+                topic_max = 0.0
+            if topic_max <= 0:
+                continue
+
+            ratio = topic_score / topic_max
+            insight = match_chief_examiner_insight(
+                subject_name,
+                topic_name,
+                chief_examiner_library=effective_library,
+            )
+            if ratio <= 0.55 and insight:
+                practice = ", ".join(insight.get("practice") or [])
+                diagnostic_notes.append(
+                    f"{subject_name} - {topic_name}: Chief examiner reviews show that {insight['issue']}. Focus next on {insight['advice']}"
+                    + (f" Practice areas: {practice}." if practice else ".")
+                )
+            elif ratio <= 0.55:
+                diagnostic_notes.append(
+                    f"{subject_name} - {topic_name}: this mock strand needs targeted revision before the next assessment."
+                )
+
+    pathway_recommendations = build_pathway_recommendations(current_grades)
+
     # Build comprehensive narrative
     narrative_parts = []
 
@@ -215,6 +280,9 @@ def generate_descriptive_analysis(student_id):
     elif strengths:
         narrative_parts.append("Demonstrates consistent strength across most subjects.")
 
+    if diagnostic_notes:
+        narrative_parts.append("Diagnostic mock insights: " + " ".join(diagnostic_notes[:3]))
+
     # Attendance impact
     if current_report.attendance_percentage:
         attendance = float(current_report.attendance_percentage)
@@ -248,6 +316,23 @@ def generate_descriptive_analysis(student_id):
         else:
             narrative_parts.append(
                 "Focus on consistent effort across all subjects for improvement."
+            )
+
+    if pathway_recommendations:
+        top_pathway = pathway_recommendations[0]
+        pathway_summary = f"SHS pathway signal: {top_pathway['pathway']} ({top_pathway['fit_score']:.1f}% fit)"
+        if top_pathway.get("strengths"):
+            pretty_strengths = ", ".join(
+                subject.title() if normalize_subject_key(subject) != "ict" else "ICT"
+                for subject in top_pathway["strengths"]
+            )
+            pathway_summary += f" driven by stronger results in {pretty_strengths}"
+        pathway_summary += "."
+        narrative_parts.append(pathway_summary)
+        if len(pathway_recommendations) > 1:
+            backup = pathway_recommendations[1]
+            narrative_parts.append(
+                f"Secondary pathway option: {backup['pathway']} ({backup['fit_score']:.1f}% fit)."
             )
 
     return " ".join(narrative_parts)

@@ -1,7 +1,20 @@
 import React from 'react';
+import PremiumFeatureNotice from '../components/PremiumFeatureNotice';
 import StudentRescueAgent from '../components/StudentRescueAgent';
 
 export default function RescueActivityCenter({ endpointBase = '/api/proprietor/student-rescue-agent' }) {
+  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const canAccessRescueActivity = currentPlan === 'Premium';
+
+  if (!canAccessRescueActivity) {
+    return (
+      <PremiumFeatureNotice
+        title="Rescue Activity Center"
+        description="Student rescue case tracking, guardian outreach, and intervention reporting are available on the Premium plan only."
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl bg-linear-to-r from-slate-950 via-red-900 to-orange-700 px-8 py-8 text-white shadow-xl">

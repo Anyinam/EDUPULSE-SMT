@@ -16,3 +16,7 @@ holidays
 alembic
 reportlab
 pdfplumber
+numpy
+Pillow
+pytesseract
+pdf2image

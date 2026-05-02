@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import PremiumFeatureNotice from './PremiumFeatureNotice';
 
 export default function ExamIntelligencePanel() {
+  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const canAccessExamIntelligence = currentPlan === 'Premium';
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -66,6 +69,15 @@ export default function ExamIntelligencePanel() {
       setUploading(false);
     }
   };
+
+  if (!canAccessExamIntelligence) {
+    return (
+      <PremiumFeatureNotice
+        title="Exam Intelligence"
+        description="Result import workspaces, examiner libraries, and school-wide exam trend intelligence are available on the Premium plan only."
+      />
+    );
+  }
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

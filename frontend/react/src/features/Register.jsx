@@ -9,6 +9,19 @@ import { CheckCircle, ArrowRight, ArrowLeft, Loader } from 'lucide-react';
 const TERMS_VERSION = '2026-03-07';
 const POLICY_VERSION = '2026-03-07';
 
+const DEFAULT_PUBLIC_CONTENT = {
+  support: {
+    email: 'support@edupulse.com',
+    phone: '+233 552 141 384',
+    response_time: 'within 24 hours on business days',
+  },
+  auth: {
+    register_title: 'Create Tenant',
+    register_subtitle: 'Register your school organization.',
+    register_support_note: 'Need help choosing a plan or completing registration?',
+  },
+};
+
 export default function Register() {
   const [step, setStep] = useState(1); // Step 1: Info, Step 2: Plan Selection, Step 3: Confirmation
   const [form, setForm] = useState({ 
@@ -28,6 +41,7 @@ export default function Register() {
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showRetention, setShowRetention] = useState(false);
+  const [publicContent, setPublicContent] = useState(DEFAULT_PUBLIC_CONTENT);
 
   useEffect(() => {
     const fetchPlans = async () => {
@@ -59,6 +73,17 @@ export default function Register() {
     };
 
     fetchPlans();
+
+    const fetchPublicContent = async () => {
+      try {
+        const res = await axios.get('/api/public/platform-content');
+        setPublicContent((prev) => ({ ...prev, ...res.data }));
+      } catch (error) {
+        setPublicContent(DEFAULT_PUBLIC_CONTENT);
+      }
+    };
+
+    fetchPublicContent();
   }, []);
 
   const handleNext = (e) => {
@@ -192,8 +217,8 @@ export default function Register() {
           {/* STEP 1: School Information */}
           {step === 1 && (
             <form onSubmit={handleNext}>
-              <h1 className="text-3xl font-bold text-slate-800 mb-2">Create Tenant</h1>
-              <p className="text-slate-500 mb-8">Register your school organization.</p>
+              <h1 className="text-3xl font-bold text-slate-800 mb-2">{publicContent.auth?.register_title || DEFAULT_PUBLIC_CONTENT.auth.register_title}</h1>
+              <p className="text-slate-500 mb-8">{publicContent.auth?.register_subtitle || DEFAULT_PUBLIC_CONTENT.auth.register_subtitle}</p>
 
               <div className="space-y-5">
                 <div>
@@ -275,7 +300,7 @@ export default function Register() {
                     className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
                   />
                   <label htmlFor="school-authority" className="text-sm text-slate-600 cursor-pointer select-none">
-                    I confirm that this school has authority to manage student, guardian, and school records in EduPulse SMT.
+                    I confirm that this school has authority to manage student, guardian, and school records in EduPulse SMT and understands that parent or guardian consent must be obtained before student biodata is uploaded.
                   </label>
                 </div>
                 <div className="flex items-start gap-2">
@@ -287,11 +312,11 @@ export default function Register() {
                     className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
                   />
                   <label htmlFor="legacy-consent-plan" className="text-sm text-slate-600 cursor-pointer select-none">
-                    I confirm that the school will send any required parent or guardian notices or obtain consent before migrating legacy records or uploading WAEC or BECE data.
+                    I confirm that the school will use the parent-consent form sent to its registration email, or an approved equivalent, to notify parents or guardians and obtain any required consent before uploading student biodata, migrating legacy records, or uploading WAEC or BECE data.
                   </label>
                 </div>
                 <p className="text-xs leading-5 text-slate-500">
-                  By continuing, you confirm that your school has authority to manage student and guardian data in EduPulse SMT and will issue any notices or consent forms required under Ghana's Data Protection Act before uploading legacy records or WAEC or BECE result data.
+                  By continuing, you confirm that your school has authority to manage student and guardian data in EduPulse SMT and will send the required parent or guardian notice or consent form before uploading any student biodata to EduPulse, including legacy records and WAEC or BECE result data, in line with Ghana's Data Protection Act.
                 </p>
               </div>
 
@@ -492,6 +517,16 @@ export default function Register() {
           <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
           <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
           <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
+
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Registration Support</p>
+            <p className="text-sm text-slate-600">{publicContent.auth?.register_support_note || DEFAULT_PUBLIC_CONTENT.auth.register_support_note}</p>
+            <div className="mt-3 text-sm space-y-1">
+              <p className="text-slate-700">Email: <a href={`mailto:${publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}`} className="text-blue-600 font-semibold hover:underline">{publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}</a></p>
+              <p className="text-slate-700">Phone/WhatsApp: <a href={`tel:${(publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone).replace(/\s+/g, '')}`} className="text-blue-600 font-semibold hover:underline">{publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone}</a></p>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Typical response time: {publicContent.support?.response_time || DEFAULT_PUBLIC_CONTENT.support.response_time}.</p>
+          </div>
         </div>
       </div>
     </div>

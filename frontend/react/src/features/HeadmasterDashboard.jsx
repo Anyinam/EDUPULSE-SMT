@@ -7,6 +7,8 @@ import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import TeacherAlerts from '../components/TeacherAlerts';
 import PromotionHistoryModal from '../components/PromotionHistoryModal';
 import ExamInboxPanel from '../components/ExamInboxPanel';
+import ExamIntelligencePanel from '../components/ExamIntelligencePanel';
+import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import StudentsRegistry from './StudentsRegistry';
 import RescueActivityCenter from './RescueActivityCenter';
 
@@ -25,6 +27,8 @@ const CLASS_OPTIONS = [
 ];
 
 export default function HeadmasterDashboard() {
+  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const canAccessPremiumInsights = currentPlan === 'Premium';
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'dashboard';
   const [notes, setNotes] = useState([]);
@@ -37,7 +41,6 @@ export default function HeadmasterDashboard() {
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [selectedStudentForPromotion, setSelectedStudentForPromotion] = useState(null);
   const [pendingExamCount, setPendingExamCount] = useState(0);
-
   const handleTabChange = (tab) => {
     const nextParams = new URLSearchParams(searchParams);
     if (tab === 'dashboard') {
@@ -204,14 +207,36 @@ export default function HeadmasterDashboard() {
           👥 Manage Students
         </button>
         <button
-          onClick={() => handleTabChange('rescue-activity')}
+          onClick={() => {
+            if (!canAccessPremiumInsights) {
+              alert('Rescue Activity is available on the Premium plan only.');
+              return;
+            }
+            handleTabChange('rescue-activity');
+          }}
           className={`px-6 py-3 font-bold rounded-t-lg transition-colors ${
             activeTab === 'rescue-activity'
               ? 'bg-blue-600 text-white'
               : 'bg-white text-slate-700 hover:bg-slate-100'
           }`}
         >
-          🚨 Rescue Activity
+          🚨 Rescue Activity {canAccessPremiumInsights ? '' : '(Premium)'}
+        </button>
+        <button
+          onClick={() => {
+            if (!canAccessPremiumInsights) {
+              alert('Exam Intelligence is available on the Premium plan only.');
+              return;
+            }
+            handleTabChange('exam-intelligence');
+          }}
+          className={`px-6 py-3 font-bold rounded-t-lg transition-colors ${
+            activeTab === 'exam-intelligence'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-slate-700 hover:bg-slate-100'
+          }`}
+        >
+          📘 Exam Intelligence {canAccessPremiumInsights ? '' : '(Premium)'}
         </button>
       </div>
 
@@ -220,6 +245,11 @@ export default function HeadmasterDashboard() {
         <StudentsRegistry />
       ) : activeTab === 'rescue-activity' ? (
         <RescueActivityCenter endpointBase="/api/headmaster/student-rescue-agent" />
+      ) : activeTab === 'exam-intelligence' ? (
+        <div className="space-y-8">
+          <AcademicGuidancePanel title="School Diagnostic and Pathway Guidance" />
+          <ExamIntelligencePanel />
+        </div>
       ) : (
         <>
           {/* Default Dashboard Content */}
@@ -664,6 +694,16 @@ export default function HeadmasterDashboard() {
                     <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
                       <p className="text-xs font-bold text-purple-600 uppercase mb-2">🤖 AI Performance Analysis</p>
                       <p className="text-sm text-purple-900 italic">{viewingReport.ai_performance_analysis}</p>
+                    </div>
+                  )}
+
+                  {viewingReport.academic_guidance?.printable_card?.headline && (
+                    <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                      <p className="text-xs font-bold text-emerald-600 uppercase mb-2">🎯 SHS Pathway Card</p>
+                      <p className="text-sm font-bold text-emerald-900">{viewingReport.academic_guidance.printable_card.headline}</p>
+                      {viewingReport.academic_guidance.printable_card.focus_note && (
+                        <p className="mt-2 text-sm text-emerald-900">{viewingReport.academic_guidance.printable_card.focus_note}</p>
+                      )}
                     </div>
                   )}
 

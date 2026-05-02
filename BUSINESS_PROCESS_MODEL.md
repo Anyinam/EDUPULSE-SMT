@@ -15,7 +15,7 @@ EduPulse SMT operates a **Freemium SaaS** model with three pricing tiers designe
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-EduPulse remains a school-led B2B platform first, but the next product evolution is a **B2B2C operating layer** where parents interact directly with school-controlled admissions and payment workflows.
+EduPulse remains a school-led B2B platform first, but the product now includes a practical **B2B2C operating layer** where parents interact directly with school-controlled admissions and payment workflows.
 
 - The school remains the paying customer and policy owner.
 - Parents become transacting users inside the school's branded workflows.
@@ -26,12 +26,15 @@ EduPulse remains a school-led B2B platform first, but the next product evolution
 Current implementation:
 - school onboarding and subscription billing
 - school-managed admissions and bulk student onboarding
+- parent-facing admissions application and status tracking
+- school-side admissions review workflows
 - parent payment instructions with stable payment identity, structured reference parsing, and optional Paystack fee-route DVAs
+- report-card parsing and academic trend intelligence
+- shared chief examiner insight library, academic guidance, and exam intelligence workflows
 - Student Rescue Agent for intervention workflows
 
 Planned near-term expansion:
-- AI Registrar for admissions intake, document completeness checks, and routing
-- parent-facing admissions application and status tracking
+- deeper AI Registrar automation for admissions intake, document completeness checks, and routing
 - online-test or school-visit decisioning based on connectivity and policy
 - AI Bursar for reconciliation support, payment stress flagging, and collections recommendations
 
@@ -40,6 +43,14 @@ Future-only items:
 - voice-first multilingual parent bots
 - pure outcome-based pricing for AI labor
 - predictive dropout automation and advanced autonomous escalation
+
+### Sustainability and SDG Model
+
+EduPulse's business model is designed to be commercially self-sustaining while still delivering school-level social impact.
+
+- Financial sustainability comes from recurring B2B subscriptions with deeper Premium value rather than grant dependence alone.
+- Social value comes from better school continuity, earlier learner intervention, and lower parent friction.
+- The most direct SDG links are SDG 4, SDG 8, SDG 9, SDG 10, and SDG 16.
 
 ---
 
@@ -223,11 +234,11 @@ CONVERSION OPTIONS:
 
 ```
 Basic Plan User Sees:
-├─ "🔒 AI Student Pulse (Premium Feature)"
+├─ "🔒 Rescue Activity Center (Premium Feature)"
+├─ "🔒 Academic Guidance & Chief Examiner Insights"
+├─ "🔒 Exam Intelligence"
 ├─ "🔒 Automated Payment Processing"
-├─ "🔒 Exam Papers Module"
-├─ "🔒 AI Exam Assistant"
-└─ Dashboard banners: "Unlock AI for GH₵500/mo"
+└─ Dashboard banners: "Unlock Premium governance and intelligence"
 
 ENGAGEMENT METRICS:
 ├─ Clicks on locked features: 60% of users

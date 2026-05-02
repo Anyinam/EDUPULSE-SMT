@@ -267,6 +267,38 @@ export default function ReportBuilder() {
     setSubjectGrades(updated);
   };
 
+  const handleDiagnosticTopicChange = (subjectIndex, topicIndex, field, value) => {
+    const updated = [...subjectGrades];
+    const diagnosticTopics = Array.isArray(updated[subjectIndex].diagnostic_topics)
+      ? [...updated[subjectIndex].diagnostic_topics]
+      : [];
+    diagnosticTopics[topicIndex] = {
+      ...diagnosticTopics[topicIndex],
+      [field]: value,
+    };
+    updated[subjectIndex].diagnostic_topics = diagnosticTopics;
+    setSubjectGrades(updated);
+  };
+
+  const addDiagnosticTopic = (subjectIndex) => {
+    const updated = [...subjectGrades];
+    const diagnosticTopics = Array.isArray(updated[subjectIndex].diagnostic_topics)
+      ? [...updated[subjectIndex].diagnostic_topics]
+      : [];
+    diagnosticTopics.push({ topic: '', score: '', max_score: '' });
+    updated[subjectIndex].diagnostic_topics = diagnosticTopics;
+    setSubjectGrades(updated);
+  };
+
+  const removeDiagnosticTopic = (subjectIndex, topicIndex) => {
+    const updated = [...subjectGrades];
+    const diagnosticTopics = Array.isArray(updated[subjectIndex].diagnostic_topics)
+      ? updated[subjectIndex].diagnostic_topics.filter((_, index) => index !== topicIndex)
+      : [];
+    updated[subjectIndex].diagnostic_topics = diagnosticTopics;
+    setSubjectGrades(updated);
+  };
+
   const addSubject = () => {
     setSubjectGrades([...subjectGrades, {
       subject: '',
@@ -275,7 +307,8 @@ export default function ReportBuilder() {
       total: '',
       position: '',
       grade: '',
-      remarks: ''
+      remarks: '',
+      diagnostic_topics: []
     }]);
   };
 
@@ -501,7 +534,8 @@ export default function ReportBuilder() {
     homeroom_teacher_remarks: homeroomRemarks,
     headmaster_remarks: reportData?.headmaster_remarks || '',
     proprietor_remarks: reportData?.proprietor_remarks || '',
-    ai_performance_analysis: reportData?.ai_performance_analysis || ''
+    ai_performance_analysis: reportData?.ai_performance_analysis || '',
+    academic_guidance: reportData?.academic_guidance || null,
   };
 
   const showHeadmasterRemarks = (() => {
@@ -896,8 +930,9 @@ export default function ReportBuilder() {
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {subjectGrades.map((subject, index) => (
-                          <tr key={index}>
-                            <td className="px-3 py-2">
+                          <React.Fragment key={index}>
+                          <tr>
+                            <td className="px-3 py-2 align-top">
                               <input
                                 type="text"
                                 value={subject.subject}
@@ -906,7 +941,7 @@ export default function ReportBuilder() {
                                 placeholder="Subject name"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <input
                                 type="number"
                                 min="0"
@@ -916,7 +951,7 @@ export default function ReportBuilder() {
                                 className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <input
                                 type="number"
                                 min="0"
@@ -926,7 +961,7 @@ export default function ReportBuilder() {
                                 className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <input
                                 type="text"
                                 value={subject.total}
@@ -934,7 +969,7 @@ export default function ReportBuilder() {
                                 className="w-20 px-2 py-1 border border-gray-300 rounded text-sm bg-gray-50"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <input
                                 type="text"
                                 value={subject.position}
@@ -943,7 +978,7 @@ export default function ReportBuilder() {
                                 placeholder="1st"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <input
                                 type="text"
                                 value={subject.grade}
@@ -951,7 +986,7 @@ export default function ReportBuilder() {
                                 className="w-12 px-2 py-1 border border-gray-300 rounded text-sm bg-gray-50 font-semibold"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <input
                                 type="text"
                                 value={subject.remarks}
@@ -960,15 +995,83 @@ export default function ReportBuilder() {
                                 placeholder="Remarks"
                               />
                             </td>
-                            <td className="px-3 py-2">
-                              <button
-                                onClick={() => removeSubject(index)}
-                                className="text-red-600 hover:text-red-800 text-sm"
-                              >
-                                Remove
-                              </button>
+                            <td className="px-3 py-2 align-top">
+                              <div className="flex flex-col gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => addDiagnosticTopic(index)}
+                                  className="text-blue-600 hover:text-blue-800 text-sm text-left"
+                                >
+                                  + Diagnostics
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeSubject(index)}
+                                  className="text-red-600 hover:text-red-800 text-sm text-left"
+                                >
+                                  Remove
+                                </button>
+                              </div>
                             </td>
                           </tr>
+                          {Array.isArray(subject.diagnostic_topics) && subject.diagnostic_topics.length > 0 && (
+                            <tr>
+                              <td colSpan="8" className="px-3 pb-4 pt-0">
+                                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                                  <div className="flex items-center justify-between gap-3 mb-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-blue-900">Diagnostic mock strands for {subject.subject || 'this subject'}</p>
+                                      <p className="text-xs text-blue-700">Optional topic sub-scores used for chief examiner guidance and SHS pathway recommendations.</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => addDiagnosticTopic(index)}
+                                      className="px-2 py-1 rounded-md border border-blue-300 text-blue-800 text-xs font-semibold hover:bg-blue-100"
+                                    >
+                                      Add strand
+                                    </button>
+                                  </div>
+                                  <div className="space-y-2">
+                                    {subject.diagnostic_topics.map((topic, topicIndex) => (
+                                      <div key={topicIndex} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-center">
+                                        <input
+                                          type="text"
+                                          value={topic.topic}
+                                          onChange={(e) => handleDiagnosticTopicChange(index, topicIndex, 'topic', e.target.value)}
+                                          className="px-3 py-2 border border-blue-200 rounded-md text-sm bg-white"
+                                          placeholder="e.g. Geometry, Grammar, Scientific Units"
+                                        />
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={topic.score}
+                                          onChange={(e) => handleDiagnosticTopicChange(index, topicIndex, 'score', e.target.value)}
+                                          className="px-3 py-2 border border-blue-200 rounded-md text-sm bg-white"
+                                          placeholder="Score"
+                                        />
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={topic.max_score}
+                                          onChange={(e) => handleDiagnosticTopicChange(index, topicIndex, 'max_score', e.target.value)}
+                                          className="px-3 py-2 border border-blue-200 rounded-md text-sm bg-white"
+                                          placeholder="Max score"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => removeDiagnosticTopic(index, topicIndex)}
+                                          className="text-red-600 hover:text-red-800 text-sm justify-self-start"
+                                        >
+                                          Remove strand
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -1046,6 +1149,22 @@ export default function ReportBuilder() {
                       <p className="text-xs text-gray-500 mt-1">
                         AI-generated analysis of student performance trends and recommendations
                       </p>
+                    </div>
+                  )}
+
+                  {reportData?.academic_guidance?.printable_card?.headline && (
+                    <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <label className="block text-sm font-medium text-emerald-900 mb-2">🎯 SHS Pathway Card</label>
+                      <p className="text-sm font-bold text-emerald-900">{reportData.academic_guidance.printable_card.headline}</p>
+                      {reportData.academic_guidance.printable_card.pathway_fit_score !== null && (
+                        <p className="mt-1 text-xs text-emerald-800">Fit score: {Number(reportData.academic_guidance.printable_card.pathway_fit_score || 0).toFixed(1)}%</p>
+                      )}
+                      {reportData.academic_guidance.printable_card.focus_note && (
+                        <p className="mt-2 text-sm text-emerald-900">{reportData.academic_guidance.printable_card.focus_note}</p>
+                      )}
+                      {reportData.academic_guidance.printable_card.secondary_pathway && (
+                        <p className="mt-2 text-xs text-emerald-800">Secondary option: {reportData.academic_guidance.printable_card.secondary_pathway}</p>
+                      )}
                     </div>
                   )}
 

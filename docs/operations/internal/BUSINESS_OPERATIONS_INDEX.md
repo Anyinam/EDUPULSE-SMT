@@ -55,6 +55,8 @@ Use these placeholder names consistently across onboarding, launch, email, and i
   Single-file forwardable legal dossier combining the key counsel materials into one document.
 - `LEGAL_COUNSEL_PACKET.md`
   Consolidated entry point for counsel covering incorporation, IP, confidentiality, and Ghana data-protection review.
+- `LAWYER_DOCUMENT_CHECKLIST.md`
+  Exact document checklist for what to send counsel for incorporation and data-processing work.
 - `LAWYER_COVER_EMAIL.md`
   Ready-to-send cover email for counsel introducing the legal packet.
 - `LAWYER_EXECUTIVE_BRIEF.md`
@@ -192,6 +194,7 @@ Current owner assignment is intentionally single-owner for now and uses Daniel A
 - Need the official business process: use `STANDARD_OPERATING_PROCEDURES.md`
 - Need one single-file legal dossier for immediate forwarding: use `LEGAL_COUNSEL_DOSSIER.md`
 - Need the single entry point for the whole counsel packet: use `LEGAL_COUNSEL_PACKET.md`
+- Need the exact list of documents to send your lawyer: use `LAWYER_DOCUMENT_CHECKLIST.md`
 - Need the email to send the packet to counsel: use `LAWYER_COVER_EMAIL.md`
 - Need a concise lawyer-facing overview first: use `LAWYER_EXECUTIVE_BRIEF.md`
 - Need a lawyer-facing technical summary for incorporation, IP, or Ghana data-protection review: use `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
