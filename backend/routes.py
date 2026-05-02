@@ -13409,7 +13409,7 @@ def _get_effective_chief_examiner_library(settings=None):
     platform_library = _get_platform_chief_examiner_library_setting()
     return merge_chief_examiner_library(
         school_library,
-        base_library=platform_library,
+        base_library=platform_library or {},
     )
 
 
@@ -13660,6 +13660,62 @@ CHIEF_EXAMINER_SUBJECT_ALIASES = {
 }
 
 
+CHIEF_EXAMINER_TOPIC_HINTS = {
+    "english language": [
+        ("comprehension", ["comprehension", "passage", "question stem", "precise answers", "irrelevant responses"]),
+        ("composition", ["composition", "essay", "paragraph", "letter writing", "article writing", "continuous writing"]),
+        ("grammar", ["grammar", "concord", "tense", "sentence construction", "parts of speech"]),
+    ],
+    "french": [
+        ("comprehension", ["comprehension", "passage", "passages"]),
+        ("verb conjugation", ["conjugation", "conjugate", "verbs", "verb"]),
+        ("sentence construction", ["sentences", "sentence-building", "expressions", "expression"]),
+    ],
+    "ghanaian languages": [
+        ("grammar", ["grammar", "grammatical", "explanations"]),
+        ("comprehension", ["comprehension", "passage", "passages"]),
+        ("composition", ["composition", "written responses", "essay", "writing"]),
+    ],
+    "integrated science": [
+        ("scientific units", ["units", "unit conversion", "si units"]),
+        ("experiments", ["practical", "practical questions", "observation", "observation tables", "experiments"]),
+        ("human biology", ["biology", "organ", "organs", "systems"]),
+    ],
+    "science": [
+        ("scientific units", ["units", "unit conversion", "si units"]),
+        ("experiments", ["practical", "observation", "observation tables", "experiments"]),
+        ("human biology", ["biology", "organ", "organs", "systems"]),
+    ],
+    "home economics": [
+        ("terminology", ["terminologies", "terminology", "terms", "definitions"]),
+        ("practical procedures", ["procedures", "practical", "demonstrations", "steps"]),
+        ("clothing", ["clothing", "garment", "fabrics"]),
+    ],
+    "visual art": [
+        ("design explanation", ["design choices", "design", "colour", "form", "purpose"]),
+    ],
+    "creative arts": [
+        ("design", ["design choices", "design", "colour", "form", "creative choices"]),
+    ],
+    "mathematics": [
+        ("geometry", ["geometry", "construction", "constructions", "theorem", "labelled diagrams"]),
+        ("algebra", ["algebra", "equation", "equations", "simplification"]),
+        ("statistics", ["statistics", "probability", "averages", "mean", "median"]),
+        ("word problems", ["word problem", "commercial arithmetic", "ratio"]),
+    ],
+}
+
+
+EXAMINER_NOISE_PHRASES = [
+    "the following weaknesses of candidates were identified",
+    "the chief examiners of the various languages",
+    "general comments",
+    "the standard of the paper compared favourably",
+    "there was a slight improvement in the performance of candidates",
+    "good number of candidates adhered to the rubrics of the papers",
+]
+
+
 def _canonicalize_chief_examiner_subject_name(value):
     normalized = normalize_subject_key(value)
     return CHIEF_EXAMINER_SUBJECT_ALIASES.get(normalized)
@@ -13710,8 +13766,29 @@ def _split_text_sentences(text):
 
 def _clean_examiner_summary_text(value):
     cleaned = re.sub(r"\(\s*[ivxlcdm]+\s*\)", " ", str(value or ""), flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*(?:\(?[0-9]{1,3}[a-z]?\)?|\(?[a-z]\)?|\(?[ivxlcdm]{1,6}\)?)[\])\.-]?\s+", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .;:-")
     return cleaned
+
+
+def _is_examiner_noise_sentence(text):
+    normalized = normalize_topic_key(text)
+    if not normalized:
+        return True
+    if re.fullmatch(r"\d+", normalized):
+        return True
+    if len(normalized.split()) < 4:
+        return True
+    return any(phrase in normalized for phrase in EXAMINER_NOISE_PHRASES)
+
+
+def _finalize_examiner_sentence(text):
+    cleaned = _clean_examiner_summary_text(text)
+    cleaned = re.sub(r"^(candidates\s+(were|showed|performed)\s+)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return ""
+    return cleaned[0].upper() + cleaned[1:]
 
 
 def _truncate_examiner_summary(text, max_chars=220):
@@ -13753,11 +13830,13 @@ def _pick_examiner_sentence(text, keywords=None):
     sentences = _split_text_sentences(_clean_examiner_summary_text(text))
     if not sentences:
         return ""
-    for sentence in sentences:
+    filtered_sentences = [sentence for sentence in sentences if not _is_examiner_noise_sentence(sentence)]
+    candidate_sentences = filtered_sentences or sentences
+    for sentence in candidate_sentences:
         lowered = sentence.casefold()
         if keywords and any(keyword in lowered for keyword in keywords):
             return sentence
-    return sentences[0]
+    return candidate_sentences[0]
 
 
 def _summarize_examiner_issue(block_text):
@@ -13782,7 +13861,7 @@ def _summarize_examiner_issue(block_text):
         issue_source,
         keywords=["weak", "poor", "difficulty", "struggle", "unable", "fail", "mistake", "challenge", "confus"],
     )
-    return _truncate_examiner_summary(issue_sentence or issue_source)
+    return _truncate_examiner_summary(_finalize_examiner_sentence(issue_sentence or issue_source))
 
 
 def _summarize_examiner_advice(block_text, default_advice):
@@ -13795,7 +13874,9 @@ def _summarize_examiner_advice(block_text, default_advice):
         advice_source,
         keywords=["should", "must", "need to", "recommend", "suggest", "teach", "train", "revise", "practise", "practice"],
     )
-    return _truncate_examiner_summary(advice_sentence or _derive_narrative_advice(block_text, default_advice))
+    return _truncate_examiner_summary(
+        _finalize_examiner_sentence(advice_sentence or _derive_narrative_advice(block_text, default_advice))
+    )
 
 
 def _derive_narrative_advice(block_text, default_advice):
@@ -13805,6 +13886,41 @@ def _derive_narrative_advice(block_text, default_advice):
         if any(marker in lowered for marker in ["should", "must", "need to", "teachers should", "candidates should", "recommend"]):
             return sentence
     return default_advice
+
+
+def _infer_chief_examiner_topic_name(subject_key, block_text, existing_topic_keys=None):
+    normalized_block = normalize_topic_key(block_text)
+    existing_topic_keys = set(existing_topic_keys or [])
+
+    for topic_key in merge_chief_examiner_library().get(subject_key, {}):
+        if topic_key in normalized_block:
+            return topic_key
+
+    for topic_name, markers in CHIEF_EXAMINER_TOPIC_HINTS.get(subject_key, []):
+        if any(marker in normalized_block for marker in markers):
+            return topic_name
+
+    if any(marker in normalized_block for marker in ["practical", "observation", "procedures", "demonstration"]):
+        return "practical skills"
+    if any(marker in normalized_block for marker in ["terminology", "terminologies"]):
+        return "terminology"
+
+    fallback_name = "general performance"
+    if fallback_name not in existing_topic_keys:
+        return fallback_name
+    return None
+
+
+def _should_skip_examiner_block(block_text):
+    cleaned = _clean_examiner_summary_text(block_text)
+    normalized = normalize_topic_key(cleaned)
+    if not normalized:
+        return True
+    if re.fullmatch(r"\d+", normalized):
+        return True
+    if len(normalized.split()) < 6:
+        return True
+    return False
 
 
 def _parse_narrative_chief_examiner_text(raw_text, fallback_subject=None):
@@ -13821,23 +13937,41 @@ def _parse_narrative_chief_examiner_text(raw_text, fallback_subject=None):
 
     def add_generic_entry(subject_key, block_text, default_topic_name="general performance"):
         normalized_block_text = str(block_text or "").strip()
-        if not normalized_block_text or not subject_key:
+        if not normalized_block_text or not subject_key or _should_skip_examiner_block(normalized_block_text):
             return False
 
         topic_bucket = inferred_library.setdefault(subject_key, {})
-        topic_name = default_topic_name
-        suffix = 2
-        while topic_name in topic_bucket:
-            topic_name = f"{default_topic_name} {suffix}"
-            suffix += 1
+        topic_name = _infer_chief_examiner_topic_name(
+            subject_key,
+            normalized_block_text,
+            existing_topic_keys=topic_bucket.keys(),
+        ) or default_topic_name
+
+        issue_summary = _summarize_examiner_issue(normalized_block_text)
+        if _is_examiner_noise_sentence(issue_summary):
+            return False
+
+        default_entry = merge_chief_examiner_library().get(subject_key, {}).get(topic_name, {})
+        advice_summary = _summarize_examiner_advice(
+            normalized_block_text,
+            default_entry.get("advice")
+            or f"Provide focused reteaching and guided practice on {topic_name} before the next assessment.",
+        )
+
+        for entry in topic_bucket.values():
+            if entry.get("issue") == issue_summary and entry.get("advice") == advice_summary:
+                return False
+
+        if topic_name in topic_bucket:
+            suffix = 2
+            while f"{topic_name} {suffix}" in topic_bucket:
+                suffix += 1
+            topic_name = f"{topic_name} {suffix}"
 
         topic_bucket[topic_name] = {
-            "issue": _summarize_examiner_issue(normalized_block_text),
-            "advice": _summarize_examiner_advice(
-                normalized_block_text,
-                "Convert the main examiner concerns into targeted reteaching and topic drills before the next assessment.",
-            ),
-            "practice": [],
+            "issue": issue_summary,
+            "advice": advice_summary,
+            "practice": list(default_entry.get("practice") or []),
         }
         return True
 

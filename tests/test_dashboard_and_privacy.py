@@ -260,6 +260,16 @@ def test_tenant_chief_examiner_library_merges_platform_and_school_overrides(clie
     assert payload["library_meta"]["uses_platform_default"] is False
 
 
+def test_tenant_chief_examiner_library_is_empty_before_any_upload(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/analytics/chief-examiner-library", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["subjects"] == []
+    assert payload["library_meta"]["uses_platform_default"] is True
+
+
 def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test_school, test_proprietor):
     overdue_student = Student(
         school_id=test_school.id,
@@ -951,6 +961,42 @@ def test_chief_examiner_library_import_recognizes_extended_subject_headings_and_
     assert "GENERAL COMMENTS" not in english_topic["issue"]
     assert english_topic["advice"]
     assert len(english_topic["advice"]) < 240
+
+
+def test_chief_examiner_library_import_infers_topic_labels_from_clear_examiner_text(client, app, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+    narrative_text = (
+        "2023 BECE Chief Examiners Report\n\n"
+        "3. ENGLISH LANGUAGE\n"
+        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates wrote long irrelevant responses in comprehension passages and lost marks through weak paragraphing. "
+        "SUGGESTED REMEDIES Teachers should train learners to answer directly from the question stem and practise paragraph development.\n\n"
+        "4. FRENCH\n"
+        "SUMMARY OF CANDIDATES' WEAKNESSES Many candidates lost marks because of poor spelling and wrong conjugation of first group verbs. "
+        "SUGGESTED REMEDIES Teachers should increase guided verb drills and sentence-building practice."
+    )
+
+    response = client.post(
+        "/api/analytics/chief-examiner-library/import",
+        headers=headers,
+        data={
+            "report_text": narrative_text,
+            "replace_existing": "true",
+            "source_filename": "chief-examiner-topic-inference.txt",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+
+    english_subject = next(item for item in payload["subjects"] if item["subject"] == "English Language")
+    english_topic_names = {item["topic"] for item in english_subject["topics"]}
+    assert "Comprehension" in english_topic_names
+    assert all(not topic_name.startswith("General Performance") for topic_name in english_topic_names)
+
+    french_subject = next(item for item in payload["subjects"] if item["subject"] == "French")
+    french_topic_names = {item["topic"] for item in french_subject["topics"]}
+    assert "Verb Conjugation" in french_topic_names
 
 
 def test_chief_examiner_library_import_uses_pdf_ocr_fallback_when_pdf_text_is_empty(client, app, test_school, test_proprietor, monkeypatch):

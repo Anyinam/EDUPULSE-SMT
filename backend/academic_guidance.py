@@ -395,7 +395,7 @@ def build_report_guidance_payload(
 def build_chief_examiner_library_payload(allowed_subjects: Iterable[str] | None = None, chief_examiner_library=None):
     allowed = {normalize_subject_key(subject) for subject in (allowed_subjects or []) if normalize_subject_key(subject)}
     payload = []
-    for subject_name, topics in sorted(merge_chief_examiner_library(chief_examiner_library).items()):
+    for subject_name, topics in sorted(normalize_chief_examiner_library(chief_examiner_library).items()):
         if allowed and subject_name not in allowed:
             continue
         payload.append(
