@@ -24,7 +24,7 @@ This packet gives counsel a practical overview of:
 2. How the system operates technically
 3. How parent admissions, report-card intelligence, and exam-guidance workflows operate
 4. How Paystack routing and fee handling work
-5. How cryptography and tamper-evident finance controls work
+5. How external KYB provider screening, cryptography, and tamper-evident finance controls work
 6. Which system components are likely to be high-value IP or confidential know-how
 7. Which technical controls support Ghana data-protection compliance analysis
 
@@ -93,7 +93,8 @@ The system should be viewed legally as more than a generic school-management app
 
 1. Tenant-specific school operation controls
 2. Paystack-linked payment-routing and classification logic
-3. Cryptographic finance integrity controls
+3. External KYB automation with fallback/manual exception handling
+4. Cryptographic finance integrity controls
 4. Role-gated workflow and approval logic
 5. Repeatable business operations playbooks
 

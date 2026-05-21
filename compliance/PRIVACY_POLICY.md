@@ -29,6 +29,7 @@ We collect data necessary to provide the Service, including:
 - Consent and compliance records: acceptance of policies, admissions acknowledgements, migration-consent records, and other notices or approvals required for lawful educational processing.
 - Usage data: login events, device info, IP address, audit logs.
 - Payment data: transaction references, invoices. We do not store full card details. Payments are processed by Paystack.
+- School verification data (KYB): legal school identity details, registration and tax identifiers, bank account verification details, and screening outcomes processed through configured verification providers.
 
 ## 3. Legal Basis and Purpose
 
@@ -54,6 +55,7 @@ We share data only with:
 
 - Authorized school staff using the platform.
 - Service providers (hosting, email, payment processing) under strict contracts.
+- Verification providers used for school KYB screening under strict contracts and lawful processing controls.
 - Examination or education-sector counterparties only where lawfully required, school-authorized, or supported by a formal approved integration.
 - Regulators or law enforcement if legally required.
 

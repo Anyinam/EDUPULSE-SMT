@@ -26,13 +26,23 @@ def app():
 def client(app):
     """Create test client and initialize database."""
     with app.app_context():
-        from backend.api.models import School, Student, StudentGrade, User, db
+        from backend.api.models import School, SchoolVerification, Student, StudentGrade, User, db
 
         db.create_all()
 
         # Create test school
         school = School(id="TEST-001", name="Test School", primary_color="#1e3a8a")
         db.session.add(school)
+
+        # Keep finance tests focused on payment behavior by pre-verifying the tenant.
+        verification = SchoolVerification(
+            school_id="TEST-001",
+            status="verified",
+            risk_tier="low",
+            legal_name="Test School",
+            organization_id="TEST-001",
+        )
+        db.session.add(verification)
 
         # Create test users
         teacher = User(
@@ -481,6 +491,61 @@ class TestPaymentEndpoints:
 
             # Should be rejected by validation or database constraint
             assert response.status_code in [400, 500]
+
+
+class TestSchoolVerificationEndpoints:
+    """Test the automatic school verification flow."""
+
+    def test_auto_approve_school_with_kyb_provider(self, client, app, mocker, monkeypatch):
+        """A clean KYB provider response should auto-approve the school."""
+        from flask_jwt_extended import create_access_token
+
+        from backend.api.models import SchoolVerification, User, db
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "status": "verified",
+                    "risk_tier": "low",
+                    "message": "School has been successfully verified.",
+                }
+
+        monkeypatch.setenv("KYB_PROVIDER", "identitypass")
+        monkeypatch.setenv("KYB_BASE_URL", "https://kyb.example")
+        monkeypatch.setenv("KYB_API_KEY", "test-kyb-key")
+        monkeypatch.setenv("KYB_VERIFY_PATH", "/verify")
+        mocker.patch("backend.kyb_verification.requests.post", return_value=FakeResponse())
+
+        with app.app_context():
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        response = client.put(
+            "/api/school/verification",
+            json={
+                "legal_name": "Test School",
+                "registration_number": "REG-12345",
+                "tax_id": "TIN-67890",
+                "bank_account_name": "Test School",
+                "bank_account_number": "0123456789",
+                "bank_name": "Test Bank",
+                "owner_information": {"owner_name": "Jane Owner"},
+            },
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["auto_verified"] is True
+        assert data["verification"]["is_verified"] is True
+        assert data["verification"]["status"] == "verified"
+
+        with app.app_context():
+            latest = SchoolVerification.query.filter_by(school_id="TEST-001").order_by(SchoolVerification.id.desc()).first()
+            assert latest is not None
+            assert latest.status == "verified"
 
 
 class TestAdmissionsEndpoints:

@@ -88,14 +88,14 @@ export default function ExamIntelligencePanel() {
           <p className="mt-2 max-w-3xl text-sm text-slate-600">Upload school-owned result lists as CSV, keep each batch downloadable, and turn them into year-over-year subject and gender performance signals for leadership review.</p>
         </div>
         <div className={`rounded-2xl px-4 py-3 text-sm font-bold ${data?.compliance_ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-          {data?.compliance_ready ? 'Compliance checks ready for import' : 'Complete school settings checks before import'}
+          {data?.compliance_ready ? 'Compliance checks ready for import' : 'Complete registration policy checks before import'}
         </div>
       </div>
 
       {!data?.compliance_ready && data?.compliance_gaps && (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <p className="font-bold">Required before BECE or WAEC import</p>
-          <p className="mt-1">School data authority: {data.compliance_gaps.school_data_authority_confirmed ? 'confirmed' : 'missing'} | Exam processing enabled: {data.compliance_gaps.bece_result_processing_enabled ? 'confirmed' : 'missing'} | Parent notice basis: {data.compliance_gaps.bece_parent_notice_confirmed ? 'confirmed' : 'missing'}</p>
+          <p className="mt-1">School data authority: {data.compliance_gaps.school_data_authority_confirmed ? 'confirmed' : 'missing'} | Exam processing basis: {data.compliance_gaps.bece_result_processing_enabled ? 'confirmed' : 'missing'} | Registration policy basis: {data.compliance_gaps.bece_parent_notice_confirmed ? 'confirmed' : 'missing'}</p>
         </div>
       )}
 

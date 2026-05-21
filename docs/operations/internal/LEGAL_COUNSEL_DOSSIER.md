@@ -157,11 +157,13 @@ At a high level, the system operates as follows:
 1. A school registers and selects a plan
 2. If the plan is paid, the system initializes Paystack payment
 3. Once payment is verified, the school subscription is activated
-4. School users log in under role-based access controls
-5. Staff carry out academic and finance workflows
-6. Certain finance events create ledger entries that are cryptographically chained
-7. Sensitive data is encrypted at the application layer before being stored
-8. In production, the documented AWS deployment posture injects secrets through managed secret storage and recommends encrypted storage and backups
+4. The proprietor can submit school verification details that are screened by an external KYB provider
+5. Clean KYB outcomes can auto-verify; flagged outcomes are routed to review-required status for platform compliance decisions
+6. School users log in under role-based access controls
+7. Staff carry out academic and finance workflows
+8. Certain finance events create ledger entries that are cryptographically chained
+9. Sensitive data is encrypted at the application layer before being stored
+10. In production, the documented AWS deployment posture injects secrets through managed secret storage and recommends encrypted storage and backups
 
 ## Paystack Architecture And Split-Style Handling
 
@@ -320,9 +322,10 @@ The existing privacy documentation points to this distinction:
 5. Application-layer encryption at rest for selected sensitive fields
 6. HMAC-SHA256 tamper-evident logging for finance records
 7. HMAC SHA-512 verification of Paystack webhook events
-8. Secrets management and production hardening
-9. Incident and breach handling documentation
-10. Retention, deletion, and DSAR workflow documentation
+8. External KYB provider integration with explicit verified/review-required outcomes and audit logging
+9. Secrets management and production hardening
+10. Incident and breach handling documentation
+11. Retention, deletion, and DSAR workflow documentation
 
 ### Practical Risk Areas To Review
 

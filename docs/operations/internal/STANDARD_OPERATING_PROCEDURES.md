@@ -65,13 +65,15 @@ Move the school from interest to first successful login, first core workflow usa
 7. Apply plan logic.
    If the school chooses `Free`, activate immediately.
    If the school chooses `Basic` or `Premium`, initialize payment and wait for successful confirmation before considering the plan active.
-8. Send welcome and login instructions.
+8. Trigger school verification onboarding.
+   Require proprietor submission of school verification profile and track automated KYB outcome (`verified`, `review_required`, or pending fallback outcome).
+9. Send welcome and login instructions.
    Include login URL, role expectations, first-week checklist, and support contact path.
-9. Schedule kickoff training.
+10. Schedule kickoff training.
    Book a 60-90 minute session for the proprietor and school operations lead.
-10. Track activation milestones.
+11. Track activation milestones.
    Confirm first login, first teacher created, first students added, first attendance entry, and first finance record.
-11. Mark onboarding status.
+12. Mark onboarding status.
    Move the school to `Activated` only after first-value actions are observed, not merely after signup.
 
 ### Exit Criteria
@@ -79,6 +81,7 @@ Move the school from interest to first successful login, first core workflow usa
 - School account exists in production
 - Correct commercial plan is set
 - Proprietor can log in
+- School verification state is recorded and monitored
 - Kickoff training is scheduled or completed
 - First-value actions are recorded
 
@@ -161,6 +164,11 @@ The school selects a paid plan, renews, upgrades, downgrades, or crosses billing
    Status must be one of: `Paid and active`, `Pending verification`, `Failed`, or `Needs manual review`.
 8. Document exceptions.
    Any waiver, delayed payment, credit, or special pricing must be recorded.
+
+### Verification-State Note
+
+- Financial workflows may be blocked when school verification is not approved.
+- Where blocked, route the school to compliance onboarding steps and track resolution in the compliance queue.
 
 ### Special Rules
 

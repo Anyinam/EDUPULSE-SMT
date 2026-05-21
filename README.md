@@ -9,14 +9,13 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - Role-based access control across `proprietor`, `headmaster`, `teacher`, `finance`, and `admin`
 - Dynamic school branding and configurable school settings
 - Audit-oriented workflows for sensitive operations
+- External-provider school KYB verification with automatic approve/review outcomes
 
 ### Academic Operations
 - Attendance tracking and summaries
 - Grade entry and report-card generation workflows
 - Report builder with staged approvals (teacher → headmaster → proprietor)
 - Lesson notes and academic analytics tooling
-- Exam papers workflow (teacher authoring + headmaster/proprietor review) for Premium tenants
-- AI Exam Assistant for guided question generation (Premium only)
 
 ### Finance & Payments
 - Manual and digital payment recording
@@ -66,6 +65,9 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - If `Basic` or `Premium` is selected: payment is initialized immediately at registration and user is redirected to Paystack.
 - After successful payment verification, user is redirected to login and receives one welcome email.
 - Duplicate registration welcome emails are prevented by audit-logged single-send checks.
+- School verification can be submitted by the proprietor and automatically screened through a configured KYB provider.
+- Clean provider outcomes auto-approve the school; flagged outcomes move to `review_required` for platform compliance review.
+- If provider config is unavailable or the provider is temporarily unreachable, local fallback heuristics still evaluate the submission.
 
 ## 🏫 B2B2C Direction
 - EduPulse remains school-led B2B infrastructure, with a parent-facing access layer rather than a marketplace-style standalone B2C product.
@@ -123,6 +125,28 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - `GET /api/school/subscription/usage-stats`
 - `POST /api/school/subscription/usage-report/send`
 - `GET /api/platform/registration-email-trace`
+- `GET /api/school/verification`
+- `PUT /api/school/verification`
+- `GET /api/proprietor/compliance/aml-flags`
+- `POST /api/proprietor/compliance/aml-flags/<flag_id>/resolve`
+- `GET /api/platform/compliance/schools`
+- `POST /api/platform/compliance/schools/<school_id>/decision`
+- `GET /api/platform/compliance/aml-flags`
+- `POST /api/platform/compliance/aml-flags/<flag_id>/resolve`
+
+## 🛡️ KYB Provider Configuration
+
+EduPulse supports external KYB providers (for example Identitypass, Dojah, Smile ID) via environment variables.
+
+Required:
+- `KYB_PROVIDER`
+- `KYB_BASE_URL`
+- `KYB_API_KEY`
+
+Optional:
+- `KYB_VERIFY_PATH` (default `/verify`)
+- `KYB_API_KEY_HEADER` (default `Authorization`)
+- `KYB_TIMEOUT_SECONDS` (default `20`)
 
 ## 🔄 End-to-End Workflow (Current + Implemented MVP)
 

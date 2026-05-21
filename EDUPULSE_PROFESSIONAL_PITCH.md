@@ -10,6 +10,7 @@ Schools in our target market face compounding operational breakdowns:
 - Fragmented academic workflows (attendance, grading, approvals) delay term outcomes.
 - Manual payment tracking creates leakage, reconciliation errors, and trust issues.
 - Proprietors lack real-time visibility into risk, billing exposure, and growth readiness.
+- Manual institution verification slows onboarding and creates avoidable back-office review load.
 - Existing tools are either too generic or lack localized controls for school finance realities.
 
 ---
@@ -23,6 +24,7 @@ EduPulse SMT provides one integrated control layer for school execution:
 - **Subscription Intelligence**: active-student meter, threshold alerts, overage transparency.
 - **Control Layer**: premium trial, pricing lock, price cap, and on-demand usage reporting.
 - **Governance Signals**: AI-assisted insight surfaces and proprietor oversight feed.
+- **Compliance Automation**: school KYB submissions are screened by external providers with automatic verified or review-required outcomes, plus local fallback when provider connectivity is unavailable.
 
 Core value proposition: **Schools make faster, safer decisions with fewer leakages and higher operational confidence.**
 
@@ -36,8 +38,9 @@ Core value proposition: **Schools make faster, safer decisions with fewer leakag
 4. Trigger manual meter sync and show refreshed usage.
 5. Show trial manager and price-cap control panel.
 6. Trigger usage-report email endpoint from UI.
-7. Walk report-builder approval chain (teacher → headmaster → proprietor).
-8. Close with governance loop and audit/notification trail.
+7. Submit school verification profile and show automatic KYB decisioning (verified vs review-required).
+8. Walk report-builder approval chain (teacher → headmaster → proprietor).
+9. Close with governance loop and audit/notification trail.
 
 ### Demo Outcome Statement
 By the end of the demo, stakeholders should see that EduPulse is not just a school app—it is a **governance and monetization operating system**.
@@ -95,6 +98,7 @@ Positioning: start with schools where payment and reporting friction is acute, t
 ## 7) Why We Win (Moat)
 - **Embedded Workflow Moat**: daily use across teaching, finance, and proprietors.
 - **Governance Moat**: approval chains and audit records are hard to replace once adopted.
+- **Compliance Moat**: automated KYB decisioning with audit trails reduces fraud surface and operating overhead while preserving manual oversight for exceptions.
 - **Monetization Moat**: flexible entitlement/pricing controls lower churn during growth.
 - **Data Moat**: longitudinal operational + finance signals improve insight quality over time.
 
@@ -105,6 +109,7 @@ Positioning: start with schools where payment and reporting friction is acute, t
 - Full billing/metering endpoints live and integrated in frontend widgets.
 - Trial lifecycle + pricing lock + price-cap controls implemented.
 - Usage email reporting service and trigger endpoints implemented.
+- External KYB provider adapter integrated with automatic verification and review-required routing.
 - Test signal: `86 passed, 0 failed`.
 
 ---

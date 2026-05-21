@@ -177,7 +177,6 @@ Reasoning:
 
 Premium-bundled AI features:
 - Student Rescue Agent
-- AI Exam Assistant
 - current AI lesson-analysis and narrative features already tied to Premium capability tiers
 
 Paid-plan bundled AI features:

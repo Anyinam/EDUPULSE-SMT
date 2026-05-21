@@ -219,6 +219,10 @@ export default SubscriptionUpgrade;
 
 ## ✅ Payment Verification Flow
 
+Note:
+- Finance actions may be gated by school verification state.
+- Schools are expected to complete KYB verification onboarding before unrestricted financial processing.
+
 ### 1. School Clicks "Upgrade to Basic"
 ```
 Frontend: ↓
@@ -275,6 +279,11 @@ Body: {
 - AI narratives enabled ✓
 - 5 classes allowed ✓
 - 200 students allowed ✓
+
+### 7. Verification Gate Check (Where Enabled)
+- If the school is not verified, selected finance actions can return verification-required responses.
+- Proprietor submits school verification profile via compliance endpoints.
+- External KYB provider can auto-verify clean schools; flagged outcomes route to manual review.
 
 ---
 

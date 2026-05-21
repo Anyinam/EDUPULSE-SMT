@@ -59,7 +59,7 @@ def client(app, db):
 @pytest.fixture()
 def test_school(db):
     """Create test school."""
-    from backend.api.models import School, SchoolSettings
+    from backend.api.models import School, SchoolSettings, SchoolVerification
 
     school = School(
         id="TEST-001",
@@ -68,13 +68,22 @@ def test_school(db):
         subscription_plan="Premium",
     )
     settings = SchoolSettings(school_id="TEST-001")
+    verification = SchoolVerification(
+        school_id="TEST-001",
+        status="verified",
+        risk_tier="low",
+        legal_name="Test School",
+        organization_id="TEST-001",
+    )
 
     db.session.add(school)
     db.session.add(settings)
+    db.session.add(verification)
     db.session.commit()
 
     yield school
 
+    db.session.delete(verification)
     db.session.delete(school)
     db.session.delete(settings)
     db.session.commit()

@@ -39,7 +39,7 @@ Free Tier           Basic Plan           Premium Plan
 ✓ Core Features    ✓ All Free +         ✓ All Basic +
 ✗ AI               ✓ Reports            ✓ AI Pulse
 ✗ Webhooks         ✓ Finance            ✓ Automation
-✗ Premium          ✓ Inventory          ✓ Exam Papers + AI Exam Assistant
+✗ Premium          ✓ Inventory          ✓ Priority Support + Advanced Governance
 
 Onboarding note: Paid plans (Basic/Premium) trigger immediate checkout during registration,
 and welcome email is sent once after successful payment verification.

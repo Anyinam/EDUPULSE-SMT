@@ -86,6 +86,21 @@ The compliance docs include an incident-response plan and breach-notification st
 
 The retention policy sets retention periods for academic, billing, audit, and security data, and defines a DSAR workflow with verification, SLAs, evidence records, and deletion/anonymization controls.
 
+### 9. School Identity Verification (KYB) Controls
+
+The platform supports external-provider school KYB screening for proprietor-submitted verification profiles.
+
+Current implementation pattern:
+
+1. School verification details are submitted within tenant scope
+2. A configured KYB provider is called with legal and banking identity context
+3. Outcomes are normalized to verified, review-required, unknown, or error
+4. Clean outcomes can auto-verify the school
+5. Flagged outcomes are routed to compliance review workflows
+6. If provider connectivity or configuration is unavailable, local fallback heuristics continue evaluation
+
+Counsel should ensure this provider-assisted processing is clearly disclosed in privacy notices, processor/sub-processor schedules, and school contracts.
+
 ## Data Categories And Legal Sensitivity
 
 The higher-sensitivity categories in practice are likely to include:
@@ -152,6 +167,7 @@ Counsel will likely want to examine:
 3. Whether breach-notification procedures are framed in a regulator-ready way
 4. Whether cross-border storage and service-provider clauses are sufficiently disclosed
 5. Whether retention, deletion, and export rights are contractually and operationally aligned
+6. Whether KYB provider usage, legal basis, and sub-processor disclosure language are adequately explicit
 
 ## Practical Risk Areas To Review
 

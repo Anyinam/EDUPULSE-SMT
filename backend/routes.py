@@ -29,6 +29,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from backend.api.models import (
+    AMLTransactionFlag,
     VALID_GRADES,
     AcademicClass,
     AcademicTerm,
@@ -36,7 +37,6 @@ from backend.api.models import (
     AuditLog,
     ClassGradingPolicy,
     DailyLessonPhase,
-    ExamPaper,
     Inventory,
     LedgerEntry,
     LessonNote,
@@ -53,6 +53,7 @@ from backend.api.models import (
     ReportCard,
     ReportCardStatus,
     School,
+    SchoolVerification,
     SchoolSettings,
     Student,
     StudentAssignment,
@@ -91,7 +92,7 @@ from backend.subscription_features import (
     has_feature,
 )
 from backend.lesson_note_ai import generate_ai_lesson_note_score, generate_quick_feedback
-from backend.exam_ai import generate_exam_questions
+from backend.kyb_verification import verify_school_profile
 from backend.email_templates import (
     get_welcome_email, 
     get_password_reset_email, 
@@ -187,8 +188,6 @@ PLATFORM_CHIEF_EXAMINER_LIBRARY_SETTING_KEY = "platform_chief_examiner_library"
 PLATFORM_CHIEF_EXAMINER_LIBRARY_META_SETTING_KEY = "platform_chief_examiner_library_meta"
 PLATFORM_CHIEF_EXAMINER_LIBRARY_HISTORY_SETTING_KEY = "platform_chief_examiner_library_history"
 PLATFORM_PUBLIC_CONTENT_SETTING_KEY = "platform_public_content"
-EXAM_PAPER_HISTORY_KEY = "exam_paper_history"
-EXAM_PAPER_HISTORY_LIMIT = 250
 REPORT_TEMPLATE_HISTORY_KEY = "report_template_history"
 REPORT_TEMPLATE_HISTORY_LIMIT = 40
 ANALYTICS_PRESET_HISTORY_KEY = "analytics_preset_history"
@@ -207,6 +206,233 @@ def log_action(user_id, school_id, action, details):
     )
     db.session.add(new_log)
     db.session.commit()
+
+
+def _to_iso_utc(dt_value):
+    if not dt_value:
+        return None
+    if dt_value.tzinfo is None:
+        dt_value = dt_value.replace(tzinfo=timezone.utc)
+    return dt_value.astimezone(timezone.utc).isoformat()
+
+
+def _get_latest_school_verification(school_id):
+    return (
+        SchoolVerification.query.filter_by(school_id=school_id)
+        .order_by(SchoolVerification.id.desc())
+        .first()
+    )
+
+
+def _get_school_verification_snapshot(school_id):
+    verification = _get_latest_school_verification(school_id)
+    if not verification:
+        return {
+            "status": "not_submitted",
+            "risk_tier": "unknown",
+            "is_verified": False,
+            "reviewed_at": None,
+            "expires_at": None,
+        }
+
+    status = (verification.status or "pending").strip().lower()
+    expires_at = verification.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    is_expired = bool(expires_at and expires_at <= get_utc_now())
+    effective_status = "expired" if is_expired and status == "verified" else status
+
+    return {
+        "status": effective_status,
+        "risk_tier": (verification.risk_tier or "medium").strip().lower(),
+        "is_verified": effective_status == "verified",
+        "reviewed_at": _to_iso_utc(verification.reviewed_at),
+        "expires_at": _to_iso_utc(verification.expires_at),
+        "verification_id": verification.id,
+    }
+
+
+def _finance_verification_block_response(school_id, action):
+    snapshot = _get_school_verification_snapshot(school_id)
+    if snapshot["is_verified"]:
+        return None, snapshot
+
+    return (
+        jsonify(
+            {
+                "message": "School verification is required before this financial action can continue.",
+                "error": "school_verification_required",
+                "action": action,
+                "verification": snapshot,
+            }
+        ),
+        403,
+    ), snapshot
+
+
+def _create_aml_flag(
+    school_id,
+    rule_code,
+    severity,
+    summary,
+    details=None,
+    payment_id=None,
+    student_id=None,
+    created_by_user_id=None,
+):
+    flag = AMLTransactionFlag(
+        school_id=school_id,
+        payment_id=payment_id,
+        student_id=student_id,
+        created_by_user_id=created_by_user_id,
+        rule_code=rule_code,
+        severity=severity,
+        status="open",
+        summary=summary,
+        details=details if isinstance(details, dict) else {},
+    )
+    db.session.add(flag)
+    return flag
+
+
+def _evaluate_payment_aml_flags(school_id, payment, actor_id=None):
+    flags = []
+    now = get_utc_now()
+    amount = float(payment.amount or 0)
+
+    if amount >= 50000:
+        flags.append(
+            _create_aml_flag(
+                school_id=school_id,
+                payment_id=payment.id,
+                student_id=payment.student_id,
+                created_by_user_id=actor_id,
+                rule_code="HIGH_VALUE_PAYMENT",
+                severity="high",
+                summary="High-value payment exceeded AML review threshold.",
+                details={"amount": amount, "threshold": 50000, "payment_type": payment.payment_type},
+            )
+        )
+
+    one_day_ago = now - timedelta(hours=24)
+    same_band_count = (
+        Payment.query.filter(
+            Payment.school_id == school_id,
+            Payment.date_paid >= one_day_ago,
+            Payment.amount >= 9000,
+            Payment.amount <= 10000,
+        ).count()
+    )
+    if 9000 <= amount <= 10000 and same_band_count >= 3:
+        flags.append(
+            _create_aml_flag(
+                school_id=school_id,
+                payment_id=payment.id,
+                student_id=payment.student_id,
+                created_by_user_id=actor_id,
+                rule_code="STRUCTURED_PAYMENTS_PATTERN",
+                severity="high",
+                summary="Potential structuring detected from repeated near-threshold payments.",
+                details={"amount": amount, "window_hours": 24, "similar_payments": same_band_count},
+            )
+        )
+
+    one_hour_ago = now - timedelta(hours=1)
+    rapid_count = (
+        Payment.query.filter(
+            Payment.school_id == school_id,
+            Payment.date_paid >= one_hour_ago,
+        ).count()
+    )
+    if rapid_count >= 25:
+        flags.append(
+            _create_aml_flag(
+                school_id=school_id,
+                payment_id=payment.id,
+                student_id=payment.student_id,
+                created_by_user_id=actor_id,
+                rule_code="UNUSUAL_PAYMENT_VELOCITY",
+                severity="medium",
+                summary="Unusual payment velocity detected in the last hour.",
+                details={"payments_last_hour": rapid_count},
+            )
+        )
+
+    return flags
+
+
+def _normalize_verification_text(value):
+    return re.sub(r"[^a-z0-9]+", "", (str(value or "")).strip().lower())
+
+
+def _screening_is_clean(screening_results):
+    if not isinstance(screening_results, dict) or not screening_results:
+        return True
+
+    for key in ("sanctions_hit", "pep_hit", "adverse_media_hit", "high_risk", "match_found"):
+        if bool(screening_results.get(key)):
+            return False
+
+    status_value = _normalize_verification_text(screening_results.get("status") or screening_results.get("result") or screening_results.get("overall"))
+    if status_value and status_value not in {"clear", "passed", "ok", "clean", "approved", "nohit", "nohits"}:
+        return False
+
+    return True
+
+
+def _auto_verify_school_verification(school, verification):
+    if not school or not verification:
+        return False, "missing_data"
+
+    legal_name = _normalize_verification_text(verification.legal_name or school.name)
+    school_name = _normalize_verification_text(school.name)
+    registration_number = sanitize_string(verification.registration_number or "")
+    tax_id = sanitize_string(verification.tax_id or "")
+    bank_account_name = _normalize_verification_text(verification.bank_account_name or "")
+    owner_information = verification.owner_information if isinstance(verification.owner_information, dict) else {}
+    screening_results = verification.screening_results if isinstance(verification.screening_results, dict) else {}
+
+    if not registration_number or not tax_id:
+        return False, "missing_regulatory_identifiers"
+
+    if not bank_account_name or bank_account_name != legal_name:
+        return False, "bank_name_mismatch"
+
+    if legal_name != school_name and school_name not in legal_name and legal_name not in school_name:
+        return False, "legal_name_mismatch"
+
+    required_owner_keys = {"proprietor_name", "director_name", "owner_name", "full_name"}
+    if owner_information and not any(str(owner_information.get(key) or "").strip() for key in required_owner_keys):
+        return False, "missing_owner_identity"
+
+    if not _screening_is_clean(screening_results):
+        return False, "screening_flagged"
+
+    verification.status = "verified"
+    verification.risk_tier = "low"
+    verification.reviewed_by_platform_user_id = None
+    verification.reviewed_at = get_utc_now()
+    if not verification.expires_at:
+        verification.expires_at = get_utc_now() + timedelta(days=365)
+
+    return True, "auto_verified"
+
+
+def _apply_school_verification_outcome(verification, outcome, risk_tier, notes=None):
+    verification.risk_tier = risk_tier or verification.risk_tier or "medium"
+    if notes:
+        verification.review_notes = notes
+
+    if outcome == "verified":
+        verification.status = "verified"
+        verification.reviewed_by_platform_user_id = None
+        verification.reviewed_at = get_utc_now()
+        if not verification.expires_at:
+            verification.expires_at = get_utc_now() + timedelta(days=365)
+    elif outcome == "review_required":
+        verification.status = "review_required"
+    else:
+        verification.status = verification.status or "pending"
 
 
 def _parse_position_value(position_text):
@@ -2204,10 +2430,13 @@ def _build_exam_intelligence_payload(settings):
     compliance_workflow = _get_data_compliance_workflow_config(settings)
     registration_ack = compliance_workflow.get("registration_acknowledgements") or {}
     legacy_migration = compliance_workflow.get("legacy_migration") or {}
+    consent_plan_confirmed = bool(registration_ack.get("legacy_and_exam_consent_plan_confirmed"))
+    bece_result_processing_enabled = bool(legacy_migration.get("bece_result_processing_enabled", False) or consent_plan_confirmed)
+    bece_parent_notice_confirmed = bool(legacy_migration.get("bece_parent_notice_confirmed", False) or consent_plan_confirmed)
     compliance_ready = bool(
         registration_ack.get("school_data_authority_confirmed")
-        and legacy_migration.get("bece_result_processing_enabled")
-        and legacy_migration.get("bece_parent_notice_confirmed")
+        and bece_result_processing_enabled
+        and bece_parent_notice_confirmed
     )
 
     enriched_imports = []
@@ -2274,8 +2503,8 @@ def _build_exam_intelligence_payload(settings):
         "compliance_ready": compliance_ready,
         "compliance_gaps": {
             "school_data_authority_confirmed": bool(registration_ack.get("school_data_authority_confirmed")),
-            "bece_result_processing_enabled": bool(legacy_migration.get("bece_result_processing_enabled")),
-            "bece_parent_notice_confirmed": bool(legacy_migration.get("bece_parent_notice_confirmed")),
+            "bece_result_processing_enabled": bece_result_processing_enabled,
+            "bece_parent_notice_confirmed": bece_parent_notice_confirmed,
         },
         "summary": {
             "total_imports": len(enriched_imports),
@@ -3739,7 +3968,7 @@ def get_registration_email_trace():
                 {
                     "id": row.id,
                     "school_id": row.school_id,
-                    "user_id": row.user_id,
+                    "user_id": row.actor_id,
                     "action": row.action,
                     "details": row.details,
                     "timestamp": row.timestamp.isoformat() if row.timestamp else None,
@@ -3750,6 +3979,170 @@ def get_registration_email_trace():
             "total_events": len(rows),
         }
     )
+
+
+@api.route("/platform/compliance/schools", methods=["GET"])
+@jwt_required()
+def platform_list_school_verification_cases():
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    status_filter = sanitize_string(request.args.get("status") or "").lower()
+    risk_filter = sanitize_string(request.args.get("risk_tier") or "").lower()
+    limit = request.args.get("limit", default=200, type=int) or 200
+    limit = max(1, min(limit, 1000))
+
+    latest_ids = (
+        db.session.query(func.max(SchoolVerification.id).label("id"))
+        .group_by(SchoolVerification.school_id)
+        .subquery()
+    )
+
+    query = (
+        db.session.query(SchoolVerification, School)
+        .join(latest_ids, SchoolVerification.id == latest_ids.c.id)
+        .join(School, School.id == SchoolVerification.school_id)
+    )
+
+    if status_filter and status_filter != "all":
+        query = query.filter(func.lower(SchoolVerification.status) == status_filter)
+    if risk_filter:
+        query = query.filter(func.lower(SchoolVerification.risk_tier) == risk_filter)
+
+    rows = query.order_by(SchoolVerification.submitted_at.desc()).limit(limit).all()
+    return jsonify(
+        {
+            "cases": [
+                {
+                    "school_id": school.id,
+                    "school_name": school.name,
+                    "verification_id": verification.id,
+                    "status": verification.status,
+                    "risk_tier": verification.risk_tier,
+                    "legal_name": verification.legal_name,
+                    "registration_number": verification.registration_number,
+                    "submitted_at": _to_iso_utc(verification.submitted_at),
+                    "reviewed_at": _to_iso_utc(verification.reviewed_at),
+                    "expires_at": _to_iso_utc(verification.expires_at),
+                }
+                for verification, school in rows
+            ]
+        }
+    )
+
+
+@api.route("/platform/compliance/schools/<string:school_id>/decision", methods=["POST"])
+@jwt_required()
+def platform_review_school_verification_case(school_id):
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    new_status = sanitize_string(payload.get("status") or "").lower()
+    allowed_statuses = {"verified", "rejected", "suspended", "review_required"}
+    if new_status not in allowed_statuses:
+        return jsonify({"message": f"status must be one of: {', '.join(sorted(allowed_statuses))}"}), 400
+
+    risk_tier = sanitize_string(payload.get("risk_tier") or "medium").lower()
+    if risk_tier not in {"low", "medium", "high"}:
+        risk_tier = "medium"
+
+    verification = (
+        SchoolVerification.query.filter_by(school_id=school_id)
+        .order_by(SchoolVerification.id.desc())
+        .first()
+    )
+    if not verification:
+        return jsonify({"message": "No verification profile found for school"}), 404
+
+    verification.status = new_status
+    verification.risk_tier = risk_tier
+    verification.review_notes = sanitize_string(payload.get("review_notes") or "")
+    verification.reviewed_by_platform_user_id = platform_user.id
+    verification.reviewed_at = get_utc_now()
+
+    expires_in_days = payload.get("expires_in_days")
+    if isinstance(expires_in_days, int) and expires_in_days > 0 and new_status == "verified":
+        verification.expires_at = get_utc_now() + timedelta(days=min(expires_in_days, 365 * 3))
+    elif new_status != "verified":
+        verification.expires_at = None
+
+    db.session.commit()
+    return jsonify(
+        {
+            "message": "Verification decision saved.",
+            "school_id": school_id,
+            "status": verification.status,
+            "risk_tier": verification.risk_tier,
+            "reviewed_at": _to_iso_utc(verification.reviewed_at),
+            "expires_at": _to_iso_utc(verification.expires_at),
+        }
+    )
+
+
+@api.route("/platform/compliance/aml-flags", methods=["GET"])
+@jwt_required()
+def platform_list_aml_flags():
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    status_filter = sanitize_string(request.args.get("status") or "open").lower()
+    severity_filter = sanitize_string(request.args.get("severity") or "").lower()
+    limit = request.args.get("limit", default=300, type=int) or 300
+    limit = max(1, min(limit, 1000))
+
+    query = db.session.query(AMLTransactionFlag, School).join(School, School.id == AMLTransactionFlag.school_id)
+    if status_filter in {"open", "resolved"}:
+        query = query.filter(AMLTransactionFlag.status == status_filter)
+    if severity_filter in {"low", "medium", "high"}:
+        query = query.filter(func.lower(AMLTransactionFlag.severity) == severity_filter)
+
+    rows = query.order_by(AMLTransactionFlag.created_at.desc()).limit(limit).all()
+    return jsonify(
+        {
+            "flags": [
+                {
+                    "id": flag.id,
+                    "school_id": school.id,
+                    "school_name": school.name,
+                    "rule_code": flag.rule_code,
+                    "severity": flag.severity,
+                    "status": flag.status,
+                    "summary": flag.summary,
+                    "details": flag.details or {},
+                    "payment_id": flag.payment_id,
+                    "student_id": flag.student_id,
+                    "created_at": _to_iso_utc(flag.created_at),
+                    "resolved_at": _to_iso_utc(flag.resolved_at),
+                }
+                for flag, school in rows
+            ]
+        }
+    )
+
+
+@api.route("/platform/compliance/aml-flags/<int:flag_id>/resolve", methods=["POST"])
+@jwt_required()
+def platform_resolve_aml_flag(flag_id):
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    notes = sanitize_string(payload.get("notes") or "")
+    row = AMLTransactionFlag.query.get(flag_id)
+    if not row:
+        return jsonify({"message": "AML flag not found"}), 404
+
+    row.status = "resolved"
+    row.resolution_notes = notes or "Resolved by platform compliance"
+    row.resolved_at = get_utc_now()
+    db.session.commit()
+
+    return jsonify({"message": "AML flag resolved.", "flag_id": row.id})
 
 
 # --- 1. AUTHENTICATION (Pillar 1: Business Credentials) ---
@@ -3849,7 +4242,6 @@ def _merge_report_template_config(existing_config, incoming_config):
             CHIEF_EXAMINER_LIBRARY_CONFIG_KEY,
             CHIEF_EXAMINER_LIBRARY_META_KEY,
             CHIEF_EXAMINER_LIBRARY_HISTORY_KEY,
-            EXAM_PAPER_HISTORY_KEY,
             REPORT_TEMPLATE_HISTORY_KEY,
             "analytics_presets",
             ANALYTICS_PRESET_HISTORY_KEY,
@@ -4280,6 +4672,17 @@ def register():
         # 2. Create Default Settings
         new_settings = SchoolSettings(school_id=school_id)
         db.session.add(new_settings)
+
+        # 2b. Seed KYB workflow baseline for AML controls.
+        new_verification = SchoolVerification(
+            school_id=school_id,
+            status="pending",
+            risk_tier="medium",
+            legal_name=school_name,
+            organization_id=school_id,
+            submitted_at=get_utc_now(),
+        )
+        db.session.add(new_verification)
 
         # 3. Create Proprietor User
         new_user = User(
@@ -6946,6 +7349,9 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
 
     payment_type = actual_payment_type or reference_payment_type
 
+    verification_snapshot = _get_school_verification_snapshot(student.school_id)
+    verification_blocked = not verification_snapshot["is_verified"]
+
     payment = Payment(
         student_id=student.id,
         school_id=student.school_id,
@@ -6953,15 +7359,27 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
         payment_type=payment_type,
         method="Paystack_Payment",
         reference_id=tx_ref,
-        status="Confirmed",
+        status="Pending" if verification_blocked else "Confirmed",
         payment_category=payment_category or {},
     )
     db.session.add(payment)
+    db.session.flush()
 
-    stock_error = _apply_auto_payment_effects(student, payment_type, amount, payment_category or {})
-    if stock_error:
-        db.session.rollback()
-        return {"status": "error", "message": stock_error}, 400
+    if verification_blocked:
+        _create_aml_flag(
+            school_id=student.school_id,
+            payment_id=payment.id,
+            student_id=student.id,
+            rule_code="UNVERIFIED_SCHOOL_PAYMENT",
+            severity="high",
+            summary="Payment received while school KYB verification is not approved.",
+            details={"reference": tx_ref, "source": "paystack", "verification": verification_snapshot},
+        )
+    else:
+        stock_error = _apply_auto_payment_effects(student, payment_type, amount, payment_category or {})
+        if stock_error:
+            db.session.rollback()
+            return {"status": "error", "message": stock_error}, 400
 
     ledger_metadata = {
         "provider": "paystack",
@@ -6986,17 +7404,20 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
             "requires_review": True,
         }
 
-    add_ledger_entry(
-        school_id=student.school_id,
-        tx_type=(payment_type or "payment").lower(),
-        tx_ref=tx_ref,
-        amount=amount,
-        currency="GH₵",
-        actor_id=None,
-        student_id=student.id,
-        source="paystack",
-        metadata=ledger_metadata,
-    )
+    if not verification_blocked:
+        add_ledger_entry(
+            school_id=student.school_id,
+            tx_type=(payment_type or "payment").lower(),
+            tx_ref=tx_ref,
+            amount=amount,
+            currency="GH₵",
+            actor_id=None,
+            student_id=student.id,
+            source="paystack",
+            metadata=ledger_metadata,
+        )
+
+    _evaluate_payment_aml_flags(student.school_id, payment, actor_id=None)
 
     if _should_inject_failpoint(metadata, "finance_payment_before_commit"):
         db.session.rollback()
@@ -7006,7 +7427,10 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
         user_id=None,
         school_id=student.school_id,
         action="PAYSTACK_PAYMENT_AUTO",
-        details=f"Paystack payment: GH₵{amount:.2f} for {student.name} ({payment_type}, ref={tx_ref})",
+        details=(
+            f"Paystack payment: GH₵{amount:.2f} for {student.name} "
+            f"({payment_type}, ref={tx_ref}, status={payment.status})"
+        ),
     )
 
     db.session.commit()
@@ -7653,6 +8077,13 @@ def initialize_paystack_payment():
     Payment automatically splits to the school's designated subaccount based on payment type.
     """
     data = request.get_json() or {}
+
+    verification_block, _snapshot = _finance_verification_block_response(
+        g.school_id,
+        action="initialize_paystack_payment",
+    )
+    if verification_block:
+        return verification_block
     
     student_id = data.get("student_id")
     payment_type = sanitize_string(data.get("payment_type", "Tuition"))
@@ -8716,6 +9147,208 @@ def get_student_pulse(student_id):
     return jsonify(health_data)
 
 
+@api.route("/school/verification", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+def get_school_verification_status():
+    verification = _get_latest_school_verification(g.school_id)
+    snapshot = _get_school_verification_snapshot(g.school_id)
+    if not verification:
+        return jsonify({"verification": snapshot, "profile": None})
+
+    return jsonify(
+        {
+            "verification": snapshot,
+            "profile": {
+                "id": verification.id,
+                "legal_name": verification.legal_name,
+                "organization_id": verification.organization_id,
+                "registration_number": verification.registration_number,
+                "tax_id": verification.tax_id,
+                "license_number": verification.license_number,
+                "bank_account_name": verification.bank_account_name,
+                "bank_name": verification.bank_name,
+                "owner_information": verification.owner_information or {},
+                "screening_results": verification.screening_results or {},
+                "documents": verification.documents or [],
+                "review_notes": verification.review_notes,
+                "submitted_at": _to_iso_utc(verification.submitted_at),
+                "reviewed_at": _to_iso_utc(verification.reviewed_at),
+                "expires_at": _to_iso_utc(verification.expires_at),
+            },
+        }
+    )
+
+
+@api.route("/school/verification", methods=["PUT"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def submit_school_verification():
+    payload = request.get_json(silent=True) or {}
+    user_id = int(get_jwt_identity())
+
+    legal_name = sanitize_string(payload.get("legal_name") or "")
+    registration_number = sanitize_string(payload.get("registration_number") or "")
+    tax_id = sanitize_string(payload.get("tax_id") or "")
+    bank_account_name = sanitize_string(payload.get("bank_account_name") or "")
+    bank_account_number = sanitize_string(payload.get("bank_account_number") or "")
+    bank_name = sanitize_string(payload.get("bank_name") or "")
+
+    if not legal_name or not registration_number or not tax_id:
+        return jsonify({"message": "legal_name, registration_number, and tax_id are required"}), 400
+    if not bank_account_name or not bank_account_number:
+        return jsonify({"message": "bank_account_name and bank_account_number are required"}), 400
+
+    owner_information = payload.get("owner_information") if isinstance(payload.get("owner_information"), dict) else {}
+    screening_results = payload.get("screening_results") if isinstance(payload.get("screening_results"), dict) else {}
+    documents = payload.get("documents") if isinstance(payload.get("documents"), list) else []
+
+    verification = SchoolVerification(
+        school_id=g.school_id,
+        status="pending",
+        risk_tier="medium",
+        legal_name=legal_name,
+        organization_id=g.school_id,
+        registration_number=registration_number,
+        tax_id=tax_id,
+        license_number=sanitize_string(payload.get("license_number") or ""),
+        bank_account_name=bank_account_name,
+        bank_account_number=bank_account_number,
+        bank_name=bank_name,
+        owner_information=owner_information,
+        screening_results=screening_results,
+        documents=documents,
+        submitted_by_user_id=user_id,
+        submitted_at=get_utc_now(),
+    )
+    db.session.add(verification)
+    db.session.flush()
+
+    school = School.query.get(g.school_id)
+    provider_result = verify_school_profile(school, verification)
+    auto_verified = False
+    auto_reason = provider_result.get("reason") or "provider_unavailable"
+
+    if provider_result.get("verified"):
+        _apply_school_verification_outcome(
+            verification,
+            "verified",
+            provider_result.get("risk_tier") or "low",
+            notes=provider_result.get("reason") or "provider_verified",
+        )
+        auto_verified = True
+        auto_reason = "provider_verified"
+    elif provider_result.get("outcome") == "review_required":
+        _apply_school_verification_outcome(
+            verification,
+            "review_required",
+            provider_result.get("risk_tier") or "medium",
+            notes=provider_result.get("reason") or "provider_review_required",
+        )
+        auto_reason = provider_result.get("reason") or "provider_review_required"
+    else:
+        local_auto_verified, local_reason = _auto_verify_school_verification(school, verification)
+        if local_auto_verified:
+            auto_verified = True
+            auto_reason = local_reason
+        else:
+            _apply_school_verification_outcome(
+                verification,
+                "review_required",
+                provider_result.get("risk_tier") or "medium",
+                notes=provider_result.get("reason") or local_reason,
+            )
+            auto_reason = provider_result.get("reason") or local_reason
+
+    log_action(
+        user_id,
+        g.school_id,
+        "SCHOOL_KYB_SUBMITTED",
+        json.dumps(
+            {
+                "verification_id": verification.id,
+                "legal_name": legal_name,
+                "registration_number": registration_number,
+                "document_count": len(documents),
+                "auto_verified": auto_verified,
+                "auto_reason": auto_reason,
+            }
+        ),
+    )
+    db.session.commit()
+
+    final_snapshot = _get_school_verification_snapshot(g.school_id)
+
+    return jsonify(
+        {
+            "message": (
+                "Verification profile auto-approved."
+                if final_snapshot.get("is_verified")
+                else "Verification profile submitted for compliance review."
+            ),
+            "verification": final_snapshot,
+            "verification_id": verification.id,
+            "auto_verified": auto_verified,
+            "auto_reason": auto_reason,
+        }
+    )
+
+
+@api.route("/proprietor/compliance/aml-flags", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def list_school_aml_flags():
+    status_filter = sanitize_string(request.args.get("status") or "open").lower()
+    query = AMLTransactionFlag.query.filter_by(school_id=g.school_id)
+    if status_filter in {"open", "resolved"}:
+        query = query.filter(AMLTransactionFlag.status == status_filter)
+
+    rows = query.order_by(AMLTransactionFlag.created_at.desc()).limit(300).all()
+    return jsonify(
+        {
+            "flags": [
+                {
+                    "id": row.id,
+                    "rule_code": row.rule_code,
+                    "severity": row.severity,
+                    "status": row.status,
+                    "summary": row.summary,
+                    "details": row.details or {},
+                    "payment_id": row.payment_id,
+                    "student_id": row.student_id,
+                    "created_at": _to_iso_utc(row.created_at),
+                    "resolved_at": _to_iso_utc(row.resolved_at),
+                }
+                for row in rows
+            ]
+        }
+    )
+
+
+@api.route("/proprietor/compliance/aml-flags/<int:flag_id>/resolve", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def resolve_school_aml_flag(flag_id):
+    user_id = int(get_jwt_identity())
+    payload = request.get_json(silent=True) or {}
+    notes = sanitize_string(payload.get("notes") or "")
+
+    row = AMLTransactionFlag.query.filter_by(id=flag_id, school_id=g.school_id).first()
+    if not row:
+        return jsonify({"message": "AML flag not found"}), 404
+
+    row.status = "resolved"
+    row.resolution_notes = notes or "Resolved by proprietor"
+    row.resolved_by_user_id = user_id
+    row.resolved_at = get_utc_now()
+
+    db.session.commit()
+    return jsonify({"message": "AML flag resolved.", "flag_id": row.id})
+
+
 @api.route("/finance/receive-payment", methods=["POST"])
 @multi_tenant_guard
 @jwt_required()
@@ -8728,6 +9361,14 @@ def receive_payment():
     """
     user_id = int(get_jwt_identity())
     user = User.query.get(user_id)
+
+    verification_block, _snapshot = _finance_verification_block_response(
+        g.school_id,
+        action="receive_payment",
+    )
+    if verification_block:
+        return verification_block
+
     data = request.get_json(silent=True) or {}
     if not data:
         return jsonify({"message": "Invalid request body"}), 400
@@ -8841,6 +9482,9 @@ def receive_payment():
         payment_category=validation_payload["payment_category"],
     )
     db.session.add(payment)
+    db.session.flush()
+
+    aml_flags = _evaluate_payment_aml_flags(g.school_id, payment, actor_id=user.id)
 
     # Only update student stats if confirmed immediately
     if status == "Confirmed":
@@ -8914,6 +9558,7 @@ def receive_payment():
             "student_name": student.name,
             "payment_id": payment.id,
             "id": payment.id,
+            "aml_flags_opened": len(aml_flags),
         }
     )
 
@@ -8994,6 +9639,9 @@ def bank_transfer_webhook():
                 200,
             )
 
+        verification_snapshot = _get_school_verification_snapshot(student.school_id)
+        verification_blocked = not verification_snapshot["is_verified"]
+
         # Automatically record and confirm bank transfer payment
         payment = Payment(
             student_id=student.id,
@@ -9002,38 +9650,52 @@ def bank_transfer_webhook():
             payment_type=payment_type,
             method="Bank_Auto",
             reference_id=data.get("transaction_id"),  # For idempotency
-            status="Confirmed",
+            status="Pending" if verification_blocked else "Confirmed",
             payment_category=payment_category,
         )
         db.session.add(payment)
+        db.session.flush()
 
-        # Update student balance if tuition
-        if payment_type == "Tuition":
-            student.total_tuition_owed = max(
-                0, student.total_tuition_owed - float(data.get("amount"))
+        if verification_blocked:
+            _create_aml_flag(
+                school_id=student.school_id,
+                payment_id=payment.id,
+                student_id=student.id,
+                rule_code="UNVERIFIED_SCHOOL_PAYMENT",
+                severity="high",
+                summary="Bank transfer received while school KYB verification is not approved.",
+                details={"reference": data.get("transaction_id"), "verification": verification_snapshot},
             )
-        elif payment_type == "Feeding":
-            student.feeding_paid = True
-        elif payment_type in ["Inventory", "Uniform"]:
-            sku = payment_category.get("item_code") or payment_category.get("sku")
-            quantity = int(payment_category.get("quantity", 1))
-            inventory_item = None
-            if sku:
-                inventory_item = Inventory.query.filter_by(
-                    sku=sku, school_id=student.school_id
-                ).first()
-            if inventory_item:
-                if inventory_item.quantity is not None and inventory_item.quantity < quantity:
-                    return jsonify({"status": "error", "message": "Insufficient inventory stock"}), 400
-                inventory_item.quantity = (inventory_item.quantity or 0) - quantity
-                payment.payment_category = {
-                    **payment.payment_category,
-                    "item_name": inventory_item.item_name,
-                    "item_type": inventory_item.item_type,
-                    "size": inventory_item.size,
-                    "sku": inventory_item.sku,
-                    "quantity": quantity,
-                }
+        else:
+            # Update student balance if tuition
+            if payment_type == "Tuition":
+                student.total_tuition_owed = max(
+                    0, student.total_tuition_owed - float(data.get("amount"))
+                )
+            elif payment_type == "Feeding":
+                student.feeding_paid = True
+            elif payment_type in ["Inventory", "Uniform"]:
+                sku = payment_category.get("item_code") or payment_category.get("sku")
+                quantity = int(payment_category.get("quantity", 1))
+                inventory_item = None
+                if sku:
+                    inventory_item = Inventory.query.filter_by(
+                        sku=sku, school_id=student.school_id
+                    ).first()
+                if inventory_item:
+                    if inventory_item.quantity is not None and inventory_item.quantity < quantity:
+                        return jsonify({"status": "error", "message": "Insufficient inventory stock"}), 400
+                    inventory_item.quantity = (inventory_item.quantity or 0) - quantity
+                    payment.payment_category = {
+                        **payment.payment_category,
+                        "item_name": inventory_item.item_name,
+                        "item_type": inventory_item.item_type,
+                        "size": inventory_item.size,
+                        "sku": inventory_item.sku,
+                        "quantity": quantity,
+                    }
+
+        _evaluate_payment_aml_flags(student.school_id, payment, actor_id=None)
 
         # Log the transaction
         log_action(
@@ -9051,6 +9713,7 @@ def bank_transfer_webhook():
                     "student_id": student.id,
                     "payment_type": payment_type,
                     "category": payment_category,
+                    "payment_status": payment.status,
                 }
             ),
             200,
@@ -9671,6 +10334,13 @@ def proprietor_live_events():
 @jwt_required()
 def confirm_payment(payment_id):
     """Proprietor confirms manual payment and adds to immutable audit ledger."""
+    verification_block, _snapshot = _finance_verification_block_response(
+        g.school_id,
+        action="confirm_payment",
+    )
+    if verification_block:
+        return verification_block
+
     payment = Payment.query.filter_by(
         id=payment_id, school_id=g.school_id
     ).first_or_404()
@@ -13444,111 +14114,6 @@ def _serialize_chief_examiner_history_item(item, current_version_id=None):
     }
 
 
-def _get_exam_paper_history(settings):
-    report_template_config = _clone_json_document(
-        settings.report_template_config if settings else {}
-    )
-    history = report_template_config.get(EXAM_PAPER_HISTORY_KEY) or []
-    return history if isinstance(history, list) else []
-
-
-def _write_exam_paper_history(settings, history_items):
-    config = _clone_json_document(settings.report_template_config)
-    cleaned_history = history_items if isinstance(history_items, list) else []
-    if cleaned_history:
-        config[EXAM_PAPER_HISTORY_KEY] = cleaned_history[:EXAM_PAPER_HISTORY_LIMIT]
-    else:
-        config.pop(EXAM_PAPER_HISTORY_KEY, None)
-    settings.report_template_config = config
-
-
-def _get_exam_paper_root_id(settings, paper_id):
-    for item in _get_exam_paper_history(settings):
-        if item.get("paper_id") == paper_id:
-            return item.get("root_paper_id") or paper_id
-    return paper_id
-
-
-def _serialize_exam_paper_history_item(item, current_paper_id=None):
-    return {
-        "snapshot_id": item.get("snapshot_id"),
-        "paper_id": item.get("paper_id"),
-        "root_paper_id": item.get("root_paper_id"),
-        "parent_paper_id": item.get("parent_paper_id"),
-        "action": item.get("action"),
-        "title": item.get("title"),
-        "class_name": item.get("class_name"),
-        "subject_name": item.get("subject_name"),
-        "academic_term": item.get("academic_term"),
-        "academic_year": item.get("academic_year"),
-        "exam_type": item.get("exam_type"),
-        "status": item.get("status"),
-        "instructions": item.get("instructions") or "",
-        "question_count": len(item.get("questions") or []),
-        "question_preview": [
-            (question.get("question") or "")
-            for question in (item.get("questions") or [])[:3]
-            if isinstance(question, dict)
-        ],
-        "created_at": item.get("created_at"),
-        "actor_id": item.get("actor_id"),
-        "actor_name": item.get("actor_name"),
-        "teacher_id": item.get("teacher_id"),
-        "restored_from_snapshot_id": item.get("restored_from_snapshot_id"),
-        "is_current": item.get("paper_id") == current_paper_id,
-    }
-
-
-def _append_exam_paper_snapshot(
-    settings,
-    paper,
-    *,
-    actor_id,
-    action,
-    parent_paper_id=None,
-    root_paper_id=None,
-    restored_from_snapshot_id=None,
-):
-    history = _get_exam_paper_history(settings)
-    resolved_root_id = root_paper_id or _get_exam_paper_root_id(settings, paper.id) or paper.id
-    snapshot = {
-        "snapshot_id": f"eps_{secrets.token_hex(6)}",
-        "paper_id": paper.id,
-        "root_paper_id": resolved_root_id,
-        "parent_paper_id": parent_paper_id,
-        "action": action,
-        "actor_id": actor_id,
-        "teacher_id": paper.teacher_id,
-        "title": paper.title,
-        "class_name": paper.class_name,
-        "subject_name": paper.subject_name,
-        "academic_term": paper.academic_term,
-        "academic_year": paper.academic_year,
-        "exam_type": paper.exam_type,
-        "instructions": paper.instructions,
-        "total_marks": paper.total_marks,
-        "duration_minutes": paper.duration_minutes,
-        "questions": _clone_json_document(paper.questions),
-        "status": paper.status,
-        "finalized_at": paper.finalized_at.isoformat() if paper.finalized_at else None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "restored_from_snapshot_id": restored_from_snapshot_id,
-    }
-    next_history = [snapshot] + history
-    _write_exam_paper_history(settings, next_history)
-    return snapshot
-
-
-def _get_exam_paper_lineage(settings, paper_id):
-    root_paper_id = _get_exam_paper_root_id(settings, paper_id)
-    lineage = [
-        item
-        for item in _get_exam_paper_history(settings)
-        if (item.get("root_paper_id") or item.get("paper_id")) == root_paper_id
-    ]
-    return root_paper_id, lineage
-
-
 def _parse_chief_examiner_practice_text(value):
     return [
         item.strip()
@@ -13799,6 +14364,45 @@ def _truncate_examiner_summary(text, max_chars=220):
     return f"{truncated}..." if truncated else cleaned[:max_chars]
 
 
+def _merge_examiner_summary_text(existing_text, incoming_text, max_chars=260):
+    existing = _clean_examiner_summary_text(existing_text)
+    incoming = _clean_examiner_summary_text(incoming_text)
+    if not existing:
+        return _truncate_examiner_summary(incoming, max_chars=max_chars)
+    if not incoming:
+        return _truncate_examiner_summary(existing, max_chars=max_chars)
+
+    existing_key = normalize_topic_key(existing)
+    incoming_key = normalize_topic_key(incoming)
+    if not incoming_key or incoming_key == existing_key or incoming_key in existing_key:
+        return _truncate_examiner_summary(existing, max_chars=max_chars)
+    if existing_key in incoming_key:
+        return _truncate_examiner_summary(incoming, max_chars=max_chars)
+
+    merged = f"{existing}; {incoming}"
+    return _truncate_examiner_summary(merged, max_chars=max_chars)
+
+
+def _merge_examiner_topic_entry(topic_bucket, topic_name, issue_summary, advice_summary, default_practice=None):
+    if not topic_name:
+        return
+
+    existing_entry = topic_bucket.get(topic_name)
+    if not existing_entry:
+        topic_bucket[topic_name] = {
+            "issue": _truncate_examiner_summary(issue_summary),
+            "advice": _truncate_examiner_summary(advice_summary),
+            "practice": list(default_practice or []),
+        }
+        return
+
+    existing_entry["issue"] = _merge_examiner_summary_text(existing_entry.get("issue"), issue_summary)
+    existing_entry["advice"] = _merge_examiner_summary_text(existing_entry.get("advice"), advice_summary)
+    existing_entry["practice"] = _parse_chief_examiner_practice_text(
+        "; ".join(list(existing_entry.get("practice") or []) + list(default_practice or []))
+    )
+
+
 def _extract_examiner_section(block_text, markers, stop_markers=None):
     text = _clean_examiner_summary_text(block_text)
     lowered = text.casefold()
@@ -13959,20 +14563,16 @@ def _parse_narrative_chief_examiner_text(raw_text, fallback_subject=None):
         )
 
         for entry in topic_bucket.values():
-            if entry.get("issue") == issue_summary and entry.get("advice") == advice_summary:
+            if normalize_topic_key(entry.get("issue")) == normalize_topic_key(issue_summary):
                 return False
 
-        if topic_name in topic_bucket:
-            suffix = 2
-            while f"{topic_name} {suffix}" in topic_bucket:
-                suffix += 1
-            topic_name = f"{topic_name} {suffix}"
-
-        topic_bucket[topic_name] = {
-            "issue": issue_summary,
-            "advice": advice_summary,
-            "practice": list(default_entry.get("practice") or []),
-        }
+        _merge_examiner_topic_entry(
+            topic_bucket,
+            topic_name,
+            issue_summary,
+            advice_summary,
+            default_practice=list(default_entry.get("practice") or []),
+        )
         return True
 
     subject_sections = []
@@ -14010,11 +14610,13 @@ def _parse_narrative_chief_examiner_text(raw_text, fallback_subject=None):
                     continue
                 matched_topic = True
                 topic_bucket = inferred_library.setdefault(subject_key, {})
-                topic_bucket[topic_key] = {
-                    "issue": _summarize_examiner_issue(section_block),
-                    "advice": _summarize_examiner_advice(section_block, default_entry.get("advice") or ""),
-                    "practice": list(default_entry.get("practice") or []),
-                }
+                _merge_examiner_topic_entry(
+                    topic_bucket,
+                    topic_key,
+                    _summarize_examiner_issue(section_block),
+                    _summarize_examiner_advice(section_block, default_entry.get("advice") or ""),
+                    default_practice=list(default_entry.get("practice") or []),
+                )
 
             if matched_topic:
                 continue
@@ -14044,11 +14646,13 @@ def _parse_narrative_chief_examiner_text(raw_text, fallback_subject=None):
                 continue
             matched_any_topic = True
             topic_bucket = inferred_library.setdefault(current_subject, {})
-            topic_bucket[topic_key] = {
-                "issue": _summarize_examiner_issue(block),
-                "advice": _summarize_examiner_advice(block, default_entry.get("advice") or ""),
-                "practice": list(default_entry.get("practice") or []),
-            }
+            _merge_examiner_topic_entry(
+                topic_bucket,
+                topic_key,
+                _summarize_examiner_issue(block),
+                _summarize_examiner_advice(block, default_entry.get("advice") or ""),
+                default_practice=list(default_entry.get("practice") or []),
+            )
 
         if matched_any_topic:
             continue
@@ -14629,7 +15233,7 @@ def upload_exam_import_batch():
     settings = _get_or_create_school_settings()
     compliance_payload = _build_exam_intelligence_payload(settings)
     if not compliance_payload.get("compliance_ready"):
-        return jsonify({"message": "Complete the WAEC / BECE readiness confirmations in school settings before importing results."}), 400
+        return jsonify({"message": "Complete registration policy readiness checks before importing results."}), 400
 
     exam_type = sanitize_string(request.form.get("exam_type") or "BECE") or "BECE"
     academic_year = sanitize_string(request.form.get("academic_year") or "") or "Unknown"
@@ -16030,746 +16634,6 @@ def get_teacher_assignments():
     )
 
 
-# ============================================================
-# EXAM PAPER APIs - For Teachers to Create Question Papers
-# ============================================================
-
-@api.route("/exams/papers", methods=["POST"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def create_exam_paper():
-    """Create a new exam question paper."""
-    try:
-        user_id = int(get_jwt_identity())
-        data = request.get_json()
-        
-        # Validate required fields
-        if not data.get("title") or not data.get("class_name") or not data.get("subject_name"):
-            return jsonify({"message": "Missing required fields: title, class_name, subject_name"}), 400
-        
-        # Validate questions is a list
-        questions = data.get("questions", [])
-        if not isinstance(questions, list):
-            return jsonify({"message": "questions must be a list"}), 400
-        
-        paper = ExamPaper(
-            school_id=g.school_id,
-            teacher_id=user_id,
-            class_name=data["class_name"],
-            subject_name=data["subject_name"],
-            title=data["title"],
-            academic_term=data.get("academic_term"),
-            academic_year=data.get("academic_year"),
-            exam_type=data.get("exam_type"),
-            instructions=data.get("instructions"),
-            total_marks=data.get("total_marks"),
-            duration_minutes=data.get("duration_minutes"),
-            questions=questions,
-            status=data.get("status", "draft")
-        )
-        
-        db.session.add(paper)
-        db.session.commit()
-
-        settings = _get_or_create_school_settings()
-        _append_exam_paper_snapshot(
-            settings,
-            paper,
-            actor_id=user_id,
-            action="create",
-            root_paper_id=paper.id,
-        )
-        db.session.commit()
-        
-        log_action(user_id, g.school_id, "EXAM_PAPER_CREATED", 
-                  f"Created exam paper: {paper.title} for {paper.class_name} {paper.subject_name}")
-        
-        return jsonify({
-            "message": "Exam paper created successfully",
-            "paper_id": paper.id
-        }), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Error creating exam paper", "error": str(e)}), 500
-
-
-@api.route("/exams/papers", methods=["GET"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def get_exam_papers():
-    """Get all exam papers created by the teacher."""
-    try:
-        user_id = int(get_jwt_identity())
-        
-        # Query parameters for filtering
-        class_name = request.args.get("class_name")
-        subject_name = request.args.get("subject_name")
-        status = request.args.get("status")
-        
-        query = ExamPaper.query.filter_by(school_id=g.school_id, teacher_id=user_id)
-        
-        if class_name:
-            query = query.filter_by(class_name=class_name)
-        if subject_name:
-            query = query.filter_by(subject_name=subject_name)
-        if status:
-            query = query.filter_by(status=status)
-        
-        papers = query.order_by(ExamPaper.created_at.desc()).all()
-
-        settings = _get_or_create_school_settings()
-
-        return jsonify([
-            {
-                "id": p.id,
-                "title": p.title,
-                "class_name": p.class_name,
-                "subject_name": p.subject_name,
-                "academic_term": p.academic_term,
-                "academic_year": p.academic_year,
-                "exam_type": p.exam_type,
-                "total_marks": p.total_marks,
-                "duration_minutes": p.duration_minutes,
-                "status": p.status,
-                "question_count": len(p.questions) if p.questions else 0,
-                "created_at": p.created_at.isoformat() if p.created_at else None,
-                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-                "finalized_at": p.finalized_at.isoformat() if p.finalized_at else None,
-                "root_paper_id": _get_exam_paper_root_id(settings, p.id),
-            }
-            for p in papers
-        ])
-    except Exception as e:
-        return jsonify({"message": "Error fetching exam papers", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/<int:paper_id>", methods=["GET"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def get_exam_paper(paper_id):
-    """Get a specific exam paper with full details."""
-    try:
-        user_id = int(get_jwt_identity())
-        paper = ExamPaper.query.filter_by(
-            id=paper_id,
-            school_id=g.school_id,
-        ).first_or_404()
-
-        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
-        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
-        can_view = (
-            paper.teacher_id == user_id
-            or "headmaster" in role_set
-            or "proprietor" in role_set
-        )
-        if not can_view:
-            return jsonify({"message": "Access denied to this exam paper."}), 403
-        
-        return jsonify({
-            "id": paper.id,
-            "title": paper.title,
-            "class_name": paper.class_name,
-            "subject_name": paper.subject_name,
-            "academic_term": paper.academic_term,
-            "academic_year": paper.academic_year,
-            "exam_type": paper.exam_type,
-            "instructions": paper.instructions,
-            "total_marks": paper.total_marks,
-            "duration_minutes": paper.duration_minutes,
-            "questions": paper.questions,
-            "status": paper.status,
-            "root_paper_id": _get_exam_paper_root_id(_get_or_create_school_settings(), paper.id),
-            "created_at": paper.created_at.isoformat() if paper.created_at else None,
-            "updated_at": paper.updated_at.isoformat() if paper.updated_at else None,
-            "finalized_at": paper.finalized_at.isoformat() if paper.finalized_at else None
-        })
-    except Exception as e:
-        return jsonify({"message": "Error fetching exam paper", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/<int:paper_id>/duplicate", methods=["POST"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def duplicate_exam_paper(paper_id):
-    """Create a draft copy of an exam paper so the original remains unchanged."""
-    try:
-        user_id = int(get_jwt_identity())
-        source_paper = ExamPaper.query.filter_by(
-            id=paper_id,
-            school_id=g.school_id,
-        ).first_or_404()
-
-        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
-        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
-        can_view = (
-            source_paper.teacher_id == user_id
-            or "headmaster" in role_set
-            or "proprietor" in role_set
-        )
-        if not can_view:
-            return jsonify({"message": "Access denied to this exam paper."}), 403
-
-        payload = request.get_json(silent=True) or {}
-        cloned_paper = ExamPaper(
-            school_id=g.school_id,
-            teacher_id=user_id,
-            class_name=payload.get("class_name") or source_paper.class_name,
-            subject_name=payload.get("subject_name") or source_paper.subject_name,
-            title=(payload.get("title") or f"{source_paper.title} (Copy)").strip(),
-            academic_term=payload.get("academic_term") or source_paper.academic_term,
-            academic_year=payload.get("academic_year") or source_paper.academic_year,
-            exam_type=payload.get("exam_type") or source_paper.exam_type,
-            instructions=payload.get("instructions") if "instructions" in payload else source_paper.instructions,
-            total_marks=payload.get("total_marks") if "total_marks" in payload else source_paper.total_marks,
-            duration_minutes=payload.get("duration_minutes") if "duration_minutes" in payload else source_paper.duration_minutes,
-            questions=_clone_json_document(payload.get("questions") if "questions" in payload else source_paper.questions),
-            status="draft",
-            finalized_at=None,
-        )
-
-        db.session.add(cloned_paper)
-        db.session.commit()
-
-        settings = _get_or_create_school_settings()
-        _append_exam_paper_snapshot(
-            settings,
-            cloned_paper,
-            actor_id=user_id,
-            action="duplicate",
-            parent_paper_id=source_paper.id,
-            root_paper_id=_get_exam_paper_root_id(settings, source_paper.id),
-        )
-        db.session.commit()
-
-        log_action(
-            user_id,
-            g.school_id,
-            "EXAM_PAPER_DUPLICATED",
-            f"Duplicated exam paper '{source_paper.title}' into '{cloned_paper.title}'",
-        )
-
-        return jsonify(
-            {
-                "message": "Exam paper duplicated successfully",
-                "paper_id": cloned_paper.id,
-                "source_paper_id": source_paper.id,
-            }
-        ), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Error duplicating exam paper", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/<int:paper_id>", methods=["PUT"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def update_exam_paper(paper_id):
-    """Update an exam paper."""
-    try:
-        user_id = int(get_jwt_identity())
-        paper = ExamPaper.query.filter_by(
-            id=paper_id,
-            school_id=g.school_id,
-            teacher_id=user_id,
-        ).first_or_404()
-
-        data = request.get_json() or {}
-
-        if "title" in data:
-            paper.title = data["title"]
-        if "class_name" in data:
-            paper.class_name = data["class_name"]
-        if "subject_name" in data:
-            paper.subject_name = data["subject_name"]
-        if "academic_term" in data:
-            paper.academic_term = data["academic_term"]
-        if "academic_year" in data:
-            paper.academic_year = data["academic_year"]
-        if "exam_type" in data:
-            paper.exam_type = data["exam_type"]
-        if "instructions" in data:
-            paper.instructions = data["instructions"]
-        if "total_marks" in data:
-            paper.total_marks = data["total_marks"]
-        if "duration_minutes" in data:
-            paper.duration_minutes = data["duration_minutes"]
-        if "questions" in data:
-            paper.questions = data["questions"]
-        if "status" in data:
-            paper.status = data["status"]
-            if data["status"] == "finalized" and not paper.finalized_at:
-                paper.finalized_at = datetime.now(timezone.utc)
-
-        paper.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
-
-        settings = _get_or_create_school_settings()
-        _append_exam_paper_snapshot(
-            settings,
-            paper,
-            actor_id=user_id,
-            action="update",
-            root_paper_id=_get_exam_paper_root_id(settings, paper.id),
-        )
-        db.session.commit()
-
-        log_action(
-            user_id,
-            g.school_id,
-            "EXAM_PAPER_UPDATED",
-            f"Updated exam paper: {paper.title}",
-        )
-
-        return jsonify({"message": "Exam paper updated successfully"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Error updating exam paper", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/<int:paper_id>/history", methods=["GET"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def get_exam_paper_history(paper_id):
-    try:
-        user_id = int(get_jwt_identity())
-        paper = ExamPaper.query.filter_by(id=paper_id, school_id=g.school_id).first_or_404()
-
-        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
-        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
-        can_view = (
-            paper.teacher_id == user_id
-            or "headmaster" in role_set
-            or "proprietor" in role_set
-        )
-        if not can_view:
-            return jsonify({"message": "Access denied to this exam paper."}), 403
-
-        settings = _get_or_create_school_settings()
-        root_paper_id, lineage = _get_exam_paper_lineage(settings, paper.id)
-        actor_ids = sorted({item.get("actor_id") for item in lineage if item.get("actor_id")})
-        actors = (
-            User.query.filter(User.school_id == g.school_id, User.id.in_(actor_ids)).all()
-            if actor_ids
-            else []
-        )
-        actor_map = {actor.id: actor.username for actor in actors}
-        return jsonify(
-            {
-                "paper_id": paper.id,
-                "root_paper_id": root_paper_id,
-                "history": [
-                    _serialize_exam_paper_history_item(
-                        {**item, "actor_name": actor_map.get(item.get("actor_id"))},
-                        current_paper_id=paper.id,
-                    )
-                    for item in lineage
-                ],
-            }
-        )
-    except Exception as e:
-        return jsonify({"message": "Error loading exam paper history", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/history/<string:snapshot_id>/download", methods=["GET"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def download_exam_paper_snapshot(snapshot_id):
-    try:
-        user_id = int(get_jwt_identity())
-        settings = _get_or_create_school_settings()
-        snapshot = next(
-            (item for item in _get_exam_paper_history(settings) if item.get("snapshot_id") == snapshot_id),
-            None,
-        )
-        if not snapshot:
-            return jsonify({"message": "Exam paper history snapshot not found."}), 404
-
-        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
-        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
-        can_download = (
-            snapshot.get("teacher_id") == user_id
-            or "headmaster" in role_set
-            or "proprietor" in role_set
-        )
-        if not can_download:
-            return jsonify({"message": "Access denied to this exam paper history snapshot."}), 403
-
-        payload = {
-            "snapshot_id": snapshot.get("snapshot_id"),
-            "paper_id": snapshot.get("paper_id"),
-            "root_paper_id": snapshot.get("root_paper_id"),
-            "title": snapshot.get("title"),
-            "class_name": snapshot.get("class_name"),
-            "subject_name": snapshot.get("subject_name"),
-            "academic_term": snapshot.get("academic_term"),
-            "academic_year": snapshot.get("academic_year"),
-            "exam_type": snapshot.get("exam_type"),
-            "instructions": snapshot.get("instructions"),
-            "total_marks": snapshot.get("total_marks"),
-            "duration_minutes": snapshot.get("duration_minutes"),
-            "questions": snapshot.get("questions") or [],
-            "status": snapshot.get("status"),
-            "action": snapshot.get("action"),
-            "created_at": snapshot.get("created_at"),
-            "restored_from_snapshot_id": snapshot.get("restored_from_snapshot_id"),
-        }
-        filename = secure_filename(str(snapshot.get("title") or snapshot_id)) or snapshot_id
-        response = make_response(json.dumps(payload, indent=2))
-        response.headers["Content-Type"] = "application/json"
-        response.headers["Content-Disposition"] = f"attachment; filename={filename}.json"
-        return response
-    except Exception as e:
-        return jsonify({"message": "Error downloading exam paper history snapshot", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/history/<string:snapshot_id>/restore", methods=["POST"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def restore_exam_paper_snapshot(snapshot_id):
-    try:
-        user_id = int(get_jwt_identity())
-        settings = _get_or_create_school_settings()
-        snapshot = next(
-            (item for item in _get_exam_paper_history(settings) if item.get("snapshot_id") == snapshot_id),
-            None,
-        )
-        if not snapshot:
-            return jsonify({"message": "Exam paper history snapshot not found."}), 404
-
-        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
-        role_set = set((user.roles or []) + [user.role or ""]) if user else set()
-        can_restore = (
-            snapshot.get("teacher_id") == user_id
-            or "headmaster" in role_set
-            or "proprietor" in role_set
-        )
-        if not can_restore:
-            return jsonify({"message": "Access denied to this exam paper history snapshot."}), 403
-
-        restored_paper = ExamPaper(
-            school_id=g.school_id,
-            teacher_id=user_id,
-            class_name=snapshot.get("class_name") or "",
-            subject_name=snapshot.get("subject_name") or "",
-            title=f"{snapshot.get('title') or 'Exam Paper'} (Restored Copy)",
-            academic_term=snapshot.get("academic_term"),
-            academic_year=snapshot.get("academic_year"),
-            exam_type=snapshot.get("exam_type"),
-            instructions=snapshot.get("instructions"),
-            total_marks=snapshot.get("total_marks"),
-            duration_minutes=snapshot.get("duration_minutes"),
-            questions=_clone_json_document(snapshot.get("questions") or []),
-            status="draft",
-            finalized_at=None,
-        )
-        db.session.add(restored_paper)
-        db.session.commit()
-
-        _append_exam_paper_snapshot(
-            settings,
-            restored_paper,
-            actor_id=user_id,
-            action="restore",
-            parent_paper_id=snapshot.get("paper_id"),
-            root_paper_id=snapshot.get("root_paper_id") or snapshot.get("paper_id") or restored_paper.id,
-            restored_from_snapshot_id=snapshot_id,
-        )
-        db.session.commit()
-
-        return jsonify(
-            {
-                "message": "Exam paper restored as a new draft copy.",
-                "paper_id": restored_paper.id,
-                "snapshot_id": snapshot_id,
-            }
-        ), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Error restoring exam paper history snapshot", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/<int:paper_id>", methods=["DELETE"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def delete_exam_paper(paper_id):
-    """Delete an exam paper."""
-    try:
-        user_id = int(get_jwt_identity())
-        paper = ExamPaper.query.filter_by(
-            id=paper_id,
-            school_id=g.school_id,
-            teacher_id=user_id,
-        ).first_or_404()
-
-        title = paper.title
-        db.session.delete(paper)
-        db.session.commit()
-
-        log_action(
-            user_id,
-            g.school_id,
-            "EXAM_PAPER_DELETED",
-            f"Deleted exam paper: {title}",
-        )
-
-        return jsonify({"message": "Exam paper deleted successfully"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Error deleting exam paper", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/<int:paper_id>/submit", methods=["POST"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def submit_exam_paper(paper_id):
-    """Submit an exam paper to headmaster or proprietor for review/approval flow."""
-    try:
-        user_id = int(get_jwt_identity())
-        payload = request.get_json(silent=True) or {}
-        submit_to = sanitize_string(payload.get("submit_to"))
-
-        if submit_to not in ["headmaster", "proprietor"]:
-            return jsonify({"message": "submit_to must be 'headmaster' or 'proprietor'"}), 400
-
-        paper = ExamPaper.query.filter_by(
-            id=paper_id,
-            school_id=g.school_id,
-            teacher_id=user_id,
-        ).first_or_404()
-
-        school_users = User.query.filter(User.school_id == g.school_id).all()
-        receiver_exists = next(
-            (
-                record
-                for record in school_users
-                if (record.role == submit_to)
-                or (isinstance(record.roles, list) and submit_to in record.roles)
-            ),
-            None,
-        )
-        if not receiver_exists:
-            return jsonify({"message": f"No {submit_to} user found for this school."}), 400
-
-        paper.status = f"submitted_{submit_to}"
-        paper.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
-
-        log_action(
-            user_id,
-            g.school_id,
-            "EXAM_PAPER_SUBMITTED",
-            f"Submitted exam paper '{paper.title}' to {submit_to}",
-        )
-
-        return jsonify(
-            {
-                "status": "success",
-                "message": f"Exam paper submitted to {submit_to}.",
-                "paper_id": paper.id,
-                "paper_status": paper.status,
-            }
-        )
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Error submitting exam paper", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/inbox", methods=["GET"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("headmaster", "proprietor")
-@jwt_required()
-def get_exam_papers_inbox():
-    """Review inbox for submitted exam papers (headmaster/proprietor)."""
-    try:
-        user_id = int(get_jwt_identity())
-        user = User.query.filter_by(id=user_id, school_id=g.school_id).first()
-        if not user:
-            return jsonify({"message": "User not found"}), 404
-
-        role_set = set((user.roles or []) + [user.role or ""])
-        target_statuses = []
-        if "headmaster" in role_set:
-            target_statuses.append("submitted_headmaster")
-        if "proprietor" in role_set:
-            target_statuses.append("submitted_proprietor")
-
-        if not target_statuses:
-            return jsonify([])
-
-        class_name = sanitize_string(request.args.get("class_name"))
-        subject_name = sanitize_string(request.args.get("subject_name"))
-
-        query = ExamPaper.query.filter(
-            ExamPaper.school_id == g.school_id,
-            ExamPaper.status.in_(target_statuses),
-        )
-
-        if class_name:
-            query = query.filter(ExamPaper.class_name == class_name)
-        if subject_name:
-            query = query.filter(ExamPaper.subject_name == subject_name)
-
-        papers = query.order_by(ExamPaper.updated_at.desc(), ExamPaper.created_at.desc()).all()
-
-        teacher_ids = sorted({p.teacher_id for p in papers})
-        teachers = (
-            User.query.filter(User.school_id == g.school_id, User.id.in_(teacher_ids)).all()
-            if teacher_ids
-            else []
-        )
-        teacher_map = {teacher.id: teacher.username for teacher in teachers}
-
-        return jsonify(
-            [
-                {
-                    "id": p.id,
-                    "title": p.title,
-                    "class_name": p.class_name,
-                    "subject_name": p.subject_name,
-                    "academic_term": p.academic_term,
-                    "academic_year": p.academic_year,
-                    "exam_type": p.exam_type,
-                    "status": p.status,
-                    "question_count": len(p.questions) if p.questions else 0,
-                    "created_at": p.created_at.isoformat() if p.created_at else None,
-                    "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-                    "teacher_id": p.teacher_id,
-                    "teacher_name": teacher_map.get(p.teacher_id),
-                }
-                for p in papers
-            ]
-        )
-    except Exception as e:
-        return jsonify({"message": "Error fetching exam inbox", "error": str(e)}), 500
-
-
-@api.route("/exams/papers/<int:paper_id>/review", methods=["POST"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("headmaster", "proprietor")
-@jwt_required()
-def review_exam_paper(paper_id):
-    """Review submitted exam paper: approve/forward or reject/return."""
-    try:
-        user_id = int(get_jwt_identity())
-        payload = request.get_json(silent=True) or {}
-        action = sanitize_string(payload.get("action"))
-        feedback = sanitize_string(payload.get("feedback"))
-
-        if action not in ["approve", "reject"]:
-            return jsonify({"message": "action must be 'approve' or 'reject'"}), 400
-
-        reviewer = User.query.filter_by(id=user_id, school_id=g.school_id).first()
-        if not reviewer:
-            return jsonify({"message": "Reviewer not found"}), 404
-
-        role_set = set((reviewer.roles or []) + [reviewer.role or ""])
-        paper = ExamPaper.query.filter_by(id=paper_id, school_id=g.school_id).first_or_404()
-
-        if paper.status == "submitted_headmaster" and "headmaster" in role_set:
-            if action == "approve":
-                paper.status = "submitted_proprietor"
-            else:
-                paper.status = "returned_by_headmaster"
-        elif paper.status == "submitted_proprietor" and "proprietor" in role_set:
-            if action == "approve":
-                paper.status = "finalized"
-                if not paper.finalized_at:
-                    paper.finalized_at = datetime.now(timezone.utc)
-            else:
-                paper.status = "returned_by_proprietor"
-        else:
-            return jsonify({"message": "This exam paper is not in your review queue."}), 403
-
-        paper.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
-
-        review_details = (
-            f"Exam paper '{paper.title}' reviewed by {reviewer.username}: action={action}, "
-            f"new_status={paper.status}"
-        )
-        if feedback:
-            review_details += f", feedback={feedback}"
-
-        log_action(
-            user_id,
-            g.school_id,
-            "EXAM_PAPER_REVIEWED",
-            review_details,
-        )
-
-        return jsonify(
-            {
-                "status": "success",
-                "message": "Exam paper review completed.",
-                "paper_id": paper.id,
-                "paper_status": paper.status,
-            }
-        )
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": "Error reviewing exam paper", "error": str(e)}), 500
-
-
-@api.route("/exams/generate-questions", methods=["POST"])
-@multi_tenant_guard
-@feature_required("exam_papers")
-@role_required("teacher", "homeroom", "headmaster")
-@jwt_required()
-def generate_exam_questions_ai():
-    """Generate exam questions with AI (with fallback when provider is unavailable)."""
-    try:
-        school = School.query.get(g.school_id)
-        effective_plan = get_effective_plan(school)
-        if effective_plan != "Premium":
-            return (
-                jsonify(
-                    {
-                        "message": "AI Exam Assistant is available for Premium plan only.",
-                        "required_plan": "Premium",
-                        "current_plan": effective_plan,
-                    }
-                ),
-                403,
-            )
-
-        payload = request.get_json(silent=True) or {}
-        payload["school_id"] = g.school_id
-        result = generate_exam_questions(payload)
-
-        log_action(
-            int(get_jwt_identity()),
-            g.school_id,
-            "EXAM_AI_GENERATE_QUESTIONS",
-            f"AI question generation used provider={result.get('provider')} status={result.get('status')}",
-        )
-
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"message": "Error generating questions", "error": str(e)}), 500
-
-
 @api.route("/staff/<int:user_id>", methods=["DELETE"])
 @multi_tenant_guard
 @role_required("proprietor")
@@ -17033,6 +16897,9 @@ def get_school_settings():
     compliance_workflow = _get_data_compliance_workflow_config(settings)
     registration_ack = compliance_workflow.get("registration_acknowledgements") or {}
     legacy_migration = compliance_workflow.get("legacy_migration") or {}
+    consent_plan_confirmed = bool(registration_ack.get("legacy_and_exam_consent_plan_confirmed"))
+    bece_result_processing_enabled = bool(legacy_migration.get("bece_result_processing_enabled", False) or consent_plan_confirmed)
+    bece_parent_notice_confirmed = bool(legacy_migration.get("bece_parent_notice_confirmed", False) or consent_plan_confirmed)
 
     masked_bank_fields = _masked_bank_fields_for_school(school)
 
@@ -17078,8 +16945,8 @@ def get_school_settings():
             "legacy_consent_collection_date": legacy_migration.get("consent_collection_date") or "",
             "legacy_consent_evidence_notes": legacy_migration.get("evidence_notes") or "",
             "legacy_consent_evidence_artifact_count": len(legacy_migration.get("evidence_artifacts") or []),
-            "bece_result_processing_enabled": bool(legacy_migration.get("bece_result_processing_enabled", False)),
-            "bece_parent_notice_confirmed": bool(legacy_migration.get("bece_parent_notice_confirmed", False)),
+            "bece_result_processing_enabled": bece_result_processing_enabled,
+            "bece_parent_notice_confirmed": bece_parent_notice_confirmed,
             "teacher_class_level_exam_summaries_enabled": bool(_get_report_global_settings(settings).get(TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY, False)),
         }
     ), 200

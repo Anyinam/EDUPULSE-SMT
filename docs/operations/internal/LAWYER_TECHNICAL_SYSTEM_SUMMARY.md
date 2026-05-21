@@ -8,16 +8,17 @@ It focuses especially on:
 
 1. The overall operating model of EduPulse SMT
 2. How Paystack routing and split-style payment handling work
-3. How cryptography is used inside the application and in the documented AWS production architecture
+3. How external KYB provider screening is used for school verification and compliance gating
+4. How cryptography is used inside the application and in the documented AWS production architecture
 4. Which parts appear to be proprietary workflow and control logic
 
 ## Companion Counsel Docs
 
 Use these together with this summary:
 
-1. `LAWYER_EXECUTIVE_BRIEF.PDF` for the shortest counsel-ready overview
-2. `IP_ASSET_INVENTORY.PDF` for the main protectable-asset inventory
-3. `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.PDF` for the privacy and compliance control mapping
+1. `LAWYER_EXECUTIVE_BRIEF.md` for the shortest counsel-ready overview
+2. `IP_ASSET_INVENTORY.md` for the main protectable-asset inventory
+3. `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md` for the privacy and compliance control mapping
 
 ## Business Name
 
@@ -68,9 +69,10 @@ From a legal and IP perspective, the platform is not only a school-management ap
 
 1. Role-gated control flows
 2. Payment verification and routing
-3. Tenant isolation
-4. Tamper-evident financial records
-5. Encrypted storage of sensitive personal and banking data
+3. External KYB-driven school verification with automatic outcomes and exception handling
+4. Tenant isolation
+5. Tamper-evident financial records
+6. Encrypted storage of sensitive personal and banking data
 
 ## System Operation Overview
 
@@ -116,11 +118,13 @@ At a high level, the system operates as follows:
 1. A school registers and selects a plan
 2. If the plan is paid, the system initializes Paystack payment
 3. Once payment is verified, the school subscription is activated
-4. School users log in under role-based access controls
-5. Staff carry out academic and finance workflows
-6. Certain finance events create ledger entries that are cryptographically chained
-7. Sensitive data is encrypted at the application layer before being stored
-8. In production, the documented AWS deployment posture injects secrets through managed secret storage and recommends encrypted storage and backups
+4. The proprietor can submit school verification details for external KYB screening
+5. Clean KYB outcomes auto-verify while flagged outcomes route to review-required status
+6. School users log in under role-based access controls
+7. Staff carry out academic and finance workflows
+8. Certain finance events create ledger entries that are cryptographically chained
+9. Sensitive data is encrypted at the application layer before being stored
+10. In production, the documented AWS deployment posture injects secrets through managed secret storage and recommends encrypted storage and backups
 
 This combination of payments, tenant separation, approval flow, and tamper-evident finance records is one of the strongest parts of the system from an IP and compliance standpoint.
 

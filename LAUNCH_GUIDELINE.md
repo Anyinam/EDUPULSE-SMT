@@ -17,8 +17,11 @@ This document outlines the steps to launch EduPulse into production. Use it as a
   - [ ] Data Retention Policy
   - [ ] Incident Response Plan
 - [ ] Sign sub-processor agreements (hosting, email, payment providers).
+- [ ] Sign sub-processor agreement and data-flow disclosure for external KYB provider.
 - [ ] School contract template reviewed by counsel.
 - [ ] Configure in-app acceptance for Terms of Service and Privacy Policy at sign-up.
+- [ ] Configure KYB provider environment variables and verify provider connectivity.
+- [ ] Define fallback/manual-review policy when KYB provider is unavailable or returns review-required outcomes.
 
 ---
 

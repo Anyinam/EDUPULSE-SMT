@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import TimetableManager from './TimetableManager';
 import TermManagementPanel from './TermManagementPanel';
-import ComplianceEvidenceUploader from './ComplianceEvidenceUploader';
 import reportTemplates from '../report_templates';
 import { buildTemplateHtml, GRADE_SCALE_ROWS, formatGradingSchemeSummary, getGradeFromTotal, getRemarkFromGrade } from '../utils/reportTemplate';
 
@@ -261,17 +260,6 @@ export default function SettingsPanel() {
     approval_pdf_include_payment_summary: true,
     approval_pdf_include_required_items: true,
     approval_pdf_required_items: '',
-    data_compliance_school_authority_confirmed: false,
-    data_compliance_registration_confirmed_at: '',
-    data_compliance_registration_confirmed_ip: '',
-    legacy_parent_notice_dispatched: false,
-    legacy_consent_collection_completed: false,
-    legacy_consent_collection_date: '',
-    legacy_consent_evidence_notes: '',
-    legacy_consent_evidence_artifact_count: 0,
-    bece_result_processing_enabled: false,
-    bece_parent_notice_confirmed: false,
-    teacher_class_level_exam_summaries_enabled: false,
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
@@ -424,17 +412,6 @@ export default function SettingsPanel() {
           approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
           approval_pdf_include_required_items: data.approval_pdf_include_required_items !== false,
           approval_pdf_required_items: data.approval_pdf_required_items || '',
-          data_compliance_school_authority_confirmed: Boolean(data.data_compliance_school_authority_confirmed),
-          data_compliance_registration_confirmed_at: data.data_compliance_registration_confirmed_at || '',
-          data_compliance_registration_confirmed_ip: data.data_compliance_registration_confirmed_ip || '',
-          legacy_parent_notice_dispatched: Boolean(data.legacy_parent_notice_dispatched),
-          legacy_consent_collection_completed: Boolean(data.legacy_consent_collection_completed),
-          legacy_consent_collection_date: data.legacy_consent_collection_date || '',
-          legacy_consent_evidence_notes: data.legacy_consent_evidence_notes || '',
-          legacy_consent_evidence_artifact_count: Number(data.legacy_consent_evidence_artifact_count || 0),
-          bece_result_processing_enabled: Boolean(data.bece_result_processing_enabled),
-          bece_parent_notice_confirmed: Boolean(data.bece_parent_notice_confirmed),
-          teacher_class_level_exam_summaries_enabled: Boolean(data.teacher_class_level_exam_summaries_enabled),
         }));
         setMaskedBankSnapshot({
           bank_name: data.bank_name || '',
@@ -1237,14 +1214,6 @@ export default function SettingsPanel() {
         approval_pdf_include_payment_summary: settings.ai_registrar_enabled ? settings.approval_pdf_include_payment_summary : false,
         approval_pdf_include_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_include_required_items : false,
         approval_pdf_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_required_items : '',
-        data_compliance_school_authority_confirmed: settings.data_compliance_school_authority_confirmed,
-        legacy_parent_notice_dispatched: settings.legacy_parent_notice_dispatched,
-        legacy_consent_collection_completed: settings.legacy_consent_collection_completed,
-        legacy_consent_collection_date: settings.legacy_consent_collection_date,
-        legacy_consent_evidence_notes: settings.legacy_consent_evidence_notes,
-        bece_result_processing_enabled: settings.bece_result_processing_enabled,
-        bece_parent_notice_confirmed: settings.bece_parent_notice_confirmed,
-        teacher_class_level_exam_summaries_enabled: settings.teacher_class_level_exam_summaries_enabled,
       };
 
       if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
@@ -1958,132 +1927,6 @@ export default function SettingsPanel() {
           </div>
         </div>
 
-        <div className="border-t pt-6 mt-8">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">🔐 Data Compliance & Legacy Migration</h3>
-          <p className="text-sm text-slate-600 mb-4">
-            Track parent notice, consent, and exam-readiness records for this school.
-          </p>
-
-          <div className="space-y-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Registration Acknowledgement Record</h4>
-              <div className="mt-4">
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <input
-                    type="checkbox"
-                    checked={settings.data_compliance_school_authority_confirmed}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, data_compliance_school_authority_confirmed: e.target.checked }))}
-                    className="mt-1 h-4 w-4 rounded border-slate-300"
-                  />
-                  <span>
-                    <span className="block text-sm font-bold text-slate-700">School data authority confirmed for this tenant</span>
-                    <span className="block text-xs text-slate-500">Use this for older school accounts that joined before this record was added. Save once the school&apos;s registration acknowledgement has been confirmed.</span>
-                  </span>
-                </label>
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recorded At</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-800">{settings.data_compliance_registration_confirmed_at || 'Not recorded'}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recorded IP</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-800">{settings.data_compliance_registration_confirmed_ip || 'Not recorded'}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Legacy Student Record Migration</h4>
-              <p className="mt-1 text-sm text-slate-600">Use these fields to record the school&apos;s notice and consent status before old student records are moved into the system.</p>
-              <div className="mt-4 space-y-3">
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <input
-                    type="checkbox"
-                    checked={settings.legacy_parent_notice_dispatched}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, legacy_parent_notice_dispatched: e.target.checked }))}
-                    className="mt-1 h-4 w-4 rounded border-slate-300"
-                  />
-                  <span>
-                    <span className="block text-sm font-bold text-slate-700">Parent or guardian notice dispatched</span>
-                    <span className="block text-xs text-slate-500">Confirm that the school has sent the required notice or consent form for older student records.</span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <input
-                    type="checkbox"
-                    checked={settings.legacy_consent_collection_completed}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, legacy_consent_collection_completed: e.target.checked }))}
-                    className="mt-1 h-4 w-4 rounded border-slate-300"
-                  />
-                  <span>
-                    <span className="block text-sm font-bold text-slate-700">Consent collection completed</span>
-                    <span className="block text-xs text-slate-500">Tick this when the school has finished collecting the required approvals.</span>
-                  </span>
-                </label>
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Consent Collection Date</label>
-                  <input name="legacy_consent_collection_date" type="date" value={settings.legacy_consent_collection_date} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Evidence Notes</label>
-                  <textarea name="legacy_consent_evidence_notes" value={settings.legacy_consent_evidence_notes} onChange={handleChange} rows={3} className="w-full p-3 border rounded-lg bg-white" placeholder="Example: consent forms filed in admissions office on 2026-05-10" />
-                </div>
-              </div>
-
-              <div className="mt-5">
-                <ComplianceEvidenceUploader artifactCount={settings.legacy_consent_evidence_artifact_count || 0} />
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">WAEC / BECE Data Readiness</h4>
-              <p className="mt-1 text-sm text-slate-600">Record whether the school is ready to work with WAEC or BECE data.</p>
-              <div className="mt-4 space-y-3">
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <input
-                    type="checkbox"
-                    checked={settings.bece_result_processing_enabled}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, bece_result_processing_enabled: e.target.checked }))}
-                    className="mt-1 h-4 w-4 rounded border-slate-300"
-                  />
-                  <span>
-                    <span className="block text-sm font-bold text-slate-700">Enable school readiness for WAEC / BECE result processing</span>
-                    <span className="block text-xs text-slate-500">Turn this on when the school is ready to import WAEC or BECE result lists or trend data.</span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <input
-                    type="checkbox"
-                    checked={settings.bece_parent_notice_confirmed}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, bece_parent_notice_confirmed: e.target.checked }))}
-                    className="mt-1 h-4 w-4 rounded border-slate-300"
-                  />
-                  <span>
-                    <span className="block text-sm font-bold text-slate-700">School confirms the lawful basis for WAEC / BECE analytics</span>
-                    <span className="block text-xs text-slate-500">Tick this when the school has completed the required notice or consent steps for the students covered by the upload.</span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <input
-                    type="checkbox"
-                    checked={settings.teacher_class_level_exam_summaries_enabled}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, teacher_class_level_exam_summaries_enabled: e.target.checked }))}
-                    className="mt-1 h-4 w-4 rounded border-slate-300"
-                  />
-                  <span>
-                    <span className="block text-sm font-bold text-slate-700">Allow future class-level teacher exam summaries</span>
-                    <span className="block text-xs text-slate-500">Use this if the school wants teachers to see class-level exam summaries later on.</span>
-                  </span>
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        
         {/* Save Settings Button */}
         <div className="pt-6 border-t border-slate-200">
           <button
@@ -2093,7 +1936,7 @@ export default function SettingsPanel() {
             💾 Save Settings
           </button>
           <p className="text-xs text-slate-500 mt-3">
-            This will save school branding, admissions configuration, compliance workflow settings, contact details, and fee configuration. The page will reload to apply changes.
+            This will save school branding, admissions configuration, contact details, and fee configuration. The page will reload to apply changes.
           </p>
         </div>
       </form>

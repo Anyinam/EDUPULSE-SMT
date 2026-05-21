@@ -22,8 +22,8 @@ import PerformanceAnalytics from '../components/PerformanceAnalytics';
 import ExamIntelligencePanel from '../components/ExamIntelligencePanel';
 import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
-import ExamInboxPanel from '../components/ExamInboxPanel';
 import RescueActivityCenter from './RescueActivityCenter';
+import SchoolCompliancePanel from '../components/SchoolCompliancePanel';
 
 export default function ProprietorPanel() {
   // Use React Router's useSearchParams hook to properly handle query parameters
@@ -37,7 +37,6 @@ export default function ProprietorPanel() {
   const [viewingReport, setViewingReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [attendanceStats, setAttendanceStats] = useState(null);
-  const [pendingExamCount, setPendingExamCount] = useState(0);
   const [billingNotice, setBillingNotice] = useState(null);
   const [lastDashboardRefresh, setLastDashboardRefresh] = useState(null);
   const { branding } = useBranding();
@@ -178,8 +177,8 @@ export default function ProprietorPanel() {
             </p>
           </div>
           <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-indigo-200">
-            <span className="text-xs font-bold text-indigo-500 uppercase">Pending Exams</span>
-            <p className="text-2xl font-black text-indigo-700">{pendingExamCount}</p>
+            <span className="text-xs font-bold text-indigo-500 uppercase">Plan</span>
+            <p className="text-lg font-black text-indigo-700">{plan}</p>
           </div>
         </header>
 
@@ -227,6 +226,10 @@ export default function ProprietorPanel() {
             {/* Billing Visibility Section */}
             <div className="mb-8">
               <BillingVisibility />
+            </div>
+
+            <div className="mb-8">
+              <SchoolCompliancePanel />
             </div>
 
             <div className="mb-8">
@@ -281,13 +284,6 @@ export default function ProprietorPanel() {
                 </div>
               </div>
             )}
-
-            <div className="mb-8">
-              <ExamInboxPanel
-                title="Exam Papers Waiting for Proprietor Review"
-                onInboxChange={setPendingExamCount}
-              />
-            </div>
 
             {/* AI Insights Section */}
             <div className="mb-8">

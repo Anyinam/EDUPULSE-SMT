@@ -198,6 +198,8 @@ EduPulse is built with **production-grade security** and **Ghana Data Protection
 ### 📋 Compliance & Governance
 - **Ghana Data Protection Act 2012 Compliance**: Data Controller-ready with documented policies and technical controls
 - **Mandatory Policy Acceptance**: Schools must explicitly accept Terms of Service, Privacy Policy, and Data Retention Policy at signup
+- **Automated School KYB Workflow**: Proprietor-submitted school verification profiles are screened by configured external KYB providers, with auto-approval for clean results and exception routing for manual review.
+- **AML Exception Monitoring**: Risk rules can automatically open AML flags for high-risk payment patterns and unresolved verification states.
 - **DSAR Workflow Support**: 
   - Free/Basic: 30-day response SLA
   - Premium: Enhanced workflow with 3-day acknowledgement and dedicated support
@@ -223,6 +225,7 @@ EduPulse is built with **production-grade security** and **Ghana Data Protection
 ✅ With EduPulse (All Tiers):
 - Encrypted student data (bank info, grades)
 - Tamper-proof financial ledger
+- External-provider-backed KYB checks and AML exception routing
 - Automated compliance documentation
 - Ready for Data Protection Commission audits
 ```

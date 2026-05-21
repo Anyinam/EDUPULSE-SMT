@@ -49,6 +49,14 @@ Once a payment is **confirmed by proprietor**, it is:
 
 ## Payment Approval Workflow
 
+### Verification Gate (School KYB)
+
+Before selected finance actions proceed, the system checks school verification status.
+
+- If verified: payment flow continues normally.
+- If not verified: finance action can be blocked with a verification-required response.
+- Schools can be auto-verified through configured KYB provider outcomes, with review-required exceptions routed to compliance review.
+
 ### Step 1: Manual Payment Recording
 
 **Who can record:** Teacher, Homeroom, Finance, Inventory Manager, Proprietor
@@ -161,6 +169,7 @@ entry_hash = HMAC-SHA256(
 - Automatically marked as "Confirmed" (verified by payment provider)
 - Immediately added to immutable ledger
 - No manual approval needed (already verified by bank/MoMo)
+- If school verification is not approved, payment can remain pending and open an AML/compliance flag until resolved.
 
 **Webhook endpoints:**
 - `/api/finance/webhook/momo` - MoMo automated callbacks

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import PlatformComplianceQueue from '../components/PlatformComplianceQueue';
 
 export default function SuperAdminDashboard() {
   const [tickets, setTickets] = useState([]);
@@ -237,6 +238,10 @@ export default function SuperAdminDashboard() {
                 </tbody>
             </table>
         </div>
+      </div>
+
+      <div className="mb-8">
+        <PlatformComplianceQueue />
       </div>
 
       {/* Broadcast Widget */}
