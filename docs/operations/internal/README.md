@@ -16,15 +16,16 @@ This folder maps the main internal documents used to run onboarding, coordinatio
 8. `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
 9. `IP_ASSET_INVENTORY.md`
 10. `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
-11. `FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
-12. `CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
-13. `CONFIDENTIALITY_NDA_TEMPLATE.md`
-14. `OPERATIONS_HANDOFF.md`
-15. `OPERATIONS_HANDOFF_SAMPLE.md`
-16. `INCIDENT_UPDATE_TEMPLATE.md`
-17. `INCIDENT_UPDATE_SAMPLE.md`
-18. `ONBOARDING_CHECKLIST_TEMPLATE.md`
-19. `ONBOARDING_CHECKLIST_EXAMPLE.md`
+11. `ANONYMIZED_ANALYTICS_ETL_MEMO.md`
+12. `FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
+13. `CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
+14. `CONFIDENTIALITY_NDA_TEMPLATE.md`
+15. `OPERATIONS_HANDOFF.md`
+16. `OPERATIONS_HANDOFF_SAMPLE.md`
+17. `INCIDENT_UPDATE_TEMPLATE.md`
+18. `INCIDENT_UPDATE_SAMPLE.md`
+19. `ONBOARDING_CHECKLIST_TEMPLATE.md`
+20. `ONBOARDING_CHECKLIST_EXAMPLE.md`
 
 ## Use Cases
 
@@ -38,6 +39,7 @@ This folder maps the main internal documents used to run onboarding, coordinatio
 - Need a lawyer-facing technical explanation of the system, Paystack routing, and cryptography: use `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
 - Need the main IP and confidential-know-how inventory: use `IP_ASSET_INVENTORY.md`
 - Need the Ghana data-protection control mapping: use `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
+- Need the planned analytics warehouse and anonymization design memo: use `ANONYMIZED_ANALYTICS_ETL_MEMO.md`
 - Need the founder-side legal and confidentiality action checklist: use `FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
 - Need a draft contributor IP assignment form: use `CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
 - Need a draft confidentiality/NDA form: use `CONFIDENTIALITY_NDA_TEMPLATE.md`

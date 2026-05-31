@@ -62,6 +62,8 @@ It separates repository documents that already exist from external founder/compa
 10. `docs/operations/internal/STANDARD_OPERATING_PROCEDURES.md`
 11. `AUDIT_INTEGRITY_SYSTEM.md`
 12. `SECURITY.md`
+13. `compliance/CONSENT_AND_NOTICE_TEMPLATES.md`
+14. `docs/operations/internal/ANONYMIZED_ANALYTICS_ETL_MEMO.md`
 
 ### Supporting Operational Information To Gather
 
@@ -73,6 +75,8 @@ It separates repository documents that already exist from external founder/compa
 6. Retention periods you intend to apply in production
 7. Data subject request intake channel and response workflow
 8. Cross-border transfer details if any provider stores or supports data outside Ghana
+9. Proposed anonymization workflow or ETL summary for any multi-school analytics warehouse
+10. Intended benchmark outputs, including whether any school-facing premium dashboard will compare against anonymized district, regional, or national peer groups
 
 ### What To Ask Counsel To Deliver
 
@@ -81,6 +85,7 @@ It separates repository documents that already exist from external founder/compa
 3. Review of privacy policy, DPA, retention, incident, and security wording
 4. Final contract language for school onboarding and data-processing terms
 5. Advice on admissions, report-card OCR, and external exam-result processing under Ghana law
+6. Advice on anonymized macro-analytics, benchmarking language, and any DPC-facing disclosure or filing implications
 
 ## Recommended Send Order
 

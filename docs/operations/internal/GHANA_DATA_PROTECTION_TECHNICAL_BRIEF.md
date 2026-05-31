@@ -20,6 +20,7 @@ The platform processes data relating to:
 4. Proprietors and school administrators
 5. Billing and payment records
 6. Security, authentication, and audit events
+7. De-identified academic and operational analytics outputs
 
 ## Role Positioning: School vs Platform
 
@@ -29,6 +30,8 @@ The existing privacy documentation already points to an important legal distinct
 2. EduPulse SMT acts as the platform operator and processor/service provider for those schools in many processing activities
 
 Counsel should review whether the contracts and data-processing language make this relationship explicit enough.
+
+Counsel should also review how the documents describe the point at which EduPulse SMT stops acting purely as processor for identifiable school records and starts using irreversibly anonymized, non-personal datasets for independent benchmarking and analytics products.
 
 ## Technical Controls Currently Evident
 
@@ -101,6 +104,17 @@ Current implementation pattern:
 
 Counsel should ensure this provider-assisted processing is clearly disclosed in privacy notices, processor/sub-processor schedules, and school contracts.
 
+### 10. Planned De-Identification And Analytics Warehouse Controls
+
+The current legal documentation now assumes a controlled macro-analytics program built on de-identified data. In practical terms, counsel should assess the plan on the basis that:
+
+1. identifiable student and school data remains in the transactional school platform,
+2. a separate extract or ETL process removes direct identifiers before data enters the shared analytics layer,
+3. the analytics layer should use broad tags such as region, district, school type, subject, year, cohort, or score band rather than named-student or named-school outputs, and
+4. public or premium benchmarking outputs should avoid small-cell disclosures that could permit re-identification.
+
+This is important because the defensibility of the privacy position depends on whether the anonymization claim is technically supportable, not just contractually stated.
+
 ## Data Categories And Legal Sensitivity
 
 The higher-sensitivity categories in practice are likely to include:
@@ -110,6 +124,7 @@ The higher-sensitivity categories in practice are likely to include:
 3. School staff identity and access information
 4. Saved bank and payment-routing details
 5. Payment and audit records
+6. Raw external examination results before de-identification
 
 These categories justify the use of encryption, role restriction, logging, and retention controls.
 
@@ -168,6 +183,7 @@ Counsel will likely want to examine:
 4. Whether cross-border storage and service-provider clauses are sufficiently disclosed
 5. Whether retention, deletion, and export rights are contractually and operationally aligned
 6. Whether KYB provider usage, legal basis, and sub-processor disclosure language are adequately explicit
+7. Whether anonymized benchmarking, research, and commercialization language is consistent with Act 843 and the intended technical architecture
 
 ## Practical Risk Areas To Review
 
@@ -177,6 +193,7 @@ The technical posture is relatively strong, but counsel should still review thes
 2. Whether all high-risk data flows have matching contractual language
 3. Whether school-side user behavior could still cause improper data entry or disclosure despite platform controls
 4. Whether internal roles and named owners are formalized in corporate documents, not only operating docs
+5. Whether anonymization is sufficiently robust to support the claimed reuse of school data for macro-analytics without re-identification risk
 
 ## Short Position
 

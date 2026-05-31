@@ -1807,6 +1807,7 @@ DEFAULT_DATA_COMPLIANCE_WORKFLOW = {
     "registration_acknowledgements": {
         "school_data_authority_confirmed": False,
         "legacy_and_exam_consent_plan_confirmed": False,
+        "aggregated_analytics_accepted": False,
         "accepted_at": None,
         "accepted_ip": None,
         "terms_version": None,
@@ -1892,6 +1893,7 @@ def _normalize_data_compliance_workflow_config(raw_config):
         "registration_acknowledgements": {
             "school_data_authority_confirmed": bool(raw_registration.get("school_data_authority_confirmed", False)),
             "legacy_and_exam_consent_plan_confirmed": bool(raw_registration.get("legacy_and_exam_consent_plan_confirmed", False)),
+            "aggregated_analytics_accepted": bool(raw_registration.get("aggregated_analytics_accepted", False)),
             "accepted_at": sanitize_string(raw_registration.get("accepted_at") or "") or None,
             "accepted_ip": sanitize_string(raw_registration.get("accepted_ip") or "") or None,
             "terms_version": sanitize_string(raw_registration.get("terms_version") or "") or None,
@@ -4630,6 +4632,7 @@ def register():
     policy_accepted = data.get("policyAccepted") is True
     school_data_authority_confirmed = data.get("schoolDataAuthorityConfirmed") is True
     legacy_and_exam_consent_plan_confirmed = data.get("legacyAndExamConsentPlanConfirmed") is True
+    aggregated_analytics_accepted = data.get("aggregatedAnalyticsAccepted") is True
     selected_plan = sanitize_string(data.get("selectedPlan", "Free"))  # Get selected plan, default to Free
     client_ip = get_client_ip()
 
@@ -4641,6 +4644,8 @@ def register():
         return jsonify({"message": "School data authority confirmation is required"}), 400
     if not legacy_and_exam_consent_plan_confirmed:
         return jsonify({"message": "Parent or guardian consent workflow confirmation is required before student biodata, legacy records, or examination data can be uploaded"}), 400
+    if not aggregated_analytics_accepted:
+        return jsonify({"message": "Data Processing Agreement acceptance for anonymized aggregated analytics is required"}), 400
     
     # Validate selected plan
     valid_plans = ["Free", "Basic", "Premium"]
@@ -4703,6 +4708,7 @@ def register():
         compliance_workflow["registration_acknowledgements"] = {
             "school_data_authority_confirmed": school_data_authority_confirmed,
             "legacy_and_exam_consent_plan_confirmed": legacy_and_exam_consent_plan_confirmed,
+            "aggregated_analytics_accepted": aggregated_analytics_accepted,
             "accepted_at": new_user.terms_accepted_at.isoformat() if new_user.terms_accepted_at else None,
             "accepted_ip": client_ip,
             "terms_version": terms_version or None,
@@ -4734,6 +4740,7 @@ def register():
                     {
                         "school_data_authority_confirmed": school_data_authority_confirmed,
                         "legacy_and_exam_consent_plan_confirmed": legacy_and_exam_consent_plan_confirmed,
+                        "aggregated_analytics_accepted": aggregated_analytics_accepted,
                         "accepted_ip": client_ip,
                         "accepted_at": policy_details.get("accepted_at"),
                     },
@@ -16938,6 +16945,7 @@ def get_school_settings():
             "approval_pdf_include_required_items": bool(settings.approval_pdf_include_required_items) if settings else True,
             "approval_pdf_required_items": settings.approval_pdf_required_items if settings and settings.approval_pdf_required_items else "",
             "data_compliance_school_authority_confirmed": bool(registration_ack.get("school_data_authority_confirmed", False)),
+            "data_compliance_aggregated_analytics_accepted": bool(registration_ack.get("aggregated_analytics_accepted", False)),
             "data_compliance_registration_confirmed_at": registration_ack.get("accepted_at"),
             "data_compliance_registration_confirmed_ip": registration_ack.get("accepted_ip"),
             "legacy_parent_notice_dispatched": bool(legacy_migration.get("parent_notice_dispatched", False)),

@@ -181,6 +181,7 @@ class TestAuthenticationEndpoints:
                 "policyVersion": "2026-03-07",
                 "schoolDataAuthorityConfirmed": True,
                 "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
             },
         )
 
@@ -204,6 +205,7 @@ class TestAuthenticationEndpoints:
                 "policyVersion": "2026-03-07",
                 "schoolDataAuthorityConfirmed": True,
                 "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
             },
         )
 
@@ -227,6 +229,7 @@ class TestAuthenticationEndpoints:
                 "policyVersion": "2026-03-07",
                 "schoolDataAuthorityConfirmed": True,
                 "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
             },
         )
 
@@ -250,6 +253,7 @@ class TestAuthenticationEndpoints:
                 "policyVersion": "2026-03-07",
                 "schoolDataAuthorityConfirmed": True,
                 "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
             },
         )
 
@@ -279,6 +283,7 @@ class TestAuthenticationEndpoints:
                 "policyVersion": "2026-03-07",
                 "schoolDataAuthorityConfirmed": True,
                 "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
                 "selectedPlan": "Premium",
             },
         )
@@ -306,6 +311,7 @@ class TestAuthenticationEndpoints:
                 "policyVersion": "2026-03-07",
                 "schoolDataAuthorityConfirmed": True,
                 "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
             },
         )
 
@@ -326,12 +332,36 @@ class TestAuthenticationEndpoints:
                 "policyVersion": "2026-03-07",
                 "schoolDataAuthorityConfirmed": False,
                 "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
             },
         )
 
         assert response.status_code == 400
         data = json.loads(response.data)
         assert "authority" in data["message"].lower() or "authority" in str(data.get("errors", "")).lower()
+
+    def test_register_requires_aggregated_analytics_acceptance(self, client):
+        response = client.post(
+            "/api/register",
+            json={
+                "schoolCode": "NO-ANALYTICS",
+                "schoolName": "Analytics Missing School",
+                "username": "analyticsowner",
+                "email": "owner@analytics.edu",
+                "password": "NewSchoolPass123!",
+                "termsAccepted": True,
+                "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": False,
+            },
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "analytics" in data["message"].lower() or "analytics" in str(data.get("errors", "")).lower()
 
 
 class TestGradeEntryEndpoints:

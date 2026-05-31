@@ -3,8 +3,9 @@ import axios from 'axios';
 import TermsModal from '../components/TermsModal';
 import PrivacyModal from '../components/PrivacyModal';
 import DataRetentionModal from '../components/DataRetentionModal';
+import DataProcessingModal from '../components/DataProcessingModal';
 import { Logo } from '../components/Logo';
-import { CheckCircle, ArrowRight, ArrowLeft, Loader } from 'lucide-react';
+import { CheckCircle, ArrowRight, ArrowLeft, Loader, Info } from 'lucide-react';
 
 const TERMS_VERSION = '2026-03-07';
 const POLICY_VERSION = '2026-03-07';
@@ -38,9 +39,12 @@ export default function Register() {
   const [agreed, setAgreed] = useState(false);
   const [schoolAuthorityConfirmed, setSchoolAuthorityConfirmed] = useState(false);
   const [migrationConsentPlanConfirmed, setMigrationConsentPlanConfirmed] = useState(false);
+  const [aggregatedAnalyticsAccepted, setAggregatedAnalyticsAccepted] = useState(false);
+  const [showAnalyticsTooltip, setShowAnalyticsTooltip] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showRetention, setShowRetention] = useState(false);
+  const [showDataProcessing, setShowDataProcessing] = useState(false);
   const [publicContent, setPublicContent] = useState(DEFAULT_PUBLIC_CONTENT);
 
   useEffect(() => {
@@ -78,7 +82,7 @@ export default function Register() {
       try {
         const res = await axios.get('/api/public/platform-content');
         setPublicContent((prev) => ({ ...prev, ...res.data }));
-      } catch (error) {
+      } catch {
         setPublicContent(DEFAULT_PUBLIC_CONTENT);
       }
     };
@@ -98,6 +102,10 @@ export default function Register() {
       }
       if (!agreed) {
         setError('You must agree to the Terms of Service, Privacy Policy, and Data Retention Policy');
+        return;
+      }
+      if (!aggregatedAnalyticsAccepted) {
+        setError('You must agree to the Data Processing Agreement, including anonymized aggregated academic metrics for benchmarking and system optimization.');
         return;
       }
       if (!schoolAuthorityConfirmed) {
@@ -136,6 +144,7 @@ export default function Register() {
         policyVersion: POLICY_VERSION,
         schoolDataAuthorityConfirmed: schoolAuthorityConfirmed,
         legacyAndExamConsentPlanConfirmed: migrationConsentPlanConfirmed,
+        aggregatedAnalyticsAccepted,
       };
 
       const res = await axios.post('/api/register', payload);
@@ -294,6 +303,38 @@ export default function Register() {
                 <div className="flex items-start gap-2">
                   <input
                     type="checkbox"
+                    id="aggregated-analytics-acceptance"
+                    checked={aggregatedAnalyticsAccepted}
+                    onChange={(e) => setAggregatedAnalyticsAccepted(e.target.checked)}
+                    className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-start gap-2">
+                      <label htmlFor="aggregated-analytics-acceptance" className="text-sm text-slate-600 cursor-pointer select-none">
+                        I agree to the{' '}
+                        <button type="button" onClick={() => setShowDataProcessing(true)} className="font-bold text-blue-600 hover:underline">
+                          Data Processing Agreement
+                        </button>, including the use of anonymized, aggregated academic metrics for national educational benchmarking and system optimization.
+                      </label>
+                      <button
+                        type="button"
+                        aria-label="Show anonymized analytics privacy explanation"
+                        onClick={() => setShowAnalyticsTooltip((current) => !current)}
+                        className="mt-0.5 inline-flex shrink-0 items-center justify-center rounded-full text-blue-700 hover:text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <Info size={16} />
+                      </button>
+                    </div>
+                    {showAnalyticsTooltip && (
+                      <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
+                        We take privacy seriously. Your student names and school identity are completely stripped out using security protocols before approved data is pooled into aggregated graphs. Your school's private dashboard remains viewable only by you.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
                     id="school-authority"
                     checked={schoolAuthorityConfirmed}
                     onChange={(e) => setSchoolAuthorityConfirmed(e.target.checked)}
@@ -315,8 +356,14 @@ export default function Register() {
                     I confirm that the school will use the parent-consent form sent to its registration email, or an approved equivalent, to notify parents or guardians and obtain any required consent before uploading student biodata, migrating legacy records, or uploading WAEC or BECE data.
                   </label>
                 </div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-sm font-semibold text-blue-900">Anonymized educational benchmarking notice</p>
+                  <p className="mt-2 text-sm leading-6 text-blue-900">
+                    EduPulse SMT may de-identify and aggregate lawfully supplied academic records for district, regional, and national benchmarking, curriculum research, and system optimization. Student names, IDs, contact details, and direct school identifiers are intended to be removed before data enters the shared analytics layer, and shared outputs should remain aggregated rather than naming your students or school.
+                  </p>
+                </div>
                 <p className="text-xs leading-5 text-slate-500">
-                  By continuing, you confirm that your school has authority to manage student and guardian data in EduPulse SMT and will send the required parent or guardian notice or consent form before uploading any student biodata to EduPulse, including legacy records and WAEC or BECE result data, in line with Ghana's Data Protection Act.
+                  By continuing, you confirm that your school has authority to manage student and guardian data in EduPulse SMT, will send the required parent or guardian notice or consent form before uploading any student biodata to EduPulse, including legacy records and WAEC or BECE result data, and explicitly accepts EduPulse SMT's Data Processing Agreement for anonymized, aggregated academic benchmarking and educational insights in line with Ghana's Data Protection Act.
                 </p>
               </div>
 
@@ -508,6 +555,10 @@ export default function Register() {
                 <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>.
               </p>
 
+              <p className="text-center mt-4 text-xs text-slate-500 leading-relaxed">
+                Registration also confirms acceptance of the Data Processing Agreement and this onboarding notice's disclosure of EduPulse SMT's planned use of irreversibly de-identified, aggregated school-performance data for benchmarking, research, and system optimization.
+              </p>
+
               <p className="text-center mt-6 text-xs text-slate-400">
                 By completing registration, you confirm all information is accurate.
               </p>
@@ -517,6 +568,7 @@ export default function Register() {
           <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
           <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
           <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
+          <DataProcessingModal isOpen={showDataProcessing} onClose={() => setShowDataProcessing(false)} />
 
           <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Registration Support</p>

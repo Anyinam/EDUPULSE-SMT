@@ -48,6 +48,7 @@ class RegisterSchema(Schema):
     policyVersion = fields.Str(required=True, validate=validate.Length(min=1, max=50))
     schoolDataAuthorityConfirmed = fields.Bool(required=True)
     legacyAndExamConsentPlanConfirmed = fields.Bool(required=True)
+    aggregatedAnalyticsAccepted = fields.Bool(required=True)
     selectedPlan = fields.Str(
         required=False,
         validate=validate.OneOf(["Free", "Basic", "Premium"]),
@@ -74,6 +75,8 @@ class RegisterSchema(Schema):
             raise ValidationError("School data authority confirmation is required")
         if data.get("legacyAndExamConsentPlanConfirmed") is not True:
             raise ValidationError("Legacy migration and examination notice confirmation is required")
+        if data.get("aggregatedAnalyticsAccepted") is not True:
+            raise ValidationError("Aggregated analytics and data processing acceptance is required")
 
 
 class StudentGradeSchema(Schema):

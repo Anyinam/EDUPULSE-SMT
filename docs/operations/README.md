@@ -2,7 +2,9 @@
 
 ## Purpose
 
-This folder groups EduPulse SMT business and operating documents by audience without forcing an immediate migration of the original top-level files.
+This folder groups EduPulse SMT business and operating documents by audience inside the canonical `docs/` tree.
+
+Most root-level markdown files elsewhere in the repository now exist only as redirect stubs for older references.
 
 ## Structure
 
@@ -13,6 +15,7 @@ This folder groups EduPulse SMT business and operating documents by audience wit
 
 ## Core References
 
+- `../README.md`
 - `internal/BUSINESS_OPERATIONS_INDEX.md`
 - `internal/STANDARD_OPERATING_PROCEDURES.md`
 - `internal/LEGAL_COUNSEL_DOSSIER.md`
@@ -28,4 +31,4 @@ This folder groups EduPulse SMT business and operating documents by audience wit
 - `internal/README.md`
 - `customer/README.md`
 - `customer/SCHOOL_SEND_PACKAGE.md`
-- `../../BUSINESS_PROCESS_MODEL.md`
+- `../strategy/BUSINESS_PROCESS_MODEL.md`

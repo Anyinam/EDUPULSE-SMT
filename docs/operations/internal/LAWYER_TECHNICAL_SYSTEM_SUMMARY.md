@@ -10,7 +10,8 @@ It focuses especially on:
 2. How Paystack routing and split-style payment handling work
 3. How external KYB provider screening is used for school verification and compliance gating
 4. How cryptography is used inside the application and in the documented AWS production architecture
-4. Which parts appear to be proprietary workflow and control logic
+5. Which parts appear to be proprietary workflow and control logic
+6. How anonymized multi-school analytics is intended to be separated from identifiable operational data
 
 ## Companion Counsel Docs
 
@@ -41,6 +42,7 @@ The main reasons for sharing this are:
 1. To help you frame the business correctly during incorporation
 2. To identify which technical workflows may be protectable as intellectual property, trade secrets, know-how, or contractual confidential information
 3. To support data-protection structuring for Ghana, especially around payment handling, student/guardian data, audit trails, and encryption controls
+4. To confirm that the planned anonymized analytics program is contractually and technically described in a defensible way
 
 Please pay particular attention to:
 
@@ -48,6 +50,7 @@ Please pay particular attention to:
 2. The cryptographic controls used for sensitive data and ledger integrity
 3. The multi-tenant school architecture and role-based controls
 4. The parts of the workflow that may be stronger candidates for confidentiality protection, software licensing language, or internal control language in policy documents
+5. The anonymization, aggregation, and disclosure guardrails for any cross-school analytics product
 
 I have included a detailed technical summary below.
 
@@ -73,6 +76,20 @@ From a legal and IP perspective, the platform is not only a school-management ap
 4. Tenant isolation
 5. Tamper-evident financial records
 6. Encrypted storage of sensitive personal and banking data
+7. A planned analytics layer for de-identified benchmarking and educational trend reporting
+
+## Anonymized Multi-School Analytics Positioning
+
+EduPulse SMT is intended to evolve from a workflow SaaS tool into a data-intelligence platform for schools. The legally important point is that any cross-school benchmarking, yearly performance reporting, curriculum-gap analysis, or national trend reporting should rely on de-identified and aggregated data rather than identifiable student records or named-school disclosures.
+
+The intended architecture is:
+
+1. The live transactional system stores identified tenant data for school operations
+2. A controlled extract or ETL process removes student identifiers and direct school identifiers where they are not needed
+3. A separate analytical layer stores only the broad attributes needed for statistics, such as region, school type, cohort, subject, year, and score bands
+4. Reports are generated in aggregated form for dashboards, white papers, or premium benchmarking products
+
+Counsel should confirm that the customer-facing contracts and DPC-facing materials accurately describe this split, avoid overstating anonymization, and preserve the controller-processor position for identifiable school records.
 
 ## System Operation Overview
 

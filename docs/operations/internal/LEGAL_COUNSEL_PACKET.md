@@ -27,6 +27,7 @@ This packet gives counsel a practical overview of:
 5. How external KYB provider screening, cryptography, and tamper-evident finance controls work
 6. Which system components are likely to be high-value IP or confidential know-how
 7. Which technical controls support Ghana data-protection compliance analysis
+8. How planned anonymized multi-school benchmarking should be described in contracts and DPC-facing materials
 
 ## Recommended Reading Order For Counsel
 
@@ -50,6 +51,10 @@ This packet gives counsel a practical overview of:
    Draft assignment template for contributors, contractors, and collaborators.
 10. `CONFIDENTIALITY_NDA_TEMPLATE.md`
    Draft confidentiality/NDA template for advisors, partners, contractors, or other recipients of confidential information.
+11. `compliance/CONSENT_AND_NOTICE_TEMPLATES.md`
+   Draft onboarding and consent wording, including anonymized analytics notice language.
+12. `ANONYMIZED_ANALYTICS_ETL_MEMO.md`
+   Technical design memo for the future de-identification and analytics warehouse workflow.
 
 ## Recommended Submission Bundles
 
@@ -74,6 +79,9 @@ Send counsel:
 4. `compliance/DATA_RETENTION_POLICY.md`
 5. `compliance/INCIDENT_RESPONSE_PLAN.md`
 6. `compliance/INFORMATION_SECURITY_POLICY.md`
+7. `compliance/TERMS_OF_SERVICE.md`
+8. `compliance/CONSENT_AND_NOTICE_TEMPLATES.md`
+9. `docs/operations/internal/ANONYMIZED_ANALYTICS_ETL_MEMO.md`
 
 ## Counsel Objectives
 
@@ -112,6 +120,8 @@ Some of the strongest assets are not just code files, but the business methods e
 
 The platform handles student, guardian, staff, and payment-related data. The technical posture includes role restriction, tenant separation, selected encrypted fields, webhook verification, retention logic, incident planning, and tamper-evident finance records.
 
+The current legal work should also address a planned macro-analytics layer in which identifiable school records are de-identified before being reused for aggregated benchmarking, research-style reporting, and premium customer insights.
+
 ### 4. Contract Structuring
 
 Counsel should align incorporation records, IP ownership clauses, confidentiality obligations, school-facing terms, privacy notices, and processor/controller language with the technical reality of the system.
@@ -124,7 +134,7 @@ Counsel should ideally answer or address these questions:
 2. Which system elements should be explicitly reserved as IP, confidential information, or trade-secret-like know-how?
 3. What contributor, employee, contractor, and partner agreements are needed to ensure ownership remains with EduPulse SMT?
 4. How should Ghana data-protection roles be described between EduPulse SMT and each school?
-5. What terms should govern customer data ownership, software ownership, audit evidence, and misuse restrictions?
+5. What terms should govern customer data ownership, software ownership, audit evidence, anonymized analytics ownership, and misuse restrictions?
 
 ## Supporting Repository Evidence
 

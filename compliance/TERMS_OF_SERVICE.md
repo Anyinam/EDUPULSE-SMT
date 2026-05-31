@@ -1,6 +1,6 @@
 # EduPulse SMT Terms of Service
 
-Effective Date: February 21, 2026
+Effective Date: May 31, 2026
 
 These Terms of Service ("Terms") govern use of the EduPulse SMT platform (the "Service") by schools and their authorized users.
 
@@ -20,6 +20,8 @@ During school registration, checking the acceptance box and submitting the signu
 ## 2. Service Description
 
 EduPulse SMT provides software for school management, lesson planning, grading, reporting, and related features.
+
+Where enabled, the Service may also generate anonymized and aggregated benchmarking, educational trend analysis, and research-style macro-analytics derived from lawfully supplied school data under the safeguards described in the Privacy Policy and Data Processing Agreement.
 
 ## 3. Accounts and Access
 
@@ -50,11 +52,15 @@ Schools represent that they have the lawful authority to upload, manage, and ins
 
 Where the school uploads WAEC or BECE result lists, continuous-assessment records, or legacy student files that pre-date EduPulse SMT, the school is responsible for ensuring that any required notices, approvals, or parent or guardian consents have been obtained.
 
+During onboarding, the school must be given a registration notice explaining that EduPulse SMT may de-identify and aggregate lawfully supplied academic records for benchmarking, national or regional educational trend analysis, curriculum research, system optimization, and related analytics uses.
+
 Schools may not use EduPulse SMT to disclose student examination records publicly, sell academic data, or process minors' data for purposes unrelated to legitimate school administration, admissions, safeguarding, billing, or academic improvement.
 
 ## 7. Intellectual Property
 
 EduPulse and its licensors own all IP rights to the Service. Schools retain ownership of their data.
+
+Subject to applicable law and the parties' contract documents, EduPulse retains ownership of the anonymized, aggregated statistical datasets, benchmark models, visualizations, and analytics outputs it creates from de-identified platform data, while schools retain ownership of their raw identifiable operational records.
 
 ## 8. Availability and Support
 

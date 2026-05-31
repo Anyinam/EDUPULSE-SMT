@@ -1,12 +1,14 @@
 # EduPulse SMT Privacy Policy (Ghana - Act 843)
 
-Effective Date: May 2, 2026
+Effective Date: May 31, 2026
 
 This Privacy Policy explains how EduPulse SMT ("EduPulse SMT", "we", "us") collects, uses, discloses, and protects personal data when schools, staff, students, and guardians use the EduPulse SMT platform (the "Service").
 
 This policy is designed primarily to comply with Ghana's Data Protection Act, 2012 (Act 843). Where practical, EduPulse SMT may also apply stricter operational safeguards inspired by widely adopted international privacy standards, but Ghana law remains the primary legal baseline for Ghanaian school operations.
 
 When a school completes registration on EduPulse SMT, that registration action confirms acceptance of this Privacy Policy and the Data Retention and Deletion Policy as part of onboarding.
+
+During registration, the school must also be shown a clear notice that EduPulse SMT may create de-identified, aggregated educational datasets from lawfully supplied school records for benchmarking, national or regional trend analysis, curriculum research, system optimization, and related educational insights, subject to the safeguards in this policy and the Data Processing Agreement.
 
 ## 1. Who We Are
 
@@ -24,6 +26,7 @@ We collect data necessary to provide the Service, including:
 - Admissions data: parent-submitted learner profiles, application forms, supporting documents, status updates, and school review notes.
 - Document-intelligence data: report-card images or PDFs, parsed academic fields, confidence or exception flags, and related review actions.
 - Examination and academic analytics data: internal assessment marks, school-uploaded WAEC or BECE result lists, subject performance history, trend-analysis outputs, and benchmarking outputs derived from public aggregate reports.
+- De-identification and aggregation outputs: anonymized statistical records, cohort summaries, regional benchmarks, curriculum-gap indicators, and research datasets generated after direct identifiers and direct school identifiers are removed from source records.
 - Shared academic-guidance inputs: school-uploaded or platform-curated chief examiner insights derived from lawfully available public reports.
 - Parent/guardian data: name, phone, email (if provided by the school).
 - Consent and compliance records: acceptance of policies, admissions acknowledgements, migration-consent records, and other notices or approvals required for lawful educational processing.
@@ -40,6 +43,7 @@ We process personal data to:
 - Parse and normalize report-card files or images that a school uploads or submits for educational administration and academic analysis.
 - Import and analyze school-supplied external examination records, including WAEC or BECE result lists, where the school has the legal authority to provide them.
 - Produce school-level academic intelligence such as subject trends, cohort summaries, performance decline alerts, internal benchmarking, academic guidance, and comparisons against lawfully available regional or national aggregate statistics.
+- Generate anonymized, aggregated educational analytics across multiple schools for regional, district, and national benchmarking, curriculum research, product improvement, and educational trend reporting where the source data has been irreversibly de-identified and cannot reasonably be linked back to an individual student or a named school.
 - Maintain security and prevent fraud.
 - Provide support and system notifications.
 - Meet legal and regulatory requirements.
@@ -48,6 +52,8 @@ We process personal data to:
 For student data, the school is the primary data controller and EduPulse SMT acts as a data processor on the school's behalf in most operational contexts.
 
 Schools are responsible for ensuring that they have an appropriate legal basis before uploading student records, admissions materials, report-card files, historic academic files, WAEC or BECE result lists, chief examiner materials, or continuous-assessment records to EduPulse SMT. Where consent is the chosen legal basis, the school must obtain and retain that consent before using the Service for that purpose.
+
+Where EduPulse SMT creates anonymized macro-analytics datasets from school-supplied academic records, EduPulse SMT will first apply de-identification controls designed to remove direct identifiers, persistent student identifiers, and direct school identifiers before the data enters the shared analytics layer. EduPulse SMT will use those datasets only in aggregated statistical form and will not intentionally publish or commercialize identifiable student results or named-school performance without a separate lawful basis and explicit contractual authorization.
 
 ## 4. Data Sharing
 
@@ -59,7 +65,11 @@ We share data only with:
 - Examination or education-sector counterparties only where lawfully required, school-authorized, or supported by a formal approved integration.
 - Regulators or law enforcement if legally required.
 
+Where anonymized macro-analytics outputs are shared with customers, researchers, or the public, those outputs must remain aggregated and must not identify an individual student, guardian, staff member, or named school unless a separate lawful disclosure basis exists.
+
 We do not sell personal data.
+
+We may create and use anonymized statistical information that no longer identifies a person or specific school for lawful educational benchmarking, research, service improvement, and commercial analytics products.
 
 ## 5. Data Retention
 
@@ -97,17 +107,42 @@ Where a school imports WAEC or BECE result data for school-level academic analyt
 
 Where a school uploads report cards, admissions documents, or external exam materials for parsing or analysis, the school must ensure those materials were collected lawfully, disclosed appropriately to the relevant families or data subjects where required, and limited to legitimate educational administration purposes.
 
-## 9. Cross-Border Transfers
+Where those materials are later included in EduPulse SMT's macro-analytics program, EduPulse SMT will process them only after applying irreversible de-identification and only for aggregated educational trend analysis, benchmarking, curriculum insights, system optimization, and research-style reporting.
+
+Examples of permitted anonymized outputs include region-level pass-rate comparisons, private-versus-public trend summaries, district benchmarking bands, or curriculum-gap analysis across broad cohorts. EduPulse SMT should avoid publishing small-cell or narrow-segment outputs that could reasonably permit re-identification of a student or a specific school.
+
+## 9. Aggregated Analytics and Data Reuse
+
+EduPulse SMT may maintain a separate analytical environment or data warehouse for de-identified academic and operational statistics derived from lawfully uploaded school records.
+
+Before data is moved into that analytical environment, EduPulse SMT will apply technical and organizational controls intended to:
+
+- remove student names, admissions identifiers, contact details, exact dates of birth, and similar direct identifiers;
+- remove or generalize direct school identifiers where only regional, district, school-type, or other broad segmentation is needed;
+- prevent benchmarking outputs from exposing raw identifiable performance data for a named student or named school unless separately authorized; and
+- keep the shared analytics environment logically separated from the live transactional system where practicable.
+
+The resulting anonymized and aggregated datasets may be used to generate:
+
+- regional, district, and national educational performance trends;
+- curriculum or subject-gap analysis;
+- benchmarking dashboards for subscribing schools;
+- statistical reports, white papers, and system-improvement insights; and
+- commercial analytics products based on non-personal data.
+
+While each school retains ownership of its raw identifiable records, EduPulse SMT may own the intellectual property rights in the resulting anonymized, aggregated datasets, benchmark models, visualizations, and analytical outputs to the extent permitted by applicable law and contract.
+
+## 10. Cross-Border Transfers
 
 If data is stored or processed outside Ghana, we ensure adequate protections and contractual safeguards.
 
 Cross-border storage or support arrangements do not reduce the school's obligations under Ghana law. EduPulse SMT will use contractual, technical, and organizational safeguards that are appropriate for the sensitivity of minors' academic records.
 
-## 10. Changes to This Policy
+## 11. Changes to This Policy
 
 We may update this policy. Material changes will be communicated to schools.
 
-## 11. Contact
+## 12. Contact
 
 For questions or complaints:
 

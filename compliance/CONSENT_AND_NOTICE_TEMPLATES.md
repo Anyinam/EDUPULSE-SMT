@@ -1,6 +1,6 @@
 # EduPulse SMT Consent And Notice Templates
 
-Effective Date: April 29, 2026
+Effective Date: May 31, 2026
 
 This document provides working draft language for EduPulse SMT customer onboarding, parent admissions, and legacy-record migration. It is not legal advice. Your lawyer should review and adapt the templates before production use.
 
@@ -18,11 +18,20 @@ By registering a school account on EduPulse SMT, the school confirms that:
 3. the school has the legal authority to upload and manage the records it places in the system;
 4. the school will provide any privacy notices, parent communications, or consent forms required under Ghana's Data Protection Act, 2012 (Act 843), education-sector obligations, or its own school policies;
 5. where the school uploads WAEC or BECE result lists, continuous-assessment marks, or pre-existing historical records, it has confirmed a lawful basis for that processing; and
-6. the school accepts EduPulse SMT's Terms of Service, Privacy Policy, Data Retention Policy, and Data Processing terms.
+6. the school understands that EduPulse SMT may irreversibly de-identify and aggregate lawfully supplied academic and operational records for benchmarking, national or regional educational trend analysis, curriculum research, system optimization, and related educational insights, without identifying any student or named school in the shared analytics outputs; and
+7. the school accepts EduPulse SMT's Terms of Service, Privacy Policy, Data Retention Policy, and Data Processing terms.
 
 Optional short checkbox label:
 
 I confirm that my school has authority to manage student records in EduPulse SMT and will provide any notices or consents required by law.
+
+Recommended explicit analytics checkbox label for registration:
+
+I agree to the Data Processing Agreement, including EduPulse SMT's use of anonymized, aggregated academic metrics for educational benchmarking, research, and system optimization.
+
+Recommended tooltip or explainer text:
+
+We remove student names, IDs, contact details, and direct school identifiers before approved data enters EduPulse SMT's shared analytics layer. Benchmarking and research outputs are presented only in aggregated form and are designed not to identify your students or your school.
 
 ## 2. Parent Admission Privacy Notice And Consent
 
@@ -104,9 +113,15 @@ Where [School Name] uploads WAEC or BECE result lists into EduPulse SMT, the dat
 
 The school will not publish identifiable student examination results through EduPulse SMT to unauthorized third parties.
 
+Where the school participates in EduPulse SMT benchmarking or macro-analytics, shared outputs should remain anonymized and aggregated. Public or customer-facing reports should avoid small groups or narrow slices that could reveal a specific student or school.
+
 Suggested parent acknowledgement clause:
 
 I understand that [School Name] may use my ward's examination results within EduPulse SMT for internal academic analysis, student support, and school performance monitoring.
+
+Optional school addendum for anonymized platform benchmarking:
+
+I understand that after direct identifiers are removed, EduPulse SMT may combine examination and academic statistics from multiple schools to produce anonymized benchmarking and educational trend reports that do not name my ward or the school.
 
 ## 5. Counsel Review Checklist
 
@@ -116,4 +131,5 @@ Before production use, ask counsel to confirm:
 2. the school's chosen legal basis is appropriate for new admissions, legacy student migration, and external exam analytics;
 3. the wording matches Ghana's Data Protection Act, 2012 (Act 843) and your final company registration details;
 4. any WAEC-facing integration or data-sharing language is approved before it appears in customer materials; and
-5. the final notices match the actual product behavior and record-keeping process.
+5. anonymization claims are technically supportable and match the real ETL or analytics architecture; and
+6. the final notices match the actual product behavior and record-keeping process.

@@ -490,6 +490,7 @@ class TestInputValidation:
             "policyVersion": "2026-03-07",
             "schoolDataAuthorityConfirmed": True,
             "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
         }
 
         response = client.post(

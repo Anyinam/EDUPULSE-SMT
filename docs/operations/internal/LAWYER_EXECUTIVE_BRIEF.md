@@ -77,6 +77,7 @@ The system processes personal data relating to students, guardians, staff, schoo
 5. Audit logging and incident response planning
 6. Retention and deletion policy structure
 7. Structured handling of admissions, report-card, and external examination records
+8. Planned de-identification and aggregation controls for multi-school benchmarking and educational trend analysis
 
 This gives counsel a concrete technical basis for privacy-policy drafting, processor/controller positioning, and regulator-facing explanations.
 
@@ -89,7 +90,8 @@ This brief should help counsel with:
 3. Contractor and employee invention/confidentiality language
 4. Platform terms, privacy, and data-processing language
 5. Ghana data-protection structuring for school, parent, and student data
-6. Advice on data-processing or registration application materials where required
+6. Advice on anonymized benchmarking and educational research clauses
+7. Advice on data-processing or registration application materials where required
 
 ## Recommended Counsel Focus
 
@@ -99,4 +101,5 @@ Counsel should pay closest attention to:
 2. Protection of the Paystack routing and payment-control logic
 3. Confidentiality obligations for developers, contractors, and partners
 4. Data-protection roles between EduPulse SMT and each school
-5. Contract language governing school data, audit records, and payment evidence
+5. Contract language governing school data, audit records, payment evidence, and de-identified analytics outputs
+6. Whether the planned anonymization and aggregation workflow is sufficiently disclosed and supportable for Ghana DPC-facing materials

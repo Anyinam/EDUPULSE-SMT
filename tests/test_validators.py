@@ -73,6 +73,7 @@ class TestValidators:
             "policyVersion": "2026-03-07",
             "schoolDataAuthorityConfirmed": True,
             "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
         }
         with pytest.raises(ValidationError) as exc_info:
             schema.load(data)
@@ -93,6 +94,7 @@ class TestValidators:
             "policyVersion": "2026-03-07",
             "schoolDataAuthorityConfirmed": True,
             "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
         }
         with pytest.raises(ValidationError) as exc_info:
             schema.load(data)
@@ -113,6 +115,7 @@ class TestValidators:
             "policyVersion": "2026-03-07",
             "schoolDataAuthorityConfirmed": True,
             "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
         }
         result = schema.load(data)
         assert result["schoolCode"] == "CCA-OFK"
@@ -131,10 +134,31 @@ class TestValidators:
             "policyVersion": "2026-03-07",
             "schoolDataAuthorityConfirmed": False,
             "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
         }
         with pytest.raises(ValidationError) as exc_info:
             schema.load(data)
         assert "authority" in str(exc_info.value.messages).lower()
+
+    def test_register_schema_requires_aggregated_analytics_acceptance(self):
+        schema = RegisterSchema()
+        data = {
+            "schoolCode": "CCA-OFK",
+            "schoolName": "CCA Ofankor",
+            "username": "newuser",
+            "email": "newuser@cca.edu",
+            "password": "SecurePass123!",
+            "termsAccepted": True,
+            "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": False,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            schema.load(data)
+        assert "analytics" in str(exc_info.value.messages).lower()
 
     def test_student_grade_schema_valid(self):
         """Test valid grade entry."""
