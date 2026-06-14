@@ -23,7 +23,7 @@ This packet gives counsel a practical overview of:
 1. What EduPulse SMT is as a business and software platform
 2. How the system operates technically
 3. How parent admissions, report-card intelligence, and exam-guidance workflows operate
-4. How Paystack routing and fee handling work
+4. How payment categorization, reconciliation, and historical route metadata work
 5. How external KYB provider screening, cryptography, and tamper-evident finance controls work
 6. Which system components are likely to be high-value IP or confidential know-how
 7. Which technical controls support Ghana data-protection compliance analysis
@@ -40,7 +40,7 @@ This packet gives counsel a practical overview of:
 4. `LAWYER_EXECUTIVE_BRIEF.md`
    Shortest high-level overview.
 5. `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
-   Full technical explanation of the platform, Paystack routing, and cryptography.
+   Full technical explanation of the platform, payment categorization controls, historical route compatibility, and cryptography.
 6. `IP_ASSET_INVENTORY.md`
    Main asset inventory for ownership, confidentiality, and protectability review.
 7. `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
@@ -144,7 +144,7 @@ The strongest supporting files in the repository include:
 - `backend/api/models.py`
 - `backend/security/crypto.py`
 - `backend/paystack_integration.py`
-- `AUDIT_INTEGRITY_SYSTEM.md`
+- `docs/security/AUDIT_INTEGRITY_SYSTEM.md`
 - `SECURITY.md`
 - `compliance/PRIVACY_POLICY.md`
 - `compliance/DATA_RETENTION_POLICY.md`

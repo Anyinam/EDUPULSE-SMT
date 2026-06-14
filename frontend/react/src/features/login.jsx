@@ -16,6 +16,10 @@ const DEFAULT_PUBLIC_CONTENT = {
       answer: 'Homeroom submits, Headmaster reviews, and Proprietor gives final approval based on workflow.'
     },
     {
+      question: 'Do diagnostic mock strands appear on terminal reports?',
+      answer: 'Yes. Teachers can add diagnostic strands in Report Builder, and they will show in a separate Diagnostic Strand Insights section on the terminal report.'
+    },
+    {
       question: 'How do I reset my password?',
       answer: 'Use Forgot Password on this page, then verify your email reset link.'
     }
@@ -23,7 +27,8 @@ const DEFAULT_PUBLIC_CONTENT = {
   tutorials: [
     { title: 'How to upload students (CSV)', url: 'https://www.youtube.com/watch?v=5v5wQ5M3jX8' },
     { title: 'How to configure promotion thresholds', url: 'https://www.youtube.com/watch?v=8YxY7mTjM6Q' },
-    { title: 'How to build and print terminal reports', url: 'https://www.youtube.com/watch?v=Q5l2Qh4Aq_0' }
+    { title: 'How to build and print terminal reports', url: 'https://www.youtube.com/watch?v=Q5l2Qh4Aq_0' },
+    { title: 'How diagnostic strands appear on terminal reports', url: 'https://www.youtube.com/watch?v=Q5l2Qh4Aq_0' }
   ],
   support: {
     email: 'support@edupulse.com',

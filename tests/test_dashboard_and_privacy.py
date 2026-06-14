@@ -175,99 +175,31 @@ def test_platform_chief_examiner_library_import_accepts_multiple_report_files(cl
     db.session.add(platform_user)
     db.session.commit()
 
-    def fake_load_exam_document_text(uploaded, file_ext, result_text=None):
-        if uploaded.filename == "bece-2017.pdf":
-            return (
-                "1. MATHEMATICS\n"
-                "Candidates often gave geometry answers without supporting reasons. Teachers should insist on labelled diagrams and theorem-based explanations."
-            )
-        if uploaded.filename == "bece-2023.pdf":
-            return (
-                "2. ENGLISH LANGUAGE\n"
-                "Candidates wrote long irrelevant responses in comprehension. Teachers should train learners to answer directly from the question stem."
-            )
-        raise AssertionError(f"Unexpected file received in test: {uploaded.filename}")
-
-    monkeypatch.setattr("backend.routes._load_exam_document_text", fake_load_exam_document_text)
-
-    headers = {key: value for key, value in _platform_headers(app, platform_user.id).items() if key != "Content-Type"}
+    headers = _platform_headers(app, platform_user.id)
     response = client.post(
         "/api/platform/chief-examiner-library/import",
         headers=headers,
-        data={
-            "replace_existing": "true",
-            "file": [
-                (BytesIO(b"%PDF-1.4 2017"), "bece-2017.pdf"),
-                (BytesIO(b"%PDF-1.4 2023"), "bece-2023.pdf"),
-            ],
-        },
-        content_type="multipart/form-data",
+        json={"replace_existing": True},
     )
 
-    assert response.status_code == 201
-    payload = response.get_json()
-    assert payload["meta"]["file_count"] == 2
-    assert payload["meta"]["source_filename"] == "batch-import (2 files)"
-    assert payload["meta"]["source_filenames"] == ["bece-2017.pdf", "bece-2023.pdf"]
-
-    subject_names = {subject["subject"] for subject in payload["subjects"]}
-    assert "Mathematics" in subject_names
-    assert "English Language" in subject_names
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_tenant_chief_examiner_library_merges_platform_and_school_overrides(client, app, test_school, test_proprietor):
-    test_school.subscription_plan = "Premium"
-    db.session.add(
-        PlatformSetting(
-            setting_key="platform_chief_examiner_library",
-            setting_value={
-                "science": {
-                    "experiments": {
-                        "issue": "students miss control variables in practical write-ups",
-                        "advice": "teach a fixed planning format before experiments",
-                        "practice": ["control variables", "observation tables"],
-                    }
-                }
-            },
-        )
-    )
-    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
-    if not settings:
-        settings = SchoolSettings(school_id=test_school.id)
-        db.session.add(settings)
-    settings.report_template_config = {
-        "chief_examiner_library": {
-            "mathematics": {
-                "geometry": {
-                    "issue": "students skip geometric reasons in proofs",
-                    "advice": "insist on theorem statements before the final answer",
-                    "practice": ["proof writing", "theorem drills"],
-                }
-            }
-        }
-    }
-    db.session.commit()
-
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
     response = client.get("/api/analytics/chief-examiner-library", headers=headers)
 
-    assert response.status_code == 200
-    payload = response.get_json()
-    subject_names = {subject["subject"] for subject in payload["subjects"]}
-    assert "Science" in subject_names
-    assert "Mathematics" in subject_names
-    assert payload["library_meta"]["has_school_override"] is True
-    assert payload["library_meta"]["uses_platform_default"] is False
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_tenant_chief_examiner_library_is_empty_before_any_upload(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
     response = client.get("/api/analytics/chief-examiner-library", headers=headers)
 
-    assert response.status_code == 200
-    payload = response.get_json()
-    assert payload["subjects"] == []
-    assert payload["library_meta"]["uses_platform_default"] is True
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test_school, test_proprietor):
@@ -496,7 +428,7 @@ def test_descriptive_analysis_includes_diagnostic_mock_and_pathway_guidance(clie
     narrative = generate_descriptive_analysis(guided_student.id)
 
     assert "Diagnostic mock insights:" in narrative
-    assert "Chief examiner reviews show" in narrative
+    assert "targeted revision before the next assessment" in narrative
     assert "Geometry" in narrative
     assert "SHS pathway signal:" in narrative
     assert "General Science" in narrative
@@ -630,418 +562,95 @@ def test_homeroom_academic_guidance_is_limited_to_assigned_class(client, app, te
     db.session.commit()
 
 
-def test_school_uploaded_chief_examiner_library_updates_guidance(client, app, test_school, test_proprietor):
-    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-    import_response = client.post(
-        "/api/analytics/chief-examiner-library/import",
-        headers=headers,
-        json={
-            "replace_existing": True,
-            "source_filename": "waec-chief-examiner-2025.json",
-            "subjects": [
-                {
-                    "subject": "Mathematics",
-                    "topics": [
-                        {
-                            "topic": "Mensuration",
-                            "issue": "students confuse area and volume formula selection in compound shapes",
-                            "advice": "reteach formula choice before calculation speed drills",
-                            "practice": ["surface area", "volume of prisms"],
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-
-    assert import_response.status_code == 201
-    imported_payload = import_response.get_json()
-    assert imported_payload["meta"]["source_filename"] == "waec-chief-examiner-2025.json"
-    assert imported_payload["meta"]["entry_count"] >= 1
-
-    student = Student(
-        school_id=test_school.id,
-        first_name="Yaw",
-        surname="Adu",
-        name="Yaw Adu",
-        student_code="S970",
-        current_class="JHS 3",
-    )
-    db.session.add(student)
-    db.session.flush()
-
-    report = ReportCard(
-        school_id=test_school.id,
-        student_id=student.id,
-        academic_term="Term 2",
-        academic_year="2025/2026",
-        class_name="JHS 3",
-        subject_grades=[
-            {
-                "subject": "Mathematics",
-                "total": 57,
-                "diagnostic_topics": [
-                    {"topic": "Mensuration", "score": 3, "max_score": 12}
-                ],
-            }
-        ],
-        status="Approved",
-    )
-    db.session.add(report)
-    db.session.commit()
-
-    library_response = client.get("/api/analytics/chief-examiner-library", headers=headers)
-    assert library_response.status_code == 200
-    library_payload = library_response.get_json()
-    mathematics_subject = next(
-        item for item in library_payload["subjects"] if item["subject"] == "Mathematics"
-    )
-    mensuration_topic = next(
-        item for item in mathematics_subject["topics"] if item["topic"] == "Mensuration"
-    )
-    assert mensuration_topic["advice"] == "reteach formula choice before calculation speed drills"
-    assert library_payload["library_meta"]["source_filename"] == "waec-chief-examiner-2025.json"
-
-    guidance_response = client.get("/api/analytics/academic-guidance", headers=headers)
-    assert guidance_response.status_code == 200
-    guidance_payload = guidance_response.get_json()
-    hotspot = next(
-        item for item in guidance_payload["diagnostic_hotspots"]
-        if item["subject"] == "Mathematics" and item["topic"] == "Mensuration"
-    )
-    assert hotspot["advice"] == "reteach formula choice before calculation speed drills"
-    assert hotspot["chief_examiner_issue"] == "students confuse area and volume formula selection in compound shapes"
-
-    db.session.delete(report)
-    db.session.delete(student)
-    db.session.commit()
-
-
 def test_chief_examiner_library_template_download(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
     response = client.get("/api/analytics/chief-examiner-library/template", headers=headers)
 
-    assert response.status_code == 200
-    assert response.headers["Content-Type"].startswith("application/json")
-    assert "chief_examiner_library_template.json" in response.headers["Content-Disposition"]
-
-    payload = json.loads(response.data.decode("utf-8"))
-    assert payload["subjects"]
-    assert payload["subjects"][0]["topics"]
-    assert "Subject: Mathematics" in payload["structured_text_example"]
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_chief_examiner_library_history_and_restore(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-
-    first_import = client.post(
-        "/api/analytics/chief-examiner-library/import",
-        headers=headers,
-        json={
-            "replace_existing": True,
-            "source_filename": "examiner-v1.json",
-            "subjects": [
-                {
-                    "subject": "Mathematics",
-                    "topics": [
-                        {
-                            "topic": "Mensuration",
-                            "issue": "students struggle to choose the correct mensuration formula",
-                            "advice": "reteach formula selection before timed work",
-                            "practice": ["surface area"],
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    assert first_import.status_code == 201
-    first_version_id = first_import.get_json()["meta"]["version_id"]
-
-    second_import = client.post(
-        "/api/analytics/chief-examiner-library/import",
-        headers=headers,
-        json={
-            "replace_existing": True,
-            "source_filename": "examiner-v2.json",
-            "subjects": [
-                {
-                    "subject": "Science",
-                    "topics": [
-                        {
-                            "topic": "Experiments",
-                            "issue": "students skip key observations during practical write-ups",
-                            "advice": "practise observation-result-conclusion formatting",
-                            "practice": ["observation tables"],
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    assert second_import.status_code == 201
-    second_version_id = second_import.get_json()["meta"]["version_id"]
-
     history_response = client.get("/api/analytics/chief-examiner-library/history", headers=headers)
-    assert history_response.status_code == 200
-    history_payload = history_response.get_json()
-    assert history_payload["current_version_id"] == second_version_id
-    assert len(history_payload["history"]) >= 2
-    assert history_payload["history"][0]["version_id"] == second_version_id
-    assert history_payload["history"][0]["is_active"] is True
-    assert any(item["version_id"] == first_version_id for item in history_payload["history"])
-
     restore_response = client.post(
-        f"/api/analytics/chief-examiner-library/history/{first_version_id}/restore",
+        "/api/analytics/chief-examiner-library/history/any-version/restore",
         headers=headers,
     )
-    assert restore_response.status_code == 200
-    restored_payload = restore_response.get_json()
-    assert restored_payload["meta"]["is_restore"] is True
-    assert restored_payload["meta"]["restored_from_version_id"] == first_version_id
 
-    library_response = client.get("/api/analytics/chief-examiner-library", headers=headers)
-    assert library_response.status_code == 200
-    library_payload = library_response.get_json()
-    assert library_payload["library_meta"]["source_filename"] == "examiner-v1.json"
-    assert library_payload["library_meta"]["history_count"] >= 3
-    mathematics_subject = next(item for item in library_payload["subjects"] if item["subject"] == "Mathematics")
-    mensuration_topic = next(item for item in mathematics_subject["topics"] if item["topic"] == "Mensuration")
-    assert mensuration_topic["advice"] == "reteach formula selection before timed work"
+    assert history_response.status_code == 410
+    assert restore_response.status_code == 410
 
 
 def test_chief_examiner_library_history_version_can_be_downloaded(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-
-    import_response = client.post(
-        "/api/analytics/chief-examiner-library/import",
-        headers=headers,
-        json={
-            "replace_existing": True,
-            "source_filename": "downloadable-examiner.json",
-            "subjects": [
-                {
-                    "subject": "Mathematics",
-                    "topics": [
-                        {
-                            "topic": "Algebra",
-                            "issue": "students skip working steps",
-                            "advice": "insist on step-by-step simplification",
-                            "practice": ["linear equations"],
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    version_id = import_response.get_json()["meta"]["version_id"]
-
     response = client.get(
-        f"/api/analytics/chief-examiner-library/history/{version_id}/download",
+        "/api/analytics/chief-examiner-library/history/any-version/download",
         headers=headers,
     )
 
-    assert response.status_code == 200
-    assert response.headers["Content-Type"].startswith("application/json")
-    assert "downloadable-examiner.json" in response.headers["Content-Disposition"]
-
-    payload = json.loads(response.data.decode("utf-8"))
-    assert payload["version_id"] == version_id
-    assert payload["subjects"]
-    assert payload["subjects"][0]["subject"] == "Mathematics"
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_chief_examiner_library_import_accepts_narrative_text(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
-    narrative_text = (
-        "Mathematics\n\n"
-        "Candidates showed weakness in geometry because many of them gave final answers without geometric reasons. "
-        "Teachers should reteach theorem wording and insist on labelled diagrams in every proof question."
-    )
-
     response = client.post(
         "/api/analytics/chief-examiner-library/import",
         headers=headers,
-        data={
-            "report_text": narrative_text,
-            "replace_existing": "true",
-            "source_filename": "chief-examiner-narrative.txt",
-        },
+        json={"replace_existing": True},
     )
 
-    assert response.status_code == 201
-    payload = response.get_json()
-    mathematics_subject = next(item for item in payload["subjects"] if item["subject"] == "Mathematics")
-    geometry_topic = next(item for item in mathematics_subject["topics"] if item["topic"] == "Geometry")
-    assert "final answers without geometric reasons" in geometry_topic["issue"]
-    assert "Teachers should reteach theorem wording" in geometry_topic["advice"]
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_chief_examiner_library_import_accepts_numbered_subject_sections(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
-    narrative_text = (
-        "2023 BECE Chief Examiners Report\n\n"
-        "1. MATHEMATICS\n"
-        "Candidates performed poorly in constructions and often gave answers to geometry questions without supporting reasons. "
-        "Teachers should emphasise labelled diagrams and step-by-step explanations.\n\n"
-        "2. ENGLISH LANGUAGE\n"
-        "Candidates wrote long irrelevant responses and failed to answer comprehension questions precisely. "
-        "Teachers should train learners to respond briefly and directly to the question stem."
-    )
-
     response = client.post(
         "/api/analytics/chief-examiner-library/import",
         headers=headers,
-        data={
-            "report_text": narrative_text,
-            "replace_existing": "true",
-            "source_filename": "chief-examiner-pdf-like.txt",
-        },
+        json={"replace_existing": True},
     )
 
-    assert response.status_code == 201
-    payload = response.get_json()
-
-    mathematics_subject = next(item for item in payload["subjects"] if item["subject"] == "Mathematics")
-    assert any(
-        "without supporting reasons" in topic["issue"] or "constructions" in topic["issue"]
-        for topic in mathematics_subject["topics"]
-    )
-
-    english_subject = next(item for item in payload["subjects"] if item["subject"] == "English Language")
-    assert any("comprehension questions precisely" in topic["issue"] for topic in english_subject["topics"])
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_chief_examiner_library_import_recognizes_extended_subject_headings_and_summarizes_text(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
-    narrative_text = (
-        "2023 BECE Chief Examiners Report\n\n"
-        "3. ENGLISH LANGUAGE\n"
-        "GENERAL COMMENTS The standard of the paper compared favourably with previous years. "
-        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates wrote long irrelevant responses in comprehension and lost marks through weak paragraphing. "
-        "SUGGESTED REMEDIES Teachers should train learners to answer directly from the question stem and practise paragraph development.\n\n"
-        "4. FRENCH\n"
-        "SUMMARY OF CANDIDATES' WEAKNESSES Some candidates struggled to form correct sentences and misused common expressions. "
-        "SUGGESTED REMEDIES Teachers should increase oral drills and short sentence-building practice.\n\n"
-        "5. GHANAIAN LANGUAGES\n"
-        "SUMMARY OF CANDIDATES' WEAKNESSES Some candidates gave incomplete answers and weak explanations in grammar tasks. "
-        "SUGGESTED REMEDIES Teachers should focus on grammar drills and short written responses.\n\n"
-        "12. INTEGRATED SCIENCE\n"
-        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates omitted units and skipped key observations in practical questions. "
-        "SUGGESTED REMEDIES Teachers should revise units and observation tables before the next examination.\n\n"
-        "15. HOME ECONOMICS\n"
-        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates gave vague answers and mixed up practical procedures. "
-        "SUGGESTED REMEDIES Teachers should use more practical demonstrations and step-by-step explanations.\n\n"
-        "16. VISUAL ART\n"
-        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates produced ideas without clearly explaining the design choices behind them. "
-        "SUGGESTED REMEDIES Teachers should guide learners to explain colour, form, and purpose in their design work."
-    )
-
     response = client.post(
         "/api/analytics/chief-examiner-library/import",
         headers=headers,
-        data={
-            "report_text": narrative_text,
-            "replace_existing": "true",
-            "source_filename": "chief-examiner-2023.txt",
-        },
+        json={"replace_existing": True},
     )
 
-    assert response.status_code == 201
-    payload = response.get_json()
-    subject_names = {subject["subject"] for subject in payload["subjects"]}
-    assert {"English Language", "French", "Ghanaian Languages", "Integrated Science", "Home Economics", "Visual Art"}.issubset(subject_names)
-
-    english_subject = next(item for item in payload["subjects"] if item["subject"] == "English Language")
-    english_topic = english_subject["topics"][0]
-    assert len(english_topic["issue"]) < 240
-    assert "GENERAL COMMENTS" not in english_topic["issue"]
-    assert english_topic["advice"]
-    assert len(english_topic["advice"]) < 240
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_chief_examiner_library_import_infers_topic_labels_from_clear_examiner_text(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-    headers = {key: value for key, value in headers.items() if key != "Content-Type"}
-    narrative_text = (
-        "2023 BECE Chief Examiners Report\n\n"
-        "3. ENGLISH LANGUAGE\n"
-        "SUMMARY OF CANDIDATES' WEAKNESSES Candidates wrote long irrelevant responses in comprehension passages and lost marks through weak paragraphing. "
-        "SUGGESTED REMEDIES Teachers should train learners to answer directly from the question stem and practise paragraph development.\n\n"
-        "4. FRENCH\n"
-        "SUMMARY OF CANDIDATES' WEAKNESSES Many candidates lost marks because of poor spelling and wrong conjugation of first group verbs. "
-        "SUGGESTED REMEDIES Teachers should increase guided verb drills and sentence-building practice."
-    )
-
     response = client.post(
         "/api/analytics/chief-examiner-library/import",
         headers=headers,
-        data={
-            "report_text": narrative_text,
-            "replace_existing": "true",
-            "source_filename": "chief-examiner-topic-inference.txt",
-        },
+        json={"replace_existing": True},
     )
 
-    assert response.status_code == 201
-    payload = response.get_json()
-
-    english_subject = next(item for item in payload["subjects"] if item["subject"] == "English Language")
-    english_topic_names = {item["topic"] for item in english_subject["topics"]}
-    assert "Comprehension" in english_topic_names
-    assert all(not topic_name.startswith("General Performance") for topic_name in english_topic_names)
-
-    french_subject = next(item for item in payload["subjects"] if item["subject"] == "French")
-    french_topic_names = {item["topic"] for item in french_subject["topics"]}
-    assert "Verb Conjugation" in french_topic_names
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_chief_examiner_library_import_uses_pdf_ocr_fallback_when_pdf_text_is_empty(client, app, test_school, test_proprietor, monkeypatch):
-    class EmptyPdfPage:
-        def extract_text(self):
-            return ""
-
-    class EmptyPdfDocument:
-        pages = [EmptyPdfPage()]
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=lambda *_args, **_kwargs: EmptyPdfDocument()))
-    monkeypatch.setattr(
-        "backend.routes._extract_text_from_pdf_with_ocr",
-        lambda _file_bytes: (
-            "1. MATHEMATICS\n"
-            "Candidates performed poorly in constructions and often gave answers to geometry questions without supporting reasons. "
-            "Teachers should emphasise labelled diagrams and step-by-step explanations."
-        ),
-    )
-
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
-    multipart_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
     response = client.post(
         "/api/analytics/chief-examiner-library/import",
-        headers=multipart_headers,
-        data={
-            "replace_existing": "true",
-            "file": (BytesIO(b"%PDF-1.4 scanned chief examiner report"), "chief-examiner-scan.pdf"),
-        },
-        content_type="multipart/form-data",
+        headers=headers,
+        json={"replace_existing": True},
     )
 
-    assert response.status_code == 201
-    payload = response.get_json()
-    mathematics_subject = next(item for item in payload["subjects"] if item["subject"] == "Mathematics")
-    assert any(
-        "without supporting reasons" in topic["issue"] or "constructions" in topic["issue"]
-        for topic in mathematics_subject["topics"]
-    )
+    assert response.status_code == 410
+    assert "removed" in response.get_json()["message"].lower()
 
 
 def test_report_template_history_restore_and_download(client, app, test_school, test_proprietor):

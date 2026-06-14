@@ -40,7 +40,7 @@ export default function PricingComparison() {
     features: plan.marketing_features || [],
     addonOptions: plan.addon_options || [],
     packagingSummary: plan.packaging_summary || '',
-    cta: plan.name === 'Free Tier' ? 'Get Started Free' : 'Start 14-Day Trial',
+    cta: plan.name === 'Free Tier' ? 'Get Started Free' : 'Start Free Trial For This Term',
     highlighted: Boolean(plan.popular),
     badge: plan.popular ? 'MOST POPULAR' : undefined,
   }));

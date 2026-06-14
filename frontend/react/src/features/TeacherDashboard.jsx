@@ -32,6 +32,7 @@ export default function TeacherDashboard() {
   const [lessonNoteSubject, setLessonNoteSubject] = useState("Mathematics");
   const [subjects, setSubjects] = useState([]);
   const [assignedSubjects, setAssignedSubjects] = useState([]);
+  const [assignedClasses, setAssignedClasses] = useState([]);
   const [timetableEntries, setTimetableEntries] = useState([]);
   const [availableClasses, setAvailableClasses] = useState([]);
   const [useTimetable, setUseTimetable] = useState(false);
@@ -136,6 +137,7 @@ export default function TeacherDashboard() {
 
         // If teacher has assigned classes, use only those
         if (assignedClasses.length > 0) {
+          setAssignedClasses(assignedClasses);
           setAvailableClasses(assignedClasses);
           // Set initial selected class to first assigned class
           if (!assignedClasses.includes(selectedClass)) {
@@ -147,6 +149,7 @@ export default function TeacherDashboard() {
         // Otherwise, fall back to all school classes (for backward compatibility)
         const res = await axios.get('/api/school/classes', getAuthHeaders());
         const allClasses = Array.isArray(res.data) ? res.data.map(c => c.name || c.class_name) : [];
+        setAssignedClasses([]);
         
         if (allClasses.length > 0) {
           setAvailableClasses(allClasses);
@@ -156,11 +159,13 @@ export default function TeacherDashboard() {
           }
         } else {
           // Should not reach here since endpoint has fallback, but just in case
+          setAssignedClasses([]);
           setAvailableClasses(['JHS 1', 'JHS 2', 'JHS 3', 'Class 6', 'Class 5']);
         }
       } catch (err) {
         console.error('Failed to load classes', err);
         // Fallback to default classes on error
+        setAssignedClasses([]);
         setAvailableClasses(['JHS 1', 'JHS 2', 'JHS 3', 'Class 6', 'Class 5']);
       }
     };
@@ -905,6 +910,22 @@ export default function TeacherDashboard() {
               Class Work: 0-{classScoreMax} • Exam: 0-{examScoreMax}
             </div>
           </div>
+
+          {assignedClasses.length > 0 && (
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-blue-700 mb-2">Your Assigned Classes</p>
+              <div className="flex flex-wrap gap-2">
+                {assignedClasses.map((className) => (
+                  <span
+                    key={className}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${selectedClass === className ? 'bg-blue-600 text-white' : 'bg-white text-blue-800 border border-blue-200'}`}
+                  >
+                    {className}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {studentLoadError && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">

@@ -21,9 +21,9 @@ It separates repository documents that already exist from external founder/compa
 5. `FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
 6. `CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
 7. `CONFIDENTIALITY_NDA_TEMPLATE.md`
-8. `EDUPULSE_PROFESSIONAL_PITCH.md`
-9. `EDUPULSE_IMPACT_AND_SDG_BRIEF.md`
-10. `BUSINESS_PROCESS_MODEL.md`
+8. `docs/strategy/EDUPULSE_PROFESSIONAL_PITCH.md`
+9. `docs/strategy/EDUPULSE_IMPACT_AND_SDG_BRIEF.md`
+10. `docs/strategy/BUSINESS_PROCESS_MODEL.md`
 11. `docs/operations/internal/STANDARD_OPERATING_PROCEDURES.md`
 
 ### Founder And Corporate Documents To Gather
@@ -60,7 +60,7 @@ It separates repository documents that already exist from external founder/compa
 8. `compliance/INFORMATION_SECURITY_POLICY.md`
 9. `compliance/TERMS_OF_SERVICE.md`
 10. `docs/operations/internal/STANDARD_OPERATING_PROCEDURES.md`
-11. `AUDIT_INTEGRITY_SYSTEM.md`
+11. `docs/security/AUDIT_INTEGRITY_SYSTEM.md`
 12. `SECURITY.md`
 13. `compliance/CONSENT_AND_NOTICE_TEMPLATES.md`
 14. `docs/operations/internal/ANONYMIZED_ANALYTICS_ETL_MEMO.md`
@@ -91,6 +91,7 @@ It separates repository documents that already exist from external founder/compa
 
 If you want to avoid overwhelming counsel, send documents in this order:
 
+0. `LAWYER_SEND_PACK_NOTE.md` (optional one-page forward note)
 1. `LAWYER_COVER_EMAIL.md`
 2. `LEGAL_COUNSEL_PACKET.md`
 3. `LAWYER_DOCUMENT_CHECKLIST.md`

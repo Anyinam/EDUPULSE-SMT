@@ -306,6 +306,12 @@ if os.getenv("SENTRY_DSN"):
    - `https://app.edupulse.com.gh`
 3. Set alert contacts (email, SMS, WhatsApp)
 
+**AWS ECS Operational Note:**
+- Run the web application and the background scheduler as separate ECS services.
+- Run Alembic migrations through the dedicated migration task before promoting a new app revision.
+- Set `TRUST_PROXY_HEADERS=true` behind ALB/CloudFront so HTTPS-aware headers and HSTS work correctly.
+- Set `FRONTEND_ORIGIN` and `CORS_ALLOWED_ORIGINS` to your real app domain; localhost origins are blocked in production startup.
+
 ---
 
 ### 9. Rate Limiting & DDoS Protection

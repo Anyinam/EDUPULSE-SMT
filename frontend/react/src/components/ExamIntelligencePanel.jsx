@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import PremiumFeatureNotice from './PremiumFeatureNotice';
+import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
 export default function ExamIntelligencePanel() {
-  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
-  const canAccessExamIntelligence = currentPlan === 'Premium';
+  const { isPremium: canAccessExamIntelligence, loading: planLoading } = useEffectiveSubscriptionPlan();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -34,8 +34,19 @@ export default function ExamIntelligencePanel() {
   };
 
   useEffect(() => {
+    if (planLoading) {
+      return;
+    }
+    if (!canAccessExamIntelligence) {
+      setLoading(false);
+      return;
+    }
     fetchDashboard();
-  }, []);
+  }, [planLoading, canAccessExamIntelligence]);
+
+  if (planLoading) {
+    return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Checking plan access...</div>;
+  }
 
   const handleUpload = async (event) => {
     event.preventDefault();

@@ -496,13 +496,66 @@ Key Setup Steps:
 
 3. Database Setup:
    a. Create PostgreSQL instance
-   b. Run migrations: alembic upgrade head
+  b. Run migrations using the dedicated ECS migration task template
    c. Enable SSL connections
 
 4. Deploy using one of:
    - Docker: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
-   - AWS ECS: Use the ECS_TASK_DEFINITION provided
+  - AWS ECS: Use the checked-in task templates under infra/aws/ecs/
    - Kubernetes: kubectl apply -f kubernetes-deployment.yaml
+
+AWS ECS production path in this repository:
+- Web app task: infra/aws/ecs/app-task-definition.json.tpl
+- Scheduler task: infra/aws/ecs/scheduler-task-definition.json.tpl
+- Migration task: infra/aws/ecs/migration-task-definition.json.tpl
+- CloudFormation platform stack: infra/aws/cloudformation/edupulse-ecs-platform.yml
+- CloudFormation usage guide: infra/aws/cloudformation/README.md
+- Template renderer: infra/aws/render_task_definition.py
+- CI/CD deploy workflow: .github/workflows/security-tests-deploy.yml
+- GitHub Actions variable checklist: infra/aws/GITHUB_ACTIONS_VARIABLES.md
+
+Production runtime rules now enforced by code:
+- Web containers do not start background jobs; only the dedicated scheduler task runs APScheduler jobs.
+- Automatic demo seeding is disabled unless SEED_DEMO_DATA=true is set explicitly.
+- Schema bootstrapping via db.create_all() is no longer part of production startup.
+- CORS must be configured through FRONTEND_ORIGIN or CORS_ALLOWED_ORIGINS.
+- Reverse-proxy TLS headers must be enabled with TRUST_PROXY_HEADERS=true when running behind AWS load balancers.
+
+Required GitHub Actions repository/environment variables for AWS deployment:
+- AWS_REGION
+- ECR_BACKEND_REPOSITORY
+- ECR_FRONTEND_REPOSITORY
+- ECS_CLUSTER_NAME
+- ECS_APP_SERVICE
+- ECS_SCHEDULER_SERVICE
+- ECS_APP_TASK_FAMILY
+- ECS_SCHEDULER_TASK_FAMILY
+- ECS_MIGRATION_TASK_FAMILY
+- ECS_TASK_EXECUTION_ROLE_ARN
+- ECS_TASK_ROLE_ARN
+- ECS_SUBNET_IDS
+- ECS_SECURITY_GROUP_IDS
+- FRONTEND_ORIGIN
+- CORS_ALLOWED_ORIGINS
+- MAIL_SERVER
+- MAIL_PORT
+- MAIL_USE_TLS
+- MAIL_USERNAME
+- MAIL_DEFAULT_SENDER
+- BACKEND_LOG_GROUP
+- FRONTEND_LOG_GROUP
+- SCHEDULER_LOG_GROUP
+- MIGRATION_LOG_GROUP
+- DATABASE_URL_SECRET_ARN
+- SECRET_KEY_SECRET_ARN
+- JWT_SECRET_KEY_SECRET_ARN
+- DATA_ENCRYPTION_KEY_SECRET_ARN
+- LEDGER_SECRET_KEY_SECRET_ARN
+- BANK_WEBHOOK_SECRET_ARN
+- MAIL_PASSWORD_SECRET_ARN
+- PAYSTACK_SECRET_KEY_SECRET_ARN
+- PAYSTACK_PUBLIC_KEY_SECRET_ARN
+- Optional: WHATSAPP_API_TOKEN_SECRET_ARN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID, PLATFORM_OWNER_KEY
 
 5. Setup monitoring and alerting
 6. Configure automated backups

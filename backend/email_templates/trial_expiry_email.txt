@@ -1,8 +1,8 @@
-Subject: Your EduPulse Premium Trial Has Ended - Upgrade Now to Keep Full Access
+Subject: Your EduPulse Premium Trial For This Term Has Ended - Upgrade Now to Keep Full Access
 
 Dear {{school_name}},
 
-Your **14-day Premium Trial** with EduPulse has ended.
+Your **current-term Premium Trial** with EduPulse has ended.
 
 ---
 
@@ -27,13 +27,13 @@ Your school account has been automatically downgraded to our **Free Tier** plan.
 **UPGRADE NOW TO REGAIN PREMIUM ACCESS**
 We offer two paid plans:
 
-**Basic Plan** - ₵50/month
+**Basic Plan** - starts at ₵360/term
 → Up to 200 students
 → Lesson notes with basic AI analysis
 → Standard reporting
 → Best for: Small to medium schools
 
-**Premium Plan** - ₵250/month
+**Premium Plan** - starts at ₵750/term
 → Unlimited students
 → Full AI-powered lesson notes with narratives
 → Advanced analytics and reporting

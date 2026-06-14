@@ -36,7 +36,8 @@ This folder maps the main internal documents used to run onboarding, coordinatio
 - Need a ready-to-send lawyer cover note: use `LAWYER_COVER_EMAIL.md`
 - Need the shortest lawyer-facing summary: use `LAWYER_EXECUTIVE_BRIEF.md`
 - Need the full business docs map: use `BUSINESS_OPERATIONS_INDEX.md`
-- Need a lawyer-facing technical explanation of the system, Paystack routing, and cryptography: use `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
+- Need a lawyer-facing technical explanation of the system, payment categorization controls, historical Paystack route metadata, and cryptography: use `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
+- Need a fast one-page send list for counsel: use `LAWYER_SEND_PACK_NOTE.md`
 - Need the main IP and confidential-know-how inventory: use `IP_ASSET_INVENTORY.md`
 - Need the Ghana data-protection control mapping: use `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
 - Need the planned analytics warehouse and anonymization design memo: use `ANONYMIZED_ANALYTICS_ETL_MEMO.md`

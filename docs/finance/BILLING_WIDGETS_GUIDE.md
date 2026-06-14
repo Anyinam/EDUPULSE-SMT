@@ -65,12 +65,13 @@ import BillingVisibility from '../components/BillingVisibility';
 **Features:**
 - **Trial Available State**
   - Promotional banner with Premium benefits
-  - Trial duration selector (7, 14, or 30 days)
-  - One-click activation button
+  - One-click activation for the current term window
   - No credit card required messaging
+  - Explains school-term vs national fallback calendar
 
 - **Active Trial State**
-  - Start date, end date, days remaining
+  - Term window, end date, days remaining
+  - Calendar source metadata
   - Premium features checklist
   - Expiry warning (≤ 3 days)
   - "End Trial Early" option
@@ -81,7 +82,7 @@ import BillingVisibility from '../components/BillingVisibility';
 
 **API Endpoints:**
 - `GET /api/school/subscription/trial/status`
-- `POST /api/school/subscription/trial/activate` (body: `{days: 30}`)
+- `POST /api/school/subscription/trial/activate` (body: `{}`)
 - `POST /api/school/subscription/trial/end`
 
 **Integration Points:**
@@ -149,14 +150,14 @@ import BillingSummaryCard from '../components/BillingSummaryCard';
 
 1. Navigate to **Subscription & Billing**
 2. See `TrialManager` widget with "🎁 Activate Your Free Premium Trial!"
-3. Select trial duration (default: 30 days)
-4. Click **"Activate 30-Day Premium Trial"**
+3. System resolves the current term window from the school's active term or the EduPulse national basic-school fallback calendar
+4. Click **"Activate Premium Trial For This Term"**
 5. Confirm dialog appears with Premium feature list
 6. On approval:
    - POST to `/api/school/subscription/trial/activate`
    - localStorage updated to `subscription_plan: 'Premium'`
    - Page reloads to apply Premium features
-7. Trial banner appears showing countdown: "27 days remaining"
+7. Trial banner appears showing the term-end expiry countdown
 
 ### **Flow 3: Threshold Alert Triggers**
 
@@ -227,9 +228,12 @@ All components use the EduPulse design system:
   },
   "trial": {
     "is_active": true,
-    "start_date": "2026-02-15",
-    "end_date": "2026-03-17",
-    "plan": "Premium"
+    "start_date": "2026-05-07",
+    "end_date": "2026-09-03T23:59:59+00:00",
+    "plan": "Premium",
+    "term_name": "Term 3",
+    "academic_year": "2025/2026",
+    "reference_source": "national_basic_default"
   },
   "cost_breakdown": {
     "base_fee": 450.0,
@@ -248,19 +252,19 @@ All components use the EduPulse design system:
 
 **POST /api/school/subscription/trial/activate**
 
-Request:
-```json
-{
-  "days": 30
-}
-```
+Request: `{}`
 
 Response:
 ```json
 {
-  "message": "Premium trial activated",
-  "end_date": "2026-04-06",
-  "plan": "Premium"
+  "message": "Premium trial activated for the current term window",
+  "trial_plan": "Premium",
+  "trial_start_date": "2026-05-07",
+  "trial_end_date": "2026-09-03T23:59:59+00:00",
+  "trial_mode": "term",
+  "term_name": "Term 3",
+  "academic_year": "2025/2026",
+  "reference_source": "national_basic_default"
 }
 ```
 

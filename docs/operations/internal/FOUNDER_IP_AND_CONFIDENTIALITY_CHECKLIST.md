@@ -44,7 +44,7 @@ This checklist is meant to protect:
 
 ### D. High-Value Confidential Know-How
 
-- [ ] Treat Paystack routing and fee-type logic as confidential
+- [ ] Treat payment categorization, reconciliation, and fee-type logic as confidential
 - [ ] Treat reconciliation and recovery logic as confidential
 - [ ] Treat tamper-evident ledger design as confidential
 - [ ] Treat onboarding, launch, incident, and support playbooks as confidential business methods
@@ -76,14 +76,14 @@ This checklist is meant to protect:
 - [ ] Keep a dated copy of the main legal packet docs
 - [ ] Preserve screenshots, architecture notes, and docs showing how the system works
 - [ ] Preserve repository history, commit history, and authored documentation as evidence
-- [ ] Keep records of when core features such as Paystack routing, encryption, and ledgering were implemented
+- [ ] Keep records of when core features such as payment categorization, encryption, and ledgering were implemented
 
 ## Strongest Assets To Protect First
 
 If time is limited, prioritize legal protection around:
 
 1. Multi-tenant school-control architecture
-2. Paystack fee-route and reconciliation logic
+2. Payment categorization, legacy-route compatibility, and reconciliation logic
 3. Tamper-evident financial ledger design
 4. Security and encrypted-data handling design
 5. Operations playbooks and school rollout materials

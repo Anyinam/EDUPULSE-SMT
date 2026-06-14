@@ -7,7 +7,7 @@ This document is a lawyer-facing technical summary of how EduPulse SMT operates 
 It focuses especially on:
 
 1. The overall operating model of EduPulse SMT
-2. How Paystack routing and split-style payment handling work
+2. How Paystack payment categorization and historical route metadata work
 3. How external KYB provider screening is used for school verification and compliance gating
 4. How cryptography is used inside the application and in the documented AWS production architecture
 5. Which parts appear to be proprietary workflow and control logic
@@ -46,7 +46,7 @@ The main reasons for sharing this are:
 
 Please pay particular attention to:
 
-1. The Paystack payment-routing and split-style design
+1. The Paystack payment-categorization and reconciliation design
 2. The cryptographic controls used for sensitive data and ledger integrity
 3. The multi-tenant school architecture and role-based controls
 4. The parts of the workflow that may be stronger candidates for confidentiality protection, software licensing language, or internal control language in policy documents
@@ -162,45 +162,44 @@ When a school chooses a paid plan, the system initializes a Paystack transaction
 
 The system also keeps payment references and reconciliation logic so successful payments that fail to write locally can later be recovered.
 
-### B. School Fee Routing By Payment Type
+### B. School Fee Categorization By Payment Type
 
-For school operations, the system supports Paystack fee-route accounts by payment type. The relevant model describes one route per payment type per school. The operational idea is:
+For school operations, the current system uses stable learner payment identity plus structured references to classify payments by type. The operational idea is:
 
-1. One school has one underlying real settlement account registered with Paystack
-2. The platform creates separate virtual payment routes for payment categories such as Tuition or Feeding
-3. Parents or payers use the route associated with that fee type
-4. When Paystack sends the webhook, the route code tells the system which fee category was actually paid
-5. The webhook route is treated as authoritative if it conflicts with the original reference hint
+1. The platform generates a structured reference tied to school, learner, and intended payment category
+2. Parents or payers use that reference during payment
+3. Paystack returns the reference and transaction metadata in the callback flow
+4. The system classifies the payment using the structured reference and school payment rules
+5. Reconciliation logic can later recover successful transactions that were not fully written locally
 
-This is commercially important because it lets the platform automate payment classification while keeping settlement attached to the school-level account structure.
+This is commercially important because it lets the platform automate payment classification and audit recovery without depending on new fee-route or split setup.
 
 ## 2. What “Paystack Split” Means In This System
 
-In EduPulse SMT, the Paystack “split” idea is used in a practical routing-and-settlement sense rather than only as generic marketing language.
+In EduPulse SMT, the Paystack “split” idea is now mostly a historical label for older routing-and-settlement context rather than an active product setup.
 
 The relevant implementation concepts are:
 
-1. A school can have a Paystack route account record for each payment type
-2. The route record stores a `subaccount_code` or dedicated virtual route identifier
-3. Payment initialization can include this route code during transaction initialization
-4. The webhook reads the `subaccount` information in the Paystack payload
-5. Settlement metadata such as settlement amount and subaccount share are written into ledger metadata
+1. EduPulse now uses a stable learner payment identity plus structured references as the active categorization model
+2. Legacy route records may still exist and store route labels, provider markers, destination details, or other older routing identifiers
+3. Historical webhook payloads can still contain route-related context that is preserved in ledger metadata for audit interpretation
+4. Settlement or reconciliation metadata can still appear in older ledger metadata
 
-This means the software is not merely collecting one undifferentiated payment stream. It is using Paystack route metadata to classify school payments automatically and to preserve settlement context inside the platform's finance trail.
+This means the software preserves historical route metadata where it already exists, but current payment classification is centered on structured references and school-controlled payment-category rules.
 
-## 3. Paystack Fee Route Account Logic
+## 3. Legacy Paystack Fee Route Account Logic
 
-The platform stores route-account records with fields such as:
+The platform can still contain legacy route records with fields such as:
 
 1. School ID
 2. Payment type
-3. Route or subaccount code
+3. Route identifier or provider marker
 4. Business name for the route
 5. Virtual bank account details
 6. Mobile-money provider information
 7. Percentage charge metadata
 
-This creates a configurable school-by-school payment-routing layer. That layer is one of the clearest examples of proprietary business workflow encoded as software.
+These records document a previously supported school-by-school payment-routing layer. As of the current product model, new fee-route virtual-account setup is retired and the reference-first flow is the supported behavior.
 
 ## 4. Paystack Checkout Initialization
 
@@ -213,7 +212,9 @@ When EduPulse SMT initializes a payment, it generates:
 5. Payment-type metadata
 6. A callback URL
 
-If a school has a route code for the payment type, that route code is added to the Paystack payload. The code comments describe this as an automatic split to the school's designated subaccount based on payment type.
+If a school has preserved legacy route metadata for the payment type, that metadata may still appear in the payload or related audit trail. That branch reflects backward compatibility for older records, not the active payment model.
+
+That legacy-route branch is now compatibility behavior rather than the active product path. The current operational path is reference-first payment classification.
 
 ## 5. Webhook Security
 
@@ -336,11 +337,11 @@ The strongest candidates for trade-secret, confidential-know-how, contractual co
 
 1. The multi-tenant school-control workflow as a whole
 2. The role-gated approval structure across school operations and finance
-3. The Paystack fee-route account architecture by payment type per school
-4. The routing rule that treats the actual Paystack route used as authoritative in mismatch scenarios
+3. The structured-reference payment categorization architecture plus preserved legacy route metadata
+4. The reconciliation and audit rules that interpret route metadata only where older records already contain it
 5. The reconciliation-and-recovery logic for missing payment writes
 6. The tamper-evident financial ledger design tied to school-specific finance events
-7. The combination of encrypted PII storage, audit chaining, and school-specific payment-routing logic in a single Ghana-school operating platform
+7. The combination of encrypted PII storage, audit chaining, and school-specific payment-classification logic in a single Ghana-school operating platform
 
 Any incorporation, employment, contractor, partner, or reseller documents should likely preserve these elements as confidential system design and proprietary implementation know-how.
 
@@ -366,7 +367,7 @@ The following are useful legal review questions for counsel:
 3. Should the incorporation documents or internal governance records explicitly mention that EduPulse SMT operates a multi-tenant school-management and payment-governance platform?
 4. What filings, policies, or contractual terms are needed in Ghana to support the handling of student, guardian, and financial data?
 5. How should the legal documents distinguish between EduPulse SMT as software vendor and each school as controller or user of school-originated personal data?
-6. What contractual language should protect the Paystack routing logic, reconciliation logic, and tamper-evident ledger design from misuse by employees, contractors, or implementation partners?
+6. What contractual language should protect the payment categorization logic, reconciliation logic, and tamper-evident ledger design from misuse by employees, contractors, or implementation partners?
 
 ## Short Technical Positioning Statement
 

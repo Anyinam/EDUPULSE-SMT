@@ -79,7 +79,14 @@ These items are typically still completed manually by the homeroom teacher or ap
    - Enter your comments about the student's overall performance
    - This will appear on the printed report card
 
-8. **Save or Submit**
+8. **Add Optional Diagnostic Strands**
+  - Click `+ Diagnostics` under a subject when you need topic-level mock breakdowns
+  - Add strand/topic name, score, and max score
+  - These entries are used for diagnostic guidance and SHS pathway recommendations
+  - They now appear on terminal reports in a separate **Diagnostic Strand Insights** section
+  - Lower-performing strands are shown by default, while stronger strands can be expanded when needed
+
+9. **Save or Submit**
    - **Save Draft**: Saves without submitting (you can edit later)
    - **Submit for Approval**: Locks the report and sends to headmaster
 
@@ -199,9 +206,10 @@ This creates `StudentGrade` records with `is_finalized=True` that homeroom teach
 1. Subject teachers finalize grades throughout the term
 2. Homeroom pulls grades when ready to compile terminal report
 3. Homeroom adds attendance, position, and remarks
-4. Homeroom submits for headmaster approval
-5. Headmaster reviews and approves
-6. (Future) Report is printed/exported for parents
+4. Homeroom optionally adds diagnostic strands for topic-level intervention tracking
+5. Homeroom submits for headmaster approval
+6. Headmaster reviews and approves
+7. Printed/exported report includes a separate Diagnostic Strand Insights section when strands were entered
 
 ---
 
@@ -261,7 +269,11 @@ This creates `StudentGrade` records with `is_finalized=True` that homeroom teach
     "total": 90,
     "position": "1st",
     "grade": "A",
-    "remarks": "Excellent work"
+    "remarks": "Excellent work",
+    "diagnostic_topics": [
+      {"topic": "Geometry", "score": 6, "max_score": 15},
+      {"topic": "Algebra", "score": 8, "max_score": 10}
+    ]
   }
 ]
 ```

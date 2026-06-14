@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
+import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
 export default function AdmissionsPanel() {
-  const subscriptionPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const { plan: subscriptionPlan } = useEffectiveSubscriptionPlan();
   const aiRegistrarIncluded = subscriptionPlan === 'Basic' || subscriptionPlan === 'Premium';
   const [formData, setFormData] = useState({
     first_name: '',
@@ -111,6 +112,37 @@ export default function AdmissionsPanel() {
     });
     setSearchQuery(student.name);
     setSearchResults([]);
+  };
+
+  const openApplicationDocument = async (application, applicationDocument) => {
+    if (!applicationDocument?.download_path) {
+      alert('This document is not available to open.');
+      return;
+    }
+
+    try {
+      const res = await axios.get(applicationDocument.download_path, {
+        headers: getAuthHeaders(),
+        responseType: 'blob'
+      });
+      const contentType = res.headers['content-type'] || applicationDocument.content_type || 'application/octet-stream';
+      const blob = new Blob([res.data], { type: contentType });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const opened = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+
+      if (!opened) {
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', applicationDocument.original_filename || applicationDocument.filename || `${application.application_code}-document`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to open the document.');
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -358,6 +390,21 @@ export default function AdmissionsPanel() {
                     <p className="mt-2 text-sm text-slate-700">{application.guardian_name || 'Not recorded'}</p>
                     <p className="mt-1 text-sm text-slate-600">{application.parent_email || 'No email'} • {application.parent_phone || 'No phone'}</p>
                     <p className="mt-1 text-xs text-slate-500">Documents: {(application.document_manifest || []).length}</p>
+                    {(application.document_manifest || []).length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(application.document_manifest || []).map((applicationDocument, index) => (
+                          <button
+                            key={applicationDocument.document_id || `${application.id}-${index}`}
+                            type="button"
+                            onClick={() => openApplicationDocument(application, applicationDocument)}
+                            disabled={!applicationDocument.download_available}
+                            className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {applicationDocument.category || 'document'}: {applicationDocument.original_filename || applicationDocument.filename || `Document ${index + 1}`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="rounded-xl bg-white p-4">
                     <p className="text-xs font-bold uppercase text-slate-400">Reviewer Notes</p>

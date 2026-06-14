@@ -4,11 +4,11 @@
 EduPulse should now treat structured references as the primary school-fee instruction model. Parents and guardians pay with one stable learner identity plus a readable payment-purpose reference that tells EduPulse what the payment is for.
 
 **Example:**
-- Stable learner identity: `CFK01`
-- Tuition reference: `CFK01-TUITION-T1`
-- Feeding reference: `CFK01-FEEDING-MON`
-- Uniform reference: `CFK01-UNIFORM`
-- Transport reference: `CFK01-TRANSPORT-MON`
+- Stable learner identifier: `S001`
+- Tuition reference: `S001-T1`
+- Feeding reference: `S001-FEED-MON`
+- Uniform reference: `S001-UNIF`
+- Transport reference: `S001-TRANS-MON`
 
 Legacy note:
 - older short payment-code patterns can still be recognized where already deployed
@@ -20,24 +20,26 @@ Legacy note:
 
 ### 1. **Reference Generation**
 The system generates references from:
-- **Stable learner identity**: e.g. `CFK01`
-- **Fee family**: `TUITION`, `FEEDING`, `UNIFORM`, `TRANSPORT`, `ADMISSION`
+- **Stable learner identifier**: e.g. `S001` (usually the student's school code)
+- **Fee family**: `T1/T2/T3`, `FEED`, `UNIF`, `TRANS`, `ADMISSION`
 - **Optional detail**: term, frequency, item, or route detail
 
 Examples:
-- `CFK01-TUITION-T1`
-- `CFK01-FEEDING-MON`
-- `CFK01-UNIFORM`
-- `CFK01-TRANSPORT-MON`
-- `CFK01-ADMISSION`
+- `S001-T1`
+- `S001-FEED-DAY`
+- `S001-FEED-WEK`
+- `S001-FEED-MON`
+- `S001-UNIF`
+- `S001-TRANS-MON`
+- `S001-ADMISSION`
 
 ### 2. **Payment Flow**
 
 #### For Parents via MoMo
 1. Parent goes to MoMo agent
 2. Agent asks: "What are you paying for?"
-3. Parent says: "School fees for student CFK01"
-4. Parent provides the structured reference (e.g. `CFK01-FEEDING-MON`)
+3. Parent says: "School fees for student S001"
+4. Parent provides the structured reference (e.g. `S001-FEED-MON`)
 5. MoMo sends payment with that reference to school
 7. **System automatically records payment type** ✅
 
@@ -45,8 +47,17 @@ Examples:
 1. Parent/student visits school office
 2. Staff asks: "What fee are you paying?"
 3. Parent provides the structured reference or fee purpose
-4. Staff enters the reference (e.g. `CFK01-FEEDING-MON`) or student ID + amount
+4. Staff enters the reference (e.g. `S001-FEED-MON`) or the student's identifier plus amount
 5. **System automatically detects payment type** ✅
+
+### Feeding Plan References
+When a school configures feeding plans separately, EduPulse issues one feeding reference per plan:
+
+- `S001-FEED-DAY` for the daily feeding plan
+- `S001-FEED-WEK` for the weekly feeding plan
+- `S001-FEED-MON` for the monthly feeding plan
+
+The first segment is the student's stable identifier in the school system. The last segment tells EduPulse whether the payment is daily, weekly, or monthly.
 
 ---
 
@@ -85,21 +96,21 @@ GET /api/students/{student_id}/payment-codes
 {
   "student_id": 1,
   "student_name": "John Lamptey",
-  "student_code": "CFK01",
+  "student_code": "S001",
   "class": "JHS 2",
   "parent_phone": "+233501234567",
   "payment_codes": [
     {
-      "fee_type": "Tuition",
-      "code": "CFK01-TUITION-T1",
+      "fee_type": "Tuition + Terminal Report",
+      "code": "S001-T1",
       "amount": 5000.00,
-      "instructions": "Pay GH₵ 5000.00 for Tuition. Use reference: CFK01-TUITION-T1"
+      "instructions": "Pay GH₵ 5000.00 for Tuition. Use reference: S001-T1"
     },
     {
-      "fee_type": "Feeding",
-      "code": "CFK01-FEEDING-MON",
+      "fee_type": "Feeding (Monthly)",
+      "code": "S001-FEED-MON",
       "amount": 500.00,
-      "instructions": "Pay GH₵ 500.00 for Feeding. Use reference: CFK01-FEEDING-MON"
+      "instructions": "Pay GH₵ 500.00 for monthly feeding. Use reference: S001-FEED-MON"
     },
     ...
   ],
@@ -115,13 +126,13 @@ POST /api/finance/receive-payment
 **Option A - With Reference Code:**
 ```json
 {
-  "reference_code": "CFK01-FEEDING-MON",
+  "reference_code": "S001-FEED-MON",
   "amount": 500.00,
   "method": "MoMo"
 }
 ```
 ✅ **System automatically determines:**
-- Student ID: `CFK01`
+- Student identifier: `S001`
 - Payment Type: `Feeding` (from the reference token)
 - Amount: `500.00`
 
@@ -141,24 +152,24 @@ POST /api/finance/receive-payment
 
 ### Reference Parsing Logic
 ```python
-# Example: Parse "CFK01-FEEDING-MON"
-student_code = "CFK01"
+# Example: Parse "S001-FEED-MON"
+student_code = "S001"
 payment_type = "Feeding"
 payment_category = {"frequency": "Monthly"}
 
 # Works for:
-# CFK01-TUITION-T1 → Student CFK01, Tuition, Term 1
-# CFK01-FEEDING-MON → Student CFK01, Feeding, Monthly
-# CFK01-UNIFORM → Student CFK01, Uniform
+# S001-T1 → Student S001, Tuition, Term 1
+# S001-FEED-MON → Student S001, Feeding, Monthly
+# S001-UNIF → Student S001, Uniform
 # ABC123-ADMISSION → Student ABC123, Admission
 ```
 
 ### Custom Fees Mapping
 When school adds custom fees like "Sports" or "Library", use readable fee tokens:
 ```
-CFK01-SPORTS
-CFK01-LIBRARY
-CFK01-ART-MATERIALS
+S001-SPORTS
+S001-LIBRARY
+S001-ART-MATERIALS
 ```
 
 The format should stay readable enough for staff and parents to understand without memorizing numeric suffixes.
@@ -179,17 +190,19 @@ Parent logs in → "💳 Payment Codes" link
 Selects child (e.g., John)
     ↓
 Sees all payment codes:
-  • Tuition: CFK011 (GH₵ 5000)
-  • Feeding: CFK012 (GH₵ 500)
-  • Uniform: CFK013 (GH₵ 300)
-  • Transport: CFK014 (GH₵ 200)
+  • Tuition: S001-T1 (GH₵ 5000)
+  • Feeding Daily: S001-FEED-DAY (GH₵ 5)
+  • Feeding Weekly: S001-FEED-WEK (GH₵ 25)
+  • Feeding Monthly: S001-FEED-MON (GH₵ 500)
+  • Uniform: S001-UNIF (GH₵ 300)
+  • Transport: S001-TRANS-MON (GH₵ 200)
     ↓
 Copies code → Gives to MoMo agent
     ↓
 MoMo sends payment with code
     ↓
 School system auto-records:
-  ✓ Student: CFK01
+  ✓ Student: S001
   ✓ Fee Type: Feeding
   ✓ Amount: GH₵ 500
 ```
@@ -215,9 +228,10 @@ Outstanding: GH₵ 1700
 
 | File | Changes |
 |------|---------|
-| [backend/utils.py](backend/utils.py) | Added 5 payment code functions |
-| [backend/routes.py](backend/routes.py) | Updated receive-payment endpoint + new payment-codes endpoint |
-| [frontend/react/src/components/StudentPaymentTracker.jsx](frontend/react/src/components/StudentPaymentTracker.jsx) | ENHANCED: Added payment codes display section for staff to see codes to share with parents |
+| [backend/utils.py](backend/utils.py) | Structured reference parsing for tuition, feeding, transport, and custom fee identifiers |
+| [backend/routes.py](backend/routes.py) | Payment-code payloads, feeding-plan references, and manual receive-payment reference resolution |
+| [frontend/react/src/components/PaymentInstructions.jsx](frontend/react/src/components/PaymentInstructions.jsx) | Parent-facing payment cards now show plan-aware feeding references |
+| [frontend/react/src/components/SettingsPanel.jsx](frontend/react/src/components/SettingsPanel.jsx) | School fee settings now support daily, weekly, and monthly feeding plans |
 
 ---
 
@@ -225,36 +239,28 @@ Outstanding: GH₵ 1700
 
 ### Test 1: Generate Payment Codes
 ```python
-from backend.utils import generate_payment_code
-code = generate_payment_code("CFK01", "Feeding")
-# Result: "CFK012"
-```
-
-### Test 2: Parse Payment Code
-```python
-from backend.utils import parse_payment_code
-student_id, fee_type = parse_payment_code("CFK012")
-# Result: ("CFK01", "Feeding")
-```
-
-### Test 3: Generate All Codes for Student
-```python
 from backend.utils import generate_all_payment_codes
-fees = {
-    "tuition_fee": 5000,
-    "feeding_fee": 500,
-    "uniform_fee": 300,
-    "transport_fee": 200,
-    "other_fees": {"Sports": 100}
-}
-codes = generate_all_payment_codes("CFK01", fees)
-# Result: {
-#   "Tuition": "CFK011",
-#   "Feeding": "CFK012",
-#   "Uniform": "CFK013",
-#   "Transport": "CFK014",
-#   "Sports": "CFK015"
-# }
+fees = {"feeding_fee": 500}
+codes = generate_all_payment_codes("S001", fees)
+# Result includes {"Feeding": "S0012"} for legacy compact codes where used
+```
+
+### Test 2: Parse Structured Reference
+```python
+from backend.utils import parse_payment_reference
+parsed = parse_payment_reference("S001-FEED-WEK")
+# Result: {"student_code": "S001", "payment_type": "Feeding", "category": {"frequency": "Weekly"}}
+```
+
+### Test 3: Parent Instruction Payload
+```python
+payment_codes = [
+  "S001-T1",
+  "S001-FEED-DAY",
+  "S001-FEED-WEK",
+  "S001-FEED-MON",
+  "S001-UNIF",
+]
 ```
 
 ---
@@ -264,6 +270,7 @@ codes = generate_all_payment_codes("CFK01", fees)
 1. **Apply any database migrations** (if needed)
 2. **Test in development:**
    - Set school fees in Settings
+  - Configure daily, weekly, and monthly feeding plans if the school charges feeding by plan
    - View `/parent-payments` as a parent role
    - Try recording payments with reference codes
 3. **Configure MoMo webhook** to accept reference codes
@@ -278,13 +285,13 @@ codes = generate_all_payment_codes("CFK01", fees)
 A: System will reject the code or record for wrong student. Staff should verify before accepting payment.
 
 **Q: Can we still use student IDs?**
-A: Yes! Both codes and IDs work:
-- Reference code for automated MoMo
-- Student ID for manual cash entries
+A: Yes, but distinguish them clearly:
+- The payment reference begins with the student's stable school identifier, usually the student code.
+- Manual cash entry can still use the student's identifier directly when staff are not using the full structured reference.
 
 **Q: What about MoMo providers?**
 A: Requires updating MoMo webhook settings to include reference code in payment info.
 
 **Q: Can codes change?**
-A: No, they're deterministic. `CFK01` + `Feeding` always = `CFK012`
+A: The structured reference stays deterministic for the same learner and fee purpose. For feeding, the suffix changes by plan: `FEED-DAY`, `FEED-WEK`, or `FEED-MON`.
 

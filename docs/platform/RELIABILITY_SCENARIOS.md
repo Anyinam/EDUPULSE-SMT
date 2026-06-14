@@ -29,9 +29,9 @@ This playbook lists real-life SaaS failure scenarios for EduPulse billing, admis
    Scenario: The grace period ends, but the saved card charge fails.
    Protection: A failed ledger entry is recorded, the billing timeline captures the failure, and the proprietor is notified.
 
-7. Payment routed to the wrong virtual account
-   Scenario: A parent uses a Tuition reference but pays into the Uniform route account.
-   Protection: Dedicated virtual account routing is treated as the source of truth; the mismatch is recorded for review.
+7. Payment submitted with the wrong structured reference
+   Scenario: A parent intends to pay Tuition but uses a reference that maps to another fee category.
+   Protection: Structured-reference parsing and payment-category review preserve the mismatch for investigation instead of silently reclassifying it.
 
 8. Manual transfer details hidden from unauthorized viewers
    Scenario: A staff member tries to view school bank details after they were saved.

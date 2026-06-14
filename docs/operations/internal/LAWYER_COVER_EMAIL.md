@@ -14,7 +14,7 @@ I write to share a legal review packet for **EduPulse SMT** to support work on:
 
 EduPulse SMT is a multi-tenant school SaaS platform with several technical and operational features that I want reflected accurately in the legal work:
 
-1. Paystack-linked payment-routing and split-style fee handling
+1. Paystack-linked payment categorization, reconciliation, and legacy route-metadata handling
 2. Application-layer encryption of selected sensitive data
 3. Tamper-evident finance ledgering using cryptographic chaining
 4. Role-gated academic, finance, and approval workflows

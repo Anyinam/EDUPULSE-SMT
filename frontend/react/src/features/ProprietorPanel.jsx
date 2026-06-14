@@ -229,10 +229,6 @@ export default function ProprietorPanel() {
             </div>
 
             <div className="mb-8">
-              <SchoolCompliancePanel />
-            </div>
-
-            <div className="mb-8">
               <PerformanceAnalytics
                 title="Class Performance (Proprietor View)"
                 defaultView="visualization"
@@ -360,6 +356,8 @@ export default function ProprietorPanel() {
           <AdmissionsPanel />
         ) : activeTab === 'students' ? (
           <StudentsRegistry />
+        ) : activeTab === 'verification' ? (
+          <SchoolCompliancePanel />
         ) : activeTab === 'subscription' ? (
           <SubscriptionManager />
         ) : activeTab === 'profile' ? (
@@ -456,6 +454,70 @@ export default function ProprietorPanel() {
                               ))}
                             </tbody>
                           </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {viewingReport.subject_grades?.some((grade) => Array.isArray(grade?.diagnostic_topics) && grade.diagnostic_topics.length > 0) && (
+                      <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                        <p className="text-xs font-bold text-blue-700 uppercase mb-3">🧭 Diagnostic Strand Insights</p>
+                        <div className="space-y-3">
+                          {viewingReport.subject_grades
+                            .filter((grade) => Array.isArray(grade?.diagnostic_topics) && grade.diagnostic_topics.length > 0)
+                            .map((grade, index) => {
+                              const sortedTopics = [...grade.diagnostic_topics].sort((left, right) => {
+                                const leftRatio = Number(left.max_score || 0) > 0 ? Number(left.score || 0) / Number(left.max_score || 0) : 0;
+                                const rightRatio = Number(right.max_score || 0) > 0 ? Number(right.score || 0) / Number(right.max_score || 0) : 0;
+                                const leftWeak = leftRatio <= 0.55 ? 1 : 0;
+                                const rightWeak = rightRatio <= 0.55 ? 1 : 0;
+                                if (leftWeak !== rightWeak) {
+                                  return rightWeak - leftWeak;
+                                }
+                                return leftRatio - rightRatio;
+                              });
+                              const weakTopics = sortedTopics.filter((topic) => (Number(topic.max_score || 0) > 0 ? Number(topic.score || 0) / Number(topic.max_score || 0) : 0) <= 0.55);
+                              const strongTopics = sortedTopics.filter((topic) => (Number(topic.max_score || 0) > 0 ? Number(topic.score || 0) / Number(topic.max_score || 0) : 0) > 0.55);
+
+                              return (
+                                <div key={`${grade.subject || 'subject'}-${index}`} className="rounded-lg border border-blue-100 bg-white p-3">
+                                  <p className="text-sm font-bold text-blue-900 mb-2">{grade.subject || 'Subject'}</p>
+                                  {weakTopics.length > 0 ? (
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">Weak strands shown by default</p>
+                                  ) : (
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">No weak strands flagged</p>
+                                  )}
+                                  {weakTopics.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                      {weakTopics.map((topic, topicIndex) => (
+                                        <span
+                                          key={`${topic.topic || 'weak-topic'}-${topicIndex}`}
+                                          className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 ring-1 ring-amber-300"
+                                        >
+                                          Needs attention: {topic.topic}: {Number(topic.score || 0)}/{Number(topic.max_score || 0)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {strongTopics.length > 0 && (
+                                    <details className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                                      <summary className="cursor-pointer text-xs font-semibold text-blue-800">
+                                        Show all assessed strands ({strongTopics.length} more)
+                                      </summary>
+                                      <div className="mt-3 flex flex-wrap gap-2">
+                                        {strongTopics.map((topic, topicIndex) => (
+                                          <span
+                                            key={`${topic.topic || 'strong-topic'}-${topicIndex}`}
+                                            className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-900"
+                                          >
+                                            {topic.topic}: {Number(topic.score || 0)}/{Number(topic.max_score || 0)}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </details>
+                                  )}
+                                </div>
+                              );
+                            })}
                         </div>
                       </div>
                     )}

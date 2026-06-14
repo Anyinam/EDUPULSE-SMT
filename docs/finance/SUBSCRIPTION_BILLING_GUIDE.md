@@ -54,10 +54,10 @@ Where:
 
 | Feature | Free Tier | Basic | Premium |
 |---------|-----------|-------|---------|
-| **Base Fee (per term)** | ₵0 | ₵360 | ₵510 |
+| **Base Fee (per term)** | ₵0 | ₵360 | ₵750 |
 | **Included Students** | 0 | 30 | 30 |
-| **Overage Rate (per student/term)** | N/A | ₵12 | ₵17 |
-| **Annual Cost (3 terms)** | ₵0 | ₵1,080 base + overage | ₵1,530 base + overage |
+| **Overage Rate (per student/term)** | N/A | ₵12 | ₵22 |
+| **Annual Cost (3 terms)** | ₵0 | ₵1,080 base + overage | ₵2,250 base + overage |
 | | | | |
 | **Max Students** | 50 | 200 | Unlimited (∞) |
 | **Max Classes** | 1 | 5 | Unlimited (∞) |
@@ -76,6 +76,14 @@ Where:
 
 ## How Billing Works
 
+### Premium Trial Window
+
+- Premium trial access is term-based, not month-based.
+- The trial runs until the end of the current term window.
+- EduPulse uses the school's active academic term when it covers the current date.
+- If the school's term calendar is missing or outdated, EduPulse falls back to the centrally maintained national basic-school term calendar.
+- A school that activates trial mid-term receives only the remaining days in that current term window.
+
 ### 1. Initial Subscription (Start of Term)
 
 When a school subscribes at the **beginning of a term**:
@@ -88,13 +96,13 @@ When a school subscribes at the **beginning of a term**:
 
 **Invoice Breakdown Example (Basic, 50 students):**
 ```
-Base Platform Fee:           ₵200.00
-Included Students:           25 (covered by base)
-Billable Students:           25 (50 - 25)
+Base Platform Fee:           ₵360.00
+Included Students:           30 (covered by base)
+Billable Students:           20 (50 - 30)
 Rate per Extra Student:      ₵12.00
-Student Overage Cost:        ₵300.00 (25 × ₵12)
+Student Overage Cost:        ₵240.00 (20 × ₵12)
 ────────────────────────────────────
-Total Term Cost:             ₵500.00
+Total Term Cost:             ₵600.00
 ```
 
 ### 2. Mid-Term Admissions (Pro-Rated)
@@ -107,13 +115,13 @@ When students are admitted **during an active term**:
 4. Sends invoice email to proprietor
 5. Logs charge in ledger
 
-**Example:** School on Basic plan (25 included) admits 3 students with 40 days remaining in 90-day term:
+**Example:** School on Basic plan (30 included) admits 3 students with 40 days remaining in a 120-day term:
 
 ```
-Pro-ration Factor: 40 ÷ 90 = 44.4%
+Pro-ration Factor: 40 ÷ 120 = 33.3%
 Students Over Threshold: 3
 Full Term Rate: ₵12/student
-Pro-rated Charge: 3 × ₵12 × 0.444 = ₵16.00
+Pro-rated Charge: 3 × ₵12 × 0.333 = ₵12.00
 ```
 
 ### 3. Term Renewal
@@ -169,8 +177,8 @@ pro_rated_charge = overage_students × per_student_rate × pro_ration_factor
 | **No active term** | No charge (admission allowed) |
 | **Free Tier school** | No charge (always free) |
 | **Students within included limit** | No charge (covered by base) |
-| **Last week of term** | Small charge (e.g., 7/90 = ~8%) |
-| **Term just started** | Near-full charge (e.g., 85/90 = ~94%) |
+| **Last week of term** | Small charge (e.g., 7/120 = ~6%) |
+| **Term just started** | Near-full charge (e.g., 110/120 = ~92%) |
 
 ---
 
@@ -181,14 +189,14 @@ pro_rated_charge = overage_students × per_student_rate × pro_ration_factor
 **Scenario:** School has 20 students, subscribes to Basic plan at term start
 
 ```
-Base Fee:                    ₵200.00
-Included:                    25 students
+Base Fee:                    ₵360.00
+Included:                    30 students
 Current Students:            20
-Students Over Threshold:     0 (20 < 25)
+Students Over Threshold:     0 (20 < 30)
 Overage Charge:              ₵0.00
 ────────────────────────────────────
-Total per Term:              ₵200.00
-Total per Year (3 terms):    ₵600.00
+Total per Term:              ₵360.00
+Total per Year (3 terms):    ₵1,080.00
 ```
 
 **Key Point:** Small schools pay only the base fee if under the included limit.
@@ -240,28 +248,28 @@ Total per Year (3 terms):    ₵10,170.00
 **Scenario:** School on Basic plan (currently 30 students) admits 10 more students mid-term
 
 **Current State:**
-- Plan: Basic (₵200 base, 25 included, ₵12/extra)
-- Already paid for term: ₵200 + (5 × ₵12) = ₵260
-- Days remaining: 35 out of 90
+- Plan: Basic (₵360 base, 30 included, ₵12/extra)
+- Already paid for term: ₵360 + (0 × ₵12) = ₵360
+- Days remaining: 35 out of 120
 
 **New Admission:**
 ```
 New Students:                10
 New Total:                   40 students
-New Overage:                 15 (40 - 25)
-Previously Charged For:      5 students
+New Overage:                 10 (40 - 30)
+Previously Charged For:      0 students
 Additional Overage:          10 students
 
 Full-Term Rate:              ₵12/student
-Days Remaining:              35 of 90 = 38.9%
-Pro-rated Rate:              ₵12 × 0.389 = ₵4.67/student
+Days Remaining:              35 of 120 = 29.2%
+Pro-rated Rate:              ₵12 × 0.292 = ₵3.50/student
 
-Pro-rated Charge:            10 × ₵4.67 = ₵46.70
+Pro-rated Charge:            10 × ₵3.50 = ₵35.00
 ────────────────────────────────────
-Additional Mid-Term Charge:  ₵46.70
+Additional Mid-Term Charge:  ₵35.00
 ```
 
-**Next term (full):** System will charge for all 40 students at full rate = ₵200 + (15 × ₵12) = ₵380
+**Next term (full):** System will charge for all 40 students at full rate = ₵360 + (10 × ₵12) = ₵480
 
 ---
 
@@ -298,8 +306,8 @@ When you later admit students, mid-term pro-ration applies.
 Example: Upgrade from Basic to Premium with 60 days left:
 ```
 Premium Term Cost: ₵750 base + overage
-Pro-ration: 60/90 = 66.7%
-You pay: 66.7% of (Premium Cost - Already Paid)
+Pro-ration: 60/120 = 50.0%
+You pay: 50.0% of (Premium Cost - Already Paid)
 ```
 
 ---
@@ -365,7 +373,7 @@ All payments processed securely through Paystack Ghana.
 4. **Flexibility:** Can start with 0 students and grow at low incremental cost
 
 **Old Model (simple):** 100 students × ₵12 = ₵1,200/term  
-**New Model A (hybrid):** ₵200 base + (75 × ₵12) = ₵1,100/term (saves ₵100!)
+**New Model A (hybrid):** ₵360 base + (70 × ₵12) = ₵1,200/term
 
 ---
 

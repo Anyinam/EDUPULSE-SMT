@@ -25,7 +25,7 @@ The most relevant IP categories here are:
 | --- | --- | --- | --- |
 | Multi-tenant school architecture | Tenant-specific school scoping, role controls, and operational separation | Trade secret, copyright, confidential know-how | Core system structure for serving many schools in one platform |
 | Role-gated workflow engine | Proprietor, headmaster, teacher, finance, admin workflow separation | Trade secret, confidential know-how | Encodes governance logic and internal-control design |
-| Paystack fee-route architecture | School-specific payment routing by fee type using Paystack route/subaccount metadata | Trade secret, confidential know-how, copyright in code | Differentiates fee collection and payment classification |
+| Payment categorization architecture | Structured-reference payment classification, reconciliation recovery, and preserved legacy route metadata | Trade secret, confidential know-how, copyright in code | Differentiates fee collection, payment classification, and audit interpretation |
 | Reconciliation recovery logic | Recovery of successful gateway payments not fully recorded locally | Trade secret, confidential know-how | Protects revenue integrity and operational reliability |
 | Tamper-evident finance ledger | HMAC-chained ledger entries and verification logic | Trade secret, confidential know-how, copyright in implementation | Strong compliance and audit differentiator |
 | Application-layer encrypted fields | ORM-backed encrypted storage of sensitive values | Copyright in implementation, confidential security know-how | Protects personal and banking data |
@@ -38,8 +38,8 @@ The most relevant IP categories here are:
 
 The strongest trade-secret candidates appear to be:
 
-1. The school-by-school Paystack route architecture by fee type
-2. The routing-mismatch rule where the actual route used can override a reference hint
+1. The structured-reference payment categorization architecture and school payment rules
+2. The audit and compatibility rules that preserve meaning for older Paystack route metadata
 3. The reconciliation sweep and missing-payment recovery design
 4. The dual use of encrypted fields plus tamper-evident finance ledgering
 5. The role-gated separation between recording, approval, audit review, and proprietor oversight
@@ -52,14 +52,14 @@ These are more defensible as confidential know-how than individual generic featu
 The following files are strong evidence points for counsel:
 
 - `backend/routes.py`
-  Payment initialization, Paystack webhook handling, route creation, reconciliation, and control logic.
+  Payment initialization, Paystack webhook handling, structured reference handling, reconciliation, and control logic.
 - `backend/api/models.py`
-  Paystack route-account model, ledger-entry model, and encrypted data fields.
+  Legacy route-account model, ledger-entry model, and encrypted data fields.
 - `backend/security/crypto.py`
   Application-layer encryption implementation.
 - `backend/paystack_integration.py`
   Subscription payment initialization, verification, and charge flows.
-- `AUDIT_INTEGRITY_SYSTEM.md`
+- `docs/security/AUDIT_INTEGRITY_SYSTEM.md`
   Finance-ledger integrity model.
 - `SECURITY.md`
   Security posture and deployment controls.
@@ -103,7 +103,7 @@ Counsel should review:
 The most valuable legal assets in EduPulse SMT are not only the code files themselves, but the combined business method embodied in:
 
 1. Multi-tenant school governance logic
-2. Paystack routing and reconciliation control
+2. Payment categorization and reconciliation control
 3. Tamper-evident finance ledgering
 4. Security and data-protection implementation choices
 5. Operations playbooks that make the platform repeatable as a business

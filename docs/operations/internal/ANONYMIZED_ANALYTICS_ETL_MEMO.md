@@ -59,7 +59,7 @@ If the source data has been irreversibly anonymized, EduPulse SMT may use the re
 - national, regional, and district benchmarking;
 - yearly performance trend analysis across cohorts;
 - curriculum-gap analysis;
-- Chief Examiner historical mapping and subject-risk signals;
+- subject-risk signals from anonymized performance data;
 - customer benchmark dashboards;
 - white papers and educational research outputs; and
 - system-improvement analytics.

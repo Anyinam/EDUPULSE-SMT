@@ -226,13 +226,15 @@ RATE_LIMIT_API = "60 per minute"     # General API
 ```
 
 ### CORS Configuration
-Edit `backend/api/api.py`:
-```python
-CORS(app, 
-     resources={r"/api/*": {"origins": ["localhost:3000", "yourdomain.com"]}},
-     supports_credentials=True
-)
+Do not hardcode production origins in code. Set environment variables instead:
+
+```bash
+FRONTEND_ORIGIN=https://app.edupulse.com.gh
+CORS_ALLOWED_ORIGINS=https://app.edupulse.com.gh,https://admin.edupulse.com.gh
+TRUST_PROXY_HEADERS=true
 ```
+
+For local development, localhost defaults are still supported when `FLASK_ENV` is not production.
 
 ---
 

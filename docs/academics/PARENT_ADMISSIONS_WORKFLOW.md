@@ -91,7 +91,7 @@ This route returns a parent-safe payment payload with:
 - supported payment rails
 - structured reference examples
 - fee-by-fee payment instructions
-- optional fee-route DVA details where configured
+- structured reference and phone-payment total where applicable
 - school-office fallback guidance
 - school-configured admission fee when enabled
 
@@ -149,9 +149,9 @@ Preferred parent guidance:
 - stable learner payment identity first
 - structured reference per fee type
 
-Still supported where schools configured it earlier:
-- dedicated fee-route virtual accounts
-- shortcode or MoMo route by fee type
+Supported payment rails:
+- structured references across approved phone and digital payment channels
+- shortcode or MoMo narration where the school's payment rail supports it
 
 Admission fee rule:
 - each school decides whether it charges an admission fee

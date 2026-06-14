@@ -55,7 +55,7 @@ EduPulse SMT is built on a sustainability model that is commercially viable with
 
 - Teachers and school leaders get faster visibility into attendance, performance decline, and class-level weak spots
 - Rescue Activity and academic-guidance workflows help schools intervene earlier instead of reacting after failure becomes entrenched
-- Chief examiner insight libraries make high-value exam feedback more accessible across schools
+- Academic-guidance workflows help schools act on recurring weak spots earlier across classes and cohorts
 
 ### 2. Stronger School Financial Stability
 

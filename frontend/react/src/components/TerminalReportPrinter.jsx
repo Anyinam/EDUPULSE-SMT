@@ -2,6 +2,43 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useBranding } from '../hooks/useBranding';
 
+const getDiagnosticSubjects = (subjectGrades = []) =>
+  (Array.isArray(subjectGrades) ? subjectGrades : []).filter(
+    (grade) => Array.isArray(grade?.diagnostic_topics) && grade.diagnostic_topics.length > 0
+  );
+
+const formatDiagnosticTopicScore = (topic) => {
+  const score = Number(topic?.score || 0);
+  const maxScore = Number(topic?.max_score || 0);
+  return `${score}/${maxScore}`;
+};
+
+const getDiagnosticTopicRatio = (topic) => {
+  const maxScore = Number(topic?.max_score || 0);
+  if (maxScore <= 0) {
+    return 0;
+  }
+  return Number(topic?.score || 0) / maxScore;
+};
+
+const isWeakDiagnosticTopic = (topic) => getDiagnosticTopicRatio(topic) <= 0.55;
+
+const getSortedDiagnosticTopics = (topics = []) =>
+  [...(Array.isArray(topics) ? topics : [])].sort((left, right) => {
+    const leftWeak = isWeakDiagnosticTopic(left) ? 1 : 0;
+    const rightWeak = isWeakDiagnosticTopic(right) ? 1 : 0;
+    if (leftWeak !== rightWeak) {
+      return rightWeak - leftWeak;
+    }
+    return getDiagnosticTopicRatio(left) - getDiagnosticTopicRatio(right);
+  });
+
+const getWeakDiagnosticTopics = (topics = []) =>
+  getSortedDiagnosticTopics(topics).filter((topic) => isWeakDiagnosticTopic(topic));
+
+const getStrongDiagnosticTopics = (topics = []) =>
+  getSortedDiagnosticTopics(topics).filter((topic) => !isWeakDiagnosticTopic(topic));
+
 export default function TerminalReportPrinter() {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -245,6 +282,8 @@ export default function TerminalReportPrinter() {
     win.document.close();
     win.focus();
   };
+
+  const diagnosticSubjects = getDiagnosticSubjects(previewData.subject_grades);
 
   const handleExportReport = () => {
     const schoolId = localStorage.getItem('school_id');
@@ -533,6 +572,31 @@ export default function TerminalReportPrinter() {
                 </table>
               </div>
             ` : ''}
+
+            ${getDiagnosticSubjects(previewData.subject_grades).length > 0 ? `
+              <div class="section">
+                <div class="section-title">🧭 Diagnostic Strand Insights</div>
+                <div style="display: grid; gap: 10px;">
+                  ${getDiagnosticSubjects(previewData.subject_grades).map((grade) => {
+                    const weakTopics = getWeakDiagnosticTopics(grade.diagnostic_topics);
+                    const strongTopics = getStrongDiagnosticTopics(grade.diagnostic_topics);
+                    const visibleTopics = weakTopics.length > 0 ? weakTopics : getSortedDiagnosticTopics(grade.diagnostic_topics);
+                    return `
+                    <div style="border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; padding: 12px;">
+                      <div style="font-weight: 700; color: #1e3a8a; margin-bottom: 6px;">${grade.subject || 'Subject'}</div>
+                      ${weakTopics.length > 0 ? `<div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #b45309; margin-bottom: 6px;">Weak strands needing attention</div>` : `<div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #1d4ed8; margin-bottom: 6px;">All recorded strands are within expected range</div>`}
+                      <div style="font-size: 11px; color: #334155; line-height: 1.6;">
+                        ${visibleTopics
+                          .map((topic) => `${isWeakDiagnosticTopic(topic) ? 'Needs attention: ' : ''}${topic.topic}: ${formatDiagnosticTopicScore(topic)}`)
+                          .join(' • ')}
+                      </div>
+                      ${weakTopics.length > 0 && strongTopics.length > 0 ? `<div style="font-size: 10px; color: #64748b; margin-top: 6px;">${strongTopics.length} stronger strand(s) hidden from print to keep the report focused on intervention priorities.</div>` : ''}
+                    </div>
+                  `;
+                  }).join('')}
+                </div>
+              </div>
+            ` : ''}
             
             ${previewData.homeroom_teacher_remarks ? `
               <div class="section">
@@ -772,6 +836,59 @@ export default function TerminalReportPrinter() {
               <h4 className="text-lg font-bold text-cyan-800 mb-3">🤖 AI Performance Analysis</h4>
               <div className="text-sm text-slate-700 leading-relaxed bg-white rounded-lg p-4 border border-cyan-100">
                 {previewData.ai_performance_analysis}
+              </div>
+            </div>
+          )}
+
+          {diagnosticSubjects.length > 0 && (
+            <div className="bg-linear-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-6">
+              <h4 className="text-lg font-bold text-blue-900 mb-3">🧭 Diagnostic Strand Insights</h4>
+              <div className="space-y-3">
+                {diagnosticSubjects.map((grade, index) => {
+                  const weakTopics = getWeakDiagnosticTopics(grade.diagnostic_topics);
+                  const strongTopics = getStrongDiagnosticTopics(grade.diagnostic_topics);
+                  const visibleTopics = weakTopics.length > 0 ? weakTopics : [];
+
+                  return (
+                    <div key={`${grade.subject || 'subject'}-${index}`} className="rounded-xl border border-blue-100 bg-white p-4">
+                      <p className="text-sm font-bold text-blue-900 mb-2">{grade.subject || 'Subject'}</p>
+                      {weakTopics.length > 0 ? (
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">Weak strands shown by default</p>
+                      ) : (
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">No weak strands flagged</p>
+                      )}
+                      {visibleTopics.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {visibleTopics.map((topic, topicIndex) => (
+                            <span
+                              key={`${topic.topic || 'topic'}-${topicIndex}`}
+                              className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 ring-1 ring-amber-300"
+                            >
+                              Needs attention: {topic.topic}: {formatDiagnosticTopicScore(topic)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {strongTopics.length > 0 && (
+                        <details className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                          <summary className="cursor-pointer text-xs font-semibold text-blue-800">
+                            Show all assessed strands ({strongTopics.length} more)
+                          </summary>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {strongTopics.map((topic, topicIndex) => (
+                              <span
+                                key={`${topic.topic || 'strong-topic'}-${topicIndex}`}
+                                className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-900"
+                              >
+                                {topic.topic}: {formatDiagnosticTopicScore(topic)}
+                              </span>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

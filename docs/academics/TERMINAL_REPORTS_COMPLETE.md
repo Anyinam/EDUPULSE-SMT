@@ -69,6 +69,7 @@ Header (centered):
 Sections:
 ✓ Student Information (grid layout)
 ✓ Performance Summary (average, position)
+✓ Diagnostic Strand Insights (when subject-level diagnostic topics exist)
 ✓ Class Teacher Remarks
 ✓ Headmaster Remarks (conditional on checkbox)
 ✓ Proprietor Remarks (if populated)
@@ -176,6 +177,8 @@ Returns:
    GET /api/students/<id>/terminal-report
    ↓
    Display report data with performance summary
+  ↓
+  Display diagnostic strand insights when subject-level diagnostic topics are available
    
 3. REMARKS INPUT PHASE
    ↓
@@ -289,6 +292,9 @@ class ReportCard(db.Model):
 - **Orange card**: Headmaster remarks (warm, authority)
 - **Cyan card**: Proprietor remarks (cold, business)
 - **Blue card**: Student summary (professional)
+- **Blue/Indigo card**: Diagnostic strand insights
+- **Amber pills**: Weak strands that stay visible by default
+- **Expandable detail block**: Stronger strands available on demand in review views
 
 ### Visual Feedback
 - Loading spinner while fetching data
@@ -322,6 +328,7 @@ class ReportCard(db.Model):
   - School motto centered
   - Student information section
   - Performance summary
+  - Diagnostic Strand Insights section when strands were entered
   - Class teacher remarks
   - Headmaster remarks (if enabled)
   - Proprietor remarks (if populated)

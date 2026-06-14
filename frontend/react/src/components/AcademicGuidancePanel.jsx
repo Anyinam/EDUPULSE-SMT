@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import PremiumFeatureNotice from './PremiumFeatureNotice';
+import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
 export default function AcademicGuidancePanel({ title = 'Academic Guidance Intelligence' }) {
-  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
-  const canAccessAcademicGuidance = currentPlan === 'Premium';
+  const { isPremium: canAccessAcademicGuidance, loading: planLoading } = useEffectiveSubscriptionPlan();
   const [guidance, setGuidance] = useState(null);
-  const [library, setLibrary] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -19,34 +18,36 @@ export default function AcademicGuidancePanel({ title = 'Academic Guidance Intel
     setLoading(true);
     setError('');
     try {
-      const [guidanceRes, libraryRes] = await Promise.all([
-        axios.get('/api/analytics/academic-guidance', { headers }),
-        axios.get('/api/analytics/chief-examiner-library', { headers }),
-      ]);
+      const guidanceRes = await axios.get('/api/analytics/academic-guidance', { headers });
       setGuidance(guidanceRes.data || null);
-      setLibrary(libraryRes.data || null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load academic guidance.');
       setGuidance(null);
-      setLibrary(null);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (planLoading) {
+      return;
+    }
     if (!canAccessAcademicGuidance) {
       setLoading(false);
       return;
     }
     fetchData();
-  }, [headers, canAccessAcademicGuidance]);
+  }, [headers, canAccessAcademicGuidance, planLoading]);
+
+  if (planLoading) {
+    return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Checking plan access...</div>;
+  }
 
   if (!canAccessAcademicGuidance) {
     return (
       <PremiumFeatureNotice
         title={title}
-        description="Diagnostic hotspots, chief examiner insight libraries, and pathway guidance are available on the Premium plan only."
+        description="Diagnostic hotspots and pathway guidance are available on the Premium plan only."
       />
     );
   }
@@ -106,7 +107,6 @@ export default function AcademicGuidancePanel({ title = 'Academic Guidance Intel
                     <p className="text-sm font-bold text-slate-800">{item.subject} - {item.topic}</p>
                     <span className="text-xs font-bold text-red-600">{item.low_report_count} low reports</span>
                   </div>
-                  {item.chief_examiner_issue && <p className="mt-2 text-xs text-slate-600">Issue: {item.chief_examiner_issue}</p>}
                   {item.advice && <p className="mt-2 text-xs text-cyan-900">Action: {item.advice}</p>}
                 </div>
               ))
@@ -134,36 +134,6 @@ export default function AcademicGuidancePanel({ title = 'Academic Guidance Intel
         </div>
       </div>
 
-      <div className="mt-6 rounded-xl border border-slate-200 p-4">
-        <div>
-          <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Examiner Insight Library</h4>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          {(library?.subjects || []).length === 0 ? (
-            <p className="text-sm text-slate-500">No subject library is available for your current scope.</p>
-          ) : (
-            library.subjects.map((subject) => (
-              <details key={subject.subject} className="rounded-lg bg-slate-50 p-4">
-                <summary className="cursor-pointer text-sm font-bold text-slate-800">{subject.subject}</summary>
-                <div className="mt-3 space-y-3">
-                  {subject.topics.map((topic) => (
-                    <div key={`${subject.subject}-${topic.topic}`} className="rounded-lg border border-slate-200 bg-white p-3">
-                      <p className="text-sm font-bold text-slate-800">{topic.topic}</p>
-                      <p className="mt-1 text-xs text-slate-600">Issue: {topic.issue}</p>
-                      <p className="mt-1 text-xs text-cyan-900">Advice: {topic.advice}</p>
-                      {(topic.practice || []).length > 0 && (
-                        <p className="mt-1 text-xs text-slate-500">Practice: {topic.practice.join(', ')}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ))
-          )}
-        </div>
-
-      </div>
     </section>
   );
 }

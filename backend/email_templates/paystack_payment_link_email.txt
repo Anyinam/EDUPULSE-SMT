@@ -32,7 +32,7 @@ Or copy and paste this link in your browser:
 **PAYMENT DETAILS**
 ✓ Secure payment via Paystack
 ✓ Your subscription will start immediately upon payment confirmation
-✓ Monthly automatic billing
+✓ Billing follows your selected {{billing_cycle}} cycle
 ✓ Cancel anytime (no long-term contracts)
 
 **PAYMENT OPTIONS**

@@ -23,8 +23,8 @@ Confidential Information includes all non-public information relating to EduPuls
 
 1. Source code and software architecture
 2. Product roadmap and implementation plans
-3. Payment-routing and reconciliation logic
-4. Paystack route-account structures and fee-routing methods
+3. Payment categorization and reconciliation logic
+4. Legacy Paystack route-account compatibility structures and historical settlement interpretation methods
 5. Cryptographic controls and security architecture
 6. Operations playbooks, onboarding materials, incident templates, and school launch materials
 7. Pricing, commercial plans, customer strategy, and financial information

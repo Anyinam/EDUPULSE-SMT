@@ -38,7 +38,7 @@ The strongest proprietary elements appear to be:
 
 1. Multi-tenant school-control architecture
 2. Role-gated workflow and approval logic
-3. Paystack fee-route handling by payment type per school
+3. Structured-reference payment categorization and reconciliation logic
 4. Reconciliation and recovery logic for missing payment writes
 5. Tamper-evident ledgering for finance records
 6. Report-card parsing and academic-intelligence workflows
@@ -51,11 +51,11 @@ These are stronger candidates for trade-secret and confidential-know-how protect
 EduPulse SMT uses Paystack in two main ways:
 
 1. For school subscription and plan payments
-2. For school fee-collection routing by payment type
+2. For school fee collection using structured references and school payment rules
 
-The fee-routing design is especially important. The platform can assign route accounts or virtual payment routes to categories like tuition or feeding, then use Paystack webhook data to identify which route was actually used. This supports automatic payment classification and settlement context preservation.
+The payment-classification design is especially important. The active model uses structured references, stable learner payment identity, and reconciliation logic to classify incoming payments and preserve audit context. Legacy route metadata may still appear in older records, but it is no longer the active setup model.
 
-For counsel, the main point is that the system contains a structured payment-routing architecture, not merely a generic payment button.
+For counsel, the main point is that the system contains a structured payment-control and categorization architecture, not merely a generic payment button.
 
 ## Cryptography Positioning
 
@@ -98,7 +98,7 @@ This brief should help counsel with:
 Counsel should pay closest attention to:
 
 1. Ownership of the system design and workflow architecture
-2. Protection of the Paystack routing and payment-control logic
+2. Protection of the payment categorization and payment-control logic
 3. Confidentiality obligations for developers, contractors, and partners
 4. Data-protection roles between EduPulse SMT and each school
 5. Contract language governing school data, audit records, payment evidence, and de-identified analytics outputs

@@ -16,9 +16,10 @@ const EMPTY_FORM = {
   bank_account_name: '',
   bank_account_number: '',
   bank_name: '',
-  owner_information: '{}',
-  screening_results: '{}',
-  documents: '[]',
+  owner_name: '',
+  owner_phone: '',
+  owner_email: '',
+  document_links: '',
 };
 
 export default function SchoolCompliancePanel() {
@@ -43,6 +44,18 @@ export default function SchoolCompliancePanel() {
       setFlags(Array.isArray(flagsRes.data?.flags) ? flagsRes.data.flags : []);
       if (verificationRes.data?.profile) {
         const nextProfile = verificationRes.data.profile;
+        const ownerInfo = nextProfile.owner_information || {};
+        const documentLinks = Array.isArray(nextProfile.documents)
+          ? nextProfile.documents.map((entry) => {
+              if (typeof entry === 'string') {
+                return entry;
+              }
+              if (entry && typeof entry === 'object') {
+                return entry.url || entry.link || entry.name || '';
+              }
+              return '';
+            }).filter(Boolean).join('\n')
+          : '';
         setForm({
           legal_name: nextProfile.legal_name || '',
           registration_number: nextProfile.registration_number || '',
@@ -51,9 +64,10 @@ export default function SchoolCompliancePanel() {
           bank_account_name: nextProfile.bank_account_name || '',
           bank_account_number: '',
           bank_name: nextProfile.bank_name || '',
-          owner_information: JSON.stringify(nextProfile.owner_information || {}, null, 2),
-          screening_results: JSON.stringify(nextProfile.screening_results || {}, null, 2),
-          documents: JSON.stringify(nextProfile.documents || [], null, 2),
+          owner_name: ownerInfo.full_name || ownerInfo.name || '',
+          owner_phone: ownerInfo.phone || ownerInfo.phone_number || '',
+          owner_email: ownerInfo.email || '',
+          document_links: documentLinks,
         });
       }
       setError('');
@@ -80,33 +94,16 @@ export default function SchoolCompliancePanel() {
     setError('');
     setMessage('');
 
-    let ownerInformation = {};
-    let screeningResults = {};
-    let documents = [];
-
-    try {
-      ownerInformation = form.owner_information ? JSON.parse(form.owner_information) : {};
-    } catch {
-      setError('Owner information must be valid JSON.');
-      setSaving(false);
-      return;
-    }
-
-    try {
-      screeningResults = form.screening_results ? JSON.parse(form.screening_results) : {};
-    } catch {
-      setError('Screening results must be valid JSON.');
-      setSaving(false);
-      return;
-    }
-
-    try {
-      documents = form.documents ? JSON.parse(form.documents) : [];
-    } catch {
-      setError('Documents must be valid JSON.');
-      setSaving(false);
-      return;
-    }
+    const ownerInformation = {
+      full_name: form.owner_name.trim(),
+      phone: form.owner_phone.trim(),
+      email: form.owner_email.trim(),
+    };
+    const documents = form.document_links
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((url) => ({ url }));
 
     try {
       const payload = {
@@ -118,7 +115,6 @@ export default function SchoolCompliancePanel() {
         bank_account_number: form.bank_account_number,
         bank_name: form.bank_name,
         owner_information: ownerInformation,
-        screening_results: screeningResults,
         documents,
       };
       const response = await axios.put('/api/school/verification', payload, { headers: getHeaders() });
@@ -158,12 +154,18 @@ export default function SchoolCompliancePanel() {
           <div>
             <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Compliance Center</p>
             <h2 className="mt-1 text-2xl font-black text-slate-900">School Verification</h2>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">Submit your school&apos;s legal identity and bank details for review. Financial actions stay limited until verification is approved.</p>
+            <p className="mt-2 max-w-2xl text-sm text-slate-600">Submit your school&apos;s legal identity and banking details for review. EduPulse handles screening after submission, so this form stays focused on the business information only.</p>
           </div>
           <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${statusTone}`}>
             {verification?.is_verified ? 'Verified' : (verification?.status || 'Not submitted')}
           </div>
         </div>
+
+        {verification?.review_notes && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span className="font-bold">Review note:</span> {verification.review_notes}
+          </div>
+        )}
 
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Loading compliance data...</p>
@@ -177,10 +179,12 @@ export default function SchoolCompliancePanel() {
             <Field label="Bank Account Name" name="bank_account_name" value={form.bank_account_name} onChange={handleChange} placeholder="Must match school legal name" />
             <Field label="Bank Account Number" name="bank_account_number" value={form.bank_account_number} onChange={handleChange} placeholder="For verification only" />
             <Field label="Bank Name" name="bank_name" value={form.bank_name} onChange={handleChange} placeholder="Bank of account" />
-            <TextAreaField label="Owner Information (JSON)" name="owner_information" value={form.owner_information} onChange={handleChange} rows={5} />
-            <TextAreaField label="Screening Results (JSON)" name="screening_results" value={form.screening_results} onChange={handleChange} rows={5} />
+            <Field label="Proprietor / Owner Name" name="owner_name" value={form.owner_name} onChange={handleChange} placeholder="Full legal name of proprietor or owner" />
+            <Field label="Owner Phone Number" name="owner_phone" value={form.owner_phone} onChange={handleChange} placeholder="Primary contact number" />
+            <Field label="Owner Email Address" name="owner_email" value={form.owner_email} onChange={handleChange} placeholder="Primary compliance contact email" className="lg:col-span-2" />
             <div className="lg:col-span-2">
-              <TextAreaField label="Supporting Documents (JSON array)" name="documents" value={form.documents} onChange={handleChange} rows={4} />
+              <TextAreaField label="Supporting Document Links" name="document_links" value={form.document_links} onChange={handleChange} rows={4} placeholder="Paste one document link per line (optional)" />
+              <p className="mt-2 text-xs text-slate-500">Examples: certificate of registration, tax certificate, education license, or bank confirmation letter.</p>
             </div>
             <div className="lg:col-span-2 flex flex-wrap items-center gap-3 pt-2">
               <button

@@ -27,11 +27,10 @@ We collect data necessary to provide the Service, including:
 - Document-intelligence data: report-card images or PDFs, parsed academic fields, confidence or exception flags, and related review actions.
 - Examination and academic analytics data: internal assessment marks, school-uploaded WAEC or BECE result lists, subject performance history, trend-analysis outputs, and benchmarking outputs derived from public aggregate reports.
 - De-identification and aggregation outputs: anonymized statistical records, cohort summaries, regional benchmarks, curriculum-gap indicators, and research datasets generated after direct identifiers and direct school identifiers are removed from source records.
-- Shared academic-guidance inputs: school-uploaded or platform-curated chief examiner insights derived from lawfully available public reports.
 - Parent/guardian data: name, phone, email (if provided by the school).
 - Consent and compliance records: acceptance of policies, admissions acknowledgements, migration-consent records, and other notices or approvals required for lawful educational processing.
 - Usage data: login events, device info, IP address, audit logs.
-- Payment data: transaction references, invoices. We do not store full card details. Payments are processed by Paystack.
+- Payment data: transaction references, invoices, receipts, subscription billing metadata, and where a school uses EduPulse SMT payment flows, structured payment references and related payment-status metadata. We do not store full card details. Payments are processed by Paystack.
 - School verification data (KYB): legal school identity details, registration and tax identifiers, bank account verification details, and screening outcomes processed through configured verification providers.
 
 ## 3. Legal Basis and Purpose
@@ -51,7 +50,7 @@ We process personal data to:
 
 For student data, the school is the primary data controller and EduPulse SMT acts as a data processor on the school's behalf in most operational contexts.
 
-Schools are responsible for ensuring that they have an appropriate legal basis before uploading student records, admissions materials, report-card files, historic academic files, WAEC or BECE result lists, chief examiner materials, or continuous-assessment records to EduPulse SMT. Where consent is the chosen legal basis, the school must obtain and retain that consent before using the Service for that purpose.
+Schools are responsible for ensuring that they have an appropriate legal basis before uploading student records, admissions materials, report-card files, historic academic files, WAEC or BECE result lists, or continuous-assessment records to EduPulse SMT. Where consent is the chosen legal basis, the school must obtain and retain that consent before using the Service for that purpose.
 
 Where EduPulse SMT creates anonymized macro-analytics datasets from school-supplied academic records, EduPulse SMT will first apply de-identification controls designed to remove direct identifiers, persistent student identifiers, and direct school identifiers before the data enters the shared analytics layer. EduPulse SMT will use those datasets only in aggregated statistical form and will not intentionally publish or commercialize identifiable student results or named-school performance without a separate lawful basis and explicit contractual authorization.
 
@@ -64,6 +63,13 @@ We share data only with:
 - Verification providers used for school KYB screening under strict contracts and lawful processing controls.
 - Examination or education-sector counterparties only where lawfully required, school-authorized, or supported by a formal approved integration.
 - Regulators or law enforcement if legally required.
+
+Key third-party processors currently include:
+
+- Paystack: school name, school contact email, subscription amount, transaction references, billing metadata, and authorized school-payment metadata where applicable. Purpose: payment processing, billing, and receipts. Location: Nigeria. Privacy Policy: https://paystack.com/privacy
+- Meta (WhatsApp Business API): parent or guardian phone numbers and message content where a school uses WhatsApp delivery. Purpose: educational communications and alerts. Location: United States or other Meta processing locations subject to Meta's contractual safeguards. Privacy Policy: https://www.whatsapp.com/legal/privacy-policy-eea
+- Google (Gmail SMTP or related email infrastructure): email addresses and email content for transactional delivery. Purpose: notifications, admissions follow-up, receipts, and operational email. Location: United States or other Google processing locations subject to Google's contractual safeguards. Privacy Policy: https://policies.google.com/privacy
+- Configured KYB or verification providers: school legal-identity, registration, tax, banking, and screening details. Purpose: school verification, fraud prevention, and compliance screening. Location: depends on configured provider and contract.
 
 Where anonymized macro-analytics outputs are shared with customers, researchers, or the public, those outputs must remain aggregated and must not identify an individual student, guardian, staff member, or named school unless a separate lawful disclosure basis exists.
 

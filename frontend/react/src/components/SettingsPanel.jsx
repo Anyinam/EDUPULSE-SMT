@@ -264,8 +264,12 @@ export default function SettingsPanel() {
   const [fees, setFees] = useState({
     tuition_fee: 0,
     feeding_fee: 0,
+    feeding_daily_fee: 0,
+    feeding_weekly_fee: 0,
+    feeding_monthly_fee: 0,
     transport_fee: 0,
     terminal_report_fee: 0,
+    phone_payment_convenience_fee_percent: 1.5,
     admission_fee_enabled: false,
     admission_fee_amount: 0,
     other_fees: {}
@@ -451,8 +455,12 @@ export default function SettingsPanel() {
         setFees({
           tuition_fee: res.data.tuition_fee || 0,
           feeding_fee: res.data.feeding_fee || 0,
+          feeding_daily_fee: res.data.feeding_daily_fee || 0,
+          feeding_weekly_fee: res.data.feeding_weekly_fee || 0,
+          feeding_monthly_fee: res.data.feeding_monthly_fee || 0,
           transport_fee: res.data.transport_fee || 0,
           terminal_report_fee: res.data.terminal_report_fee || 0,
+          phone_payment_convenience_fee_percent: res.data.phone_payment_convenience_fee_percent ?? 1.5,
           admission_fee_enabled: Boolean(res.data.admission_fee_enabled),
           admission_fee_amount: res.data.admission_fee_amount || 0,
           other_fees: res.data.other_fees || {}
@@ -1235,8 +1243,12 @@ export default function SettingsPanel() {
       await axios.post('/api/school/fees', {
         tuition_fee: fees.tuition_fee,
         feeding_fee: fees.feeding_fee,
+        feeding_daily_fee: fees.feeding_daily_fee,
+        feeding_weekly_fee: fees.feeding_weekly_fee,
+        feeding_monthly_fee: fees.feeding_monthly_fee,
         transport_fee: fees.transport_fee,
         terminal_report_fee: fees.terminal_report_fee,
+        phone_payment_convenience_fee_percent: fees.phone_payment_convenience_fee_percent,
         admission_fee_enabled: fees.admission_fee_enabled,
         admission_fee_amount: fees.admission_fee_amount,
         other_fees: fees.other_fees
@@ -1590,13 +1602,66 @@ export default function SettingsPanel() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Feeding Fee (Daily/Monthly)</label>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Feeding Fee (Daily Plan)</label>
               <div className="flex items-center gap-2">
                 <span className="text-slate-600 font-semibold">GH₵</span>
                 <input
                   type="number"
-                  value={fees.feeding_fee}
-                  onChange={(e) => setFees((prev) => ({ ...prev, feeding_fee: parseFloat(e.target.value) || 0 }))}
+                  value={fees.feeding_daily_fee}
+                  onChange={(e) => {
+                    const nextValue = parseFloat(e.target.value) || 0;
+                    setFees((prev) => ({
+                      ...prev,
+                      feeding_daily_fee: nextValue,
+                      feeding_fee: prev.feeding_monthly_fee || prev.feeding_weekly_fee || nextValue,
+                    }));
+                  }}
+                  className="flex-1 p-3 border rounded-lg bg-slate-50"
+                  placeholder="0.00"
+                  step="0.01"
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Feeding Fee (Weekly Plan)</label>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-600 font-semibold">GH₵</span>
+                <input
+                  type="number"
+                  value={fees.feeding_weekly_fee}
+                  onChange={(e) => {
+                    const nextValue = parseFloat(e.target.value) || 0;
+                    setFees((prev) => ({
+                      ...prev,
+                      feeding_weekly_fee: nextValue,
+                      feeding_fee: prev.feeding_monthly_fee || nextValue || prev.feeding_daily_fee,
+                    }));
+                  }}
+                  className="flex-1 p-3 border rounded-lg bg-slate-50"
+                  placeholder="0.00"
+                  step="0.01"
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Feeding Fee (Monthly Plan)</label>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-600 font-semibold">GH₵</span>
+                <input
+                  type="number"
+                  value={fees.feeding_monthly_fee}
+                  onChange={(e) => {
+                    const nextValue = parseFloat(e.target.value) || 0;
+                    setFees((prev) => ({
+                      ...prev,
+                      feeding_monthly_fee: nextValue,
+                      feeding_fee: nextValue || prev.feeding_weekly_fee || prev.feeding_daily_fee,
+                    }));
+                  }}
                   className="flex-1 p-3 border rounded-lg bg-slate-50"
                   placeholder="0.00"
                   step="0.01"
@@ -1636,6 +1701,24 @@ export default function SettingsPanel() {
                   min="0"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Phone Payment Convenience Fee (%)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={fees.phone_payment_convenience_fee_percent}
+                  onChange={(e) => setFees((prev) => ({ ...prev, phone_payment_convenience_fee_percent: parseFloat(e.target.value) || 0 }))}
+                  className="flex-1 p-3 border rounded-lg bg-slate-50"
+                  placeholder="1.50"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                />
+                <span className="text-slate-600 font-semibold">%</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Applied only to phone or digital payments. Cash paid at the school office stays at the base school fee.</p>
             </div>
 
             <div className="md:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
@@ -1754,8 +1837,16 @@ export default function SettingsPanel() {
                 <p className="text-lg font-bold text-slate-800">GH₵ {fees.tuition_fee.toFixed(2)}</p>
               </div>
               <div>
-                <p className="text-slate-600">Feeding</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_fee.toFixed(2)}</p>
+                <p className="text-slate-600">Feeding Daily</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_daily_fee.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-slate-600">Feeding Weekly</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_weekly_fee.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-slate-600">Feeding Monthly</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_monthly_fee.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Transport</p>

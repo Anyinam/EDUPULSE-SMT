@@ -48,7 +48,7 @@ EduPulse SMT will apply technical and organizational measures designed to strip 
 Once data has been irreversibly anonymized, EduPulse SMT may process the resulting aggregated dataset to generate:
 
 - national, regional, and district-level educational performance trends and benchmarks;
-- curriculum assessment insights, including Chief Examiner historical report mapping and subject-gap analysis;
+- curriculum assessment insights, including subject-gap analysis;
 - statistical research reports, white papers, and learning-outcome studies for Ghanaian education; and
 - benchmark dashboards and system-optimization analytics for subscribing schools.
 

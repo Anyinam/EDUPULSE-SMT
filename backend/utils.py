@@ -5,9 +5,6 @@ from datetime import datetime, timezone
 
 from backend.academic_guidance import (
     build_pathway_recommendations,
-    merge_chief_examiner_library,
-    match_chief_examiner_insight,
-    normalize_chief_examiner_library,
     normalize_subject_key,
 )
 
@@ -115,7 +112,7 @@ def generate_descriptive_analysis(student_id):
     Generate comprehensive performance analysis including multi-term trends.
     Analyzes current performance + trends from previous terms.
     """
-    from backend.api.models import PlatformSetting, ReportCard, SchoolSettings, Student, StudentGrade
+    from backend.api.models import ReportCard, Student, StudentGrade
 
     student = Student.query.get(student_id)
     if not student:
@@ -130,23 +127,6 @@ def generate_descriptive_analysis(student_id):
 
     if not all_reports:
         return f"{student.name} has no finalized reports yet."
-
-    school_settings = SchoolSettings.query.filter_by(school_id=student.school_id).first()
-    school_library = normalize_chief_examiner_library(
-        (school_settings.report_template_config or {}).get("chief_examiner_library")
-        if school_settings and isinstance(school_settings.report_template_config, dict)
-        else {}
-    )
-    platform_setting = PlatformSetting.query.filter_by(
-        setting_key="platform_chief_examiner_library"
-    ).first()
-    platform_library = normalize_chief_examiner_library(
-        platform_setting.setting_value if platform_setting else {}
-    )
-    effective_library = merge_chief_examiner_library(
-        school_library,
-        base_library=platform_library or None,
-    )
 
     # Get current (latest) report
     current_report = all_reports[-1]
@@ -223,18 +203,7 @@ def generate_descriptive_analysis(student_id):
                 continue
 
             ratio = topic_score / topic_max
-            insight = match_chief_examiner_insight(
-                subject_name,
-                topic_name,
-                chief_examiner_library=effective_library,
-            )
-            if ratio <= 0.55 and insight:
-                practice = ", ".join(insight.get("practice") or [])
-                diagnostic_notes.append(
-                    f"{subject_name} - {topic_name}: Chief examiner reviews show that {insight['issue']}. Focus next on {insight['advice']}"
-                    + (f" Practice areas: {practice}." if practice else ".")
-                )
-            elif ratio <= 0.55:
+            if ratio <= 0.55:
                 diagnostic_notes.append(
                     f"{subject_name} - {topic_name}: this mock strand needs targeted revision before the next assessment."
                 )

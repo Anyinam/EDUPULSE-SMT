@@ -168,7 +168,7 @@ The strongest evidence files for legal/compliance review are:
 - `compliance/INFORMATION_SECURITY_POLICY.md`
 - `PRIVACY_POLICY.md`
 - `SECURITY.md`
-- `AUDIT_INTEGRITY_SYSTEM.md`
+- `docs/security/AUDIT_INTEGRITY_SYSTEM.md`
 - `backend/security/crypto.py`
 - `backend/api/models.py`
 - `backend/routes.py`

@@ -111,7 +111,7 @@ Clicks "View Dashboard" to see details
 
 **c) Trial Management**
 - Self-service Premium trial activation
-- Choose duration (7, 14, or 30 days)
+- Runs through the current term window
 - End trial early if desired
 - Clear countdown and feature list
 
@@ -156,7 +156,7 @@ Upgrades to Premium plan confidently
 
 ### Key Metrics to Track
 
-**Short-Term (30 days):**
+**Short-Term (current term launch window):**
 - Trial activation rate (target: > 40%)
 - Usage report open rate (target: > 60%)
 - Price cap adoption (target: > 25%)

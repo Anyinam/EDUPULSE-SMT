@@ -60,16 +60,6 @@ export default function PlatformConsole() {
   const [publicContentError, setPublicContentError] = useState('');
   const [publicContentSuccess, setPublicContentSuccess] = useState('');
 
-  const [chiefLibrary, setChiefLibrary] = useState({ subjects: [], meta: {} });
-  const [chiefHistory, setChiefHistory] = useState([]);
-  const [chiefText, setChiefText] = useState('');
-  const [chiefFiles, setChiefFiles] = useState([]);
-  const [chiefFileInputKey, setChiefFileInputKey] = useState(0);
-  const [chiefReplaceExisting, setChiefReplaceExisting] = useState(true);
-  const [chiefLoading, setChiefLoading] = useState(false);
-  const [chiefError, setChiefError] = useState('');
-  const [chiefSuccess, setChiefSuccess] = useState('');
-
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState('');
@@ -115,11 +105,6 @@ export default function PlatformConsole() {
 
     if (activeTab === 'public_content') {
       fetchPublicContent();
-      return;
-    }
-
-    if (activeTab === 'chief_examiner') {
-      fetchChiefExaminerLibrary();
       return;
     }
 
@@ -326,101 +311,6 @@ export default function PlatformConsole() {
     }));
   };
 
-  const fetchChiefExaminerLibrary = async () => {
-    setChiefLoading(true);
-    setChiefError('');
-    try {
-      const [libraryResponse, historyResponse] = await Promise.all([
-        axios.get(`${API_BASE_URL}/platform/chief-examiner-library`, getPlatformHeaders()),
-        axios.get(`${API_BASE_URL}/platform/chief-examiner-library/history`, getPlatformHeaders()),
-      ]);
-      setChiefLibrary(libraryResponse.data || { subjects: [], meta: {} });
-      setChiefHistory(historyResponse.data?.history || []);
-    } catch (error) {
-      setChiefError(error.response?.data?.message || 'Failed to load platform chief examiner library');
-    } finally {
-      setChiefLoading(false);
-    }
-  };
-
-  const importChiefExaminerLibrary = async () => {
-    if (chiefFiles.length === 0 && !chiefText.trim()) {
-      setChiefError('Upload a file or paste structured examiner insight text.');
-      return;
-    }
-
-    setChiefLoading(true);
-    setChiefError('');
-    setChiefSuccess('');
-
-    try {
-      const formData = new FormData();
-      chiefFiles.forEach((file) => {
-        formData.append('file', file);
-      });
-      if (chiefText.trim()) {
-        formData.append('report_text', chiefText.trim());
-        if (chiefFiles.length === 0) {
-          formData.append('source_filename', 'manual-text');
-        }
-      }
-      formData.append('replace_existing', chiefReplaceExisting ? 'true' : 'false');
-
-      await axios.post(`${API_BASE_URL}/platform/chief-examiner-library/import`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      setChiefSuccess(`Platform chief examiner library updated${chiefFiles.length > 1 ? ` from ${chiefFiles.length} reports` : ''}. Tenants will receive the new insights automatically.`);
-      setChiefText('');
-      setChiefFiles([]);
-      setChiefFileInputKey((current) => current + 1);
-      await fetchChiefExaminerLibrary();
-    } catch (error) {
-      setChiefError(error.response?.data?.message || 'Failed to import chief examiner library');
-    } finally {
-      setChiefLoading(false);
-    }
-  };
-
-  const restoreChiefHistory = async (versionId) => {
-    try {
-      setChiefLoading(true);
-      setChiefError('');
-      await axios.post(`${API_BASE_URL}/platform/chief-examiner-library/history/${versionId}/restore`, {}, getPlatformHeaders());
-      setChiefSuccess('Platform chief examiner library restored successfully.');
-      await fetchChiefExaminerLibrary();
-    } catch (error) {
-      setChiefError(error.response?.data?.message || 'Failed to restore chief examiner library snapshot');
-    } finally {
-      setChiefLoading(false);
-    }
-  };
-
-  const downloadChiefHistory = async (versionId) => {
-    try {
-      const response = await axios.get(
-        `${API_BASE_URL}/platform/chief-examiner-library/history/${versionId}/download`,
-        {
-          ...getPlatformHeaders(),
-          responseType: 'blob',
-        }
-      );
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `platform-chief-examiner-${versionId}.json`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      setChiefError(error.response?.data?.message || 'Failed to download chief examiner snapshot');
-    }
-  };
-
   const fetchUsers = async () => {
     setUsersLoading(true);
     setUsersError('');
@@ -602,7 +492,6 @@ export default function PlatformConsole() {
           <nav className="-mb-px flex flex-wrap gap-8">
             {[
               ['public_content', 'Tenant Content'],
-              ['chief_examiner', 'Chief Examiner Library'],
               ['users', 'User Management'],
               ['email_trace', 'Registration Email Trace'],
             ].map(([value, label]) => (
@@ -734,110 +623,6 @@ export default function PlatformConsole() {
                 <button onClick={savePublicContent} disabled={publicContentLoading} className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium">
                   {publicContentLoading ? 'Saving...' : 'Save Tenant Content'}
                 </button>
-              </div>
-            </SectionCard>
-          </div>
-        ) : null}
-
-        {activeTab === 'chief_examiner' ? (
-          <div className="space-y-6">
-            <SectionCard title="Platform Chief Examiner Library" description="Upload examiner reports here to build the shared library used across schools.">
-              {chiefError ? <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{chiefError}</div> : null}
-              {chiefSuccess ? <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">{chiefSuccess}</div> : null}
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Current Version</p>
-                  <p className="text-lg font-bold text-gray-900">{chiefLibrary.meta?.version_id || 'No upload yet'}</p>
-                </div>
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Subjects</p>
-                  <p className="text-lg font-bold text-gray-900">{chiefLibrary.meta?.subject_count || chiefLibrary.subjects?.length || 0}</p>
-                </div>
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">History Items</p>
-                  <p className="text-lg font-bold text-gray-900">{chiefLibrary.meta?.history_count || chiefHistory.length || 0}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Upload Examiner Report Files</label>
-                    <input key={chiefFileInputKey} type="file" multiple accept=".json,.txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={(event) => setChiefFiles(Array.from(event.target.files || []))} className="block w-full text-sm text-gray-700" />
-                    <p className="mt-2 text-xs text-gray-500">Select one report or a batch of BECE PDFs, for example 2017, 2018, 2019, 2020, 2021, and 2023.</p>
-                    {chiefFiles.length > 0 ? (
-                      <div className="mt-3 rounded-md bg-gray-50 border border-gray-200 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Selected files</p>
-                        <p className="mt-1 text-sm text-gray-700">{chiefFiles.length} file{chiefFiles.length === 1 ? '' : 's'} selected</p>
-                        <div className="mt-2 space-y-1">
-                          {chiefFiles.slice(0, 6).map((file) => (
-                            <p key={`${file.name}-${file.size}`} className="text-xs text-gray-600">{file.name}</p>
-                          ))}
-                          {chiefFiles.length > 6 ? <p className="text-xs text-gray-500">+{chiefFiles.length - 6} more</p> : null}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" checked={chiefReplaceExisting} onChange={(event) => setChiefReplaceExisting(event.target.checked)} />
-                    Replace the current shared library instead of merging into it
-                  </label>
-                  <button onClick={importChiefExaminerLibrary} disabled={chiefLoading} className="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
-                    {chiefLoading ? 'Updating...' : 'Update Shared Library'}
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Structured Text Input</label>
-                  <textarea
-                    value={chiefText}
-                    onChange={(event) => setChiefText(event.target.value)}
-                    rows="10"
-                    placeholder={['Subject: Mathematics', 'Topic: Geometry', 'Issue: students often miss theorem reasons', 'Advice: reteach proofs with labelled diagrams', 'Practice: circle theorems; angle properties'].join('\n')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
-                  />
-                  <p className="mt-2 text-xs text-gray-500">Use pasted structured text for a single report only.</p>
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Current Shared Library" description="Review the subjects and summaries currently available in the shared library.">
-              {chiefLoading ? <p className="text-gray-600">Loading library...</p> : null}
-              <div className="space-y-4">
-                {(chiefLibrary.subjects || []).map((subject) => (
-                  <div key={subject.subject} className="border border-gray-200 rounded-md p-4">
-                    <h3 className="text-lg font-semibold text-gray-900">{subject.subject}</h3>
-                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {(subject.topics || []).slice(0, 6).map((topic) => (
-                        <div key={`${subject.subject}-${topic.topic}`} className="rounded-md bg-gray-50 p-3 border border-gray-200">
-                          <p className="font-semibold text-gray-800">{topic.topic}</p>
-                          <p className="text-sm text-gray-600 mt-1">{topic.issue}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {(!chiefLibrary.subjects || chiefLibrary.subjects.length === 0) ? <p className="text-sm text-gray-500">No shared library has been uploaded yet.</p> : null}
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Version History" description="Restore or download previous platform-wide examiner library versions.">
-              <div className="space-y-3">
-                {chiefHistory.map((item) => (
-                  <div key={item.version_id} className="border border-gray-200 rounded-md p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-gray-900">{item.source_filename || item.version_id}</p>
-                      <p className="text-sm text-gray-600">{item.created_at ? new Date(item.created_at).toLocaleString() : 'Unknown time'} • {item.subject_count} subjects • {item.entry_count} entries</p>
-                      <p className="text-xs text-gray-500 mt-1">Created by: {item.created_by || 'System'} {item.is_active ? '• Active' : ''}</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <button onClick={() => restoreChiefHistory(item.version_id)} className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">Restore</button>
-                      <button onClick={() => downloadChiefHistory(item.version_id)} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300">Download</button>
-                    </div>
-                  </div>
-                ))}
-                {chiefHistory.length === 0 ? <p className="text-sm text-gray-500">No platform library history yet.</p> : null}
               </div>
             </SectionCard>
           </div>

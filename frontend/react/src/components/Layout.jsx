@@ -4,12 +4,12 @@ import axios from 'axios';
 import { Logo } from './Logo';
 import SupportModal from './Support';
 import { useBranding } from '../hooks/useBranding';
+import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
 export default function Layout() {
   const location = useLocation();
   const role = localStorage.getItem('role');
-  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
-  const canAccessPremiumInsights = currentPlan === 'Premium';
+  const { isPremium: canAccessPremiumInsights } = useEffectiveSubscriptionPlan();
   const safeJsonParse = (rawValue, fallback) => {
     try {
       if (rawValue === null || rawValue === undefined || rawValue === '' || rawValue === 'undefined') {
@@ -138,6 +138,7 @@ export default function Layout() {
               {modules.inventory && <li><Link to="/proprietor?tab=inventory" className="hover:text-blue-200 pl-3">📦 Inventory</Link></li>}
               {modules.admissions && <li><Link to="/proprietor?tab=admissions" className="hover:text-blue-200 pl-3">🎓 Admissions</Link></li>}
               <li><Link to="/proprietor?tab=students" className="hover:text-blue-200 pl-3">📚 Students</Link></li>
+              <li><Link to="/proprietor?tab=verification" className="hover:text-blue-200 pl-3">🏛️ School Verification</Link></li>
               <li><Link to="/proprietor?tab=subscription" className="hover:text-blue-200 pl-3">💳 Subscription</Link></li>
               <li><Link to="/proprietor?tab=calendar" className="hover:text-blue-200 pl-3">📅 Holiday Calendar</Link></li>
             </>

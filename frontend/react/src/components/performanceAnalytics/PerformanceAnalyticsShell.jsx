@@ -6,6 +6,7 @@ import MultiYearAnalyticsView from './MultiYearAnalyticsView';
 import OverviewPanel from './OverviewPanel';
 import PremiumFeatureNotice from '../PremiumFeatureNotice';
 import SingleYearAnalyticsView from './SingleYearAnalyticsView';
+import useEffectiveSubscriptionPlan from '../../hooks/useEffectiveSubscriptionPlan';
 
 const TERM_OPTIONS = ['Term 1', 'Term 2', 'Term 3'];
 const CLASS_OPTIONS = ['Nursery', 'KG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'JHS 1', 'JHS 2', 'JHS 3'];
@@ -85,8 +86,7 @@ export default function PerformanceAnalyticsShell({
   title = 'Class Performance Overview',
   defaultView = 'overview',
 }) {
-  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
-  const canAccessAdvancedAnalytics = currentPlan === 'Premium';
+  const { isPremium: canAccessAdvancedAnalytics, loading: planLoading } = useEffectiveSubscriptionPlan();
   const [academicTerm, setAcademicTerm] = useState('');
   const [academicYear, setAcademicYear] = useState('');
   const [cohortFromClass, setCohortFromClass] = useState('');
@@ -516,6 +516,10 @@ export default function PerformanceAnalyticsShell({
     await fetchData();
     setActiveView('visualization');
   };
+
+  if (planLoading) {
+    return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Checking plan access...</div>;
+  }
 
   if (!canAccessAdvancedAnalytics) {
     return (

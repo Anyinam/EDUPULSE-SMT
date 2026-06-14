@@ -1,5 +1,7 @@
 # 📊 EduPulse SMT Pricing & Feature Matrix
 
+> Historical strategy document: where example figures or funnel copy differ from current runtime pricing, the source of truth is `backend/subscription_features.py`, `PRICING_TABLE.txt`, and the active finance/product documentation.
+
 ## Subscription Plan Overview
 
 ### Tier Hierarchy
@@ -108,8 +110,8 @@ Everything in Basic, plus:
 
 **🤖 AI & Predictive Intelligence**
 - ✅ Rescue Activity Center for at-risk learner follow-up
-- ✅ Academic Guidance panel with shared chief examiner insights
-- ✅ Exam Intelligence workflows for subject trends and external exam support
+- ✅ Academic Guidance panel for diagnostic hotspots and pathway signals
+- ✅ Exam Intelligence workflows for subject trends and academic support
 - ✅ AI-Generated Narratives for student reports
 - ✅ Predictive Risk Scoring (0-100 scale)
 - ✅ Correlation: Academic performance + Financial payment consistency

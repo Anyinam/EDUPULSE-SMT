@@ -85,17 +85,22 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - Lower Premium add-on pricing for future workers can still reflect the fact that Premium already bundles adjacent analytics and governance value.
 
 ### Current vs Planned Boundaries
-- Current: school-managed admissions, public parent admission application, document upload, AI completeness checks, online-vs-school-visit admission routing, family-facing payment/status pages, stable payment identity plus structured reference parsing, optional Paystack fee-route DVAs where configured, staff-controlled approval workflows, Student Rescue Agent, and audited finance operations.
+- Current: school-managed admissions, public parent admission application, document upload, AI completeness checks, online-vs-school-visit admission routing, family-facing payment/status pages, stable payment identity plus structured reference parsing, configurable phone-payment convenience fees, staff-controlled approval workflows, Student Rescue Agent, and audited finance operations.
 - Current admissions decisioning includes status-page feedback, email updates, correction resubmission, and optional approval-only PDF delivery when a school enables it.
 - Next build: AI Bursar exception queues, richer parent balance/status visibility, and more automated admissions extraction/scoring.
 - Future only: fully autonomous admission approval, multilingual voice bots, predictive dropout automation, and pure outcome-based billing for AI employees.
 
 ### Payment Architecture Direction
-- Current implementation can support one Paystack dedicated virtual route per fee type when configured by the school.
-- This works, but it is documented as an optional operating model rather than the long-term default for every school.
 - The recommended product default is one stable student or family payment identity, with structured references to categorize tuition, feeding, transport, uniforms, admission, and other fee types across bank app, USSD, and manual fallback channels.
-- Fee-route DVAs should be treated as an optional convenience layer, not the main categorization model.
+- Legacy Paystack route or DVA records may still exist in historical data, but new route setup is retired and the product should be treated as reference-first.
 - Shortcode and low-literacy payment paths remain strategically important and should not be removed.
+
+### Recent Workflow Updates
+- Feeding fee instructions can now be configured as separate daily, weekly, and monthly plans per school.
+- Parent payment instructions emit structured feeding references in the format `STUDENT_IDENTIFIER-FEED-DAY`, `STUDENT_IDENTIFIER-FEED-WEK`, and `STUDENT_IDENTIFIER-FEED-MON`.
+- The student identifier in those references is the learner's stable school identifier, typically the student code used throughout EduPulse.
+- Proprietor compliance work now lives in a dedicated School Verification tab instead of being buried inside the main dashboard.
+- Inventory payment entry for proprietors and inventory managers now supports typed student identifiers with live learner-name lookup instead of requiring a full student dropdown search.
 
 ## 🧩 API Highlights (Recent)
 - `GET /api/proprietor/student-rescue-agent`
@@ -112,8 +117,6 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - `POST /api/public/schools/<school_id>/admissions/status/<status_token>/resubmit`
 - `GET /api/admissions/applications`
 - `POST /api/admissions/applications/<application_id>/review`
-- `GET /api/proprietor/paystack/subaccounts`
-- `POST /api/proprietor/paystack/subaccounts/create`
 - `GET /api/school/subscription/billing-visibility`
 - `POST /api/school/subscription/meter/sync`
 - `GET /api/school/subscription/trial/status`
@@ -133,6 +136,8 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - `POST /api/platform/compliance/schools/<school_id>/decision`
 - `GET /api/platform/compliance/aml-flags`
 - `POST /api/platform/compliance/aml-flags/<flag_id>/resolve`
+
+Legacy or retired payment-management endpoints are intentionally omitted here. Historical Paystack route-management endpoints have been removed from the active API and are retained only as backward-compatibility context in older records and docs.
 
 ## 🛡️ KYB Provider Configuration
 
@@ -275,10 +280,10 @@ docker compose up --build
 - `docs/operations/internal/FOUNDER_IP_AND_CONFIDENTIALITY_CHECKLIST.md`
 - `docs/operations/internal/CONTRIBUTOR_IP_ASSIGNMENT_TEMPLATE.md`
 - `docs/operations/internal/CONFIDENTIALITY_NDA_TEMPLATE.md`
-- `BUSINESS_PROCESS_MODEL.md`
-- `PAYSTACK_SUBACCOUNT_GUIDE.md`
-- `PAYMENT_REFERENCE_FORMAT.md`
-- `PARENT_ADMISSIONS_WORKFLOW.md`
+- `docs/strategy/BUSINESS_PROCESS_MODEL.md`
+- `docs/finance/LEGACY_PAYSTACK_ROUTE_METADATA_GUIDE.md`
+- `docs/finance/PAYMENT_REFERENCE_FORMAT.md`
+- `docs/academics/PARENT_ADMISSIONS_WORKFLOW.md`
 - `docs/operations/internal/STANDARD_OPERATING_PROCEDURES.md`
 - `docs/operations/internal/ONBOARDING_CHECKLIST.md`
 - `docs/operations/internal/ONBOARDING_CHECKLIST_TEMPLATE.md`
@@ -301,7 +306,7 @@ docker compose up --build
 - `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET_SAMPLE.md`
 - `docs/operations/README.md`
 - `BPM_QUICK_REFERENCE.txt`
-- `STUDENT_RESCUE_AGENT.md`
-- `PAYMENT_INTEGRATION.md`
-- `SUBSCRIPTION_FEATURES.md`
-- `REPORT_BUILDER_GUIDE.md`
+- `docs/ai/STUDENT_RESCUE_AGENT.md`
+- `docs/finance/PAYMENT_INTEGRATION.md`
+- `docs/finance/SUBSCRIPTION_FEATURES.md`
+- `docs/academics/REPORT_BUILDER_GUIDE.md`

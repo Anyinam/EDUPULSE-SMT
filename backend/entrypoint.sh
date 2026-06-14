@@ -10,6 +10,12 @@ DB_PORT=${DATABASE_PORT:-5432}
 DB_USER=${POSTGRES_USER:-edupulse_user}
 DB_PASSWORD=${POSTGRES_PASSWORD:-try123}
 DB_NAME=${POSTGRES_DB:-edupulse_db}
+APP_ROLE=${APP_ROLE:-web}
+RUN_DB_MIGRATIONS=${RUN_DB_MIGRATIONS:-false}
+SEED_DEMO_DATA=${SEED_DEMO_DATA:-false}
+GUNICORN_WORKERS=${GUNICORN_WORKERS:-4}
+
+export DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME APP_ROLE RUN_DB_MIGRATIONS SEED_DEMO_DATA GUNICORN_WORKERS
 
 # Wait for PostgreSQL using Python (more reliable in containers)
 python << 'WAIT_SCRIPT'
@@ -18,8 +24,8 @@ import sys
 import psycopg2
 import time
 
-host = os.getenv('DB_HOST', 'db')
-port = int(os.getenv('DB_PORT', '5432'))
+host = os.getenv('DB_HOST') or os.getenv('DATABASE_HOST', 'db')
+port = int(os.getenv('DB_PORT') or os.getenv('DATABASE_PORT', '5432'))
 user = os.getenv('POSTGRES_USER', 'edupulse_user')
 password = os.getenv('POSTGRES_PASSWORD', 'try123')
 
@@ -47,36 +53,52 @@ while retry_count < max_retries:
         time.sleep(2)
 WAIT_SCRIPT
 
-# Run Flask database initialization
-echo "🔧 Initializing database schema..."
-python << 'EOF'
-import os
-os.environ['FLASK_APP'] = 'backend.api.api'
-os.environ['FLASK_ENV'] = os.getenv('FLASK_ENV', 'production')
+if [ "$RUN_DB_MIGRATIONS" = "true" ]; then
+    echo "🗂️  Running Alembic migrations..."
+    alembic upgrade head
+else
+    echo "⏭️  Skipping automatic migrations (RUN_DB_MIGRATIONS=false)"
+fi
 
-from backend.api.api import app
-from backend.api.models import db
+if [ "$APP_ROLE" = "migrate" ]; then
+    echo "✅ Migration task completed"
+    exit 0
+fi
 
-with app.app_context():
-    print("  Creating tables from models...")
-    try:
-        db.create_all()
-        print("  ✅ Database schema created!")
-    except Exception as e:
-        print(f"  ⚠️  Error creating tables: {e}")
-        print("  (This may be OK if tables already exist)")
-EOF
-
-# Run seed data if demo mode
-if [ "${DEMO_MODE:-true}" = "true" ]; then
-  echo "🌱 Seeding demo data..."
-  python backend/seed.py || echo "  ⚠️  Seed script not available or already seeded"
+if [ "$SEED_DEMO_DATA" = "true" ]; then
+    echo "🌱 Seeding demo data..."
+    python backend/seed.py || echo "  ⚠️  Seed script not available or already seeded"
+else
+    echo "⏭️  Demo seeding disabled"
 fi
 
 echo "🎉 Backend initialization complete!"
+
+if [ "$APP_ROLE" = "scheduler" ]; then
+    export ENABLE_SCHEDULER=true
+    echo "🕒 Starting dedicated scheduler process..."
+    exec python <<'EOF'
+import signal
+import time
+
+from backend.api.api import app
+
+def _shutdown(_signum, _frame):
+        raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, _shutdown)
+signal.signal(signal.SIGINT, _shutdown)
+
+with app.app_context():
+        while True:
+                time.sleep(60)
+EOF
+fi
+
+export ENABLE_SCHEDULER=${ENABLE_SCHEDULER:-false}
 echo "🌐 Starting Flask application on 0.0.0.0:5000..."
 
 # Start Flask app with gunicorn
 # Inside Docker, bind to 0.0.0.0 to allow inter-container communication
 # Host access is controlled by docker-compose port mapping
-exec gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 "backend.api.api:app"
+exec gunicorn --bind 0.0.0.0:5000 --workers "$GUNICORN_WORKERS" --timeout 120 "backend.api.api:app"

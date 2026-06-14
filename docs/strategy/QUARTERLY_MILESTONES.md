@@ -1,5 +1,7 @@
 # 📊 EduPulse SMT Quarterly Milestones (2026-2027)
 
+> Historical planning document: milestone revenue examples may reflect earlier commercial assumptions. Use current finance and subscription docs for live pricing, trial, and billing behavior.
+
 ## 🎯 Product Roadmap Overview
 
 EduPulse SMT will scale from pilot launch → early adopter acquisition → feature maturation → vertical expansion (SHS) → geographic expansion (Nigeria) over 18 months.

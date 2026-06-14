@@ -1,10 +1,14 @@
 import React from 'react';
 import PremiumFeatureNotice from '../components/PremiumFeatureNotice';
 import StudentRescueAgent from '../components/StudentRescueAgent';
+import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
 export default function RescueActivityCenter({ endpointBase = '/api/proprietor/student-rescue-agent' }) {
-  const currentPlan = localStorage.getItem('subscription_plan') || 'Free Tier';
-  const canAccessRescueActivity = currentPlan === 'Premium';
+  const { isPremium: canAccessRescueActivity, loading: planLoading } = useEffectiveSubscriptionPlan();
+
+  if (planLoading) {
+    return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Checking plan access...</div>;
+  }
 
   if (!canAccessRescueActivity) {
     return (

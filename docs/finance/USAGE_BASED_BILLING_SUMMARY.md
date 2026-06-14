@@ -153,21 +153,21 @@ This document provides a complete overview of the Metronome-inspired usage-based
 ```
 
 ### 4. POST /school/subscription/trial/activate
-**Purpose:** Start Premium trial (one-time offer)  
+**Purpose:** Start Premium trial for the current term window (one-time offer)  
 **Auth:** JWT + School ID  
 **Role:** Proprietor  
-**Request:**
-```json
-{
-  "days": 30  // 7, 14, or 30
-}
-```
+**Request:** `{}` (empty body)
 **Response:**
 ```json
 {
-  "message": "Premium trial activated",
-  "end_date": "2026-04-06",
-  "plan": "Premium"
+  "message": "Premium trial activated for the current term window",
+  "trial_plan": "Premium",
+  "trial_start_date": "2026-05-07",
+  "trial_end_date": "2026-09-03T23:59:59+00:00",
+  "trial_mode": "term",
+  "term_name": "Term 3",
+  "academic_year": "2025/2026",
+  "reference_source": "national_basic_default"
 }
 ```
 
@@ -247,7 +247,7 @@ SubscriptionManager.jsx
 
 2. **TrialManager.jsx** (257 lines)
    - Trial activation interface
-   - Duration selector (7/14/30 days)
+  - Term-window activation flow
    - Active trial countdown
    - End trial early option
 
@@ -546,7 +546,7 @@ def lock_pricing_version(school_id, version):
    - **Red 🚨**: You're over capacity, overage charges apply
 
 3. **Premium Trial**
-   - One-time offer for 30 days of Premium features
+  - One-time offer for the remainder of the current term window
    - No credit card required
    - Automatic revert to base plan when expired
 

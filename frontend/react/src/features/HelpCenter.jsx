@@ -12,6 +12,10 @@ const DEFAULT_HELP_CONTENT = {
       answer: 'Homeroom submits, Headmaster reviews, and Proprietor gives final approval based on workflow.',
     },
     {
+      question: 'Do diagnostic mock strands appear on terminal reports?',
+      answer: 'Yes. When a teacher adds diagnostic strands in Report Builder, they appear in a separate Diagnostic Strand Insights section on terminal reports and also support SHS pathway guidance.',
+    },
+    {
       question: 'How do I reset my password?',
       answer: 'Use Forgot Password on the login page, then verify your email reset link.',
     },
@@ -25,6 +29,10 @@ const DEFAULT_HELP_CONTENT = {
     {
       title: 'Staff & HR Setup',
       body: 'Create teacher, homeroom, headmaster, finance, and inventory accounts from Staff & HR.',
+    },
+    {
+      title: 'Terminal Reports & Diagnostics',
+      body: 'Homeroom teachers can add optional diagnostic strand scores in Report Builder. Weak strands are highlighted on the printed terminal report and help shape academic guidance.',
     },
   ],
   security_alerts: [],

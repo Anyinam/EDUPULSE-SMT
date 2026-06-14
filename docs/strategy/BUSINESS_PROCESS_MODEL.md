@@ -1,5 +1,7 @@
 # 🏢 EduPulse SMT Business Process Model
 
+> Historical strategy document: some commercial examples in this file reflect earlier planning assumptions. For current operational pricing, trial behavior, and payment-model details, use `backend/subscription_features.py`, `PRICING_TABLE.txt`, and the finance docs as the source of truth.
+
 ## Executive Overview
 
 EduPulse SMT operates a **Freemium SaaS** model with three pricing tiers designed to drive conversion and retention through feature throttling and capacity limits.
@@ -28,9 +30,9 @@ Current implementation:
 - school-managed admissions and bulk student onboarding
 - parent-facing admissions application and status tracking
 - school-side admissions review workflows
-- parent payment instructions with stable payment identity, structured reference parsing, and optional Paystack fee-route DVAs
+- parent payment instructions with stable payment identity, structured reference parsing, and configurable phone-payment convenience fees
 - report-card parsing and academic trend intelligence
-- shared chief examiner insight library, academic guidance, and exam intelligence workflows
+- academic guidance and exam intelligence workflows
 - Student Rescue Agent for intervention workflows
 
 Planned near-term expansion:
@@ -235,7 +237,7 @@ CONVERSION OPTIONS:
 ```
 Basic Plan User Sees:
 ├─ "🔒 Rescue Activity Center (Premium Feature)"
-├─ "🔒 Academic Guidance & Chief Examiner Insights"
+├─ "🔒 Academic Guidance"
 ├─ "🔒 Exam Intelligence"
 ├─ "🔒 Automated Payment Processing"
 └─ Dashboard banners: "Unlock Premium governance and intelligence"

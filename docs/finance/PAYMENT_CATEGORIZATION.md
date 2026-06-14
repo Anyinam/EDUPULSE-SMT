@@ -19,7 +19,7 @@ Payment providers (MoMo, Bank) don't care about your internal business logic. Th
 Recommended stance:
 - use one stable learner or family payment identity as the default parent instruction
 - encode payment purpose in the structured reference
-- treat fee-route virtual accounts as optional convenience rails, not the main categorization model
+- treat legacy Paystack route metadata as historical compatibility data, not an active setup requirement
 
 ---
 

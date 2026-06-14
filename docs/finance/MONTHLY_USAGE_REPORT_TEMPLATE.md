@@ -253,7 +253,7 @@
                                             ⚡ Premium Trial Active
                                         </h3>
                                         <p style="margin: 0; color: #581c87; font-size: 14px; line-height: 1.5;">
-                                            You have <strong>{{trial_days_remaining}} days</strong> remaining in your Premium trial. 
+                                            You have <strong>{{trial_days_remaining}} days</strong> remaining in your current-term Premium trial. 
                                             Expires on <strong>{{trial_end_date}}</strong>.
                                         </p>
                                         {{#if trial_expiring_soon}}
@@ -427,7 +427,7 @@ Estimated Cost: GH₵ {{projected_cost}}
 ⚡ PREMIUM TRIAL ACTIVE
 -------------------------------------------------------------------
 
-You have {{trial_days_remaining}} days remaining in your Premium trial.
+You have {{trial_days_remaining}} days remaining in your current-term Premium trial.
 Expires on {{trial_end_date}}.
 
 {{#if trial_expiring_soon}}

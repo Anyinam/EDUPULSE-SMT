@@ -1,7 +1,7 @@
 # EduPulse SMT Professional Pitch (Investor / Strategic Partner / Enterprise Buyer)
 
 ## 1) Executive Summary (30-Second Version)
-EduPulse SMT is a multi-tenant school operations, academic-intelligence, and revenue-governance platform built for Ghanaian schools. We solve three mission-critical problems: **academic execution risk**, **fee-revenue leakage**, and **weak school decision visibility**. Our monetization engine combines subscription plans with active-student metering, proactive billing visibility, and self-service controls while the product layer adds parent admissions, academic guidance, report-card intelligence, and exam insight workflows that improve school resilience and learner support.
+EduPulse SMT is a multi-tenant school operations, academic-intelligence, and revenue-governance platform built for Ghanaian schools. We solve three mission-critical problems: **academic execution risk**, **fee-revenue leakage**, and **weak school decision visibility**. Our monetization engine combines subscription plans with active-student metering, proactive billing visibility, and self-service controls while the product layer adds parent admissions, academic guidance, report-card intelligence, and intervention workflows that improve school resilience and learner support.
 
 ---
 
@@ -20,7 +20,7 @@ EduPulse SMT provides one integrated control layer for school execution:
 - **Academic Operations**: attendance, grade entry, report workflows, staged approvals.
 - **Revenue Integrity**: payment capture, reconciliation, finance dashboards, audit trails.
 - **Parent and Admissions Workflows**: parent-facing admissions intake, status tracking, and school-controlled follow-up.
-- **Academic Intelligence**: report-card parsing, chief examiner insight libraries, academic guidance, and intervention workflows.
+- **Academic Intelligence**: report-card parsing, academic guidance, and intervention workflows.
 - **Subscription Intelligence**: active-student meter, threshold alerts, overage transparency.
 - **Control Layer**: premium trial, pricing lock, price cap, and on-demand usage reporting.
 - **Governance Signals**: AI-assisted insight surfaces and proprietor oversight feed.
@@ -67,7 +67,7 @@ Positioning: start with schools where payment and reporting friction is acute, t
 - Better fee tracking and reconciliation support school continuity and reduce operational shocks.
 - Rescue and academic-guidance workflows help schools identify struggling learners earlier.
 - Parent-facing admissions and payment workflows reduce friction for families.
-- Chief examiner insight libraries make high-value exam feedback more accessible across schools.
+- Academic-guidance workflows help schools act on recurring weak spots and improvement signals earlier.
 
 ### SDG Alignment
 - **SDG 4: Quality Education** through earlier intervention, stronger reporting, and better use of academic evidence.

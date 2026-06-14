@@ -153,29 +153,34 @@ function PaymentInstructions({ payload, loading, error }) {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-3xl border border-slate-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Plan</p>
+                <p className="mt-2 text-lg font-semibold text-slate-900">{item.payment_category?.frequency || item.fee_type}</p>
+              </div>
+
               <div className="rounded-3xl border border-slate-200 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Learner Code</p>
                 <p className="mt-2 text-lg font-semibold text-slate-900">{item.payment_identity_base}</p>
               </div>
 
               <div className="rounded-3xl border border-slate-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Virtual Account</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{item.virtual_bank_account || 'Use reference payment'}</p>
-                <p className="mt-1 text-sm text-slate-500">{item.virtual_bank_name || 'Bank app or branch narration'}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Payment Reference</p>
+                <p className="mt-2 text-lg font-semibold text-slate-900">{item.reference_code}</p>
+                <p className="mt-1 text-sm text-slate-500">Use this exact reference in the payment narration.</p>
               </div>
 
               <div className="rounded-3xl border border-slate-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Shortcode</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{item.momo_shortcode || 'Ask school office'}</p>
-                <p className="mt-1 text-sm text-slate-500">USSD or MoMo supported where configured</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Digital Channel</p>
+                <p className="mt-2 text-lg font-semibold text-slate-900">Phone Payment</p>
+                <p className="mt-1 text-sm text-slate-500">Bank app, card, USSD, or the school's approved phone channel.</p>
               </div>
 
               <div className="rounded-3xl border border-slate-200 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Collection Model</p>
                 <p className="mt-2 text-lg font-semibold text-slate-900">{item.preferred_payment_model || 'reference_first'}</p>
                 <p className="mt-1 text-sm text-slate-500">
-                  {item.has_virtual_route ? 'Dedicated fee route available' : 'Reference-based reconciliation'}
+                  Phone payments include the convenience fee; school office cash stays at the base amount.
                 </p>
               </div>
             </div>

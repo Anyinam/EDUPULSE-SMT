@@ -64,6 +64,7 @@ Implemented a complete **Manual Report Card Entry System** that allows homeroom 
      - Grade (auto-assigned A-F)
      - Remarks
    - Add/Remove subject rows dynamically
+  - Optional diagnostic strands per subject for topic-level mock sub-scores
    - Performance summary fields:
      - Overall position
      - Out of X students
@@ -91,9 +92,10 @@ Implemented a complete **Manual Report Card Entry System** that allows homeroom 
 3. Clicks student name in sidebar
 4. Enters subject grades (class scores, exam scores)
 5. Fills in overall position, attendance, remarks
-6. Saves draft (can return later to edit)
-7. When complete, submits for approval
-8. Headmaster reviews and approves/rejects
+6. Optionally adds diagnostic strands for weak-topic tracking and pathway guidance
+7. Saves draft (can return later to edit)
+8. When complete, submits for approval
+9. Headmaster reviews and approves/rejects
 ```
 
 ### Workflow 2: Subject Teacher Grade Submission
@@ -177,6 +179,13 @@ Implemented a complete **Manual Report Card Entry System** that allows homeroom 
   - 0-39: F
 - **Term Average**: `(sum of all subject totals) / (number of subjects × 100) × 100`
 
+### Diagnostic Strands
+- Each subject row can include optional `diagnostic_topics`
+- Each topic stores `topic`, `score`, and `max_score`
+- These topic-level scores are persisted with `subject_grades`
+- Terminal report print/review surfaces render them in a separate `Diagnostic Strand Insights` section
+- Weak strands are shown by default when the topic score is $\le 55\%$ of the topic maximum, while stronger strands remain expandable in on-screen review views
+
 ### Validation
 - Class score: 0-30 range enforced
 - Exam score: 0-70 range enforced
@@ -243,7 +252,7 @@ curl -X POST http://localhost:5000/api/homeroom/report-builder/report \
     "academic_term": "Term 1",
     "academic_year": "2024/2025",
     "subject_grades": [
-      {"subject": "Mathematics", "class_score": 25, "exam_score": 65, "total": 90, "position": "1st", "grade": "A", "remarks": "Excellent"}
+      {"subject": "Mathematics", "class_score": 25, "exam_score": 65, "total": 90, "position": "1st", "grade": "A", "remarks": "Excellent", "diagnostic_topics": [{"topic": "Geometry", "score": 6, "max_score": 15}]}
     ],
     "overall_position": "3rd",
     "out_of_students": 40,
@@ -262,7 +271,8 @@ curl -X POST http://localhost:5000/api/homeroom/report-builder/report \
 - [ ] Multi-template support per school
 
 ### Phase 3 (Print/Export)
-- [ ] Print report card with tenant branding
+- [x] Print report card with tenant branding
+- [x] Render diagnostic strand insights on printable reports when present
 - [ ] PDF export with digital signature
 - [ ] Bulk print for entire class
 - [ ] Parent portal view (read-only)

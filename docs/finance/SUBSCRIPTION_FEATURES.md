@@ -21,7 +21,7 @@ EduPulse SMT offers three subscription tiers, each with specific features and re
 | **Payment Tracking** | Not Available ❌ | Basic Tracking ✅ | Full Reconciliation ✅ |
 | **Advanced Analytics** | Not Available ❌ | Not Available ❌ | Full Dashboard ✅ |
 | **Custom HTML Templates** | Not Available ❌ | Not Available ❌ | Upload & Use ✅ |
-| **Price** | Free | ₵50/month | ₵250/month |
+| **Price** | Free | Starts at ₵360/term | Starts at ₵750/term |
 
 ---
 
@@ -210,12 +210,12 @@ EduPulse SMT offers three subscription tiers, each with specific features and re
 | Tier | Price | Billing |
 |------|-------|---------|
 | Free Tier | Free | - |
-| Basic | ₵50 | Per Month |
-| Premium | ₵250 | Per Month |
+| Basic | ₵360 base + ₵12/student above 30 | Per Term |
+| Premium | ₵750 base + ₵22/student above 30 | Per Term |
 
 ### Trial Access
-- **Enterprise**: Ask for custom trial period
-- **Basic**: Can request 30-day trial access to evaluate features
+- **Enterprise**: Ask for a custom evaluation arrangement where approved
+- **Eligible schools**: One-time Premium trial runs for the remainder of the current term window, using the school's active term first and falling back to the EduPulse national basic-school calendar when needed
 
 ---
 

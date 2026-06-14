@@ -63,6 +63,15 @@ def client(app):
         proprietor.set_password("PropPass123")
         db.session.add(proprietor)
 
+        inventory_manager = User(
+            username="store1",
+            school_id="TEST-001",
+            role="inventory_manager",
+            email="store@test.edu",
+        )
+        inventory_manager.set_password("StorePass123")
+        db.session.add(inventory_manager)
+
         # Create test students
         for i in range(3):
             student = Student(
@@ -497,6 +506,109 @@ class TestPaymentEndpoints:
             data = json.loads(response.data)
             assert "recorded" in data["message"]
 
+    def test_explicit_feeding_plan_codes_and_structured_reference_payment(self, client, app):
+        """Configured feeding plans should emit plan-specific references that manual payment recording can resolve."""
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import Student, User
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            headers = {"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"}
+
+            fees_response = client.post(
+                "/api/school/fees",
+                json={
+                    "tuition_fee": 0,
+                    "feeding_daily_fee": 5.0,
+                    "feeding_weekly_fee": 25.0,
+                    "feeding_monthly_fee": 80.0,
+                    "transport_fee": 0,
+                    "terminal_report_fee": 0,
+                    "other_fees": {},
+                },
+                headers=headers,
+            )
+            assert fees_response.status_code == 200
+
+            codes_response = client.get(
+                f"/api/students/{student.id}/payment-codes",
+                headers=headers,
+            )
+            assert codes_response.status_code == 200
+
+            payload = json.loads(codes_response.data)
+            feeding_refs = {
+                item["reference_code"]
+                for item in payload["payment_codes"]
+                if item["fee_type"].startswith("Feeding")
+            }
+            assert f"{student.student_code}-FEED-DAY" in feeding_refs
+            assert f"{student.student_code}-FEED-WEK" in feeding_refs
+            assert f"{student.student_code}-FEED-MON" in feeding_refs
+
+            payment_response = client.post(
+                "/api/finance/receive-payment",
+                json={
+                    "reference_code": f"{student.student_code}-FEED-MON",
+                    "amount": 80.0,
+                    "method": "Cash",
+                },
+                headers=headers,
+            )
+            assert payment_response.status_code == 200
+            data = json.loads(payment_response.data)
+            assert "recorded" in data["message"]
+
+    def test_receive_inventory_payment_by_student_code(self, client, app):
+        """Inventory payments should accept a typed student code instead of requiring a dropdown-loaded student id."""
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import Inventory, Student, User, db
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            inventory_item = Inventory(
+                school_id="TEST-001",
+                item_name="School Uniform",
+                category="Uniform",
+                item_type="Top Only",
+                size="M",
+                sku="UNIFORM-TOP-M",
+                quantity=10,
+                price=85.0,
+            )
+            db.session.add(inventory_item)
+            db.session.commit()
+
+            token = create_access_token(identity=str(proprietor.id))
+
+            response = client.post(
+                "/api/finance/receive-payment",
+                json={
+                    "student_code": student.student_code,
+                    "amount": 85.0,
+                    "type": "Inventory",
+                    "method": "Cash",
+                    "payment_category": {
+                        "item_id": inventory_item.id,
+                        "item_name": inventory_item.item_name,
+                        "item_type": inventory_item.item_type,
+                        "size": inventory_item.size,
+                        "sku": inventory_item.sku,
+                        "quantity": 1,
+                    },
+                },
+                headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert "recorded" in data["message"]
+
     def test_receive_payment_invalid_amount(self, client, app):
         """Test payment with invalid amount."""
         with app.app_context():
@@ -521,6 +633,31 @@ class TestPaymentEndpoints:
 
             # Should be rejected by validation or database constraint
             assert response.status_code in [400, 500]
+
+
+class TestStudentSearchEndpoints:
+    """Test student lookup helpers used by typed-ID workflows."""
+
+    def test_inventory_manager_can_lookup_student_by_numeric_id(self, client, app):
+        """Inventory managers should be able to resolve a typed student ID into a learner record."""
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import Student, User
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            inventory_manager = User.query.filter_by(username="store1").first()
+            token = create_access_token(identity=str(inventory_manager.id))
+
+            response = client.get(
+                f"/api/students/search?q={student.id}",
+                headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["students"]
+            assert any(item["id"] == student.id for item in data["students"])
 
 
 class TestSchoolVerificationEndpoints:

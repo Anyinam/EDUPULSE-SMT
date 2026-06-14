@@ -4,9 +4,10 @@ import axios from 'axios';
 export default function InventoryManager() {
   const [items, setItems] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [students, setStudents] = useState([]);
+  const [saleStatus, setSaleStatus] = useState({ type: '', message: '' });
+  const [studentLookup, setStudentLookup] = useState({ loading: false, student: null, error: '' });
   const [saleForm, setSaleForm] = useState({
-    student_id: '',
+    student_identifier: '',
     inventory_item_id: '',
     quantity: 1,
     method: 'Cash'
@@ -51,17 +52,45 @@ export default function InventoryManager() {
     setTransactions(Array.isArray(res.data) ? res.data : []);
   };
 
-  const fetchStudents = async () => {
-    const res = await axios.get('/api/students', { headers });
-    const list = Array.isArray(res.data) ? res.data : res.data?.students || [];
-    setStudents(list);
-  };
-
   useEffect(() => {
     fetchInventory();
     fetchTransactions();
-    fetchStudents();
   }, []);
+
+  useEffect(() => {
+    const identifier = saleForm.student_identifier.trim();
+    if (!identifier) {
+      setStudentLookup({ loading: false, student: null, error: '' });
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      setStudentLookup((current) => ({ ...current, loading: true, error: '' }));
+      try {
+        const res = await axios.get(`/api/students/search?q=${encodeURIComponent(identifier)}`, { headers });
+        const students = Array.isArray(res.data?.students) ? res.data.students : [];
+        const normalizedIdentifier = identifier.toUpperCase();
+        const matchedStudent = students.find((student) => (
+          String(student.id) === identifier ||
+          String(student.student_code || '').toUpperCase() === normalizedIdentifier
+        ));
+
+        if (matchedStudent) {
+          setStudentLookup({ loading: false, student: matchedStudent, error: '' });
+        } else {
+          setStudentLookup({ loading: false, student: null, error: 'Student ID not found.' });
+        }
+      } catch (err) {
+        setStudentLookup({
+          loading: false,
+          student: null,
+          error: err.response?.data?.message || 'Unable to verify student ID.'
+        });
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [saleForm.student_identifier]);
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -159,8 +188,13 @@ export default function InventoryManager() {
 
   const handleRecordSale = async (e) => {
     e.preventDefault();
-    if (!saleForm.student_id || !selectedSaleItem) {
-      alert('Select student and inventory item.');
+    setSaleStatus({ type: '', message: '' });
+    if (!saleForm.student_identifier.trim() || !selectedSaleItem) {
+      setSaleStatus({ type: 'error', message: 'Enter the student ID and select an inventory item.' });
+      return;
+    }
+    if (!studentLookup.student) {
+      setSaleStatus({ type: 'error', message: 'Enter a valid student ID before recording payment.' });
       return;
     }
 
@@ -174,18 +208,26 @@ export default function InventoryManager() {
       quantity: Number(saleForm.quantity || 1)
     };
 
-    await axios.post('/api/finance/receive-payment', {
-      student_id: saleForm.student_id,
-      amount,
-      type: 'Inventory',
-      method: saleForm.method,
-      payment_category
-    }, { headers });
+    try {
+      const response = await axios.post('/api/finance/receive-payment', {
+        student_identifier: saleForm.student_identifier.trim(),
+        amount,
+        type: 'Inventory',
+        method: saleForm.method,
+        payment_category
+      }, { headers });
 
-    alert('Inventory payment recorded.');
-    setSaleForm({ student_id: '', inventory_item_id: '', quantity: 1, method: 'Cash' });
-    fetchInventory();
-    fetchTransactions();
+      setSaleStatus({ type: 'success', message: response.data?.message || 'Inventory payment recorded.' });
+      setSaleForm({ student_identifier: '', inventory_item_id: '', quantity: 1, method: 'Cash' });
+      setStudentLookup({ loading: false, student: null, error: '' });
+      fetchInventory();
+      fetchTransactions();
+    } catch (err) {
+      setSaleStatus({
+        type: 'error',
+        message: err.response?.data?.message || 'Failed to record inventory payment.'
+      });
+    }
   };
 
   return (
@@ -243,17 +285,16 @@ export default function InventoryManager() {
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
         <h3 className="text-lg font-bold text-slate-800 mb-4">Record Inventory Payment</h3>
         <form onSubmit={handleRecordSale} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <select
+          <input
             className="p-3 border rounded-xl"
-            value={saleForm.student_id}
-            onChange={e => setSaleForm({ ...saleForm, student_id: e.target.value })}
+            value={saleForm.student_identifier}
+            onChange={e => {
+              setSaleForm({ ...saleForm, student_identifier: e.target.value });
+              setSaleStatus({ type: '', message: '' });
+            }}
+            placeholder="Enter Student ID"
             required
-          >
-            <option value="">Select Student</option>
-            {students.map(s => (
-              <option key={s.id} value={s.id}>{s.name} ({s.student_code || s.current_class || 'N/A'})</option>
-            ))}
-          </select>
+          />
           <select
             className="p-3 border rounded-xl"
             value={saleForm.inventory_item_id}
@@ -283,9 +324,28 @@ export default function InventoryManager() {
 
             <option value="Bank">Bank</option>
           </select>
+          <div className="md:col-span-4 text-xs text-slate-500">
+            Enter the student&apos;s ID directly. No student list search is required.
+          </div>
+          <div className="md:col-span-4 text-sm">
+            {studentLookup.loading ? (
+              <span className="text-slate-500">Looking up student...</span>
+            ) : studentLookup.student ? (
+              <span className="font-semibold text-emerald-700">
+                Student: {studentLookup.student.name} ({studentLookup.student.student_code || studentLookup.student.id})
+              </span>
+            ) : studentLookup.error ? (
+              <span className="font-semibold text-red-600">{studentLookup.error}</span>
+            ) : null}
+          </div>
           {selectedSaleItem && (
             <div className="md:col-span-4 text-xs text-slate-600">
               Amount: GH₵ {(Number(selectedSaleItem.price || 0) * Number(saleForm.quantity || 1)).toFixed(2)}
+            </div>
+          )}
+          {saleStatus.message && (
+            <div className={`md:col-span-4 text-sm font-semibold ${saleStatus.type === 'error' ? 'text-red-600' : 'text-emerald-700'}`}>
+              {saleStatus.message}
             </div>
           )}
           <button className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-green-700 md:col-span-4">Record Payment</button>

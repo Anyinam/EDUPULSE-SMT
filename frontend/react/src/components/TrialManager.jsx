@@ -6,7 +6,6 @@ export default function TrialManager() {
   const [trialStatus, setTrialStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-  const [trialDays, setTrialDays] = useState(30);
 
   const fetchTrialStatus = async () => {
     try {
@@ -24,7 +23,7 @@ export default function TrialManager() {
   };
 
   const handleActivateTrial = async () => {
-    if (!window.confirm(`Activate ${trialDays}-day Premium trial?\n\nYou will gain access to:\n• Unlimited students & classes\n• AI-powered features\n• Custom templates\n• Priority support\n\nThis is a one-time offer.`)) {
+    if (!window.confirm('Activate Premium trial for the current term window?\n\nYou will gain access to:\n• Unlimited students & classes\n• AI-powered features\n• Custom templates\n• Priority support\n\nThis is a one-time offer and runs until the end of the current school term or EduPulse national basic-school term window.')) {
       return;
     }
 
@@ -34,7 +33,7 @@ export default function TrialManager() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id') 
       };
-      await axios.post('/api/school/subscription/trial/activate', { days: trialDays }, { headers });
+      await axios.post('/api/school/subscription/trial/activate', {}, { headers });
       
       // Update localStorage
       localStorage.setItem('subscription_plan', 'Premium');
@@ -125,21 +124,29 @@ export default function TrialManager() {
             
             <div className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Started:</span>
-                <span className="font-semibold text-slate-800">
-                  {new Date(trialStatus.start_date).toLocaleDateString('en-GB', { 
-                    day: 'numeric', month: 'short', year: 'numeric' 
-                  })}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Expires:</span>
+                <span className="text-slate-600">Current term access ends:</span>
                 <span className="font-semibold text-slate-800">
                   {new Date(trialStatus.end_date).toLocaleDateString('en-GB', { 
                     day: 'numeric', month: 'short', year: 'numeric' 
                   })}
                 </span>
               </div>
+              {(trialStatus.term_name || trialStatus.academic_year) && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600">Term window:</span>
+                  <span className="font-semibold text-slate-800">
+                    {[trialStatus.term_name, trialStatus.academic_year].filter(Boolean).join(' • ')}
+                  </span>
+                </div>
+              )}
+              {trialStatus.reference_source && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600">Calendar source:</span>
+                  <span className="font-semibold text-slate-800">
+                    {trialStatus.reference_source === 'school_active_term' ? 'School active term' : 'EduPulse national basic-school calendar'}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between border-t border-purple-200 pt-2 mt-2">
                 <span className="text-slate-700 font-semibold">Days Remaining:</span>
                 <span className="text-2xl font-black text-purple-600">
@@ -230,6 +237,9 @@ export default function TrialManager() {
                 <p className="text-sm text-slate-700 mb-3">
                   Experience all Premium features at no cost. No credit card required.
                 </p>
+                <p className="text-xs text-slate-500 mb-3">
+                  The trial now follows the current term window. If the school's active term is outdated, EduPulse falls back to the national basic-school term calendar.
+                </p>
                 <ul className="space-y-1.5 text-sm text-slate-600 mb-3">
                   <li className="flex items-center gap-2">
                     <CheckCircle className="text-green-500 shrink-0" size={14} />
@@ -249,23 +259,10 @@ export default function TrialManager() {
                   </li>
                 </ul>
                 <p className="text-xs text-purple-700 font-semibold">
-                  ⏰ This is a one-time offer. Trial lasts {trialDays} days.
+                  ⏰ This is a one-time offer. Trial lasts until the end of the active academic term.
                 </p>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-semibold text-slate-700">Trial Duration:</label>
-            <select
-              value={trialDays}
-              onChange={(e) => setTrialDays(parseInt(e.target.value))}
-              className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-purple-500"
-            >
-              <option value={7}>7 Days</option>
-              <option value={14}>14 Days</option>
-              <option value={30}>30 Days</option>
-            </select>
           </div>
 
           <button
@@ -281,7 +278,7 @@ export default function TrialManager() {
             ) : (
               <>
                 <Zap className="inline-block mr-2" size={18} />
-                Activate {trialDays}-Day Premium Trial
+                Activate Premium Trial For This Term
               </>
             )}
           </button>

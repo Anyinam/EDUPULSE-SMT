@@ -100,7 +100,7 @@ The school submits student, staff, or historical data for migration.
 4. Validate the file format before import.
    Check required columns, duplicate records, class naming consistency, and contact field structure.
 5. Confirm lawful-purpose scope for sensitive imports.
-   For admissions files, report-card images, WAEC or BECE results, or chief examiner materials, confirm the school is uploading only data it is authorized to use for legitimate educational purposes.
+   For admissions files, report-card images, WAEC or BECE results, confirm the school is uploading only data it is authorized to use for legitimate educational purposes.
 6. Back up the current tenant data state.
 7. Run a staging import or dry-run validation when the volume is high or the data is messy.
 8. Share import exceptions with the school for correction.

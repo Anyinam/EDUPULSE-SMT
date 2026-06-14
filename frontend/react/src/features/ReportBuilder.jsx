@@ -1021,7 +1021,7 @@ export default function ReportBuilder() {
                                   <div className="flex items-center justify-between gap-3 mb-3">
                                     <div>
                                       <p className="text-sm font-semibold text-blue-900">Diagnostic mock strands for {subject.subject || 'this subject'}</p>
-                                      <p className="text-xs text-blue-700">Optional topic sub-scores used for chief examiner guidance and SHS pathway recommendations.</p>
+                                      <p className="text-xs text-blue-700">Optional topic sub-scores used for diagnostic guidance, SHS pathway recommendations, and the diagnostic section on terminal reports.</p>
                                     </div>
                                     <button
                                       type="button"

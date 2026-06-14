@@ -9,7 +9,7 @@ EduPulse now supports automated bank transfer payment tracking using a stable le
 ✅ Real-time tuition balance updates  
 ✅ Audit logging for bank transfers  
 ✅ Support for all major Ghana banks (GCB, Ecobank, etc.)
-✅ Compatible with optional fee-route DVAs, but not dependent on them
+✅ Reference-first and not dependent on retired fee-route setup
 
 ---
 

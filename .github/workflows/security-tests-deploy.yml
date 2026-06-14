@@ -8,8 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -267,23 +266,64 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
       
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set deployment image URIs
+        run: |
+          echo "BACKEND_IMAGE=${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_ENV"
+
+      - name: Set deployment config env
+        run: |
+          echo "ECS_APP_TASK_FAMILY=${{ vars.ECS_APP_TASK_FAMILY }}" >> "$GITHUB_ENV"
+          echo "ECS_SCHEDULER_TASK_FAMILY=${{ vars.ECS_SCHEDULER_TASK_FAMILY }}" >> "$GITHUB_ENV"
+          echo "ECS_MIGRATION_TASK_FAMILY=${{ vars.ECS_MIGRATION_TASK_FAMILY }}" >> "$GITHUB_ENV"
+          echo "ECS_APP_CPU=${{ vars.ECS_APP_CPU || '1024' }}" >> "$GITHUB_ENV"
+          echo "ECS_APP_MEMORY=${{ vars.ECS_APP_MEMORY || '2048' }}" >> "$GITHUB_ENV"
+          echo "ECS_SCHEDULER_CPU=${{ vars.ECS_SCHEDULER_CPU || '512' }}" >> "$GITHUB_ENV"
+          echo "ECS_SCHEDULER_MEMORY=${{ vars.ECS_SCHEDULER_MEMORY || '1024' }}" >> "$GITHUB_ENV"
+          echo "ECS_MIGRATION_CPU=${{ vars.ECS_MIGRATION_CPU || '512' }}" >> "$GITHUB_ENV"
+          echo "ECS_MIGRATION_MEMORY=${{ vars.ECS_MIGRATION_MEMORY || '1024' }}" >> "$GITHUB_ENV"
+          echo "ECS_TASK_EXECUTION_ROLE_ARN=${{ vars.ECS_TASK_EXECUTION_ROLE_ARN }}" >> "$GITHUB_ENV"
+          echo "ECS_TASK_ROLE_ARN=${{ vars.ECS_TASK_ROLE_ARN }}" >> "$GITHUB_ENV"
+          echo "FRONTEND_ORIGIN=${{ vars.FRONTEND_ORIGIN }}" >> "$GITHUB_ENV"
+          echo "CORS_ALLOWED_ORIGINS=${{ vars.CORS_ALLOWED_ORIGINS || vars.FRONTEND_ORIGIN }}" >> "$GITHUB_ENV"
+          echo "MAIL_SERVER=${{ vars.MAIL_SERVER || 'smtp.gmail.com' }}" >> "$GITHUB_ENV"
+          echo "MAIL_PORT=${{ vars.MAIL_PORT || '587' }}" >> "$GITHUB_ENV"
+          echo "MAIL_USE_TLS=${{ vars.MAIL_USE_TLS || 'true' }}" >> "$GITHUB_ENV"
+          echo "MAIL_USERNAME=${{ vars.MAIL_USERNAME }}" >> "$GITHUB_ENV"
+          echo "MAIL_DEFAULT_SENDER=${{ vars.MAIL_DEFAULT_SENDER }}" >> "$GITHUB_ENV"
+          echo "WHATSAPP_PHONE_NUMBER_ID=${{ vars.WHATSAPP_PHONE_NUMBER_ID || '' }}" >> "$GITHUB_ENV"
+          echo "WHATSAPP_BUSINESS_ACCOUNT_ID=${{ vars.WHATSAPP_BUSINESS_ACCOUNT_ID || '' }}" >> "$GITHUB_ENV"
+          echo "PLATFORM_OWNER_KEY=${{ vars.PLATFORM_OWNER_KEY || '' }}" >> "$GITHUB_ENV"
+          echo "GUNICORN_WORKERS=${{ vars.GUNICORN_WORKERS || '4' }}" >> "$GITHUB_ENV"
+          echo "DATABASE_URL_SECRET_ARN=${{ vars.DATABASE_URL_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "SECRET_KEY_SECRET_ARN=${{ vars.SECRET_KEY_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "JWT_SECRET_KEY_SECRET_ARN=${{ vars.JWT_SECRET_KEY_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "DATA_ENCRYPTION_KEY_SECRET_ARN=${{ vars.DATA_ENCRYPTION_KEY_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "LEDGER_SECRET_KEY_SECRET_ARN=${{ vars.LEDGER_SECRET_KEY_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "BANK_WEBHOOK_SECRET_ARN=${{ vars.BANK_WEBHOOK_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "MAIL_PASSWORD_SECRET_ARN=${{ vars.MAIL_PASSWORD_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "PAYSTACK_SECRET_KEY_SECRET_ARN=${{ vars.PAYSTACK_SECRET_KEY_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "PAYSTACK_PUBLIC_KEY_SECRET_ARN=${{ vars.PAYSTACK_PUBLIC_KEY_SECRET_ARN }}" >> "$GITHUB_ENV"
+          echo "WHATSAPP_API_TOKEN_SECRET_ARN=${{ vars.WHATSAPP_API_TOKEN_SECRET_ARN || '' }}" >> "$GITHUB_ENV"
+          echo "BACKEND_LOG_GROUP=${{ vars.BACKEND_LOG_GROUP }}" >> "$GITHUB_ENV"
+          echo "FRONTEND_LOG_GROUP=${{ vars.FRONTEND_LOG_GROUP }}" >> "$GITHUB_ENV"
+          echo "SCHEDULER_LOG_GROUP=${{ vars.SCHEDULER_LOG_GROUP }}" >> "$GITHUB_ENV"
+          echo "MIGRATION_LOG_GROUP=${{ vars.MIGRATION_LOG_GROUP }}" >> "$GITHUB_ENV"
+
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:${{ github.sha }}
+            ${{ env.BACKEND_IMAGE }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_BACKEND_REPOSITORY }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -293,18 +333,51 @@ jobs:
           context: ./frontend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
+            ${{ env.FRONTEND_IMAGE }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
-      - name: Deploy to production
+      - name: Render ECS task definitions
         run: |
-          # Example AWS ECS deployment
-          aws ecs update-service \
-            --cluster edupulse-prod \
-            --service edupulse-backend \
-            --force-new-deployment
+          python infra/aws/render_task_definition.py infra/aws/ecs/app-task-definition.json.tpl infra/aws/ecs/app-task-definition.json
+          python infra/aws/render_task_definition.py infra/aws/ecs/scheduler-task-definition.json.tpl infra/aws/ecs/scheduler-task-definition.json
+          python infra/aws/render_task_definition.py infra/aws/ecs/migration-task-definition.json.tpl infra/aws/ecs/migration-task-definition.json
+
+      - name: Register migration task definition
+        id: migration-task
+        run: |
+          TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://infra/aws/ecs/migration-task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "task_def_arn=$TASK_DEF_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Run database migrations
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ vars.ECS_CLUSTER_NAME }}" \
+            --launch-type FARGATE \
+            --task-definition "${{ steps.migration-task.outputs.task_def_arn }}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.ECS_SUBNET_IDS }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP_IDS }}],assignPublicIp=ENABLED}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          aws ecs wait tasks-stopped --cluster "${{ vars.ECS_CLUSTER_NAME }}" --tasks "$TASK_ARN"
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "${{ vars.ECS_CLUSTER_NAME }}" --tasks "$TASK_ARN" --query 'tasks[0].containers[0].exitCode' --output text)
+          test "$EXIT_CODE" = "0"
+
+      - name: Deploy app task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: infra/aws/ecs/app-task-definition.json
+          service: ${{ vars.ECS_APP_SERVICE }}
+          cluster: ${{ vars.ECS_CLUSTER_NAME }}
+          wait-for-service-stability: true
+
+      - name: Deploy scheduler task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: infra/aws/ecs/scheduler-task-definition.json
+          service: ${{ vars.ECS_SCHEDULER_SERVICE }}
+          cluster: ${{ vars.ECS_CLUSTER_NAME }}
+          wait-for-service-stability: true
       
       - name: Create deployment record
         uses: chrnorm/deployment-action@v2

@@ -6,7 +6,7 @@ Your revenue model is **SaaS subscription-based**. Schools (tenants) subscribe t
 
 Important scope note:
 - This document covers EduPulse's own school subscription billing.
-- Parent and guardian fee collection is a separate operational payment layer documented in `PAYSTACK_SUBACCOUNT_GUIDE.md`, `PAYMENT_REFERENCE_FORMAT.md`, and `B2B2C_AI_EMPLOYEE_ROADMAP.md`.
+- Parent and guardian fee collection is a separate operational payment layer documented in `docs/finance/LEGACY_PAYSTACK_ROUTE_METADATA_GUIDE.md`, `docs/finance/PAYMENT_REFERENCE_FORMAT.md`, and `docs/strategy/B2B2C_AI_EMPLOYEE_ROADMAP.md`.
 
 ### Current Onboarding Payment Behavior
 - Free plan: registration completes immediately and user proceeds to login.
@@ -87,20 +87,14 @@ python backend/apply_migration.py
 
 ### Step 4: Register Payment Routes
 
-Update `backend/routes.py`:
+Payment endpoints are implemented directly in `backend/routes.py` and use helpers from `backend/paystack_integration.py`.
 
 ```python
-from backend.payments import payment_bp
-
-# Add to your Flask app
-app.register_blueprint(payment_bp)
-
-# Endpoints created:
-# POST   /api/payments/initialize        - Start payment
-# GET    /api/payments/verify/<reference>- Verify after payment
-# POST   /api/payments/webhook           - Paystack notifications
-# GET    /api/payments/subscription/<id> - Check subscription status
-# GET    /api/payments/dashboard/<id>    - Payment analytics
+# Live payment endpoints:
+# POST   /api/paystack/initialize-payment  - Start subscription payment
+# GET    /api/paystack/verify/<reference>  - Verify after payment
+# POST   /api/paystack/webhook             - Paystack notifications
+# GET    /api/subscription/status          - Check subscription status
 ```
 
 ### Step 5: Frontend Integration
@@ -171,7 +165,7 @@ function SubscriptionUpgrade() {
       <div className="bg-blue-50 p-6 rounded-lg border-2 border-blue-500">
         <h3 className="text-2xl font-bold">BASIC</h3>
         <p className="text-3xl font-bold my-4 text-blue-600">
-          ₵50<span className="text-sm">/month</span>
+          ₵360<span className="text-sm">/term base</span>
         </p>
         <ul className="text-sm text-gray-700 space-y-2 mb-4">
           <li>✓ 5 Classes</li>
@@ -192,7 +186,7 @@ function SubscriptionUpgrade() {
       <div className="bg-purple-50 p-6 rounded-lg border-2 border-purple-500">
         <h3 className="text-2xl font-bold">PREMIUM</h3>
         <p className="text-3xl font-bold my-4 text-purple-600">
-          ₵250<span className="text-sm">/month</span>
+          ₵750<span className="text-sm">/term base</span>
         </p>
         <ul className="text-sm text-gray-700 space-y-2 mb-4">
           <li>✓ Unlimited Classes</li>
@@ -239,7 +233,7 @@ POST /api/payments/initialize
 Response: {
   "authorization_url": "https://checkout.paystack.com/xyz123",
   "reference": "ref_abc123",
-  "amount_ghs": 50
+  "amount_ghs": 360
 }
 ```
 
@@ -256,7 +250,7 @@ Body: {
   "event": "charge.success",
   "data": {
     "reference": "ref_abc123",
-    "amount": 5000,  // in pesewas (×100)
+    "amount": 36000,  // in pesewas (×100)
     "status": "success",
     "metadata": {"school_id": "sch_123", "plan": "basic"}
   }
@@ -268,7 +262,7 @@ Body: {
 # Auto-updates in database:
 - School.subscription_plan = "basic"
 - Subscription.plan = "basic"
-- Subscription.end_date = NOW + 30 days
+- Subscription end and billing dates align to the selected term billing cycle
 - Subscription.status = "active"
 - Payment record created
 ```
@@ -276,7 +270,7 @@ Body: {
 ### 6. School Immediately Gets Access
 - Lesson notes enabled ✓
 - Grade entry enabled ✓
-- AI narratives enabled ✓
+- Basic AI feedback enabled ✓
 - 5 classes allowed ✓
 - 200 students allowed ✓
 
@@ -292,11 +286,11 @@ Body: {
 ### Payment Flow to Your Account:
 
 ```
-1. School pays ₵50 on Paystack
+1. School pays ₵360 on Paystack
    ↓
-2. Paystack takes ~1.5% fee (₵0.75)
+2. Paystack takes ~1.5% fee (₵5.40)
    ↓
-3. You receive ₵49.25 in your account
+3. You receive ₵354.60 in your account
    ↓
 4. Settlement timing:
    - Test account: Manual withdrawal
@@ -309,24 +303,24 @@ Body: {
 
 | Metric | Amount |
 |--------|--------|
-| Basic Plan Monthly | ₵50.00 |
-| Paystack Fee (1.5%) | -₵0.75 |
-| **You Receive** | **₵49.25/month** |
+| Basic Plan Per Term | ₵360.00 |
+| Paystack Fee (1.5%) | -₵5.40 |
+| **You Receive** | **₵354.60/term** |
 | | |
-| Premium Plan Monthly | ₵250.00 |
-| Paystack Fee (1.5%) | -₵3.75 |
-| **You Receive** | **₵246.25/month** |
+| Premium Plan Per Term | ₵750.00 |
+| Paystack Fee (1.5%) | -₵11.25 |
+| **You Receive** | **₵738.75/term** |
 
 ### Revenue Scenarios:
 
 **Scenario 1: 10 schools on Basic**
-- 10 × ₵49.25 = **₵492.50/month** = **₵5,910/year**
+- 10 × ₵354.60 = **₵3,546.00/term** = **₵10,638/year**
 
 **Scenario 2: Mix of 20 Basic + 5 Premium**
-- (20 × ₵49.25) + (5 × ₵246.25) = **₵1,416.25/month** = **₵16,995/year**
+- (20 × ₵354.60) + (5 × ₵738.75) = **₵10,785.75/term** = **₵32,357.25/year**
 
 **Scenario 3: Scale to 100 schools (mix)**
-- Avg ₵80/school = **₵8,000+/month** = **₵96,000+/year**
+- Avg ₵540/school = **₵54,000+/term** = **₵162,000+/year**
 
 ---
 

@@ -13,7 +13,7 @@ SUBSCRIPTION_TIERS = {"Free Tier": 0, "Basic": 1, "Premium": 2}
 
 # Pricing model (3 terms per year)
 PRICING = {
-    "Free Tier": {"per_student_per_term": 0, "max_free_students": 100},
+    "Free Tier": {"per_student_per_term": 0, "max_free_students": 50},
     "Basic": {
         "base_fee_per_term": 360,
         "included_students": 30,
@@ -275,7 +275,7 @@ def get_all_accessible_templates(plan_name):
 FEATURE_MATRIX_DISPLAY = {
     "Free Tier": {
         "max_classes": "1 Class",
-        "max_students": "100 Students",
+        "max_students": "50 Students",
         "attendance": "No Edit Access",
         "feeding": "No Edit Access",
         "grade_entry": "Not Available",

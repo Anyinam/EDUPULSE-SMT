@@ -34,7 +34,7 @@ Current implemented capabilities relevant to this roadmap:
 - parent admission update emails and correction resubmission flow
 - parent-safe payment instructions using stable learner payment identity plus structured references
 - parent payment instructions and payment reference parsing
-- optional Paystack fee-route dedicated virtual accounts by payment type
+- configurable phone-payment convenience fees with structured-reference payment flows
 - finance reconciliation and payment tracking
 - Student Rescue Agent for intervention workflows
 - audited operational workflows across finance and leadership actions
@@ -121,7 +121,7 @@ Scope:
 
 Implementation status:
 - stable learner payment identity plus structured references implemented in payment instruction payloads
-- current fee-route DVA compatibility retained where already configured
+- legacy Paystack route metadata preserved for audit compatibility where older records already exist
 - parent balance visibility beyond instructions remains a next-phase item
 
 ## Payment Architecture Direction
@@ -129,11 +129,11 @@ Implementation status:
 ### Current State
 
 Current implementation supports:
-- one optional Paystack dedicated virtual route per fee type
 - structured reference parsing as the default payment categorization model
-- manual fallback where virtual routes are unavailable
+- configurable phone-payment convenience fees at the school-settings level
+- manual fallback where digital channels are unavailable
 
-This is valid operationally, but it should be treated as a current implementation pattern, not the universal long-term destination.
+Legacy route-account or DVA records may still exist, but new route setup is retired and should not be treated as the active operational model.
 
 ### Recommended Medium-Term Target
 

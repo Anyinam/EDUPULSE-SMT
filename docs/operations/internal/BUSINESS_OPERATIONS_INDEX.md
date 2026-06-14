@@ -17,7 +17,7 @@ This is the canonical business operations index for EduPulse SMT. It maps the in
 If you need the big picture first, read these in order:
 
 1. `../../README.md`
-2. `../../BUSINESS_PROCESS_MODEL.md`
+2. `../../strategy/BUSINESS_PROCESS_MODEL.md`
 3. `STANDARD_OPERATING_PROCEDURES.md`
 
 ## Standard Placeholder Set
@@ -62,7 +62,7 @@ Use these placeholder names consistently across onboarding, launch, email, and i
 - `LAWYER_EXECUTIVE_BRIEF.md`
   One-page executive summary for counsel on EduPulse SMT business, IP, payment, and data-protection positioning.
 - `LAWYER_TECHNICAL_SYSTEM_SUMMARY.md`
-  Lawyer-facing technical explanation of EduPulse SMT system operation, Paystack routing/split behavior, and cryptography controls.
+  Lawyer-facing technical explanation of EduPulse SMT system operation, payment categorization, historical route compatibility, and cryptography controls.
 - `IP_ASSET_INVENTORY.md`
   Inventory of code, workflow, payment, security, and documentation assets that appear protectable as copyright or confidential know-how.
 - `GHANA_DATA_PROTECTION_TECHNICAL_BRIEF.md`
@@ -139,30 +139,30 @@ Current owner assignment is intentionally single-owner for now and uses Daniel A
 
 ## Billing And Commercial Operations
 
-- `../../SUBSCRIPTION_BILLING_GUIDE.md`
+- `../../finance/SUBSCRIPTION_BILLING_GUIDE.md`
   Billing model, plan structure, pro-ration, and renewal logic.
-- `../../SUBSCRIPTION_FEATURES.md`
+- `../../finance/SUBSCRIPTION_FEATURES.md`
   Feature matrix by subscription tier.
-- `../../USAGE_BASED_BILLING_SUMMARY.md`
+- `../../finance/USAGE_BASED_BILLING_SUMMARY.md`
   Summary of metering and usage-based charging concepts.
-- `../../PAYMENT_INTEGRATION.md`
+- `../../finance/PAYMENT_INTEGRATION.md`
   Operational payment-flow reference.
-- `../../PAYMENT_CATEGORIZATION.md`
+- `../../finance/PAYMENT_CATEGORIZATION.md`
   Payment classification rules.
-- `../../PAYMENT_REFERENCE_FORMAT.md`
+- `../../finance/PAYMENT_REFERENCE_FORMAT.md`
   Reference format standards.
-- `../../BANK_TRANSFER_INTEGRATION.md`
+- `../../finance/BANK_TRANSFER_INTEGRATION.md`
   Bank-transfer flow and operational notes.
-- `../../PAYSTACK_SUBACCOUNT_GUIDE.md`
-  Paystack-specific setup and handling details.
+- `../../finance/LEGACY_PAYSTACK_ROUTE_METADATA_GUIDE.md`
+  Historical Paystack route-metadata notes and legacy compatibility context.
 
 ## Support And Reliability
 
-- `../../SUPPORT_SYSTEM_GUIDE.md`
+- `SUPPORT_SYSTEM_GUIDE.md`
   Ticket handling flow and support communication behavior.
-- `../../RELIABILITY_SCENARIOS.md`
+- `../../platform/RELIABILITY_SCENARIOS.md`
   Real-world failure scenarios and recovery paths.
-- `../../AUDIT_INTEGRITY_SYSTEM.md`
+- `../../security/AUDIT_INTEGRITY_SYSTEM.md`
   Audit and ledger integrity reference.
 
 ## Compliance And Trust
@@ -220,6 +220,6 @@ Current owner assignment is intentionally single-owner for now and uses Daniel A
 - Need a filled internal coordination example: use `OPERATIONS_HANDOFF_SAMPLE.md`
 - Need an incident communication template: use `INCIDENT_UPDATE_TEMPLATE.md`
 - Need a filled incident communication example: use `INCIDENT_UPDATE_SAMPLE.md`
-- Need pricing or billing logic: use `../../SUBSCRIPTION_BILLING_GUIDE.md`
-- Need incident or reconciliation context: use `../../RELIABILITY_SCENARIOS.md`
-- Need ticket workflow and support expectations: use `../../SUPPORT_SYSTEM_GUIDE.md`
+- Need pricing or billing logic: use `../../finance/SUBSCRIPTION_BILLING_GUIDE.md`
+- Need incident or reconciliation context: use `../../platform/RELIABILITY_SCENARIOS.md`
+- Need ticket workflow and support expectations: use `SUPPORT_SYSTEM_GUIDE.md`

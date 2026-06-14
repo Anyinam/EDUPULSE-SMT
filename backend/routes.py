@@ -46,7 +46,6 @@ from backend.api.models import (
     PasswordReset,
     Payment,
     ParentAdmissionApplication,
-    PaystackSubAccount,
     PlatformSetting,
     PlatformUser,
     QuestionPool,
@@ -109,16 +108,15 @@ from backend.email_templates import (
 from backend.subscription_metering import (
     activate_premium_trial,
     end_trial,
+    get_current_trial_term_reference,
     get_billing_visibility,
     lock_pricing_version,
     sync_student_meter,
+    _term_reference_to_end_datetime,
 )
 from backend.academic_guidance import (
     build_academic_guidance_summary,
-    build_chief_examiner_library_payload,
     build_report_guidance_payload,
-    merge_chief_examiner_library,
-    normalize_chief_examiner_library,
     normalize_subject_key,
     normalize_topic_key,
 )
@@ -180,13 +178,6 @@ DEFAULT_SUBJECTS = [
     "Creative Arts",
 ]
 
-CHIEF_EXAMINER_LIBRARY_CONFIG_KEY = "chief_examiner_library"
-CHIEF_EXAMINER_LIBRARY_META_KEY = "chief_examiner_library_meta"
-CHIEF_EXAMINER_LIBRARY_HISTORY_KEY = "chief_examiner_library_history"
-CHIEF_EXAMINER_LIBRARY_HISTORY_LIMIT = 25
-PLATFORM_CHIEF_EXAMINER_LIBRARY_SETTING_KEY = "platform_chief_examiner_library"
-PLATFORM_CHIEF_EXAMINER_LIBRARY_META_SETTING_KEY = "platform_chief_examiner_library_meta"
-PLATFORM_CHIEF_EXAMINER_LIBRARY_HISTORY_SETTING_KEY = "platform_chief_examiner_library_history"
 PLATFORM_PUBLIC_CONTENT_SETTING_KEY = "platform_public_content"
 REPORT_TEMPLATE_HISTORY_KEY = "report_template_history"
 REPORT_TEMPLATE_HISTORY_LIMIT = 40
@@ -1717,6 +1708,60 @@ def _extract_parent_admission_document_details(filename, content_type, file_byte
     return entry
 
 
+def _store_parent_admission_document(school_id, uploaded, file_bytes):
+    original_filename = secure_filename(uploaded.filename or "") or f"document_{secrets.token_hex(4)}"
+    document_id = f"parent_doc_{secrets.token_hex(6)}"
+    stored_filename = f"{document_id}_{original_filename}"
+    target_path = os.path.join(_get_parent_admission_document_storage_root(school_id=school_id), stored_filename)
+    with open(target_path, "wb") as stored_file:
+        stored_file.write(file_bytes or b"")
+
+    return {
+        "document_id": document_id,
+        "stored_filename": stored_filename,
+        "original_filename": original_filename,
+        "size_bytes": os.path.getsize(target_path),
+    }
+
+
+def _build_staff_parent_admission_document_entry(application_id, raw_entry):
+    if not isinstance(raw_entry, dict):
+        return None
+
+    entry = dict(raw_entry)
+    document_id = sanitize_string(entry.get("document_id") or entry.get("id") or "") or None
+    stored_filename = sanitize_string(entry.get("stored_filename") or "") or None
+    original_filename = sanitize_string(entry.get("original_filename") or entry.get("filename") or "") or None
+
+    if document_id and stored_filename:
+        entry["document_id"] = document_id
+        entry["original_filename"] = original_filename or entry.get("filename") or "document"
+        entry["download_path"] = _build_parent_admission_document_download_path(application_id, document_id)
+        entry["download_available"] = True
+    else:
+        entry["download_available"] = False
+
+    return entry
+
+
+def _build_staff_parent_admission_payload(application, settings, school_id):
+    payload = _apply_parent_admission_review_details(application.to_staff_dict())
+    payload["document_manifest"] = [
+        item
+        for item in (
+            _build_staff_parent_admission_document_entry(application.id, entry)
+            for entry in (payload.get("document_manifest") or [])
+        )
+        if item
+    ]
+
+    decision_document = _build_staff_parent_decision_document_payload(application, settings, school_id)
+    if decision_document:
+        payload["decision_document"] = decision_document
+
+    return payload
+
+
 def _get_school_admission_fee_config(settings):
     enabled = bool(getattr(settings, "admission_fee_enabled", False)) if settings else False
     amount = float(getattr(settings, "admission_fee_amount", 0.0) or 0.0) if settings else 0.0
@@ -2021,10 +2066,13 @@ def _set_exam_intelligence_workflow_config(settings, workflow_config):
     settings.report_template_config = config
 
 
-def _get_school_storage_root(config_key, default_folder_name):
+def _get_school_storage_root(config_key, default_folder_name, school_id=None):
     base_dir = current_app.config.get(config_key) or os.path.join(current_app.instance_path, default_folder_name)
     os.makedirs(base_dir, exist_ok=True)
-    school_dir = os.path.join(base_dir, str(g.school_id))
+    resolved_school_id = str(school_id or getattr(g, "school_id", "")).strip()
+    if not resolved_school_id:
+        raise ValueError("school_id is required to resolve school storage")
+    school_dir = os.path.join(base_dir, resolved_school_id)
     os.makedirs(school_dir, exist_ok=True)
     return school_dir
 
@@ -2035,6 +2083,10 @@ def _get_legacy_evidence_storage_root():
 
 def _get_exam_import_storage_root():
     return _get_school_storage_root("EXAM_INTELLIGENCE_STORAGE_DIR", "exam-intelligence")
+
+
+def _get_parent_admission_document_storage_root(school_id=None):
+    return _get_school_storage_root("PARENT_ADMISSION_DOCUMENT_STORAGE_DIR", "parent-admission-documents", school_id=school_id)
 
 
 def _resolve_existing_school_file(storage_root, stored_filename):
@@ -2052,6 +2104,10 @@ def _build_legacy_evidence_download_path(artifact_id):
 
 def _build_exam_import_download_path(batch_id):
     return f"/api/analytics/exam-imports/{quote(batch_id)}/download"
+
+
+def _build_parent_admission_document_download_path(application_id, document_id):
+    return f"/api/admissions/applications/{quote(str(application_id))}/documents/{quote(document_id)}/download"
 
 
 def _build_exam_rows_snapshot_path(batch_id):
@@ -2568,6 +2624,32 @@ def _build_teacher_exam_intelligence_payload(settings, teacher_id):
         } if latest_batch else None,
         "subject_trends": subject_trends,
         "class_summaries": class_summaries,
+    }
+
+
+def _build_empty_teacher_exam_intelligence_payload(settings, teacher_id, warning_message=None):
+    global_settings = _get_report_global_settings(settings)
+    class_level_summaries_enabled = bool(global_settings.get(TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY, False))
+    assignments = TeacherAssignment.query.filter_by(school_id=g.school_id, teacher_id=teacher_id).all()
+    assigned_subjects = sorted({assignment.subject_name for assignment in assignments if assignment.subject_name})
+    assigned_classes = sorted({assignment.class_name for assignment in assignments if assignment.class_name})
+
+    return {
+        "view_scope": "teacher_subject_summary",
+        "raw_access": False,
+        "class_level_summaries_enabled": class_level_summaries_enabled,
+        "compliance_ready": False,
+        "assigned_subjects": assigned_subjects,
+        "assigned_classes": assigned_classes,
+        "summary": {
+            "tracked_subjects": 0,
+            "latest_subject_count": 0,
+            "latest_academic_year": None,
+        },
+        "latest_batch": None,
+        "subject_trends": [],
+        "class_summaries": [],
+        "warning": warning_message,
     }
 
 
@@ -3111,14 +3193,16 @@ def _build_student_payment_instruction_payload(student, school_id):
     from backend.utils import generate_all_payment_codes
 
     settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    convenience_fee_percent = _get_phone_payment_convenience_fee_percent(settings)
     other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
     admission_fee = _get_school_admission_fee_config(settings)
+    feeding_plan_fees = _get_feeding_plan_fees(settings)
     if admission_fee["enabled"]:
         other_fees.setdefault(admission_fee["label"], admission_fee["amount"])
 
     fees_config = {
         "tuition_fee": settings.tuition_fee if settings else 0.0,
-        "feeding_fee": settings.feeding_fee if settings else 0.0,
+        "feeding_fee": feeding_plan_fees["primary"],
         "uniform_fee": settings.uniform_fee if settings else 0.0,
         "transport_fee": settings.transport_fee if settings else 0.0,
         "terminal_report_fee": settings.terminal_report_fee if settings else 0.0,
@@ -3126,11 +3210,12 @@ def _build_student_payment_instruction_payload(student, school_id):
     }
 
     payment_codes = generate_all_payment_codes(student.student_code, fees_config)
-    subaccounts = PaystackSubAccount.query.filter_by(school_id=school_id, is_active=True).all()
-    subaccount_map = {(entry.payment_type or "").strip(): entry for entry in subaccounts}
 
     codes_list = []
     for fee_type, code in payment_codes.items():
+        if fee_type == "Feeding" and feeding_plan_fees["has_explicit_plans"]:
+            continue
+
         if fee_type == "Tuition":
             base_amount = fees_config["tuition_fee"] + fees_config["terminal_report_fee"]
             display_name = "Tuition + Terminal Report"
@@ -3153,31 +3238,26 @@ def _build_student_payment_instruction_payload(student, school_id):
             if fee_type == "Feeding" and student.scholarship_covers_feeding:
                 base_amount = 0.0
 
-        route = subaccount_map.get(fee_type)
-        convenience_fee_percent = route.percentage_charge if route else DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
         convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
         total_amount = base_amount + convenience_fee_amount
-        virtual_bank_account = route.virtual_bank_account if route else None
-        virtual_bank_name = route.virtual_bank_name if route else None
-        momo_shortcode = route.momo_shortcode if route else None
-        has_virtual_route = bool(virtual_bank_account or momo_shortcode)
 
         codes_list.append({
             "fee_type": display_name,
             "code": code,
             "reference_code": code,
             "payment_identity_base": student.student_code,
+            "payment_category": {"fee_type": fee_type},
             "base_amount": base_amount,
             "cash_amount": round(base_amount, 2),
             "convenience_fee_percent": convenience_fee_percent,
             "convenience_fee_amount": round(convenience_fee_amount, 2),
             "total_amount": round(total_amount, 2),
             "amount": round(total_amount, 2),
-            "virtual_bank_account": virtual_bank_account,
-            "virtual_bank_name": virtual_bank_name,
-            "momo_shortcode": momo_shortcode,
-            "subaccount_code": route.subaccount_code if route else None,
-            "has_virtual_route": has_virtual_route,
+            "virtual_bank_account": None,
+            "virtual_bank_name": None,
+            "momo_shortcode": None,
+            "subaccount_code": None,
+            "has_virtual_route": False,
             "preferred_payment_model": "reference_first",
             "is_scholarship_fee": bool(
                 (fee_type == "Tuition" and student.scholarship_covers_tuition)
@@ -3185,14 +3265,52 @@ def _build_student_payment_instruction_payload(student, school_id):
             ),
             "instructions": (
                 f"Use the stable learner payment identity {student.student_code} with reference {code}. "
-                + (
-                    "A dedicated fee-route virtual account is also available for automatic routing. "
-                    if has_virtual_route
-                    else "If no fee-route account is available, pay with the structured reference through bank app, shortcode, or the school's approved manual fallback. "
-                )
+                + "Phone payments should use the structured reference through bank app, card, USSD, or the school's approved digital channel. "
                 + f"Cash at the school office remains GH₵ {base_amount:.2f} without the convenience fee."
             ),
         })
+
+    if feeding_plan_fees["has_explicit_plans"]:
+        frequency_specs = [
+            ("Daily", "DAY", feeding_plan_fees["daily"]),
+            ("Weekly", "WEK", feeding_plan_fees["weekly"]),
+            ("Monthly", "MON", feeding_plan_fees["monthly"]),
+        ]
+
+        for frequency_label, frequency_code, configured_amount in frequency_specs:
+            if configured_amount <= 0:
+                continue
+
+            base_amount = 0.0 if student.is_on_scholarship and student.scholarship_covers_feeding else configured_amount
+            convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
+            total_amount = base_amount + convenience_fee_amount
+            reference_code = f"{student.student_code}-FEED-{frequency_code}"
+
+            codes_list.append({
+                "fee_type": f"Feeding ({frequency_label})",
+                "code": reference_code,
+                "reference_code": reference_code,
+                "payment_identity_base": student.student_code,
+                "payment_category": {"fee_type": "Feeding", "frequency": frequency_label},
+                "base_amount": base_amount,
+                "cash_amount": round(base_amount, 2),
+                "convenience_fee_percent": convenience_fee_percent,
+                "convenience_fee_amount": round(convenience_fee_amount, 2),
+                "total_amount": round(total_amount, 2),
+                "amount": round(total_amount, 2),
+                "virtual_bank_account": None,
+                "virtual_bank_name": None,
+                "momo_shortcode": None,
+                "subaccount_code": None,
+                "has_virtual_route": False,
+                "preferred_payment_model": "reference_first",
+                "is_scholarship_fee": bool(student.is_on_scholarship and student.scholarship_covers_feeding),
+                "instructions": (
+                    f"Use reference {reference_code} for the {frequency_label.lower()} feeding plan. "
+                    + "Phone payments should use the structured reference through bank app, card, USSD, or the school's approved digital channel. "
+                    + f"Cash at the school office remains GH₵ {base_amount:.2f} without the convenience fee."
+                ),
+            })
 
     return {
         "student_id": student.id,
@@ -3207,13 +3325,13 @@ def _build_student_payment_instruction_payload(student, school_id):
             "student_code": student.student_code,
             "stable_payment_identity": student.student_code,
             "supports_structured_references": True,
-            "supports_fee_route_dvas": any(bool(item.get("has_virtual_route")) for item in codes_list),
+            "supports_fee_route_dvas": False,
             "supported_rails": ["bank_app", "ussd_or_shortcode", "school_office_manual"],
             "recommended_examples": [item["reference_code"] for item in codes_list[:3]],
         },
         "admission_fee": admission_fee,
         "payment_codes": codes_list,
-        "note": "Preferred model: use the learner's stable payment identity and structured reference. Digital channels may include a convenience fee, while cash at the school office remains the base amount. Fee-route virtual accounts remain supported where configured, and manual school-office fallback remains available.",
+        "note": "Preferred model: use the learner's stable payment identity and structured reference. Digital channels may include a convenience fee, while cash at the school office remains the base amount.",
     }
 
 
@@ -4241,9 +4359,6 @@ def _merge_report_template_config(existing_config, incoming_config):
 
         # Preserve tenant-scoped metadata that should survive template switches.
         for persistent_key in [
-            CHIEF_EXAMINER_LIBRARY_CONFIG_KEY,
-            CHIEF_EXAMINER_LIBRARY_META_KEY,
-            CHIEF_EXAMINER_LIBRARY_HISTORY_KEY,
             REPORT_TEMPLATE_HISTORY_KEY,
             "analytics_presets",
             ANALYTICS_PRESET_HISTORY_KEY,
@@ -6293,11 +6408,11 @@ def get_student_payment_codes(student_id):
     """
     Generate parent payment instructions for a student.
 
-    Primary flow: Paystack virtual subaccounts per payment type.
-    - Parents pay to virtual account / shortcode for Tuition, Feeding, etc.
-    - Paystack auto-detects payment type from the virtual route used.
+    Primary flow: stable learner identity plus structured references.
+    - Parents can pay through approved phone or digital channels using the fee reference.
+    - Cash at the school office remains the base-amount fallback.
 
-    Backward compatibility: legacy reference codes are still returned.
+    Backward compatibility: legacy-style reference codes are still returned.
     """
     student = Student.query.filter_by(
         id=student_id, school_id=g.school_id
@@ -6399,6 +6514,8 @@ def get_student_payments(student_id):
         student = Student.query.filter_by(
             id=student_id, school_id=g.school_id
         ).first_or_404()
+        settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+        convenience_fee_percent = _get_phone_payment_convenience_fee_percent(settings)
         payments = (
             Payment.query.filter_by(student_id=student_id, school_id=g.school_id)
             .order_by(Payment.date_paid.desc())
@@ -6407,7 +6524,6 @@ def get_student_payments(student_id):
 
         payment_list = []
         for payment in payments:
-            convenience_fee_percent = DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
             gross_amount = float(payment.amount or 0)
             base_amount = round(
                 gross_amount / (1 + (convenience_fee_percent / 100)), 2
@@ -6698,12 +6814,10 @@ def create_or_update_report_card():
     )
 
     school = School.query.get(g.school_id)
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     report_data = report.to_dict()
     if has_feature(get_effective_plan(school), "exam_intelligence"):
         report_data["academic_guidance"] = build_report_guidance_payload(
             report.subject_grades or [],
-            chief_examiner_library=_get_effective_chief_examiner_library(settings),
         )
 
     return jsonify(
@@ -6747,7 +6861,6 @@ def get_report_card(student_id):
     if not report:
         return jsonify({"message": "Report card not found"}), 404
 
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     report_data = report.to_dict()
     report_data["term_calendar"] = _build_report_term_calendar(
         g.school_id,
@@ -6758,7 +6871,6 @@ def get_report_card(student_id):
     if has_feature(get_effective_plan(school), "exam_intelligence"):
         report_data["academic_guidance"] = build_report_guidance_payload(
             report.subject_grades or [],
-            chief_examiner_library=_get_effective_chief_examiner_library(settings),
         )
 
     return jsonify(report_data)
@@ -7025,13 +7137,11 @@ def get_terminal_report(student_id):
         return jsonify({"message": "No report data found for this student"}), 404
 
     # Convert to dict
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     report_data = report.to_dict()
     school = School.query.get(g.school_id)
     if has_feature(get_effective_plan(school), "exam_intelligence"):
         report_data["academic_guidance"] = build_report_guidance_payload(
             report.subject_grades or [],
-            chief_examiner_library=_get_effective_chief_examiner_library(settings),
         )
 
     report_data["term_calendar"] = _build_report_term_calendar(
@@ -7338,23 +7448,7 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
 
     reference_payment_type = payment_type or "Tuition"
     channel = (payload.get("channel") or "").lower()
-    subaccount_data = payload.get("subaccount") or {}
-    subaccount_code = subaccount_data.get("subaccount_code") if isinstance(subaccount_data, dict) else None
-
-    actual_payment_type = None
-    route_mismatch = False
-    if subaccount_code:
-        dva_route = PaystackSubAccount.query.filter_by(
-            school_id=student.school_id,
-            subaccount_code=subaccount_code,
-            is_active=True,
-        ).first()
-        if dva_route:
-            actual_payment_type = dva_route.payment_type
-            if reference_payment_type != actual_payment_type:
-                route_mismatch = True
-
-    payment_type = actual_payment_type or reference_payment_type
+    payment_type = reference_payment_type
 
     verification_snapshot = _get_school_verification_snapshot(student.school_id)
     verification_blocked = not verification_snapshot["is_verified"]
@@ -7396,20 +7490,6 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
         "customer": payload.get("customer", {}),
         "authorization": payload.get("authorization", {}),
     }
-    if subaccount_code:
-        ledger_metadata["subaccount"] = {
-            "code": subaccount_code,
-            "settlement_amount": subaccount_data.get("settlement_amount", 0) / 100.0,
-            "commission": subaccount_data.get("subaccount_share", 0) / 100.0,
-        }
-    if route_mismatch:
-        ledger_metadata["routing_mismatch"] = {
-            "detected": True,
-            "reference_indicated": reference_payment_type,
-            "actual_account_used": actual_payment_type,
-            "resolution": "Used actual account type (DVA routing is authoritative)",
-            "requires_review": True,
-        }
 
     if not verification_blocked:
         add_ledger_entry(
@@ -7626,8 +7706,6 @@ def paystack_webhook():
         return jsonify({"status": "error", "message": str(exc)}), 500
 
 
-# --- PAYSTACK FEE ROUTE ACCOUNT MANAGEMENT ---
-
 def _call_paystack_api(endpoint, method="GET", data=None):
     """Helper to call Paystack API with authentication."""
     import requests
@@ -7664,425 +7742,11 @@ def _call_paystack_api(endpoint, method="GET", data=None):
         return None, str(e)
 
 
-def _get_paystack_secret_key_mode():
-    secret_key = (os.getenv("PAYSTACK_SECRET_KEY") or "").strip().lower()
-    if secret_key.startswith("sk_test_"):
-        return "test"
-    if secret_key.startswith("sk_live_"):
-        return "live"
-    if secret_key:
-        return "unknown"
-    return "unconfigured"
-
-
-def _get_subaccount_for_payment(school_id, payment_type):
-    """Resolve a valid Paystack split route code for a given payment type.
-
-    Dedicated virtual account identifiers are stored in the same table for routing,
-    but must not be sent as `subaccount` during transaction initialization.
-    """
-    subaccount = PaystackSubAccount.query.filter_by(
-        school_id=school_id,
-        payment_type=payment_type,
-        is_active=True
-    ).first()
-    if not subaccount or not subaccount.subaccount_code:
-        return None
-
-    code = (subaccount.subaccount_code or "").strip()
-    return code if code.startswith("ACCT_") else None
-
-
-def _resolve_or_create_paystack_customer_for_school(school):
-    """Resolve or create a single Paystack customer profile for a school.
-
-    Returns: (customer_code, email, source, error)
-    """
-    if not school:
-        return None, None, None, "School not found"
-
-    school_email = sanitize_string(school.school_email or "")
-    fallback_email = f"{(school.id or 'school').lower()}@edupulse.local"
-    email = school_email or fallback_email
-
-    first_name = sanitize_string((school.name or "School").split(" ")[0]) or "School"
-    last_name = "Admin"
-    phone = sanitize_string(school.school_phone or "")
-
-    existing_customer, fetch_error = _call_paystack_api(f"/customer/{quote(email, safe='')}")
-    if isinstance(existing_customer, dict) and existing_customer.get("customer_code"):
-        return existing_customer.get("customer_code"), email, "existing", None
-
-    create_payload = {
-        "email": email,
-        "first_name": first_name,
-        "last_name": last_name,
-    }
-    if phone:
-        create_payload["phone"] = phone
-
-    created_customer, create_error = _call_paystack_api("/customer", method="POST", data=create_payload)
-    if create_error:
-        logger.error(
-            f"Paystack school-customer resolve/create failed for school {school.id}: "
-            f"fetch_error={fetch_error}, create_error={create_error}"
-        )
-        return None, email, None, create_error
-
-    customer_code = created_customer.get("customer_code") if isinstance(created_customer, dict) else None
-    if not customer_code:
-        return None, email, None, "Customer created but customer_code missing in Paystack response"
-
-    return customer_code, email, "created", None
-
-
-@api.route("/proprietor/paystack/subaccounts", methods=["GET"])
-@multi_tenant_guard
-@role_required("proprietor")
-@jwt_required()
-def get_paystack_subaccounts():
-    """List all Paystack fee route accounts for the school."""
-    subaccounts = PaystackSubAccount.query.filter_by(
-        school_id=g.school_id
-    ).order_by(PaystackSubAccount.payment_type).all()
-    
-    return jsonify([s.to_dict() for s in subaccounts])
-
-
-@api.route("/proprietor/paystack/subaccounts/create", methods=["POST"])
-@multi_tenant_guard
-@role_required("proprietor")
-@jwt_required()
-def create_paystack_subaccount():
-    """Create a Paystack dedicated virtual account for a specific payment type.
-
-    Uses Paystack `/dedicated_account` so each payment type gets a dedicated
-    virtual account route (fee route account). This route is then shared with parents/guardians.
-    """
-    user_id = int(get_jwt_identity())
-    data = request.get_json() or {}
-    
-    payment_type = sanitize_string(data.get("payment_type"))
-    percentage_charge = data.get("percentage_charge", DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT)  # Default 2.0% platform fee
-    customer_code = sanitize_string(data.get("customer_code") or data.get("customer"))
-    preferred_bank = sanitize_string(data.get("preferred_bank") or data.get("provider"))
-    key_mode = _get_paystack_secret_key_mode()
-    
-    # Validate required fields
-    if not payment_type or payment_type not in ["Tuition", "Feeding", "Uniform", "Transport", "Other"]:
-        return jsonify({"error": "Invalid payment_type. Must be: Tuition, Feeding, Uniform, Transport, or Other"}), 400
-
-    if not preferred_bank:
-        preferred_bank = "titan-paystack"
-    
-    # Get school for naming and audit context
-    school = School.query.get(g.school_id)
-    if not school:
-        return jsonify({"error": "School not found"}), 404
-
-    if not customer_code:
-        resolved_customer_code, _, _, customer_error = _resolve_or_create_paystack_customer_for_school(school)
-        if customer_error or not resolved_customer_code:
-            customer_code = None
-        else:
-            customer_code = resolved_customer_code
-    
-    # Check if fee route account already exists for this payment type
-    existing = PaystackSubAccount.query.filter_by(
-        school_id=g.school_id,
-        payment_type=payment_type
-    ).first()
-    
-    if existing and existing.is_active:
-        return jsonify({"error": f"Active fee route account already exists for {payment_type}"}), 409
-    
-    business_name = f"{school.name} - {payment_type}"
-
-    # Call Paystack API to create dedicated virtual account
-    paystack_data = {
-        "customer": customer_code,
-        "preferred_bank": preferred_bank,
-    }
-
-    result, error = _call_paystack_api("/dedicated_account", method="POST", data=paystack_data)
-    
-    if error:
-        logger.warning(f"Paystack dedicated account creation unavailable, using manual fallback route: {error}")
-
-        fallback_code = f"MANUAL_{payment_type[:3].upper()}_{school.id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-        fallback_route = PaystackSubAccount(
-            school_id=g.school_id,
-            payment_type=payment_type,
-            subaccount_code=fallback_code,
-            business_name=business_name,
-            virtual_bank_account=None,
-            virtual_bank_name=school.bank_name or "School Bank Account",
-            momo_shortcode=None,
-            momo_provider=preferred_bank,
-            percentage_charge=percentage_charge,
-            is_active=True,
-            is_verified=False,
-            created_by=user_id,
-        )
-
-        db.session.add(fallback_route)
-        log_action(
-            user_id,
-            g.school_id,
-            "PAYSTACK_ROUTE_FALLBACK_CREATED",
-            f"Created manual fallback payment route for {payment_type} while gateway was unavailable.",
-        )
-        db.session.commit()
-
-        fallback_message = "Payment route created. Virtual account setup is pending; parents can use the school's saved bank account meanwhile."
-        if key_mode == "test":
-            fallback_message = "Payment route saved in fallback mode. Paystack test keys do not provide a usable live virtual account number here, so parents should pay cash at the school office or use the school's approved manual instructions until live keys are configured."
-
-        return jsonify({
-            "message": fallback_message,
-            "subaccount": fallback_route.to_dict(),
-            "fee_route_account": fallback_route.to_dict(),
-            "mode": "manual_fallback",
-            "gateway_mode": key_mode,
-        }), 201
-
-    account_data = result.get("dedicated_account") if isinstance(result, dict) and isinstance(result.get("dedicated_account"), dict) else result
-    if not isinstance(account_data, dict):
-        account_data = {}
-
-    assigned_bank = account_data.get("assigned_bank") or {}
-    account_number = account_data.get("account_number") or account_data.get("account")
-    bank_name = account_data.get("bank_name") or account_data.get("bank") or assigned_bank.get("name")
-    dedicated_account_id = account_data.get("id") or result.get("id") if isinstance(result, dict) else None
-
-    if not account_number:
-        logger.warning("Paystack returned success without account number; creating manual fallback route.")
-
-        fallback_code = f"MANUAL_{payment_type[:3].upper()}_{school.id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-        fallback_route = PaystackSubAccount(
-            school_id=g.school_id,
-            payment_type=payment_type,
-            subaccount_code=fallback_code,
-            business_name=business_name,
-            virtual_bank_account=None,
-            virtual_bank_name=school.bank_name or bank_name or "School Bank Account",
-            momo_shortcode=None,
-            momo_provider=preferred_bank,
-            percentage_charge=percentage_charge,
-            is_active=True,
-            is_verified=False,
-            created_by=user_id,
-        )
-
-        db.session.add(fallback_route)
-        log_action(
-            user_id,
-            g.school_id,
-            "PAYSTACK_ROUTE_FALLBACK_CREATED",
-            f"Created manual fallback payment route for {payment_type} due to missing virtual account number.",
-        )
-        db.session.commit()
-
-        fallback_message = "Payment route created. Virtual account setup is pending; parents can use the school's saved bank account meanwhile."
-        if key_mode == "test":
-            fallback_message = "Payment route saved in fallback mode. Paystack test keys do not provide a usable live virtual account number here, so parents should pay cash at the school office or use the school's approved manual instructions until live keys are configured."
-
-        return jsonify({
-            "message": fallback_message,
-            "subaccount": fallback_route.to_dict(),
-            "fee_route_account": fallback_route.to_dict(),
-            "mode": "manual_fallback",
-            "gateway_mode": key_mode,
-        }), 201
-
-    # Keep legacy table compatibility: store deterministic route identifier in subaccount_code field (historical name).
-    stored_route_code = f"DVA_{dedicated_account_id}" if dedicated_account_id else f"DVA_{payment_type[:3].upper()}_{account_number[-6:]}"
-    
-    # Create database record
-    subaccount = PaystackSubAccount(
-        school_id=g.school_id,
-        payment_type=payment_type,
-        subaccount_code=stored_route_code,
-        business_name=business_name,
-        virtual_bank_account=account_number,
-        virtual_bank_name=bank_name,
-        momo_shortcode=None,  # Not auto-populated in current integration
-        momo_provider=preferred_bank,
-        percentage_charge=percentage_charge,
-        is_active=True,
-        is_verified=bool(account_data.get("active", True)),
-        created_by=user_id
-    )
-    
-    db.session.add(subaccount)
-    
-    log_action(
-        user_id,
-        g.school_id,
-        "PAYSTACK_DEDICATED_ACCOUNT_CREATED",
-        f"Created Paystack dedicated virtual account for {payment_type}: {subaccount.virtual_bank_account} ({subaccount.virtual_bank_name or preferred_bank})"
-    )
-    
-    db.session.commit()
-    
-    return jsonify({
-        "message": f"Dedicated virtual account created for {payment_type}. Parents can pay to this virtual account.",
-        "subaccount": subaccount.to_dict(),
-        "fee_route_account": subaccount.to_dict(),
-        "gateway_mode": key_mode,
-        "dedicated_account": {
-            "customer": customer_code,
-            "preferred_bank": preferred_bank,
-            "dedicated_account_id": dedicated_account_id,
-            "account_number": account_number,
-            "bank_name": bank_name,
-        }
-    }), 201
-
-
-@api.route("/proprietor/paystack/customers/resolve", methods=["POST"])
-@multi_tenant_guard
-@role_required("proprietor")
-@jwt_required()
-def resolve_paystack_customer_code_for_school():
-    """Resolve or create the school-level Paystack customer and return customer code."""
-    school = School.query.get(g.school_id)
-    if not school:
-        return jsonify({"error": "School not found"}), 404
-
-    customer_code, email, source, error = _resolve_or_create_paystack_customer_for_school(school)
-    if error or not customer_code:
-        fallback_code = f"LOCAL_{school.id}_{datetime.now(timezone.utc).strftime('%H%M%S')}"
-        return jsonify(
-            {
-                "message": "Customer profile is being prepared in the background.",
-                "customer_code": fallback_code,
-                "email": school.school_email,
-                "school_id": school.id,
-                "school_name": school.name,
-                "source": "fallback",
-            }
-        ), 200
-
-    return jsonify(
-        {
-            "message": "Paystack school customer resolved",
-            "customer_code": customer_code,
-            "email": email,
-            "school_id": school.id,
-            "school_name": school.name,
-            "source": source,
-        }
-    )
-
-
-@api.route("/proprietor/paystack/providers", methods=["GET"])
-@multi_tenant_guard
-@role_required("proprietor")
-@jwt_required()
-def get_paystack_dedicated_account_providers():
-    """Get supported dedicated-account providers from Paystack."""
-    country = sanitize_string(request.args.get("country") or "ghana").lower()
-    endpoint = f"/dedicated_account/available_providers?country={country}"
-    key_mode = _get_paystack_secret_key_mode()
-
-    result, error = _call_paystack_api(endpoint)
-    if error:
-        warning = "Provider list is temporarily unavailable. Using default provider options."
-        if key_mode == "test":
-            warning += " Paystack test keys usually do not return real dedicated virtual account numbers, so fallback mode is expected until live keys are configured."
-        fallback_providers = [
-            {
-                "name": "Titan Paystack",
-                "slug": "titan-paystack",
-                "id": None,
-                "bank_id": None,
-                "type": "fallback",
-            }
-        ]
-        return jsonify(
-            {
-                "providers": fallback_providers,
-                "warning": warning,
-                "gateway_mode": key_mode,
-            }
-        ), 200
-
-    providers = []
-    for provider in (result or []):
-        if not isinstance(provider, dict):
-            continue
-        providers.append({
-            "name": provider.get("name"),
-            "slug": provider.get("slug") or provider.get("provider_slug"),
-            "id": provider.get("id"),
-            "bank_id": provider.get("bank_id"),
-            "type": provider.get("type"),
-        })
-
-    return jsonify(providers)
-
-
-@api.route("/proprietor/paystack/subaccounts/<int:subaccount_id>", methods=["DELETE"])
-@multi_tenant_guard
-@role_required("proprietor")
-@jwt_required()
-def deactivate_paystack_subaccount(subaccount_id):
-    """Deactivate a Paystack fee route account (soft delete)."""
-    user_id = int(get_jwt_identity())
-    
-    subaccount = PaystackSubAccount.query.filter_by(
-        id=subaccount_id,
-        school_id=g.school_id
-    ).first_or_404()
-    
-    subaccount.is_active = False
-    
-    log_action(
-        user_id,
-        g.school_id,
-        "PAYSTACK_SUBACCOUNT_DEACTIVATED",
-        f"Deactivated Paystack fee route account: {subaccount.subaccount_code} ({subaccount.payment_type})"
-    )
-    
-    db.session.commit()
-    
-    return jsonify({"message": "Fee route account deactivated"}), 200
-
-
-@api.route("/proprietor/paystack/banks", methods=["GET"])
-@multi_tenant_guard
-@role_required("proprietor")
-@jwt_required()
-def get_paystack_banks():
-    """Get list of supported banks for subaccount creation."""
-    result, error = _call_paystack_api("/bank?country=ghana")
-    
-    if error:
-        return jsonify({"error": f"Failed to fetch banks: {error}"}), 500
-    
-    # Return simplified list
-    banks = [
-        {
-            "name": bank.get("name"),
-            "code": bank.get("code"),
-            "slug": bank.get("slug")
-        }
-        for bank in (result or [])
-    ]
-    
-    return jsonify(banks)
-
-
 @api.route("/finance/paystack/initialize-payment", methods=["POST"])
 @multi_tenant_guard
 @jwt_required()
 def initialize_paystack_payment():
-    """Initialize a Paystack payment with automatic split to school's subaccount.
-    
-    This generates a payment link or returns transaction data for frontend checkout.
-    Payment automatically splits to the school's designated subaccount based on payment type.
-    """
+    """Initialize a Paystack payment using structured reference metadata."""
     data = request.get_json() or {}
 
     verification_block, _snapshot = _finance_verification_block_response(
@@ -8104,9 +7768,6 @@ def initialize_paystack_payment():
         school_id=g.school_id
     ).first_or_404()
     
-    # Get fee route account for this payment type
-    subaccount_code = _get_subaccount_for_payment(g.school_id, payment_type)
-    
     # Generate unique reference
     import uuid
     reference = f"PS-{student.student_code}-{payment_type[:3].upper()}-{uuid.uuid4().hex[:8].upper()}"
@@ -8127,12 +7788,7 @@ def initialize_paystack_payment():
         },
         "callback_url": data.get("callback_url", "https://edupulse.com/payment-complete"),
     }
-    
-    # Add fee route account for split payment if exists
-    if subaccount_code:
-        paystack_payload["subaccount"] = subaccount_code
-        paystack_payload["transaction_charge"] = 0  # School pays all Paystack fees
-    
+
     # Call Paystack API to initialize transaction
     result, error = _call_paystack_api("/transaction/initialize", method="POST", data=paystack_payload)
     
@@ -8152,7 +7808,6 @@ def initialize_paystack_payment():
             "student_code": student.student_code,
         },
         "payment_type": payment_type,
-        "subaccount_code": subaccount_code,
         "message": f"Payment link generated for {student.name}"
     })
 
@@ -8401,13 +8056,7 @@ def send_payment_reminders_whatsapp_bulk():
     ).count()
     daily_limit = school.settings.whatsapp_daily_limit or 50
 
-    # School-wide virtual routing map (same for all students in this school)
-    subaccounts = PaystackSubAccount.query.filter_by(
-        school_id=g.school_id, is_active=True
-    ).all()
-    subaccount_map = {
-        (entry.payment_type or "").strip(): entry for entry in subaccounts
-    }
+    convenience_fee_percent = _get_phone_payment_convenience_fee_percent(school.settings)
 
     fees_config = {
         "tuition_fee": school.settings.tuition_fee if school.settings else 0.0,
@@ -8534,37 +8183,32 @@ def send_payment_reminders_whatsapp_bulk():
             c.drawString(inch, y_position, "TOTAL OUTSTANDING")
             c.drawRightString(3.5 * inch, y_position, f"GH₵ {total_owed:.2f}")
             
-            # Payment instructions (virtual routes first)
+            # Payment instructions (reference first)
             y_position -= 0.6 * inch
             c.setFont("Helvetica-Bold", 11)
-            c.drawString(inch, y_position, "How to Pay (Per Fee Type Virtual Route):")
+            c.drawString(inch, y_position, "How to Pay (Structured Reference First):")
             
             y_position -= 0.3 * inch
             c.setFont("Helvetica", 10)
             for fee_type, amount in fee_items:
-                route = subaccount_map.get(fee_type)
                 ref_code = payment_codes.get(fee_type)
 
-                if route and route.virtual_bank_account:
-                    route_bank = route.virtual_bank_name or "Bank shown for this virtual account"
-                    route_text = f"{route_bank} Acct {route.virtual_bank_account}"
-                    line = f"{fee_type}: GH₵ {amount:.2f} via {route_text}"
-                else:
-                    line = f"{fee_type}: GH₵ {amount:.2f} (virtual route not configured)"
+                phone_total = amount * (1 + (convenience_fee_percent / 100))
+                line = f"{fee_type}: GH₵ {amount:.2f} cash or GH₵ {phone_total:.2f} by phone/digital payment"
 
                 c.drawString(inch, y_position, line[:110])
                 y_position -= 0.25 * inch
 
                 if ref_code:
-                    c.drawString(inch + 15, y_position, f"Backup Ref: {ref_code}")
+                    c.drawString(inch + 15, y_position, f"Reference: {ref_code}")
                     y_position -= 0.22 * inch
 
             y_position -= 0.1 * inch
             c.setFont("Helvetica", 9)
             footer_instructions = [
-                "For USSD wallet-to-bank, select the bank shown with each virtual account.",
-                "Then enter the same virtual account number, confirm, and complete payment.",
-                "Paystack auto-detects payment type from the virtual route used.",
+                "Use the same structured reference in bank narration, card checkout notes, or USSD where possible.",
+                f"Phone and digital payment totals include a {convenience_fee_percent:.2f}% convenience fee.",
+                "Cash paid at the school office stays at the base school-fee amount.",
                 f"For support, contact {school.name}.",
             ]
             for instruction in footer_instructions:
@@ -8579,35 +8223,28 @@ def send_payment_reminders_whatsapp_bulk():
             filename = f"{student.name.replace(' ', '_')}_payment_statement.pdf"
             caption = (
                 f"Payment reminder for {student.name} - Outstanding fees: GH₵ {total_owed:.2f}. "
-                "See virtual payment routes in attached statement. "
-                "USSD wallet-to-bank: select the bank shown with each virtual account."
+                "See the attached statement for structured references and phone-payment totals."
             )
             result = send_document_bytes(student.parent_phone, pdf_bytes, filename, caption=caption)
             message_id = (result.get("messages") or [{}])[0].get("id")
 
-            # Send short text with per-fee routes (best effort)
+            # Send short text with per-fee references (best effort)
             route_lines = []
             for fee_type, amount in fee_items:
-                route = subaccount_map.get(fee_type)
                 ref_code = payment_codes.get(fee_type)
-                route_value = None
-                if route and route.virtual_bank_account:
-                    route_bank = route.virtual_bank_name or "Bank shown"
-                    route_value = f"{route_bank} Acct {route.virtual_bank_account}"
-
-                if route_value:
-                    route_lines.append(f"- {fee_type}: GH₵ {amount:.2f} via {route_value} (Ref {ref_code or '-'})")
-                else:
-                    route_lines.append(f"- {fee_type}: GH₵ {amount:.2f} (route not configured, Ref {ref_code or '-'})")
+                phone_total = amount * (1 + (convenience_fee_percent / 100))
+                route_lines.append(
+                    f"- {fee_type}: Ref {ref_code or '-'} | Cash GH₵ {amount:.2f} | Phone/Digital GH₵ {phone_total:.2f}"
+                )
 
             reminder_text = (
                 f"{school.name} Payment Reminder\n"
                 f"Student: {student.name} ({student.student_code})\n"
                 f"Total Outstanding: GH₵ {total_owed:.2f}\n\n"
-                f"Use the matching fee route:\n"
+                f"Use the matching fee reference:\n"
                 + "\n".join(route_lines[:6])
-                + "\n\nUSSD wallet-to-bank: select the bank shown with the virtual account, then enter that virtual account number."
-                + "\nPaystack auto-detects payment type from the route used."
+                + f"\n\nPhone and digital totals already include the {convenience_fee_percent:.2f}% convenience fee."
+                + "\nCash paid at the school office stays at the base fee amount."
             )
             try:
                 send_text_message(student.parent_phone, reminder_text[:1500])
@@ -9362,7 +8999,7 @@ def resolve_school_aml_flag(flag_id):
 def receive_payment():
     """
     Manual entry for Cash/Direct payments.
-    Accepts either student_id or reference_code (e.g., CFK011 for Tuition).
+    Accepts either student_id or reference_code (e.g., CFK011 or S001-FEED-MON).
     - Teachers: Creates 'Pending' record (awaiting Proprietor confirmation).
     - Proprietor: Creates 'Confirmed' record immediately.
     """
@@ -9380,36 +9017,44 @@ def receive_payment():
     if not data:
         return jsonify({"message": "Invalid request body"}), 400
 
-    # Support both student_id and reference_code
+    # Support student lookup by payment reference, explicit student code, or numeric student_id.
     student = None
     payment_type = data.get("type") or data.get("payment_type") or "Tuition"
 
     if "reference_code" in data:
-        # Parse reference code: CFK011 = Student CFK01, Type 1 (Tuition)
         reference_code = data["reference_code"].strip().upper()
-        try:
-            from backend.utils import parse_payment_code
-
-            student_code, decoded_type = parse_payment_code(reference_code)
-            if decoded_type:
-                payment_type = decoded_type
-            student = Student.query.filter_by(
-                student_code=student_code, school_id=g.school_id
-            ).first()
-            if not student:
-                return (
-                    jsonify(
-                        {"message": f"Student with code {student_code} not found."}
-                    ),
-                    404,
-                )
-        except ValueError as e:
-            return jsonify({"message": f"Invalid reference code: {str(e)}"}), 400
+        student, decoded_type, decoded_category = _resolve_payment_from_reference(
+            reference_code,
+            school_id_hint=g.school_id,
+        )
+        if not student:
+            return jsonify({"message": f"Invalid reference code: {reference_code}"}), 400
+        if decoded_type:
+            payment_type = decoded_type
+        if decoded_category:
+            data["payment_category"] = decoded_category
     else:
-        # Use traditional student_id
-        student = Student.query.filter_by(
-            id=data.get("student_id"), school_id=g.school_id
-        ).first_or_404()
+        student_identifier = str(
+            data.get("student_identifier") or data.get("student_code") or ""
+        ).strip()
+        if student_identifier:
+            normalized_student_code = student_identifier.upper()
+            student = Student.query.filter_by(
+                student_code=normalized_student_code,
+                school_id=g.school_id,
+            ).first()
+            if not student and student_identifier.isdigit():
+                student = Student.query.filter_by(
+                    id=int(student_identifier),
+                    school_id=g.school_id,
+                ).first()
+            if not student:
+                return jsonify({"message": f"Student {student_identifier} not found."}), 404
+        else:
+            # Use traditional student_id
+            student = Student.query.filter_by(
+                id=data.get("student_id"), school_id=g.school_id
+            ).first_or_404()
 
     # Role-based restrictions on manual payment types
     # Note: finance and proprietor roles are not in role_limits - they can record ALL payment types
@@ -10757,13 +10402,13 @@ def submit_parent_admission_application(school_id):
         if not uploaded or not uploaded.filename:
             continue
         file_bytes = uploaded.read()
-        document_manifest.append(
-            _extract_parent_admission_document_details(
-                uploaded.filename,
-                uploaded.mimetype,
-                file_bytes,
-            )
+        entry = _extract_parent_admission_document_details(
+            uploaded.filename,
+            uploaded.mimetype,
+            file_bytes,
         )
+        entry.update(_store_parent_admission_document(school_id, uploaded, file_bytes))
+        document_manifest.append(entry)
 
     assessment = _build_ai_registrar_assessment(payload, document_manifest)
     application = ParentAdmissionApplication(
@@ -10977,6 +10622,7 @@ def resubmit_parent_admission_application(school_id, status_token):
             continue
         file_bytes = uploaded.read()
         entry = _extract_parent_admission_document_details(uploaded.filename, uploaded.mimetype, file_bytes)
+        entry.update(_store_parent_admission_document(school_id, uploaded, file_bytes))
         entry["submitted_in_correction"] = True
         document_manifest.append(entry)
 
@@ -11034,10 +10680,7 @@ def list_parent_admission_applications():
 
     return jsonify({
         "applications": [
-            _apply_parent_admission_review_details({
-                **item.to_staff_dict(),
-                **({"decision_document": _build_staff_parent_decision_document_payload(item, settings, g.school_id)} if _build_staff_parent_decision_document_payload(item, settings, g.school_id) else {}),
-            })
+            _build_staff_parent_admission_payload(item, settings, g.school_id)
             for item in applications
         ],
         "summary": summary,
@@ -11109,7 +10752,7 @@ def review_parent_admission_application(application_id):
 
     response_payload = {
         "message": f"Application marked as {application.status}.",
-        "application": _apply_parent_admission_review_details(application.to_staff_dict()),
+        "application": _build_staff_parent_admission_payload(application, settings, g.school_id),
     }
 
     if action == "approve":
@@ -11147,11 +10790,8 @@ def review_parent_admission_application(application_id):
             "student_code": student.student_code,
             "warning": warning,
             "billing_notice": proration_result if proration_result.get("prorated_charge") else None,
-            "application": _apply_parent_admission_review_details(application.to_staff_dict()),
+            "application": _build_staff_parent_admission_payload(application, settings, g.school_id),
         })
-        decision_document = _build_staff_parent_decision_document_payload(application, settings, g.school_id)
-        if decision_document:
-            response_payload["application"]["decision_document"] = decision_document
         _send_parent_admission_update(
             application,
             school,
@@ -11182,6 +10822,43 @@ def review_parent_admission_application(application_id):
     )
 
     return jsonify(response_payload)
+
+
+@api.route("/admissions/applications/<int:application_id>/documents/<string:document_id>/download", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def download_parent_admission_document(application_id, document_id):
+    application = ParentAdmissionApplication.query.filter_by(
+        id=application_id,
+        school_id=g.school_id,
+    ).first()
+    if not application:
+        return jsonify({"message": "Application not found"}), 404
+
+    matching_document = next(
+        (
+            item
+            for item in (application.document_manifest or [])
+            if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
+        ),
+        None,
+    )
+    if not matching_document:
+        return jsonify({"message": "Document not found"}), 404
+
+    resolved_path = _resolve_existing_school_file(
+        _get_parent_admission_document_storage_root(),
+        matching_document.get("stored_filename"),
+    )
+    if not resolved_path:
+        return jsonify({"message": "Document file is no longer available"}), 404
+
+    return send_file(
+        resolved_path,
+        as_attachment=False,
+        download_name=matching_document.get("original_filename") or matching_document.get("filename") or "admission-document",
+    )
 
 
 @api.route("/admissions/generate-test", methods=["POST"])
@@ -12557,7 +12234,7 @@ def get_student_promotions(student_id):
 
 @api.route("/students/search", methods=["GET"])
 @multi_tenant_guard
-@role_required("proprietor", "headmaster", "teacher")
+@role_required("proprietor", "headmaster", "teacher", "inventory_manager")
 @jwt_required()
 def search_students():
     """
@@ -12566,17 +12243,20 @@ def search_students():
     """
     try:
         query = request.args.get("q", "").strip()
-        if len(query) < 2:
+        if len(query) < 2 and not query.isdigit():
             return jsonify({"students": []}), 200
         
-        # Search by name or student code (case-insensitive)
+        query_filters = [
+            Student.name.ilike(f"%{query}%"),
+            Student.student_code.ilike(f"%{query}%"),
+            Student.first_name.ilike(f"%{query}%"),
+            Student.surname.ilike(f"%{query}%"),
+        ]
+        if query.isdigit():
+            query_filters.append(Student.id == int(query))
+
         students = Student.query.filter_by(school_id=g.school_id).filter(
-            db.or_(
-                Student.name.ilike(f"%{query}%"),
-                Student.student_code.ilike(f"%{query}%"),
-                Student.first_name.ilike(f"%{query}%"),
-                Student.surname.ilike(f"%{query}%")
-            )
+            db.or_(*query_filters)
         ).limit(10).all()
         
         return jsonify({
@@ -13932,866 +13612,59 @@ def _clone_json_document(value):
     return json.loads(json.dumps(value or {}))
 
 
-def _get_school_chief_examiner_library(settings):
-    report_template_config = _clone_json_document(
-        settings.report_template_config if settings else {}
-    )
-    return normalize_chief_examiner_library(
-        report_template_config.get(CHIEF_EXAMINER_LIBRARY_CONFIG_KEY) or {}
-    )
+def _normalize_fee_amount(value):
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
-def _get_school_chief_examiner_library_meta(settings):
-    report_template_config = _clone_json_document(
-        settings.report_template_config if settings else {}
-    )
-    metadata = report_template_config.get(CHIEF_EXAMINER_LIBRARY_META_KEY) or {}
-    return metadata if isinstance(metadata, dict) else {}
+def _get_feeding_plan_fees(settings):
+    if not settings:
+        return {
+            "daily": 0.0,
+            "weekly": 0.0,
+            "monthly": 0.0,
+            "primary": 0.0,
+            "has_explicit_plans": False,
+        }
 
+    report_template_config = _clone_json_document(settings.report_template_config)
+    payment_plan_settings = report_template_config.get("payment_plan_settings") or {}
+    feeding_config = payment_plan_settings.get("feeding") or {}
 
-def _get_school_chief_examiner_library_history(settings):
-    report_template_config = _clone_json_document(
-        settings.report_template_config if settings else {}
-    )
-    history = report_template_config.get(CHIEF_EXAMINER_LIBRARY_HISTORY_KEY) or []
-    return history if isinstance(history, list) else []
+    daily = _normalize_fee_amount(feeding_config.get("daily"))
+    weekly = _normalize_fee_amount(feeding_config.get("weekly"))
+    monthly = _normalize_fee_amount(feeding_config.get("monthly"))
+    legacy = _normalize_fee_amount(settings.feeding_fee)
+    has_explicit_plans = any(amount > 0 for amount in (daily, weekly, monthly))
+    primary = monthly or weekly or daily or legacy
 
-
-def _merge_school_chief_examiner_library(existing_library, incoming_library):
-    merged = normalize_chief_examiner_library(existing_library)
-    for subject_key, topics in normalize_chief_examiner_library(incoming_library).items():
-        merged.setdefault(subject_key, {}).update(topics)
-    return merged
-
-
-def _set_school_chief_examiner_library(settings, library_payload, metadata=None):
-    config = _clone_json_document(settings.report_template_config)
-    normalized_library = normalize_chief_examiner_library(library_payload)
-
-    if normalized_library:
-        config[CHIEF_EXAMINER_LIBRARY_CONFIG_KEY] = normalized_library
-    else:
-        config.pop(CHIEF_EXAMINER_LIBRARY_CONFIG_KEY, None)
-
-    metadata = metadata if isinstance(metadata, dict) else {}
-    if metadata:
-        config[CHIEF_EXAMINER_LIBRARY_META_KEY] = metadata
-    else:
-        config.pop(CHIEF_EXAMINER_LIBRARY_META_KEY, None)
-
-    settings.report_template_config = config
-
-
-def _write_school_chief_examiner_library_history(settings, history_items):
-    config = _clone_json_document(settings.report_template_config)
-    cleaned_history = history_items if isinstance(history_items, list) else []
-    if cleaned_history:
-        config[CHIEF_EXAMINER_LIBRARY_HISTORY_KEY] = cleaned_history[:CHIEF_EXAMINER_LIBRARY_HISTORY_LIMIT]
-    else:
-        config.pop(CHIEF_EXAMINER_LIBRARY_HISTORY_KEY, None)
-    settings.report_template_config = config
-
-
-def _build_chief_examiner_history_snapshot(library_payload, metadata=None):
-    metadata = metadata if isinstance(metadata, dict) else {}
-    normalized_library = normalize_chief_examiner_library(library_payload)
-    snapshot = {
-        "version_id": metadata.get("version_id") or f"cil_{secrets.token_hex(6)}",
-        "created_at": metadata.get("imported_at") or datetime.now(timezone.utc).isoformat(),
-        "created_by": metadata.get("imported_by"),
-        "source_filename": metadata.get("source_filename") or "manual-entry",
-        "subject_count": len(normalized_library),
-        "entry_count": _count_chief_examiner_entries(normalized_library),
-        "replace_existing": bool(metadata.get("replace_existing", False)),
-        "is_restore": bool(metadata.get("is_restore", False)),
-        "restored_from_version_id": metadata.get("restored_from_version_id"),
-        "library": normalized_library,
-    }
-    return snapshot
-
-
-def _append_school_chief_examiner_history(settings, library_payload, metadata=None):
-    snapshot = _build_chief_examiner_history_snapshot(library_payload, metadata)
-    history = [snapshot] + [
-        item
-        for item in _get_school_chief_examiner_library_history(settings)
-        if item.get("version_id") != snapshot["version_id"]
-    ]
-    _write_school_chief_examiner_library_history(settings, history)
-    return snapshot
-
-
-def _get_platform_chief_examiner_library_setting():
-    setting = PlatformSetting.query.filter_by(
-        setting_key=PLATFORM_CHIEF_EXAMINER_LIBRARY_SETTING_KEY
-    ).first()
-    if not setting:
-        return None
-    normalized = normalize_chief_examiner_library(setting.setting_value)
-    return normalized or None
-
-
-def _get_platform_chief_examiner_library_meta():
-    metadata = _get_platform_setting_value(
-        PLATFORM_CHIEF_EXAMINER_LIBRARY_META_SETTING_KEY,
-        {},
-    )
-    return metadata if isinstance(metadata, dict) else {}
-
-
-def _get_platform_chief_examiner_library_history():
-    history = _get_platform_setting_value(
-        PLATFORM_CHIEF_EXAMINER_LIBRARY_HISTORY_SETTING_KEY,
-        [],
-    )
-    return history if isinstance(history, list) else []
-
-
-def _set_platform_chief_examiner_library(library_payload, metadata=None):
-    normalized_library = normalize_chief_examiner_library(library_payload)
-    _upsert_platform_setting_value(
-        PLATFORM_CHIEF_EXAMINER_LIBRARY_SETTING_KEY,
-        normalized_library,
-    )
-    safe_metadata = metadata if isinstance(metadata, dict) else {}
-    if safe_metadata:
-        _upsert_platform_setting_value(
-            PLATFORM_CHIEF_EXAMINER_LIBRARY_META_SETTING_KEY,
-            safe_metadata,
-        )
-    return normalized_library
-
-
-def _write_platform_chief_examiner_library_history(history_items):
-    cleaned_history = history_items if isinstance(history_items, list) else []
-    _upsert_platform_setting_value(
-        PLATFORM_CHIEF_EXAMINER_LIBRARY_HISTORY_SETTING_KEY,
-        cleaned_history[:CHIEF_EXAMINER_LIBRARY_HISTORY_LIMIT],
-    )
-
-
-def _append_platform_chief_examiner_history(library_payload, metadata=None):
-    snapshot = _build_chief_examiner_history_snapshot(library_payload, metadata)
-    history = [snapshot] + [
-        item
-        for item in _get_platform_chief_examiner_library_history()
-        if item.get("version_id") != snapshot["version_id"]
-    ]
-    _write_platform_chief_examiner_library_history(history)
-    return snapshot
-
-
-def _get_effective_chief_examiner_library(settings=None):
-    school_library = _get_school_chief_examiner_library(settings) if settings else {}
-    platform_library = _get_platform_chief_examiner_library_setting()
-    return merge_chief_examiner_library(
-        school_library,
-        base_library=platform_library or {},
-    )
-
-
-def _build_effective_chief_examiner_meta(settings=None):
     return {
-        **(_get_school_chief_examiner_library_meta(settings) if settings else {}),
-        "history_count": len(_get_school_chief_examiner_library_history(settings)) if settings else 0,
-        "platform_library_meta": _get_platform_chief_examiner_library_meta(),
-        "platform_history_count": len(_get_platform_chief_examiner_library_history()),
-        "uses_platform_default": not bool(_get_platform_chief_examiner_library_setting()),
-        "has_school_override": bool(_get_school_chief_examiner_library(settings)) if settings else False,
+        "daily": daily,
+        "weekly": weekly,
+        "monthly": monthly,
+        "primary": primary,
+        "has_explicit_plans": has_explicit_plans,
     }
 
 
-def _serialize_chief_examiner_history_item(item, current_version_id=None):
-    library_payload = normalize_chief_examiner_library(item.get("library") or {})
-    return {
-        "version_id": item.get("version_id"),
-        "created_at": item.get("created_at"),
-        "created_by": item.get("created_by"),
-        "source_filename": item.get("source_filename") or "manual-entry",
-        "subject_count": item.get("subject_count") or len(library_payload),
-        "entry_count": item.get("entry_count") or _count_chief_examiner_entries(library_payload),
-        "replace_existing": bool(item.get("replace_existing", False)),
-        "is_restore": bool(item.get("is_restore", False)),
-        "restored_from_version_id": item.get("restored_from_version_id"),
-        "is_active": bool(current_version_id) and item.get("version_id") == current_version_id,
-        "subject_preview": [
-            subject.get("subject")
-            for subject in build_chief_examiner_library_payload(chief_examiner_library=library_payload)[:4]
-        ],
+def _set_feeding_plan_fees(settings, daily, weekly, monthly):
+    report_template_config = _clone_json_document(settings.report_template_config)
+    payment_plan_settings = report_template_config.get("payment_plan_settings") or {}
+    payment_plan_settings["feeding"] = {
+        "daily": _normalize_fee_amount(daily),
+        "weekly": _normalize_fee_amount(weekly),
+        "monthly": _normalize_fee_amount(monthly),
     }
-
-
-def _parse_chief_examiner_practice_text(value):
-    return [
-        item.strip()
-        for item in re.split(r"[;,\n]", str(value or ""))
-        if item.strip()
-    ]
-
-
-def _parse_structured_chief_examiner_text(raw_text, fallback_subject=None):
-    text = str(raw_text or "").strip()
-    if not text:
-        raise ValueError(
-            "No examiner insight text was provided. Upload a JSON file or paste text using Subject/Topic/Issue/Advice/Practice fields."
-        )
-
-    library = {}
-    current_subject = str(fallback_subject or "").strip()
-    current_topic = None
-    current_entry = {}
-    last_field = None
-
-    def flush_topic():
-        nonlocal current_topic, current_entry, last_field
-        if current_subject and current_topic and any(current_entry.values()):
-            subject_bucket = library.setdefault(current_subject, {})
-            subject_bucket[current_topic] = {
-                "issue": str(current_entry.get("issue") or "").strip(),
-                "advice": str(current_entry.get("advice") or "").strip(),
-                "practice": list(current_entry.get("practice") or []),
-            }
-        current_topic = None
-        current_entry = {}
-        last_field = None
-
-    for raw_line in list(text.splitlines()) + [""]:
-        line = raw_line.strip()
-        if not line:
-            flush_topic()
-            continue
-
-        if ":" in line:
-            field_name, field_value = line.split(":", 1)
-            field_key = field_name.strip().casefold()
-            field_value = field_value.strip()
-
-            if field_key == "subject":
-                if current_topic and any(current_entry.values()):
-                    flush_topic()
-                current_subject = field_value
-                last_field = None
-                continue
-
-            if field_key == "topic":
-                if current_topic and any(current_entry.values()):
-                    flush_topic()
-                current_topic = field_value
-                current_entry = {}
-                last_field = None
-                continue
-
-            if field_key in {"issue", "problem"}:
-                current_entry["issue"] = field_value
-                last_field = "issue"
-                continue
-
-            if field_key in {"advice", "recommendation", "focus"}:
-                current_entry["advice"] = field_value
-                last_field = "advice"
-                continue
-
-            if field_key in {"practice", "practice areas", "practice_areas", "drills"}:
-                current_entry["practice"] = _parse_chief_examiner_practice_text(field_value)
-                last_field = "practice"
-                continue
-
-        if last_field == "practice":
-            current_entry.setdefault("practice", []).extend(
-                _parse_chief_examiner_practice_text(line)
-            )
-        elif last_field in {"issue", "advice"}:
-            existing_text = str(current_entry.get(last_field) or "").strip()
-            current_entry[last_field] = f"{existing_text} {line}".strip()
-
-    normalized_library = normalize_chief_examiner_library(library)
-    if not normalized_library:
-        return _parse_narrative_chief_examiner_text(text, fallback_subject=fallback_subject)
-    return normalized_library
-
-
-CHIEF_EXAMINER_SUBJECT_ALIASES = {
-    "mathematics": "mathematics",
-    "english language": "english language",
-    "french": "french",
-    "ghanaian languages": "ghanaian languages",
-    "religious and moral education": "religious & moral education",
-    "religious & moral education": "religious & moral education",
-    "social studies": "social studies",
-    "science": "science",
-    "integrated science": "integrated science",
-    "ict": "ict",
-    "information and communication technology": "ict",
-    "information & communication technology": "ict",
-    "basic design and technology": "basic design and technology",
-    "basic design & technology": "basic design and technology",
-    "pre-technical skills": "pre-technical skills",
-    "home economics": "home economics",
-    "visual art": "visual art",
-    "creative arts": "creative arts",
-}
-
-
-CHIEF_EXAMINER_TOPIC_HINTS = {
-    "english language": [
-        ("comprehension", ["comprehension", "passage", "question stem", "precise answers", "irrelevant responses"]),
-        ("composition", ["composition", "essay", "paragraph", "letter writing", "article writing", "continuous writing"]),
-        ("grammar", ["grammar", "concord", "tense", "sentence construction", "parts of speech"]),
-    ],
-    "french": [
-        ("comprehension", ["comprehension", "passage", "passages"]),
-        ("verb conjugation", ["conjugation", "conjugate", "verbs", "verb"]),
-        ("sentence construction", ["sentences", "sentence-building", "expressions", "expression"]),
-    ],
-    "ghanaian languages": [
-        ("grammar", ["grammar", "grammatical", "explanations"]),
-        ("comprehension", ["comprehension", "passage", "passages"]),
-        ("composition", ["composition", "written responses", "essay", "writing"]),
-    ],
-    "integrated science": [
-        ("scientific units", ["units", "unit conversion", "si units"]),
-        ("experiments", ["practical", "practical questions", "observation", "observation tables", "experiments"]),
-        ("human biology", ["biology", "organ", "organs", "systems"]),
-    ],
-    "science": [
-        ("scientific units", ["units", "unit conversion", "si units"]),
-        ("experiments", ["practical", "observation", "observation tables", "experiments"]),
-        ("human biology", ["biology", "organ", "organs", "systems"]),
-    ],
-    "home economics": [
-        ("terminology", ["terminologies", "terminology", "terms", "definitions"]),
-        ("practical procedures", ["procedures", "practical", "demonstrations", "steps"]),
-        ("clothing", ["clothing", "garment", "fabrics"]),
-    ],
-    "visual art": [
-        ("design explanation", ["design choices", "design", "colour", "form", "purpose"]),
-    ],
-    "creative arts": [
-        ("design", ["design choices", "design", "colour", "form", "creative choices"]),
-    ],
-    "mathematics": [
-        ("geometry", ["geometry", "construction", "constructions", "theorem", "labelled diagrams"]),
-        ("algebra", ["algebra", "equation", "equations", "simplification"]),
-        ("statistics", ["statistics", "probability", "averages", "mean", "median"]),
-        ("word problems", ["word problem", "commercial arithmetic", "ratio"]),
-    ],
-}
-
-
-EXAMINER_NOISE_PHRASES = [
-    "the following weaknesses of candidates were identified",
-    "the chief examiners of the various languages",
-    "general comments",
-    "the standard of the paper compared favourably",
-    "there was a slight improvement in the performance of candidates",
-    "good number of candidates adhered to the rubrics of the papers",
-]
-
-
-def _canonicalize_chief_examiner_subject_name(value):
-    normalized = normalize_subject_key(value)
-    return CHIEF_EXAMINER_SUBJECT_ALIASES.get(normalized)
-
-
-def _extract_subject_line_candidate(line):
-    cleaned_line = re.sub(r"\s+", " ", str(line or "")).strip()
-    if not cleaned_line:
-        return None
-
-    candidate_text = re.sub(r"\.{2,}.*$", "", cleaned_line)
-    candidate_text = re.sub(r"\s+\d+(?:\s*-\s*\d+)?$", "", candidate_text)
-    candidate_text = candidate_text.replace(":", " ")
-    candidate_text = re.sub(r"^[\W_]*\d+(?:\.\d+)*[\W_]*", "", candidate_text)
-    candidate_text = re.sub(r"\((ict)\)", r"\1", candidate_text, flags=re.IGNORECASE)
-    candidate_text = re.sub(r"\btable of contents\b", "", candidate_text, flags=re.IGNORECASE)
-    if re.match(r"^(general\s+resume|general\s+résumé)", candidate_text, flags=re.IGNORECASE):
-        return None
-    if re.match(r"^(résumé|resume)\s+of\s+", candidate_text, flags=re.IGNORECASE):
-        return None
-    candidate_text = re.sub(
-        r"^(chief examiners report on|chief examiner report on|examiner report on|report on)\s+",
-        "",
-        candidate_text,
-        flags=re.IGNORECASE,
+    report_template_config["payment_plan_settings"] = payment_plan_settings
+    settings.report_template_config = report_template_config
+    settings.feeding_fee = (
+        payment_plan_settings["feeding"]["monthly"]
+        or payment_plan_settings["feeding"]["weekly"]
+        or payment_plan_settings["feeding"]["daily"]
+        or 0.0
     )
-    candidate_text = re.sub(r"\b(paper|section|subject)\s*[12]?\b", " ", candidate_text, flags=re.IGNORECASE)
-    candidate = normalize_subject_key(candidate_text)
-    canonical_candidate = _canonicalize_chief_examiner_subject_name(candidate)
-    if canonical_candidate:
-        return canonical_candidate
-
-    for alias, canonical_subject in CHIEF_EXAMINER_SUBJECT_ALIASES.items():
-        if candidate == alias:
-            return canonical_subject
-        if candidate.startswith(f"{alias} ") or candidate.endswith(f" {alias}") or f" {alias} " in f" {candidate} ":
-            return canonical_subject
-    return None
-
-
-def _split_text_sentences(text):
-    return [
-        segment.strip()
-        for segment in re.split(r"(?<=[.!?])\s+", str(text or "").strip())
-        if segment.strip()
-    ]
-
-
-def _clean_examiner_summary_text(value):
-    cleaned = re.sub(r"\(\s*[ivxlcdm]+\s*\)", " ", str(value or ""), flags=re.IGNORECASE)
-    cleaned = re.sub(r"^\s*(?:\(?[0-9]{1,3}[a-z]?\)?|\(?[a-z]\)?|\(?[ivxlcdm]{1,6}\)?)[\])\.-]?\s+", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .;:-")
-    return cleaned
-
-
-def _is_examiner_noise_sentence(text):
-    normalized = normalize_topic_key(text)
-    if not normalized:
-        return True
-    if re.fullmatch(r"\d+", normalized):
-        return True
-    if len(normalized.split()) < 4:
-        return True
-    return any(phrase in normalized for phrase in EXAMINER_NOISE_PHRASES)
-
-
-def _finalize_examiner_sentence(text):
-    cleaned = _clean_examiner_summary_text(text)
-    cleaned = re.sub(r"^(candidates\s+(were|showed|performed)\s+)", "", cleaned, flags=re.IGNORECASE)
-    cleaned = cleaned.strip()
-    if not cleaned:
-        return ""
-    return cleaned[0].upper() + cleaned[1:]
-
-
-def _truncate_examiner_summary(text, max_chars=220):
-    cleaned = _clean_examiner_summary_text(text)
-    if len(cleaned) <= max_chars:
-        return cleaned
-    truncated = cleaned[:max_chars].rsplit(" ", 1)[0].strip()
-    return f"{truncated}..." if truncated else cleaned[:max_chars]
-
-
-def _merge_examiner_summary_text(existing_text, incoming_text, max_chars=260):
-    existing = _clean_examiner_summary_text(existing_text)
-    incoming = _clean_examiner_summary_text(incoming_text)
-    if not existing:
-        return _truncate_examiner_summary(incoming, max_chars=max_chars)
-    if not incoming:
-        return _truncate_examiner_summary(existing, max_chars=max_chars)
-
-    existing_key = normalize_topic_key(existing)
-    incoming_key = normalize_topic_key(incoming)
-    if not incoming_key or incoming_key == existing_key or incoming_key in existing_key:
-        return _truncate_examiner_summary(existing, max_chars=max_chars)
-    if existing_key in incoming_key:
-        return _truncate_examiner_summary(incoming, max_chars=max_chars)
-
-    merged = f"{existing}; {incoming}"
-    return _truncate_examiner_summary(merged, max_chars=max_chars)
-
-
-def _merge_examiner_topic_entry(topic_bucket, topic_name, issue_summary, advice_summary, default_practice=None):
-    if not topic_name:
-        return
-
-    existing_entry = topic_bucket.get(topic_name)
-    if not existing_entry:
-        topic_bucket[topic_name] = {
-            "issue": _truncate_examiner_summary(issue_summary),
-            "advice": _truncate_examiner_summary(advice_summary),
-            "practice": list(default_practice or []),
-        }
-        return
-
-    existing_entry["issue"] = _merge_examiner_summary_text(existing_entry.get("issue"), issue_summary)
-    existing_entry["advice"] = _merge_examiner_summary_text(existing_entry.get("advice"), advice_summary)
-    existing_entry["practice"] = _parse_chief_examiner_practice_text(
-        "; ".join(list(existing_entry.get("practice") or []) + list(default_practice or []))
-    )
-
-
-def _extract_examiner_section(block_text, markers, stop_markers=None):
-    text = _clean_examiner_summary_text(block_text)
-    lowered = text.casefold()
-    start_index = None
-    matched_marker = ""
-
-    for marker in markers:
-        marker_index = lowered.find(marker.casefold())
-        if marker_index == -1:
-            continue
-        if start_index is None or marker_index < start_index:
-            start_index = marker_index
-            matched_marker = marker
-
-    if start_index is None:
-        return ""
-
-    section_start = start_index + len(matched_marker)
-    section_end = len(text)
-    for stop_marker in stop_markers or []:
-        stop_index = lowered.find(stop_marker.casefold(), section_start)
-        if stop_index != -1 and stop_index < section_end:
-            section_end = stop_index
-
-    return _clean_examiner_summary_text(text[section_start:section_end])
-
-
-def _pick_examiner_sentence(text, keywords=None):
-    sentences = _split_text_sentences(_clean_examiner_summary_text(text))
-    if not sentences:
-        return ""
-    filtered_sentences = [sentence for sentence in sentences if not _is_examiner_noise_sentence(sentence)]
-    candidate_sentences = filtered_sentences or sentences
-    for sentence in candidate_sentences:
-        lowered = sentence.casefold()
-        if keywords and any(keyword in lowered for keyword in keywords):
-            return sentence
-    return candidate_sentences[0]
-
-
-def _summarize_examiner_issue(block_text):
-    issue_source = _extract_examiner_section(
-        block_text,
-        markers=[
-            "summary of candidates' weaknesses",
-            "summary of candidates’ weaknesses",
-            "candidates' weaknesses",
-            "candidates’ weaknesses",
-            "weaknesses",
-        ],
-        stop_markers=[
-            "suggested remedies",
-            "detailed comments",
-            "summary of candidates' strengths",
-            "summary of candidates’ strengths",
-            "strengths",
-        ],
-    ) or block_text
-    issue_sentence = _pick_examiner_sentence(
-        issue_source,
-        keywords=["weak", "poor", "difficulty", "struggle", "unable", "fail", "mistake", "challenge", "confus"],
-    )
-    return _truncate_examiner_summary(_finalize_examiner_sentence(issue_sentence or issue_source))
-
-
-def _summarize_examiner_advice(block_text, default_advice):
-    advice_source = _extract_examiner_section(
-        block_text,
-        markers=["suggested remedies", "remedies", "recommendations", "recommendation"],
-        stop_markers=["detailed comments"],
-    ) or block_text
-    advice_sentence = _pick_examiner_sentence(
-        advice_source,
-        keywords=["should", "must", "need to", "recommend", "suggest", "teach", "train", "revise", "practise", "practice"],
-    )
-    return _truncate_examiner_summary(
-        _finalize_examiner_sentence(advice_sentence or _derive_narrative_advice(block_text, default_advice))
-    )
-
-
-def _derive_narrative_advice(block_text, default_advice):
-    sentences = _split_text_sentences(block_text)
-    for sentence in sentences:
-        lowered = sentence.casefold()
-        if any(marker in lowered for marker in ["should", "must", "need to", "teachers should", "candidates should", "recommend"]):
-            return sentence
-    return default_advice
-
-
-def _infer_chief_examiner_topic_name(subject_key, block_text, existing_topic_keys=None):
-    normalized_block = normalize_topic_key(block_text)
-    existing_topic_keys = set(existing_topic_keys or [])
-
-    for topic_key in merge_chief_examiner_library().get(subject_key, {}):
-        if topic_key in normalized_block:
-            return topic_key
-
-    for topic_name, markers in CHIEF_EXAMINER_TOPIC_HINTS.get(subject_key, []):
-        if any(marker in normalized_block for marker in markers):
-            return topic_name
-
-    if any(marker in normalized_block for marker in ["practical", "observation", "procedures", "demonstration"]):
-        return "practical skills"
-    if any(marker in normalized_block for marker in ["terminology", "terminologies"]):
-        return "terminology"
-
-    fallback_name = "general performance"
-    if fallback_name not in existing_topic_keys:
-        return fallback_name
-    return None
-
-
-def _should_skip_examiner_block(block_text):
-    cleaned = _clean_examiner_summary_text(block_text)
-    normalized = normalize_topic_key(cleaned)
-    if not normalized:
-        return True
-    if re.fullmatch(r"\d+", normalized):
-        return True
-    if len(normalized.split()) < 6:
-        return True
-    return False
-
-
-def _parse_narrative_chief_examiner_text(raw_text, fallback_subject=None):
-    text = str(raw_text or "").strip()
-    if not text:
-        raise ValueError(
-            "No valid examiner insights were found. Use a JSON file or structured text like: Subject: Mathematics, Topic: Geometry, Issue: ..., Advice: ..., Practice: ..."
-        )
-
-    base_library = merge_chief_examiner_library()
-    current_subject = normalize_subject_key(fallback_subject)
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
-    inferred_library = {}
-
-    def add_generic_entry(subject_key, block_text, default_topic_name="general performance"):
-        normalized_block_text = str(block_text or "").strip()
-        if not normalized_block_text or not subject_key or _should_skip_examiner_block(normalized_block_text):
-            return False
-
-        topic_bucket = inferred_library.setdefault(subject_key, {})
-        topic_name = _infer_chief_examiner_topic_name(
-            subject_key,
-            normalized_block_text,
-            existing_topic_keys=topic_bucket.keys(),
-        ) or default_topic_name
-
-        issue_summary = _summarize_examiner_issue(normalized_block_text)
-        if _is_examiner_noise_sentence(issue_summary):
-            return False
-
-        default_entry = merge_chief_examiner_library().get(subject_key, {}).get(topic_name, {})
-        advice_summary = _summarize_examiner_advice(
-            normalized_block_text,
-            default_entry.get("advice")
-            or f"Provide focused reteaching and guided practice on {topic_name} before the next assessment.",
-        )
-
-        for entry in topic_bucket.values():
-            if normalize_topic_key(entry.get("issue")) == normalize_topic_key(issue_summary):
-                return False
-
-        _merge_examiner_topic_entry(
-            topic_bucket,
-            topic_name,
-            issue_summary,
-            advice_summary,
-            default_practice=list(default_entry.get("practice") or []),
-        )
-        return True
-
-    subject_sections = []
-    active_subject = current_subject if current_subject in base_library else None
-    active_lines = []
-
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            if active_lines:
-                active_lines.append("")
-            continue
-
-        subject_candidate = _extract_subject_line_candidate(line)
-        if subject_candidate:
-            if active_subject and active_lines:
-                subject_sections.append((active_subject, "\n".join(active_lines).strip()))
-            active_subject = subject_candidate
-            active_lines = []
-            continue
-
-        if active_subject:
-            active_lines.append(line)
-
-    if active_subject and active_lines:
-        subject_sections.append((active_subject, "\n".join(active_lines).strip()))
-
-    for subject_key, section_text in subject_sections:
-        section_blocks = [block.strip() for block in re.split(r"\n\s*\n", section_text) if block.strip()]
-        for section_block in section_blocks:
-            normalized_section_block = normalize_topic_key(section_block)
-            matched_topic = False
-            for topic_key, default_entry in base_library.get(subject_key, {}).items():
-                if topic_key not in normalized_section_block:
-                    continue
-                matched_topic = True
-                topic_bucket = inferred_library.setdefault(subject_key, {})
-                _merge_examiner_topic_entry(
-                    topic_bucket,
-                    topic_key,
-                    _summarize_examiner_issue(section_block),
-                    _summarize_examiner_advice(section_block, default_entry.get("advice") or ""),
-                    default_practice=list(default_entry.get("practice") or []),
-                )
-
-            if matched_topic:
-                continue
-
-            if len(section_block.split()) >= 12:
-                add_generic_entry(subject_key, section_block)
-
-    for block in blocks:
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if lines:
-            subject_candidate = _extract_subject_line_candidate(lines[0])
-            if subject_candidate:
-                current_subject = subject_candidate
-                if len(lines) == 1:
-                    continue
-                block = " ".join(lines[1:]).strip()
-
-        if not current_subject or current_subject not in base_library:
-            continue
-
-        subject_topics = base_library.get(current_subject, {})
-        matched_any_topic = False
-        normalized_block = normalize_topic_key(block)
-
-        for topic_key, default_entry in subject_topics.items():
-            if topic_key not in normalized_block:
-                continue
-            matched_any_topic = True
-            topic_bucket = inferred_library.setdefault(current_subject, {})
-            _merge_examiner_topic_entry(
-                topic_bucket,
-                topic_key,
-                _summarize_examiner_issue(block),
-                _summarize_examiner_advice(block, default_entry.get("advice") or ""),
-                default_practice=list(default_entry.get("practice") or []),
-            )
-
-        if matched_any_topic:
-            continue
-
-        weakness_markers = ["weak", "difficulty", "poor", "struggle", "unable", "mistake", "confuse", "fail"]
-        if any(marker in normalized_block for marker in weakness_markers) or len(block.split()) >= 12:
-            add_generic_entry(current_subject, block)
-
-    normalized_library = normalize_chief_examiner_library(inferred_library)
-    if not normalized_library:
-        raise ValueError(
-            "No valid examiner insights were found. Use the template JSON or structured text with Subject, Topic, Issue, Advice, and Practice fields."
-        )
-    return normalized_library
-
-
-def _count_chief_examiner_entries(library_payload):
-    normalized = normalize_chief_examiner_library(library_payload)
-    return sum(len(topics) for topics in normalized.values())
-
-
-def _build_chief_examiner_library_import_payload(uploaded=None, payload=None, form_data=None):
-    payload = payload if isinstance(payload, dict) else {}
-    form_data = form_data or {}
-
-    if uploaded:
-        original_name = uploaded.filename or ""
-        if not original_name:
-            raise ValueError("A filename is required for the examiner report upload.")
-        file_ext = os.path.splitext(original_name)[1].lower()
-        if file_ext == ".json":
-            try:
-                uploaded.stream.seek(0)
-                loaded_payload = json.load(uploaded.stream)
-            except Exception as exc:
-                raise ValueError(f"Invalid examiner insight JSON file: {exc}") from exc
-            return normalize_chief_examiner_library(loaded_payload), original_name
-
-        if file_ext not in {".txt", ".md", ".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
-            raise ValueError(
-                "Supported examiner report formats are JSON, TXT, MD, PDF, PNG, JPG, JPEG, and WEBP."
-            )
-
-        report_text = form_data.get("report_text") or form_data.get("extracted_text") or ""
-        extracted_text = _load_exam_document_text(uploaded, file_ext, result_text=report_text)
-        subject_name = form_data.get("subject") or payload.get("subject")
-        return _parse_structured_chief_examiner_text(extracted_text, fallback_subject=subject_name), original_name
-
-    structured_payload = (
-        payload.get("library")
-        or payload.get("subjects")
-        or form_data.get("library")
-        or payload
-    )
-    normalized_library = normalize_chief_examiner_library(structured_payload)
-    if normalized_library:
-        return normalized_library, payload.get("source_filename") or "manual-entry"
-
-    report_text = (
-        payload.get("report_text")
-        or payload.get("extracted_text")
-        or form_data.get("report_text")
-        or form_data.get("extracted_text")
-        or ""
-    )
-    if report_text:
-        return _parse_structured_chief_examiner_text(
-            report_text,
-            fallback_subject=payload.get("subject") or form_data.get("subject"),
-        ), payload.get("source_filename") or form_data.get("source_filename") or "manual-text"
-
-    raise ValueError(
-        "Provide a JSON library, a structured text payload, or upload an examiner report file."
-    )
-
-
-def _build_chief_examiner_library_batch_import_payload(uploaded_files=None, payload=None, form_data=None):
-    payload = payload if isinstance(payload, dict) else {}
-    form_data = form_data or {}
-    uploaded_files = [
-        uploaded
-        for uploaded in (uploaded_files or [])
-        if uploaded and str(getattr(uploaded, "filename", "") or "").strip()
-    ]
-
-    if not uploaded_files:
-        imported_library, source_filename = _build_chief_examiner_library_import_payload(
-            payload=payload,
-            form_data=form_data,
-        )
-        return imported_library, {
-            "source_filename": source_filename,
-            "source_filenames": [source_filename] if source_filename else [],
-            "file_count": 0,
-        }
-
-    if len(uploaded_files) == 1:
-        imported_library, source_filename = _build_chief_examiner_library_import_payload(
-            uploaded=uploaded_files[0],
-            payload=payload,
-            form_data=form_data,
-        )
-        return imported_library, {
-            "source_filename": source_filename,
-            "source_filenames": [source_filename],
-            "file_count": 1,
-        }
-
-    if (form_data.get("report_text") or form_data.get("extracted_text") or payload.get("report_text") or payload.get("extracted_text")):
-        raise ValueError(
-            "Structured report text can only be used with a single examiner report upload. Remove the pasted text when importing multiple files."
-        )
-
-    merged_library = {}
-    source_filenames = []
-    for uploaded in uploaded_files:
-        imported_library, source_filename = _build_chief_examiner_library_import_payload(
-            uploaded=uploaded,
-            payload=payload,
-            form_data=form_data,
-        )
-        merged_library = _merge_school_chief_examiner_library(merged_library, imported_library)
-        source_filenames.append(source_filename)
-
-    if not merged_library:
-        raise ValueError("No valid examiner insights were found across the uploaded examiner reports.")
-
-    return merged_library, {
-        "source_filename": f"batch-import ({len(source_filenames)} files)",
-        "source_filenames": source_filenames,
-        "file_count": len(source_filenames),
-    }
 
 
 def _analytics_preset_name_key(name):
@@ -15348,7 +14221,22 @@ def get_exam_intelligence_dashboard():
         settings = _get_or_create_school_settings()
         current_user = getattr(g, "current_user", None)
         if current_user and current_user.role == "teacher":
-            return jsonify(_build_teacher_exam_intelligence_payload(settings, current_user.id))
+            try:
+                return jsonify(_build_teacher_exam_intelligence_payload(settings, current_user.id))
+            except Exception as teacher_error:
+                logger.warning(
+                    "Teacher exam intelligence summary unavailable for school %s teacher %s: %s",
+                    g.school_id,
+                    current_user.id,
+                    teacher_error,
+                )
+                return jsonify(
+                    _build_empty_teacher_exam_intelligence_payload(
+                        settings,
+                        current_user.id,
+                        warning_message="Subject-level exam summaries are unavailable until the latest exam import is complete and readable.",
+                    )
+                )
         return jsonify(_build_exam_intelligence_payload(settings))
     except Exception as e:
         return jsonify({"message": "Error loading exam intelligence dashboard", "error": str(e)}), 500
@@ -15366,13 +14254,10 @@ def get_academic_guidance_dashboard():
 
     academic_term, academic_year, reports = _get_latest_report_scope()
     scope = _build_academic_guidance_scope(user)
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-    effective_library = _get_effective_chief_examiner_library(settings)
     payload = build_academic_guidance_summary(
         reports,
         allowed_classes=scope["allowed_classes"],
         allowed_subjects=scope["allowed_subjects"],
-        chief_examiner_library=effective_library,
     )
     payload["scope"] = {
         "role": user.role,
@@ -15382,198 +14267,41 @@ def get_academic_guidance_dashboard():
         "academic_term": academic_term,
         "academic_year": academic_year,
     }
-    payload["library_meta"] = _build_effective_chief_examiner_meta(settings)
     return jsonify(payload)
+
+
+def _retired_examiner_report_insights_response():
+    return jsonify({"message": "Examiner report insights have been removed from EduPulse."}), 410
 
 
 @api.route("/platform/chief-examiner-library", methods=["GET"])
 @jwt_required()
 def get_platform_chief_examiner_library():
-    """Get the platform-managed chief examiner library."""
-    platform_user = _get_platform_user_from_jwt()
-    if not platform_user:
-        return jsonify({"message": "Unauthorized"}), 401
-
-    platform_library = _get_platform_chief_examiner_library_setting()
-    metadata = _get_platform_chief_examiner_library_meta()
-    return jsonify(
-        {
-            "subjects": build_chief_examiner_library_payload(
-                chief_examiner_library=platform_library
-            ),
-            "meta": {
-                **metadata,
-                "history_count": len(_get_platform_chief_examiner_library_history()),
-                "uses_fallback_default": not bool(platform_library),
-            },
-        }
-    )
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/platform/chief-examiner-library/import", methods=["POST"])
 @jwt_required()
 def import_platform_chief_examiner_library():
-    """Import or merge the platform-managed chief examiner library."""
-    platform_user = _get_platform_user_from_jwt()
-    if not platform_user:
-        return jsonify({"message": "Unauthorized"}), 401
-
-    try:
-        payload = request.get_json(silent=True) or {}
-        uploaded_files = request.files.getlist("file") or request.files.getlist("files")
-        imported_library, import_meta = _build_chief_examiner_library_batch_import_payload(
-            uploaded_files=uploaded_files,
-            payload=payload,
-            form_data=request.form,
-        )
-
-        replace_existing = str(
-            request.form.get("replace_existing")
-            or payload.get("replace_existing")
-            or ""
-        ).strip().lower() in {"1", "true", "yes", "on"}
-
-        current_library = _get_platform_chief_examiner_library_setting() or {}
-        next_library = imported_library
-        if not replace_existing:
-            next_library = _merge_school_chief_examiner_library(current_library, imported_library)
-
-        metadata = {
-            "version_id": f"cil_{secrets.token_hex(6)}",
-            "imported_at": datetime.now(timezone.utc).isoformat(),
-            "imported_by": platform_user.username,
-            "source_filename": import_meta["source_filename"],
-            "source_filenames": import_meta["source_filenames"],
-            "file_count": import_meta["file_count"],
-            "subject_count": len(next_library),
-            "entry_count": _count_chief_examiner_entries(next_library),
-            "replace_existing": replace_existing,
-        }
-        _set_platform_chief_examiner_library(next_library, metadata)
-        _append_platform_chief_examiner_history(next_library, metadata)
-        db.session.commit()
-
-        return jsonify(
-            {
-                "message": "Platform chief examiner insight library imported.",
-                "meta": {
-                    **metadata,
-                    "history_count": len(_get_platform_chief_examiner_library_history()),
-                },
-                "subjects": build_chief_examiner_library_payload(
-                    chief_examiner_library=next_library
-                ),
-            }
-        ), 201
-    except ValueError as exc:
-        return jsonify({"message": str(exc)}), 400
-    except Exception as exc:
-        return jsonify(
-            {
-                "message": "Error importing platform chief examiner library",
-                "error": str(exc),
-            }
-        ), 500
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/platform/chief-examiner-library/history", methods=["GET"])
 @jwt_required()
 def get_platform_chief_examiner_library_history():
-    """Get platform chief examiner library history."""
-    platform_user = _get_platform_user_from_jwt()
-    if not platform_user:
-        return jsonify({"message": "Unauthorized"}), 401
-
-    metadata = _get_platform_chief_examiner_library_meta()
-    current_version_id = metadata.get("version_id")
-    history = [
-        _serialize_chief_examiner_history_item(item, current_version_id=current_version_id)
-        for item in _get_platform_chief_examiner_library_history()
-    ]
-    return jsonify({"history": history, "current_version_id": current_version_id})
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/platform/chief-examiner-library/history/<string:version_id>/restore", methods=["POST"])
 @jwt_required()
 def restore_platform_chief_examiner_library_history(version_id):
-    """Restore a platform chief examiner library snapshot."""
-    platform_user = _get_platform_user_from_jwt()
-    if not platform_user:
-        return jsonify({"message": "Unauthorized"}), 401
-
-    history = _get_platform_chief_examiner_library_history()
-    matching_snapshot = next(
-        (item for item in history if item.get("version_id") == version_id),
-        None,
-    )
-    if not matching_snapshot:
-        return jsonify({"message": "Chief examiner library version not found."}), 404
-
-    restored_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
-    metadata = {
-        "version_id": f"cil_{secrets.token_hex(6)}",
-        "imported_at": datetime.now(timezone.utc).isoformat(),
-        "imported_by": platform_user.username,
-        "source_filename": matching_snapshot.get("source_filename") or "history-restore",
-        "subject_count": len(restored_library),
-        "entry_count": _count_chief_examiner_entries(restored_library),
-        "replace_existing": True,
-        "is_restore": True,
-        "restored_from_version_id": version_id,
-    }
-    _set_platform_chief_examiner_library(restored_library, metadata)
-    _append_platform_chief_examiner_history(restored_library, metadata)
-    db.session.commit()
-
-    return jsonify(
-        {
-            "message": "Platform chief examiner insight library restored.",
-            "meta": {
-                **metadata,
-                "history_count": len(_get_platform_chief_examiner_library_history()),
-            },
-            "subjects": build_chief_examiner_library_payload(
-                chief_examiner_library=restored_library
-            ),
-        }
-    )
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/platform/chief-examiner-library/history/<string:version_id>/download", methods=["GET"])
 @jwt_required()
 def download_platform_chief_examiner_library_history(version_id):
-    """Download a platform chief examiner library snapshot."""
-    platform_user = _get_platform_user_from_jwt()
-    if not platform_user:
-        return jsonify({"message": "Unauthorized"}), 401
-
-    matching_snapshot = next(
-        (item for item in _get_platform_chief_examiner_library_history() if item.get("version_id") == version_id),
-        None,
-    )
-    if not matching_snapshot:
-        return jsonify({"message": "Chief examiner library version not found."}), 404
-
-    snapshot_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
-    export_payload = {
-        "version_id": matching_snapshot.get("version_id"),
-        "source_filename": matching_snapshot.get("source_filename") or "manual-entry",
-        "created_at": matching_snapshot.get("created_at"),
-        "created_by": matching_snapshot.get("created_by"),
-        "replace_existing": bool(matching_snapshot.get("replace_existing", False)),
-        "is_restore": bool(matching_snapshot.get("is_restore", False)),
-        "restored_from_version_id": matching_snapshot.get("restored_from_version_id"),
-        "subjects": build_chief_examiner_library_payload(chief_examiner_library=snapshot_library),
-    }
-
-    safe_basename = secure_filename(str(matching_snapshot.get("source_filename") or version_id)) or version_id
-    if not safe_basename.lower().endswith(".json"):
-        safe_basename = f"{os.path.splitext(safe_basename)[0] or version_id}.json"
-
-    response = make_response(json.dumps(export_payload, indent=2))
-    response.headers["Content-Type"] = "application/json"
-    response.headers["Content-Disposition"] = f"attachment; filename={safe_basename}"
-    return response
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/analytics/chief-examiner-library/import", methods=["POST"])
@@ -15582,63 +14310,7 @@ def download_platform_chief_examiner_library_history(version_id):
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def import_chief_examiner_library():
-    try:
-        settings = _get_or_create_school_settings()
-        payload = request.get_json(silent=True) or {}
-        uploaded_files = request.files.getlist("file") or request.files.getlist("files")
-        imported_library, import_meta = _build_chief_examiner_library_batch_import_payload(
-            uploaded_files=uploaded_files,
-            payload=payload,
-            form_data=request.form,
-        )
-
-        replace_existing = str(
-            request.form.get("replace_existing")
-            or payload.get("replace_existing")
-            or ""
-        ).strip().lower() in {"1", "true", "yes", "on"}
-
-        next_library = imported_library
-        if not replace_existing:
-            next_library = _merge_school_chief_examiner_library(
-                _get_school_chief_examiner_library(settings),
-                imported_library,
-            )
-
-        metadata = {
-            "version_id": f"cil_{secrets.token_hex(6)}",
-            "imported_at": datetime.now(timezone.utc).isoformat(),
-            "imported_by": int(get_jwt_identity()),
-            "source_filename": import_meta["source_filename"],
-            "source_filenames": import_meta["source_filenames"],
-            "file_count": import_meta["file_count"],
-            "subject_count": len(next_library),
-            "entry_count": _count_chief_examiner_entries(next_library),
-            "replace_existing": replace_existing,
-        }
-        _set_school_chief_examiner_library(settings, next_library, metadata)
-        _append_school_chief_examiner_history(settings, next_library, metadata)
-        db.session.commit()
-
-        return jsonify(
-            {
-                "message": "Chief examiner insight library imported.",
-                "meta": metadata,
-                "history_count": len(_get_school_chief_examiner_library_history(settings)),
-                "subjects": build_chief_examiner_library_payload(
-                    chief_examiner_library=next_library
-                ),
-            }
-        ), 201
-    except ValueError as exc:
-        return jsonify({"message": str(exc)}), 400
-    except Exception as exc:
-        return jsonify(
-            {
-                "message": "Error importing chief examiner library",
-                "error": str(exc),
-            }
-        ), 500
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/analytics/chief-examiner-library/template", methods=["GET"])
@@ -15647,52 +14319,7 @@ def import_chief_examiner_library():
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def download_chief_examiner_library_template():
-    template_payload = {
-        "source_filename": "waec-chief-examiner-template.json",
-        "subjects": [
-            {
-                "subject": "Mathematics",
-                "topics": [
-                    {
-                        "topic": "Geometry",
-                        "issue": "students often give final answers without supporting geometric reasons",
-                        "advice": "reteach proof language, labelled diagrams, and theorem-based explanations",
-                        "practice": ["circle theorems", "angle properties", "construction and loci"],
-                    }
-                ],
-            },
-            {
-                "subject": "English Language",
-                "topics": [
-                    {
-                        "topic": "Composition",
-                        "issue": "students lose marks through weak paragraph structure and limited vocabulary",
-                        "advice": "use planning outlines before timed essay practice",
-                        "practice": ["essay planning", "paragraph development", "formal letter writing"],
-                    }
-                ],
-            },
-        ],
-        "structured_text_example": textwrap.dedent(
-            """
-            Subject: Mathematics
-            Topic: Mensuration
-            Issue: students confuse area and volume formula selection in compound shapes
-            Advice: reteach formula choice before calculation speed drills
-            Practice: surface area; volume of prisms; unit conversion
-            """
-        ).strip(),
-        "notes": [
-            "You can upload this JSON file directly to /api/analytics/chief-examiner-library/import.",
-            "You can also upload a TXT, MD, PDF, or image file if its content is structured with Subject, Topic, Issue, Advice, and Practice fields.",
-            "When replace_existing is false, imported insights are merged into the school library instead of replacing it.",
-        ],
-    }
-
-    response = make_response(json.dumps(template_payload, indent=2))
-    response.headers["Content-Type"] = "application/json"
-    response.headers["Content-Disposition"] = "attachment; filename=chief_examiner_library_template.json"
-    return response
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/analytics/chief-examiner-library/history", methods=["GET"])
@@ -15701,17 +14328,7 @@ def download_chief_examiner_library_template():
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def get_chief_examiner_library_history():
-    settings = _get_or_create_school_settings()
-    metadata = _get_school_chief_examiner_library_meta(settings)
-    current_version_id = metadata.get("version_id")
-    history = [
-        _serialize_chief_examiner_history_item(item, current_version_id=current_version_id)
-        for item in _get_school_chief_examiner_library_history(settings)
-    ]
-    return jsonify({
-        "history": history,
-        "current_version_id": current_version_id,
-    })
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/analytics/chief-examiner-library/history/<string:version_id>/restore", methods=["POST"])
@@ -15720,41 +14337,7 @@ def get_chief_examiner_library_history():
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def restore_chief_examiner_library_history(version_id):
-    settings = _get_or_create_school_settings()
-    history = _get_school_chief_examiner_library_history(settings)
-    matching_snapshot = next(
-        (item for item in history if item.get("version_id") == version_id),
-        None,
-    )
-    if not matching_snapshot:
-        return jsonify({"message": "Chief examiner library version not found."}), 404
-
-    restored_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
-    metadata = {
-        "version_id": f"cil_{secrets.token_hex(6)}",
-        "imported_at": datetime.now(timezone.utc).isoformat(),
-        "imported_by": int(get_jwt_identity()),
-        "source_filename": matching_snapshot.get("source_filename") or "history-restore",
-        "subject_count": len(restored_library),
-        "entry_count": _count_chief_examiner_entries(restored_library),
-        "replace_existing": True,
-        "is_restore": True,
-        "restored_from_version_id": version_id,
-    }
-    _set_school_chief_examiner_library(settings, restored_library, metadata)
-    _append_school_chief_examiner_history(settings, restored_library, metadata)
-    db.session.commit()
-
-    return jsonify(
-        {
-            "message": "Chief examiner insight library restored.",
-            "meta": metadata,
-            "subjects": build_chief_examiner_library_payload(
-                chief_examiner_library=restored_library
-            ),
-            "history_count": len(_get_school_chief_examiner_library_history(settings)),
-        }
-    )
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/analytics/chief-examiner-library/history/<string:version_id>/download", methods=["GET"])
@@ -15763,48 +14346,7 @@ def restore_chief_examiner_library_history(version_id):
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def download_chief_examiner_library_history(version_id):
-    settings = _get_or_create_school_settings()
-    matching_snapshot = next(
-        (item for item in _get_school_chief_examiner_library_history(settings) if item.get("version_id") == version_id),
-        None,
-    )
-    if not matching_snapshot:
-        return jsonify({"message": "Chief examiner library version not found."}), 404
-
-    snapshot_library = normalize_chief_examiner_library(matching_snapshot.get("library") or {})
-    export_payload = {
-        "version_id": matching_snapshot.get("version_id"),
-        "source_filename": matching_snapshot.get("source_filename") or "manual-entry",
-        "created_at": matching_snapshot.get("created_at"),
-        "created_by": matching_snapshot.get("created_by"),
-        "replace_existing": bool(matching_snapshot.get("replace_existing", False)),
-        "is_restore": bool(matching_snapshot.get("is_restore", False)),
-        "restored_from_version_id": matching_snapshot.get("restored_from_version_id"),
-        "subjects": [
-            {
-                "subject": subject_name.title() if subject_name != "ict" else "ICT",
-                "topics": [
-                    {
-                        "topic": topic_name.title(),
-                        "issue": entry.get("issue"),
-                        "advice": entry.get("advice"),
-                        "practice": entry.get("practice") or [],
-                    }
-                    for topic_name, entry in sorted((topics or {}).items())
-                ],
-            }
-            for subject_name, topics in sorted(snapshot_library.items())
-        ],
-    }
-
-    safe_basename = secure_filename(str(matching_snapshot.get("source_filename") or version_id)) or version_id
-    if not safe_basename.lower().endswith(".json"):
-        safe_basename = f"{os.path.splitext(safe_basename)[0] or version_id}.json"
-
-    response = make_response(json.dumps(export_payload, indent=2))
-    response.headers["Content-Type"] = "application/json"
-    response.headers["Content-Disposition"] = f"attachment; filename={safe_basename}"
-    return response
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/analytics/chief-examiner-library", methods=["GET"])
@@ -15813,28 +14355,7 @@ def download_chief_examiner_library_history(version_id):
 @role_required("proprietor", "headmaster", "teacher", "homeroom")
 @jwt_required()
 def get_chief_examiner_library():
-    user = User.query.get(int(get_jwt_identity()))
-    if not user:
-        return jsonify({"message": "User not found."}), 404
-
-    scope = _build_academic_guidance_scope(user)
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-    effective_library = _get_effective_chief_examiner_library(settings)
-    return jsonify(
-        {
-            "subjects": build_chief_examiner_library_payload(
-                scope["allowed_subjects"],
-                chief_examiner_library=effective_library,
-            ),
-            "scope": {
-                "role": user.role,
-                "role_label": scope["role_label"],
-                "allowed_classes": scope["allowed_classes"] or [],
-                "allowed_subjects": scope["allowed_subjects"] or [],
-            },
-            "library_meta": _build_effective_chief_examiner_meta(settings),
-        }
-    )
+    return _retired_examiner_report_insights_response()
 
 
 @api.route("/analytics/class-performance", methods=["GET"])
@@ -16285,6 +14806,9 @@ def get_school_branding():
         fees = {
             "tuition_fee": 0.0,
             "feeding_fee": 0.0,
+            "feeding_daily_fee": 0.0,
+            "feeding_weekly_fee": 0.0,
+            "feeding_monthly_fee": 0.0,
             "uniform_fee": 0.0,
             "transport_fee": 0.0,
             "terminal_report_fee": 0.0,
@@ -16294,9 +14818,13 @@ def get_school_branding():
         }
 
         if settings:
+            feeding_plan_fees = _get_feeding_plan_fees(settings)
             fees = {
                 "tuition_fee": settings.tuition_fee or 0.0,
-                "feeding_fee": settings.feeding_fee or 0.0,
+                "feeding_fee": feeding_plan_fees["primary"],
+                "feeding_daily_fee": feeding_plan_fees["daily"],
+                "feeding_weekly_fee": feeding_plan_fees["weekly"],
+                "feeding_monthly_fee": feeding_plan_fees["monthly"],
                 "uniform_fee": settings.uniform_fee or 0.0,
                 "transport_fee": settings.transport_fee or 0.0,
                 "terminal_report_fee": settings.terminal_report_fee or 0.0,
@@ -16370,7 +14898,21 @@ def _get_school_country_code(school_id):
     return (settings.country_code if settings and settings.country_code else "GH").upper()
 
 
-DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT = 2.0
+DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT = 1.5
+
+
+def _get_phone_payment_convenience_fee_percent(settings):
+    raw_value = getattr(settings, "phone_payment_convenience_fee_percent", None) if settings else None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        value = DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
+
+    if value < 0:
+        return 0.0
+    if value > 100:
+        return 100.0
+    return round(value, 2)
 
 
 def _mask_bank_account_value(account_number):
@@ -17321,6 +15863,13 @@ def update_school_fees():
         settings.feeding_fee = (
             float(data["feeding_fee"]) if data["feeding_fee"] else 0.0
         )
+    if any(key in data for key in ["feeding_daily_fee", "feeding_weekly_fee", "feeding_monthly_fee"]):
+        _set_feeding_plan_fees(
+            settings,
+            data.get("feeding_daily_fee"),
+            data.get("feeding_weekly_fee"),
+            data.get("feeding_monthly_fee"),
+        )
     # Uniform fee is now managed through inventory pricing, not school fee settings.
     settings.uniform_fee = 0.0
     if "transport_fee" in data:
@@ -17331,6 +15880,14 @@ def update_school_fees():
         settings.terminal_report_fee = (
             float(data["terminal_report_fee"]) if data["terminal_report_fee"] else 0.0
         )
+    if "phone_payment_convenience_fee_percent" in data:
+        try:
+            convenience_fee_percent = float(data["phone_payment_convenience_fee_percent"] or 0.0)
+        except (TypeError, ValueError):
+            return jsonify({"message": "Invalid phone_payment_convenience_fee_percent value."}), 400
+        if convenience_fee_percent < 0 or convenience_fee_percent > 100:
+            return jsonify({"message": "phone_payment_convenience_fee_percent must be between 0 and 100."}), 400
+        settings.phone_payment_convenience_fee_percent = round(convenience_fee_percent, 2)
     if "admission_fee_enabled" in data:
         settings.admission_fee_enabled = bool(data.get("admission_fee_enabled"))
     if "admission_fee_amount" in data:
@@ -17365,22 +15922,32 @@ def get_school_fees():
             {
                 "tuition_fee": 0.0,
                 "feeding_fee": 0.0,
+                "feeding_daily_fee": 0.0,
+                "feeding_weekly_fee": 0.0,
+                "feeding_monthly_fee": 0.0,
                 "uniform_fee": 0.0,
                 "transport_fee": 0.0,
                 "terminal_report_fee": 0.0,
+                "phone_payment_convenience_fee_percent": DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT,
                 "admission_fee_enabled": False,
                 "admission_fee_amount": 0.0,
                 "other_fees": {},
             }
         )
 
+    feeding_plan_fees = _get_feeding_plan_fees(settings)
+
     return jsonify(
         {
             "tuition_fee": settings.tuition_fee or 0.0,
-            "feeding_fee": settings.feeding_fee or 0.0,
+            "feeding_fee": feeding_plan_fees["primary"],
+            "feeding_daily_fee": feeding_plan_fees["daily"],
+            "feeding_weekly_fee": feeding_plan_fees["weekly"],
+            "feeding_monthly_fee": feeding_plan_fees["monthly"],
             "uniform_fee": 0.0,
             "transport_fee": settings.transport_fee or 0.0,
             "terminal_report_fee": settings.terminal_report_fee or 0.0,
+            "phone_payment_convenience_fee_percent": _get_phone_payment_convenience_fee_percent(settings),
             "admission_fee_enabled": bool(settings.admission_fee_enabled),
             "admission_fee_amount": settings.admission_fee_amount or 0.0,
             "other_fees": settings.other_fees or {},
@@ -17711,6 +16278,37 @@ def get_subscription():
     )
 
 
+@api.route("/school/subscription/effective-plan", methods=["GET"])
+@multi_tenant_guard
+@jwt_required()
+def get_effective_subscription_plan():
+    """Return the tenant's effective plan, including trial override state, for any authenticated staff user."""
+    school = School.query.get(g.school_id)
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    effective_plan = get_effective_plan(school)
+    trial_end_date = school.trial_end_date
+    if trial_end_date and trial_end_date.tzinfo is None:
+        trial_end_date = trial_end_date.replace(tzinfo=timezone.utc)
+
+    return jsonify(
+        {
+            "plan": school.subscription_plan or "Free Tier",
+            "effective_plan": effective_plan,
+            "trial": {
+                "active": bool(
+                    school.trial_plan
+                    and trial_end_date
+                    and datetime.now(timezone.utc) < trial_end_date
+                ),
+                "plan": school.trial_plan,
+                "end_date": trial_end_date.isoformat() if trial_end_date else None,
+            },
+        }
+    ), 200
+
+
 @api.route("/school/subscription/upgrade", methods=["POST"])
 @multi_tenant_guard
 @role_required("proprietor")
@@ -17856,6 +16454,9 @@ def get_subscription_trial_status():
         "plan": trial.get("plan"),
         "start_date": trial.get("start_date"),
         "end_date": trial.get("end_date"),
+        "term_name": trial.get("term_name"),
+        "academic_year": trial.get("academic_year"),
+        "reference_source": trial.get("reference_source"),
         "has_used_trial": has_used_trial,
         "trial_ended_at": school.trial_end_date.isoformat() if school.trial_end_date else None,
     }), 200
@@ -17867,10 +16468,7 @@ def get_subscription_trial_status():
 @role_required("proprietor")
 def activate_subscription_trial():
     """Activate premium trial entitlement for this tenant."""
-    data = request.get_json(silent=True) or {}
-    days = int(data.get("days", 30) or 30)
-
-    result = activate_premium_trial(g.school_id, days=days)
+    result = activate_premium_trial(g.school_id)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result), 200
@@ -19417,7 +18015,7 @@ def impersonate_proprietor(school_id):
 @api.route("/admin/school/<school_id>/trial", methods=["POST"])
 @jwt_required()
 def grant_school_trial(school_id):
-    """Super Admin: Grant a time-bound trial plan to a school."""
+    """Super Admin: Grant a term-bound trial plan to a school."""
     user_id = get_jwt_identity()
     user = User.query.get(user_id)
     if user.role != "super_admin":
@@ -19425,21 +18023,30 @@ def grant_school_trial(school_id):
 
     data = request.json or {}
     trial_plan = data.get("trial_plan", "Premium")
-    months = int(data.get("trial_months", 6))
 
     school = School.query.get_or_404(school_id)
+    term_reference = get_current_trial_term_reference(school.id)
+    trial_end = _term_reference_to_end_datetime(term_reference)
+    if not term_reference or not trial_end:
+        return jsonify({"message": "Unable to resolve the current term window for this school."}), 400
+
     school.trial_plan = trial_plan
-    school.trial_end_date = datetime.now(timezone.utc) + timedelta(days=30 * months)
+    school.trial_end_date = trial_end
+    school.is_trial_active = True
     school.subscription_status = "Trial"
     db.session.commit()
 
-    log_action(user.id, school.id, "ADMIN_TRIAL_GRANT", f"Granted {trial_plan} trial for {months} months to school {school.id}")
+    log_action(user.id, school.id, "ADMIN_TRIAL_GRANT", f"Granted {trial_plan} trial for {term_reference.get('name')} {term_reference.get('academic_year')} to school {school.id}")
 
     return jsonify(
         {
-            "message": f"Trial granted: {trial_plan} for {months} months",
+            "message": f"Trial granted: {trial_plan} until the end of {term_reference.get('name')} {term_reference.get('academic_year')}",
             "trial_plan": school.trial_plan,
+            "trial_start": term_reference.get("start_date").isoformat() if term_reference.get("start_date") else None,
             "trial_end": school.trial_end_date.strftime("%Y-%m-%d"),
+            "term_name": term_reference.get("name"),
+            "academic_year": term_reference.get("academic_year"),
+            "reference_source": term_reference.get("source"),
         }
     )
 

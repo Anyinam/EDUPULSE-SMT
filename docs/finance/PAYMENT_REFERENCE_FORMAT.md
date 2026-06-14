@@ -2,17 +2,17 @@
 
 ## Reference Parsing: How Parents Pay ✅
 
-This is now the recommended default parent payment instruction, even when Paystack fee-route DVAs are enabled.
+This is now the recommended default parent payment instruction across EduPulse SMT.
 
 Recommended product stance:
-- current implementation may expose fee-route DVAs by payment type, but those are optional
 - structured references should remain the default parent instruction across bank app, shortcode / USSD, and manual fallback flows
 - EduPulse should favor a stable student or family payment identity plus reference parsing rather than multiplying payment destinations unnecessarily
+- legacy Paystack route metadata may still appear in historical audit data, but new fee-route setup is retired
 
 Instead of any configuration, **parents simply enter a formatted reference** when making MoMo or Bank transfers.
 
 Your system **automatically parses** this reference to extract:
-- Student Code
+- Student Identifier (usually the student's code in EduPulse)
 - Payment Type (Tuition, Feeding, Uniform, Transport)
 - Payment Category (Term, Frequency, Item, etc.)
 
@@ -33,8 +33,10 @@ S001-T3    → Student S001, Term 3 Tuition
 ```
 S001-FEED-DAY   → Student S001, Daily Feeding
 S001-FEED-WEK   → Student S001, Weekly Feeding
-S001-FEED-MON   → Student S001, Monthly Feeding (default)
+S001-FEED-MON   → Student S001, Monthly Feeding
 ```
+
+The first segment is the learner's stable school identifier. The last segment tells EduPulse whether the feeding payment is for the daily, weekly, or monthly plan.
 
 ### Uniform References
 ```
@@ -246,6 +248,8 @@ For Feeding:
 
 Replace S001 with your child's STUDENT CODE
 
+If your school uses a different stable learner identifier, use that exact identifier before the feeding plan suffix.
+
 Example:
 If Kofi (Code: S001) is paying Term 1:
 - Reference: S001-T1
@@ -313,4 +317,4 @@ print(f"Daily feeding payments this week: {len(daily_this_week)}")
 ✅ **Zero manual data entry** - Reference parsing handles it all  
 ✅ **Full audit trail** - Every transaction logged and categorized  
 
-**Parent doesn't see or care about any of this complexity. They just write the reference code! 🎯**
+**Parents only need one thing from the school: the student's identifier followed by the correct fee suffix, such as `S001-FEED-WEK`.**

@@ -10,6 +10,7 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 from flask_mail import Mail, Message
 from sqlalchemy.engine import URL
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -22,6 +23,26 @@ load_dotenv()
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
+
+
+def _parse_cors_origins() -> list[str]:
+    configured = (os.getenv("CORS_ALLOWED_ORIGINS") or "").strip()
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+    frontend_origin = (os.getenv("FRONTEND_ORIGIN") or "").strip()
+    if frontend_origin:
+        return [frontend_origin]
+
+    return ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1"]
+
+
+def _scheduler_enabled() -> bool:
+    return os.getenv("ENABLE_SCHEDULER", "false").lower() == "true"
+
+
+def _proxy_fix_enabled() -> bool:
+    return os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
 
 
 def _is_production_env() -> bool:
@@ -63,12 +84,19 @@ def _validate_security_configuration() -> None:
 
 _validate_security_configuration()
 
+cors_origins = _parse_cors_origins()
+if _is_production_env() and any("localhost" in origin or "127.0.0.1" in origin for origin in cors_origins):
+    raise RuntimeError(
+        "Startup blocked due to insecure CORS configuration: set FRONTEND_ORIGIN or CORS_ALLOWED_ORIGINS to your production domain(s)."
+    )
+
+if _proxy_fix_enabled():
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
 # SECURITY: Strict CORS configuration
 CORS(
     app,
-    resources={
-        r"/api/*": {"origins": ["localhost:3000", "localhost:5173", "127.0.0.1"]}
-    },
+    resources={r"/api/*": {"origins": cors_origins}},
     supports_credentials=True,
     max_age=3600,
 )
@@ -271,13 +299,13 @@ def scheduled_paystack_reconciliation_sweep():
             result.get("errors"),
         )
 
-# Start scheduler if not already running
-if not scheduler.running:
+# Start scheduler only in the dedicated scheduler process.
+if _scheduler_enabled() and not scheduler.running:
     try:
         scheduler.start()
-        print("Background scheduler started for trial jobs")
+        logger.info("Background scheduler started for production jobs")
     except Exception as e:
-        print(f"Error starting background scheduler: {e}")
+        logger.exception("Error starting background scheduler: %s", e)
 
 
 
@@ -310,6 +338,19 @@ app.register_blueprint(api_blueprint, url_prefix="/api")
 def index():
     """Root endpoint to verify backend is running."""
     return jsonify({"message": "EduPulse SMT API is running", "version": "1.0.0"})
+
+
+@app.route("/api/health")
+def healthcheck():
+    """Lightweight health endpoint for load balancers and uptime checks."""
+    return jsonify(
+        {
+            "status": "ok",
+            "service": "edupulse-backend",
+            "scheduler_enabled": _scheduler_enabled(),
+            "environment": os.getenv("FLASK_ENV", "development"),
+        }
+    )
 
 
 # GES 1-9 Grading Scale
