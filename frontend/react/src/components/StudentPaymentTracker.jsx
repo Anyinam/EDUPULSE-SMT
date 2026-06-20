@@ -8,6 +8,7 @@ export default function StudentPaymentTracker() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentPayments, setStudentPayments] = useState([]);
   const [paymentCodes, setPaymentCodes] = useState(null);
+  const [paymentCodesError, setPaymentCodesError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all'); // all, paid, pending, overdue
@@ -55,7 +56,9 @@ export default function StudentPaymentTracker() {
       const res = await axios.get(`/api/students/${studentId}/payments`, { headers });
       setStudentPayments(Array.isArray(res.data) ? res.data : res.data?.payments || []);
     } catch (err) {
-      console.error('Failed to load student payments');
+      if (err.response?.data?.error !== 'school_verification_required' && err.response?.data?.error !== 'payment_collection_blocked') {
+        console.error('Failed to load student payments');
+      }
       setStudentPayments([]);
     } finally {
       setLoading(false);
@@ -64,6 +67,7 @@ export default function StudentPaymentTracker() {
 
   const handleSelectStudent = (student) => {
     setSelectedStudent(student);
+    setPaymentCodesError(null);
     fetchStudentPayments(student.id);
     fetchPaymentCodes(student.id);
   };
@@ -76,8 +80,17 @@ export default function StudentPaymentTracker() {
       };
       const res = await axios.get(`/api/students/${studentId}/payment-codes`, { headers });
       setPaymentCodes(res.data);
+      setPaymentCodesError(null);
     } catch (err) {
-      console.error('Failed to load payment codes');
+      const responseData = err.response?.data || null;
+      if (responseData?.error === 'payment_collection_blocked' || responseData?.error === 'school_verification_required') {
+        setPaymentCodesError(responseData);
+      } else {
+        console.error('Failed to load payment codes');
+        setPaymentCodesError({
+          message: responseData?.message || 'Unable to load payment references right now.',
+        });
+      }
       setPaymentCodes(null);
     }
   };
@@ -790,6 +803,40 @@ export default function StudentPaymentTracker() {
               </div>
 
               {/* Payment Routes Section */}
+              {paymentCodesError ? (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-700">Collection Paused</p>
+                  <h4 className="mt-2 text-lg font-black text-slate-950">Parent payment references are currently blocked.</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">{paymentCodesError.message}</p>
+                  {paymentCodesError.error === 'payment_collection_blocked' ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border border-amber-200 bg-white px-3 py-2">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">Plan</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">{paymentCodesError.effective_plan || 'Free Tier'}</p>
+                      </div>
+                      <div className="rounded-xl border border-amber-200 bg-white px-3 py-2">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">Active Students</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">{paymentCodesError.active_students ?? 'Unknown'}</p>
+                      </div>
+                      <div className="rounded-xl border border-amber-200 bg-white px-3 py-2">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">Plan Limit</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">{paymentCodesError.plan_limit ?? 50}</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {paymentCodesError.error === 'school_verification_required' ? (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-white px-3 py-3 text-sm text-slate-700">
+                      Submit and complete School Verification before sharing payment instructions or viewing parent-payment records.
+                    </div>
+                  ) : null}
+                  <p className="mt-3 text-xs font-semibold text-amber-800">
+                    {paymentCodesError.error === 'school_verification_required'
+                      ? 'Verification sits above subscription access for payment operations.'
+                      : 'Upgrade the school subscription or reduce active enrollment before sharing any new payment instruction with parents.'}
+                  </p>
+                </div>
+              ) : null}
+
               {paymentCodes && paymentCodes.payment_codes && paymentCodes.payment_codes.length > 0 && (
                 <div className="bg-amber-50 border-l-4 border-l-amber-600 p-4 rounded-lg">
                   <div className="flex items-center justify-between mb-3">

@@ -57,6 +57,7 @@ from backend.api.models import (
     Student,
     StudentAssignment,
     StudentGrade,
+    StudentNotification,
     StudentPromotion,
     SupportTicket,
     SystemAlert,
@@ -393,7 +394,7 @@ def _auto_verify_school_verification(school, verification):
         return False, "legal_name_mismatch"
 
     required_owner_keys = {"proprietor_name", "director_name", "owner_name", "full_name"}
-    if owner_information and not any(str(owner_information.get(key) or "").strip() for key in required_owner_keys):
+    if not any(str(owner_information.get(key) or "").strip() for key in required_owner_keys):
         return False, "missing_owner_identity"
 
     if not _screening_is_clean(screening_results):
@@ -407,6 +408,24 @@ def _auto_verify_school_verification(school, verification):
         verification.expires_at = get_utc_now() + timedelta(days=365)
 
     return True, "auto_verified"
+
+
+def _local_verification_auto_approval_enabled():
+    raw_value = str(
+        os.getenv("KYB_LOCAL_AUTO_APPROVAL_ENABLED")
+        or os.getenv("EDUPULSE_KYB_LOCAL_AUTO_APPROVAL_ENABLED")
+        or ""
+    ).strip().lower()
+    return raw_value in {"1", "true", "yes", "on"}
+
+
+def _compose_verification_review_note(provider_reason=None, local_reason=None):
+    notes = []
+    if provider_reason:
+        notes.append(f"provider={provider_reason}")
+    if local_reason:
+        notes.append(f"local_heuristic={local_reason}")
+    return "; ".join(notes) if notes else None
 
 
 def _apply_school_verification_outcome(verification, outcome, risk_tier, notes=None):
@@ -1135,6 +1154,125 @@ def _count_active_students_for_billing(school_id):
     ).count()
 
 
+def _get_payment_collection_block(school):
+    if not school:
+        return None
+
+    effective_plan = get_effective_plan(school)
+    plan_limit = get_plan_limits(effective_plan)
+    if plan_limit >= 999999:
+        return None
+
+    active_students = _count_active_students_for_billing(school.id)
+    if active_students <= plan_limit:
+        return None
+
+    return {
+        "status": "blocked",
+        "error": "payment_collection_blocked",
+        "reason": "plan_over_capacity",
+        "effective_plan": effective_plan,
+        "plan_limit": plan_limit,
+        "active_students": active_students,
+        "message": (
+            "Parent payment collection is paused because this school is on "
+            f"{effective_plan} "
+            f"with {active_students} active students, above the {plan_limit}-student limit. "
+            "Upgrade the subscription or reduce active enrollment to resume collection."
+        ),
+    }
+
+
+def _payment_collection_block_response(school, public=False):
+    payload = _get_payment_collection_block(school)
+    if not payload:
+        return None
+
+    if public:
+        payload = {**payload, "public_status": "blocked"}
+    return jsonify(payload), 409
+
+
+def _payment_records_verification_block_response(school, public=False):
+    if not school:
+        return None
+
+    snapshot = _get_school_verification_snapshot(school.id)
+    if snapshot["is_verified"]:
+        return None
+
+    payload = {
+        "message": "School verification is required before payment instructions, collection, or payment records are available.",
+        "error": "school_verification_required",
+        "verification": snapshot,
+    }
+    if public:
+        payload["public_status"] = "blocked"
+    return jsonify(payload), 403
+
+
+def _payment_audit_access_block_response(school):
+    verification_restriction = _payment_records_verification_block_response(school)
+    if verification_restriction:
+        return verification_restriction
+
+    return _payment_collection_block_response(school)
+
+
+def _student_hard_delete_blockers(student):
+    if not student:
+        return []
+
+    blockers = []
+    if Payment.query.filter_by(student_id=student.id, school_id=student.school_id).first():
+        blockers.append("payments")
+    if LedgerEntry.query.filter_by(student_id=student.id, school_id=student.school_id).first():
+        blockers.append("ledger_entries")
+    if StudentGrade.query.filter_by(student_id=student.id).first():
+        blockers.append("grades")
+    if StudentAssignment.query.filter_by(student_id=student.id, school_id=student.school_id).first():
+        blockers.append("assignments")
+    if ReportCard.query.filter_by(student_id=student.id, school_id=student.school_id).first():
+        blockers.append("report_cards")
+    if StudentPromotion.query.filter_by(student_id=student.id, school_id=student.school_id).first():
+        blockers.append("promotions")
+    if StudentNotification.query.filter_by(student_id=student.id, school_id=student.school_id).first():
+        blockers.append("notifications")
+    if ParentAdmissionApplication.query.filter_by(admitted_student_id=student.id, school_id=student.school_id).first():
+        blockers.append("admissions_history")
+    if AMLTransactionFlag.query.filter_by(student_id=student.id, school_id=student.school_id).first():
+        blockers.append("aml_flags")
+
+    return blockers
+
+
+def _academic_term_delete_blockers(term):
+    if not term:
+        return []
+
+    blockers = []
+
+    if ReportCard.query.filter_by(
+        school_id=term.school_id,
+        academic_term=term.name,
+        academic_year=term.academic_year,
+    ).first():
+        blockers.append("report_cards")
+
+    billing_timeline = _get_billing_timeline(term.school_id)
+    if any(
+        str(((event or {}).get("metadata") or {}).get("academic_term_id")) == str(term.id)
+        for event in billing_timeline
+    ):
+        blockers.append("billing_timeline")
+
+    ledger_entries = LedgerEntry.query.filter_by(school_id=term.school_id).all()
+    if any(str((entry.meta or {}).get("academic_term_id")) == str(term.id) for entry in ledger_entries):
+        blockers.append("ledger_entries")
+
+    return blockers
+
+
 def _lock_school_for_capacity_check(school_id):
     session = db.session()
     bind = db.session.get_bind()
@@ -1790,6 +1928,7 @@ def _has_ai_registrar_access(school):
 
 
 def _get_public_school_profile_payload(school, settings):
+    verification = _get_school_verification_snapshot(school.id)
     return {
         "school_id": school.id,
         "school_name": school.name,
@@ -1800,6 +1939,8 @@ def _get_public_school_profile_payload(school, settings):
         "school_phone": school.school_phone,
         "school_address": school.school_address,
         "school_website": school.school_website,
+        "verification_status": verification.get("status"),
+        "is_verified": bool(verification.get("is_verified")),
         "country_code": settings.country_code if settings and settings.country_code else "GH",
         "admission_fee": _get_school_admission_fee_config(settings),
     }
@@ -6417,6 +6558,13 @@ def get_student_payment_codes(student_id):
     student = Student.query.filter_by(
         id=student_id, school_id=g.school_id
     ).first_or_404()
+    school = School.query.get(g.school_id)
+    verification_restriction = _payment_records_verification_block_response(school)
+    if verification_restriction:
+        return verification_restriction
+    restriction = _payment_collection_block_response(school)
+    if restriction:
+        return restriction
 
     actor_id = get_jwt_identity()
     try:
@@ -6442,24 +6590,6 @@ def get_student_payment_codes(student_id):
             }
         ),
     )
-    return jsonify(payload)
-
-
-@api.route("/public/schools/<school_id>/payments/<student_code>", methods=["GET"])
-def get_public_student_payment_codes(school_id, student_code):
-    """Return parent-safe payment instructions using the recommended stable payment identity model."""
-    student = Student.query.filter_by(
-        school_id=school_id,
-        student_code=(student_code or "").strip().upper(),
-    ).first()
-    if not student:
-        return jsonify({"message": "Student not found"}), 404
-
-    payload = _build_student_payment_instruction_payload(student, school_id)
-    payload.pop("parent_name", None)
-    payload.pop("parent_phone", None)
-    payload.pop("parent_email", None)
-    payload["public_status"] = "available"
     return jsonify(payload)
 
 
@@ -6511,6 +6641,14 @@ def get_students():
 def get_student_payments(student_id):
     """Fetch payment history for a specific student."""
     try:
+        school = School.query.get(g.school_id)
+        verification_restriction = _payment_records_verification_block_response(school)
+        if verification_restriction:
+            return verification_restriction
+        collection_restriction = _payment_collection_block_response(school)
+        if collection_restriction:
+            return collection_restriction
+
         student = Student.query.filter_by(
             id=student_id, school_id=g.school_id
         ).first_or_404()
@@ -7450,6 +7588,8 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
     channel = (payload.get("channel") or "").lower()
     payment_type = reference_payment_type
 
+    school = School.query.get(student.school_id)
+    collection_block = _get_payment_collection_block(school)
     verification_snapshot = _get_school_verification_snapshot(student.school_id)
     verification_blocked = not verification_snapshot["is_verified"]
 
@@ -7460,7 +7600,7 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
         payment_type=payment_type,
         method="Paystack_Payment",
         reference_id=tx_ref,
-        status="Pending" if verification_blocked else "Confirmed",
+        status="Pending" if verification_blocked or collection_block else "Confirmed",
         payment_category=payment_category or {},
     )
     db.session.add(payment)
@@ -7476,7 +7616,18 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
             summary="Payment received while school KYB verification is not approved.",
             details={"reference": tx_ref, "source": "paystack", "verification": verification_snapshot},
         )
-    else:
+    if collection_block:
+        _create_aml_flag(
+            school_id=student.school_id,
+            payment_id=payment.id,
+            student_id=student.id,
+            rule_code="FREE_TIER_OVER_CAP_PAYMENT",
+            severity="high",
+            summary="Payment received while Free Tier collection is paused for over-capacity.",
+            details={"reference": tx_ref, "source": "paystack", "collection_block": collection_block},
+        )
+
+    if not verification_blocked and not collection_block:
         stock_error = _apply_auto_payment_effects(student, payment_type, amount, payment_category or {})
         if stock_error:
             db.session.rollback()
@@ -7491,7 +7642,7 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
         "authorization": payload.get("authorization", {}),
     }
 
-    if not verification_blocked:
+    if not verification_blocked and not collection_block:
         add_ledger_entry(
             school_id=student.school_id,
             tx_type=(payment_type or "payment").lower(),
@@ -7521,6 +7672,15 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
     )
 
     db.session.commit()
+    if collection_block:
+        return {
+            "status": "blocked",
+            "reference": tx_ref,
+            "student_id": student.id,
+            "payment_id": payment.id,
+            "payment_status": payment.status,
+            "message": collection_block["message"],
+        }, 200
     return {"status": "recorded", "reference": tx_ref, "student_id": student.id}, 200
 
 
@@ -7755,6 +7915,11 @@ def initialize_paystack_payment():
     )
     if verification_block:
         return verification_block
+
+    school = School.query.get(g.school_id)
+    restriction = _payment_collection_block_response(school)
+    if restriction:
+        return restriction
     
     student_id = data.get("student_id")
     payment_type = sanitize_string(data.get("payment_type", "Tuition"))
@@ -8793,6 +8958,7 @@ def get_student_pulse(student_id):
 
 @api.route("/school/verification", methods=["GET"])
 @multi_tenant_guard
+@role_required("proprietor")
 @jwt_required()
 def get_school_verification_status():
     verification = _get_latest_school_verification(g.school_id)
@@ -8873,6 +9039,7 @@ def submit_school_verification():
     provider_result = verify_school_profile(school, verification)
     auto_verified = False
     auto_reason = provider_result.get("reason") or "provider_unavailable"
+    local_auto_approval_enabled = _local_verification_auto_approval_enabled()
 
     if provider_result.get("verified"):
         _apply_school_verification_outcome(
@@ -8893,15 +9060,38 @@ def submit_school_verification():
         auto_reason = provider_result.get("reason") or "provider_review_required"
     else:
         local_auto_verified, local_reason = _auto_verify_school_verification(school, verification)
-        if local_auto_verified:
+        if local_auto_verified and local_auto_approval_enabled:
+            _apply_school_verification_outcome(
+                verification,
+                "verified",
+                "low",
+                notes=_compose_verification_review_note(
+                    provider_result.get("reason") or "provider_unavailable",
+                    local_reason,
+                ),
+            )
             auto_verified = True
             auto_reason = local_reason
+        elif local_auto_verified:
+            _apply_school_verification_outcome(
+                verification,
+                "review_required",
+                provider_result.get("risk_tier") or "medium",
+                notes=_compose_verification_review_note(
+                    provider_result.get("reason") or "provider_unavailable",
+                    "eligible_but_manual_review_required",
+                ),
+            )
+            auto_reason = provider_result.get("reason") or "provider_manual_review_required"
         else:
             _apply_school_verification_outcome(
                 verification,
                 "review_required",
                 provider_result.get("risk_tier") or "medium",
-                notes=provider_result.get("reason") or local_reason,
+                notes=_compose_verification_review_note(
+                    provider_result.get("reason") or "provider_unavailable",
+                    local_reason,
+                ),
             )
             auto_reason = provider_result.get("reason") or local_reason
 
@@ -9055,6 +9245,11 @@ def receive_payment():
             student = Student.query.filter_by(
                 id=data.get("student_id"), school_id=g.school_id
             ).first_or_404()
+
+    school = School.query.get(g.school_id)
+    restriction = _payment_collection_block_response(school)
+    if restriction:
+        return restriction
 
     # Role-based restrictions on manual payment types
     # Note: finance and proprietor roles are not in role_limits - they can record ALL payment types
@@ -9293,6 +9488,7 @@ def bank_transfer_webhook():
 
         verification_snapshot = _get_school_verification_snapshot(student.school_id)
         verification_blocked = not verification_snapshot["is_verified"]
+        collection_block = _get_payment_collection_block(School.query.get(student.school_id))
 
         # Automatically record and confirm bank transfer payment
         payment = Payment(
@@ -9302,7 +9498,7 @@ def bank_transfer_webhook():
             payment_type=payment_type,
             method="Bank_Auto",
             reference_id=data.get("transaction_id"),  # For idempotency
-            status="Pending" if verification_blocked else "Confirmed",
+            status="Pending" if verification_blocked or collection_block else "Confirmed",
             payment_category=payment_category,
         )
         db.session.add(payment)
@@ -9318,7 +9514,18 @@ def bank_transfer_webhook():
                 summary="Bank transfer received while school KYB verification is not approved.",
                 details={"reference": data.get("transaction_id"), "verification": verification_snapshot},
             )
-        else:
+        if collection_block:
+            _create_aml_flag(
+                school_id=student.school_id,
+                payment_id=payment.id,
+                student_id=student.id,
+                rule_code="FREE_TIER_OVER_CAP_PAYMENT",
+                severity="high",
+                summary="Bank transfer received while Free Tier collection is paused for over-capacity.",
+                details={"reference": data.get("transaction_id"), "collection_block": collection_block},
+            )
+
+        if not verification_blocked and not collection_block:
             # Update student balance if tuition
             if payment_type == "Tuition":
                 student.total_tuition_owed = max(
@@ -9358,6 +9565,20 @@ def bank_transfer_webhook():
         )
 
         db.session.commit()
+        if collection_block:
+            return (
+                jsonify(
+                    {
+                        "status": "blocked",
+                        "student_id": student.id,
+                        "payment_type": payment_type,
+                        "category": payment_category,
+                        "payment_status": payment.status,
+                        "message": collection_block["message"],
+                    }
+                ),
+                200,
+            )
         return (
             jsonify(
                 {
@@ -10042,6 +10263,18 @@ def confirm_payment(payment_id):
 @jwt_required()
 def reject_payment(payment_id):
     """Proprietor rejects/cancels a pending manual payment (audit protection: cannot delete confirmed payments)."""
+    verification_block, _snapshot = _finance_verification_block_response(
+        g.school_id,
+        action="reject_payment",
+    )
+    if verification_block:
+        return verification_block
+
+    school = School.query.get(g.school_id)
+    restriction = _payment_collection_block_response(school)
+    if restriction:
+        return restriction
+
     payment = Payment.query.filter_by(
         id=payment_id, school_id=g.school_id
     ).first_or_404()
@@ -10515,8 +10748,6 @@ def get_parent_admission_status(school_id, status_token):
     if application.admitted_student_id:
         student = Student.query.filter_by(id=application.admitted_student_id, school_id=school_id).first()
         if student:
-            payload["payment_path"] = _build_parent_payment_path(school_id, student.student_code)
-            payload["payment_url"] = _build_parent_public_url(payload["payment_path"])
             payload["student_code"] = student.student_code
 
     pdf_policy = _get_parent_admission_pdf_policy(settings)
@@ -10553,13 +10784,7 @@ def download_parent_admission_decision_pdf(school_id, status_token):
     if application.status != "Approved":
         return jsonify({"message": "Admission decision PDF is only available for approved applications."}), 409
 
-    payment_url = None
-    if application.admitted_student_id:
-        student = Student.query.filter_by(id=application.admitted_student_id, school_id=school_id).first()
-        if student:
-            payment_url = _build_parent_public_url(_build_parent_payment_path(school_id, student.student_code))
-
-    pdf_bytes = _build_parent_admission_decision_pdf_bytes(application, school, settings, payment_url=payment_url)
+    pdf_bytes = _build_parent_admission_decision_pdf_bytes(application, school, settings, payment_url=None)
     safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{application.first_name}_{application.surname}".strip("_")) or application.application_code
     filename = f"{safe_name}_admission_decision.pdf"
     response = make_response(pdf_bytes)
@@ -10795,8 +11020,7 @@ def review_parent_admission_application(application_id):
         _send_parent_admission_update(
             application,
             school,
-            next_step=parent_response_message + " Open the payment link to view any required school charges, including admission fee if your school applies one.",
-            payment_url=_build_parent_public_url(_build_parent_payment_path(g.school_id, student.student_code)),
+            next_step=parent_response_message + " Contact the school directly for any approved charges, including admission fee if your school applies one.",
         )
     else:
         db.session.commit()
@@ -11532,6 +11756,20 @@ def delete_student(student_id):
         
         if not student:
             return jsonify({"message": "Student not found"}), 404
+
+        blockers = _student_hard_delete_blockers(student)
+        if blockers:
+            return (
+                jsonify(
+                    {
+                        "message": "Student record has academic or financial history and cannot be permanently deleted. Update the student status instead.",
+                        "error": "student_delete_blocked",
+                        "blockers": blockers,
+                        "recommended_action": "update_student_status",
+                    }
+                ),
+                409,
+            )
         
         student_name = student.name
         student_code = student.student_code
@@ -13193,6 +13431,14 @@ def bulk_upload_staff():
 def get_finance_dashboard():
     """Finance Dashboard Summary - Payment statistics and overview."""
     try:
+        school = School.query.get(g.school_id)
+        verification_restriction = _payment_records_verification_block_response(school)
+        if verification_restriction:
+            return verification_restriction
+        collection_restriction = _payment_collection_block_response(school)
+        if collection_restriction:
+            return collection_restriction
+
         now = datetime.now(timezone.utc)
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         last_30_days = now - timedelta(days=30)
@@ -13326,6 +13572,14 @@ def get_finance_summary():
 def get_transactions():
     """Full Financial Ledger for the Proprietor."""
     try:
+        school = School.query.get(g.school_id)
+        verification_restriction = _payment_records_verification_block_response(school)
+        if verification_restriction:
+            return verification_restriction
+        collection_restriction = _payment_collection_block_response(school)
+        if collection_restriction:
+            return collection_restriction
+
         from sqlalchemy.orm import joinedload
 
         payments = (
@@ -13363,6 +13617,11 @@ def get_transactions():
 def get_audit_ledger():
     """Get immutable ledger entries with hash chain verification."""
     try:
+        school = School.query.get(g.school_id)
+        restriction = _payment_audit_access_block_response(school)
+        if restriction:
+            return restriction
+
         from backend.api.models import LedgerEntry
         
         # Get query parameters
@@ -13449,6 +13708,11 @@ def get_audit_ledger():
 def verify_audit_ledger():
     """Run complete ledger chain verification."""
     try:
+        school = School.query.get(g.school_id)
+        restriction = _payment_audit_access_block_response(school)
+        if restriction:
+            return restriction
+
         is_valid, broken_entries, total_checked = verify_ledger_chain(g.school_id)
         
         return jsonify({
@@ -13469,6 +13733,11 @@ def verify_audit_ledger():
 def get_audit_summary():
     """Get Financial Integrity Report summary."""
     try:
+        school = School.query.get(g.school_id)
+        restriction = _payment_audit_access_block_response(school)
+        if restriction:
+            return restriction
+
         # Get date range from query params
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
@@ -13502,6 +13771,11 @@ def get_audit_summary():
 def get_audit_events():
     """Get school audit events with optional action filter for compliance review."""
     try:
+        school = School.query.get(g.school_id)
+        restriction = _payment_audit_access_block_response(school)
+        if restriction:
+            return restriction
+
         limit = request.args.get("limit", 50, type=int)
         offset = request.args.get("offset", 0, type=int)
         action = request.args.get("action", type=str)
@@ -13561,6 +13835,11 @@ def get_audit_events():
 def export_audit_events_csv():
     """Export school audit events to CSV with optional action filter."""
     try:
+        school = School.query.get(g.school_id)
+        restriction = _payment_audit_access_block_response(school)
+        if restriction:
+            return restriction
+
         action = request.args.get("action", type=str)
 
         query = AuditLog.query.filter(AuditLog.school_id == g.school_id)
@@ -14802,6 +15081,7 @@ def get_school_branding():
     try:
         school = School.query.get(g.school_id)
         settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+        verification = _get_school_verification_snapshot(g.school_id)
 
         fees = {
             "tuition_fee": 0.0,
@@ -14845,6 +15125,8 @@ def get_school_branding():
                 "school_phone": school.school_phone,
                 "school_address": school.school_address,
                 "school_website": school.school_website,
+                "verification_status": verification.get("status"),
+                "is_verified": bool(verification.get("is_verified")),
                 "bank_name": masked_bank_fields["bank_name"],
                 "bank_account": masked_bank_fields["bank_account"],
                 "bank_account_name": masked_bank_fields["bank_account_name"],
@@ -17219,9 +17501,19 @@ def delete_academic_term(term_id):
         # Check if term is active
         if term.is_active:
             return jsonify({"message": "Cannot delete active term. Deactivate it first."}), 400
-        
-        # TODO: Add checks for associated data (grades, attendance, etc.)
-        # For now, allow deletion
+
+        blockers = _academic_term_delete_blockers(term)
+        if blockers:
+            return (
+                jsonify(
+                    {
+                        "message": "Academic term has dependent academic or billing history and cannot be deleted.",
+                        "error": "academic_term_delete_blocked",
+                        "blockers": blockers,
+                    }
+                ),
+                409,
+            )
         
         db.session.delete(term)
         db.session.commit()

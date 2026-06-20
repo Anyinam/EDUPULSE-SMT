@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowRight, CheckCircle2, FileText, ShieldCheck, Sparkles, UploadCloud } from 'lucide-react';
+import SchoolVerifiedBadge from '../components/SchoolVerifiedBadge';
 import usePublicSchoolProfile from '../hooks/usePublicSchoolProfile';
 
 const PARENT_ADMISSION_CONSENT_VERSION = '2026-04-29';
@@ -179,6 +180,9 @@ export default function ParentAdmissionsPortal() {
                 )}
                 <div>
                   <p className="text-lg font-black text-slate-950">{schoolName}</p>
+                  <div className="mt-2">
+                    <SchoolVerifiedBadge verified={Boolean(schoolProfile?.is_verified)} />
+                  </div>
                   {schoolProfile?.motto ? <p className="text-sm text-slate-600">{schoolProfile.motto}</p> : null}
                 </div>
               </div>

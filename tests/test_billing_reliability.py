@@ -340,6 +340,82 @@ def test_bank_webhook_records_payment_with_valid_signature(client, db, test_scho
     assert student.total_tuition_owed == 180.0
 
 
+def test_bank_webhook_quarantines_payment_when_free_tier_school_is_over_capacity(client, db, test_school, monkeypatch):
+    from backend.api.models import AMLTransactionFlag, Payment, Student
+
+    secret = "test-bank-webhook-secret-0123456789"
+    monkeypatch.setenv("BANK_WEBHOOK_SECRET", secret)
+
+    test_school.subscription_plan = "Free Tier"
+    test_school.trial_plan = None
+    test_school.trial_end_date = None
+
+    current_count = Student.query.filter_by(school_id=test_school.id).count()
+    for index in range(current_count + 1, 52):
+        db.session.add(
+            Student(
+                school_id=test_school.id,
+                first_name=f"Cap{index}",
+                surname="Student",
+                name=f"Cap{index} Student",
+                student_code=f"CAP{index:03d}",
+                current_class="JHS 1",
+                status="Active",
+                total_tuition_owed=100.0,
+            )
+        )
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Esi",
+        surname="Mensah",
+        name="Esi Mensah",
+        student_code="BANKCAP",
+        current_class="JHS 2",
+        total_tuition_owed=300.0,
+    )
+    db.session.add(student)
+    db.session.commit()
+
+    payload = {
+        "status": "success",
+        "reference": "BANKCAP-TUITION-T1",
+        "amount": 120.0,
+        "transaction_id": "BANK-WEBHOOK-BLOCK-001",
+        "payer_name": "Parent Three",
+    }
+
+    raw = json.dumps(payload).encode("utf-8")
+    signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/api/finance/webhook/bank",
+        data=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Bank-Signature": signature,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "blocked"
+    assert body["payment_status"] == "Pending"
+
+    payment = Payment.query.filter_by(reference_id="BANK-WEBHOOK-BLOCK-001").first()
+    assert payment is not None
+    assert payment.status == "Pending"
+
+    db.session.refresh(student)
+    assert student.total_tuition_owed == 300.0
+
+    flag = AMLTransactionFlag.query.filter_by(
+        payment_id=payment.id,
+        rule_code="FREE_TIER_OVER_CAP_PAYMENT",
+    ).first()
+    assert flag is not None
+
+
 def test_billing_timeline_and_statement_endpoints(client, db, test_school, proprietor_headers):
     from backend.api.models import add_ledger_entry
 

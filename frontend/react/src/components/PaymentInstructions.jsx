@@ -1,4 +1,4 @@
-import { ArrowRight, Banknote, Building2, CircleDollarSign, Landmark, Smartphone } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Banknote, Building2, CircleDollarSign, Landmark, Smartphone } from 'lucide-react';
 
 const currency = new Intl.NumberFormat('en-GH', {
   style: 'currency',
@@ -10,7 +10,7 @@ function formatMoney(value) {
   return currency.format(Number(value || 0));
 }
 
-function PaymentInstructions({ payload, loading, error }) {
+function PaymentInstructions({ payload, loading, error, errorDetails }) {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white/90 p-6 text-slate-600 shadow-sm">
@@ -20,6 +20,42 @@ function PaymentInstructions({ payload, loading, error }) {
   }
 
   if (error) {
+    if (errorDetails?.error === 'payment_collection_blocked') {
+      return (
+        <section className="rounded-4xl border border-amber-300 bg-amber-50 p-6 text-amber-950 shadow-sm sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="rounded-2xl bg-amber-100 p-3 text-amber-700">
+              <AlertTriangle size={22} />
+            </div>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-amber-700">Collection Paused</p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">Parent payments are temporarily paused for this school.</h2>
+              </div>
+              <p className="max-w-3xl text-sm leading-7 text-slate-700">{errorDetails.message || error}</p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Current Plan</p>
+                  <p className="mt-2 text-lg font-black text-slate-950">{errorDetails.effective_plan || 'Free Tier'}</p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Active Students</p>
+                  <p className="mt-2 text-lg font-black text-slate-950">{errorDetails.active_students ?? 'Unknown'}</p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Plan Limit</p>
+                  <p className="mt-2 text-lg font-black text-slate-950">{errorDetails.plan_limit ?? 50}</p>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                Do not send funds until the school confirms that collection has reopened. Contact the school office or proprietor for an updated payment instruction.
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
     return (
       <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-700 shadow-sm">
         {error}

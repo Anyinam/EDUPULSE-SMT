@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { AlertCircle, ArrowRight, CheckCircle2, Clock3, FileSearch, Wallet } from 'lucide-react';
+import SchoolVerifiedBadge from '../components/SchoolVerifiedBadge';
 import usePublicSchoolProfile from '../hooks/usePublicSchoolProfile';
 
 const statusConfig = {
@@ -109,19 +110,22 @@ export default function ParentAdmissionStatus() {
   const schoolColor = payload?.school?.theme_color || schoolProfile?.theme_color || '#0891b2';
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(14,165,233,0.16),_transparent_24%),linear-gradient(180deg,_#f8fbff_0%,_#ffffff_52%,_#f7fafc_100%)] px-4 py-8 sm:px-6 sm:py-12">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.16),transparent_24%),linear-gradient(180deg,#f8fbff_0%,#ffffff_52%,#f7fafc_100%)] px-4 py-8 sm:px-6 sm:py-12">
       <div className="mx-auto max-w-5xl space-y-8">
-        <section className="rounded-[2rem] border border-slate-200 bg-white px-6 py-8 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.35)] sm:px-8">
+        <section className="rounded-4xl border border-slate-200 bg-white px-6 py-8 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.35)] sm:px-8">
           <div className="grid gap-6 lg:grid-cols-[1fr,0.8fr] lg:items-end">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan-600">Parent Admissions Status</p>
               <h1 className="mt-3 text-4xl font-black text-slate-950">Track your application for <span style={{ color: schoolColor }}>{schoolName}</span> in one place.</h1>
+              <div className="mt-4">
+                <SchoolVerifiedBadge verified={Boolean(payload?.school?.is_verified || schoolProfile?.is_verified)} />
+              </div>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
                 Enter the status token you received after submission. If the school has requested corrections, scheduled a visit, or approved admission, it will appear here.
               </p>
             </div>
 
-            <form onSubmit={fetchStatus} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
+            <form onSubmit={fetchStatus} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
               <label className="block text-xs font-black uppercase tracking-[0.18em] text-slate-500">Status Token</label>
               <div className="mt-3 flex flex-col gap-3 md:flex-row">
                 <input value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder="Enter your status token" className="flex-1 rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
@@ -136,7 +140,7 @@ export default function ParentAdmissionStatus() {
         </section>
 
         {payload && (
-          <div className="space-y-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.35)] sm:p-8">
+          <div className="space-y-6 rounded-4xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.35)] sm:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-500">Application</p>

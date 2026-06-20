@@ -29,7 +29,6 @@ const AdminSupport = lazy(() => import('./features/AdminSupport'));
 const FirstLoginPasswordChange = lazy(() => import('./features/FirstLoginPasswordChange'));
 const ParentAdmissionsPortal = lazy(() => import('./features/ParentAdmissionsPortal'));
 const ParentAdmissionStatus = lazy(() => import('./features/ParentAdmissionStatus'));
-const ParentPaymentPortal = lazy(() => import('./features/ParentPaymentPortal'));
 
 function RouteFallback() {
   return (
@@ -57,7 +56,6 @@ export default function App() {
           <Route path="/first-login-password" element={<FirstLoginPasswordChange />} />
           <Route path="apply/:schoolId" element={<ParentAdmissionsPortal />} />
           <Route path="apply/:schoolId/status/:statusToken" element={<ParentAdmissionStatus />} />
-          <Route path="pay/:schoolId/:studentCode" element={<ParentPaymentPortal />} />
 
           <Route path="/" element={<Layout />}>
             <Route path="proprietor" element={<ProprietorPanel />} />

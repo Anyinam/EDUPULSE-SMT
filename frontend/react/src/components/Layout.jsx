@@ -3,6 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { Logo } from './Logo';
 import SupportModal from './Support';
+import SchoolVerifiedBadge from './SchoolVerifiedBadge';
 import { useBranding } from '../hooks/useBranding';
 import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
@@ -117,7 +118,12 @@ export default function Layout() {
       >
         <div className="flex items-center gap-3 mb-10">
           <Logo size="md" variant="default" />
-          <h2 className="text-xl font-bold tracking-tight uppercase">{branding.name || 'EduPulse SMT'}</h2>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight uppercase">{branding.name || 'EduPulse SMT'}</h2>
+            <div className="mt-2">
+              <SchoolVerifiedBadge verified={Boolean(branding.is_verified)} compact className="border-white/20 bg-white/10 text-white" />
+            </div>
+          </div>
         </div>
 
         <ul className="space-y-4 flex-1 text-sm font-medium">

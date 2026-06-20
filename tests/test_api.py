@@ -609,6 +609,75 @@ class TestPaymentEndpoints:
             data = json.loads(response.data)
             assert "recorded" in data["message"]
 
+    def test_receive_payment_blocked_when_free_tier_school_is_over_capacity(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import School, Student, User, db
+
+            school = School.query.get("TEST-001")
+            school.subscription_plan = "Free Tier"
+            school.trial_plan = None
+            school.trial_end_date = None
+
+            current_count = Student.query.filter_by(school_id="TEST-001").count()
+            for index in range(current_count + 1, 52):
+                db.session.add(
+                    Student(
+                        school_id="TEST-001",
+                        first_name=f"Cap{index}",
+                        surname="Student",
+                        name=f"Cap{index} Student",
+                        student_code=f"CAP{index:03d}",
+                        current_class="JHS 1",
+                        status="Active",
+                        total_tuition_owed=100.0,
+                    )
+                )
+            db.session.commit()
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+            response = client.post(
+                "/api/finance/receive-payment",
+                json={
+                    "student_id": student.id,
+                    "amount": 50.0,
+                    "type": "Feeding",
+                    "method": "Cash",
+                },
+                headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+            )
+
+            assert response.status_code == 409
+            data = json.loads(response.data)
+            assert data["error"] == "payment_collection_blocked"
+            assert data["reason"] == "plan_over_capacity"
+
+    def test_student_payment_history_blocked_until_school_verification_is_complete(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import SchoolVerification, Student, User, db
+
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.commit()
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+            response = client.get(
+                f"/api/students/{student.id}/payments",
+                headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert data["error"] == "school_verification_required"
+
     def test_receive_payment_invalid_amount(self, client, app):
         """Test payment with invalid amount."""
         with app.app_context():
@@ -663,6 +732,23 @@ class TestStudentSearchEndpoints:
 class TestSchoolVerificationEndpoints:
     """Test the automatic school verification flow."""
 
+    def test_school_verification_profile_requires_proprietor_role(self, client, app):
+        """Teachers should not be able to read the full KYB profile payload."""
+        from flask_jwt_extended import create_access_token
+
+        from backend.api.models import User
+
+        with app.app_context():
+            teacher = User.query.filter_by(username="teacher1").first()
+            token = create_access_token(identity=str(teacher.id))
+
+        response = client.get(
+            "/api/school/verification",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 403
+
     def test_auto_approve_school_with_kyb_provider(self, client, app, mocker, monkeypatch):
         """A clean KYB provider response should auto-approve the school."""
         from flask_jwt_extended import create_access_token
@@ -714,9 +800,280 @@ class TestSchoolVerificationEndpoints:
             assert latest is not None
             assert latest.status == "verified"
 
+    def test_provider_fallback_routes_local_match_to_manual_review_by_default(self, client, app, mocker, monkeypatch):
+        """Provider outages should not auto-approve even when the local heuristic is clean."""
+        from flask_jwt_extended import create_access_token
+
+        from backend.api.models import SchoolVerification, User
+
+        monkeypatch.delenv("KYB_LOCAL_AUTO_APPROVAL_ENABLED", raising=False)
+        monkeypatch.delenv("EDUPULSE_KYB_LOCAL_AUTO_APPROVAL_ENABLED", raising=False)
+        mocker.patch(
+            "backend.routes.verify_school_profile",
+            return_value={
+                "provider": "identitypass",
+                "outcome": "error",
+                "verified": False,
+                "risk_tier": "medium",
+                "reason": "provider_request_failed",
+                "raw": {},
+            },
+        )
+
+        with app.app_context():
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        response = client.put(
+            "/api/school/verification",
+            json={
+                "legal_name": "Test School",
+                "registration_number": "REG-12345",
+                "tax_id": "TIN-67890",
+                "bank_account_name": "Test School",
+                "bank_account_number": "0123456789",
+                "bank_name": "Test Bank",
+                "owner_information": {"owner_name": "Jane Owner"},
+            },
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["auto_verified"] is False
+        assert data["verification"]["is_verified"] is False
+        assert data["verification"]["status"] == "review_required"
+        assert data["auto_reason"] == "provider_request_failed"
+
+        with app.app_context():
+            latest = SchoolVerification.query.filter_by(school_id="TEST-001").order_by(SchoolVerification.id.desc()).first()
+            assert latest is not None
+            assert latest.status == "review_required"
+            assert latest.review_notes == "provider=provider_request_failed; local_heuristic=eligible_but_manual_review_required"
+
+    def test_local_auto_approval_can_be_explicitly_opted_in(self, client, app, mocker, monkeypatch):
+        """An explicit env opt-in can still allow local auto-approval during provider outages."""
+        from flask_jwt_extended import create_access_token
+
+        from backend.api.models import SchoolVerification, User
+
+        monkeypatch.setenv("KYB_LOCAL_AUTO_APPROVAL_ENABLED", "true")
+        mocker.patch(
+            "backend.routes.verify_school_profile",
+            return_value={
+                "provider": "identitypass",
+                "outcome": "error",
+                "verified": False,
+                "risk_tier": "medium",
+                "reason": "provider_request_failed",
+                "raw": {},
+            },
+        )
+
+        with app.app_context():
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        response = client.put(
+            "/api/school/verification",
+            json={
+                "legal_name": "Test School",
+                "registration_number": "REG-12345",
+                "tax_id": "TIN-67890",
+                "bank_account_name": "Test School",
+                "bank_account_number": "0123456789",
+                "bank_name": "Test Bank",
+                "owner_information": {"owner_name": "Jane Owner"},
+            },
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["auto_verified"] is True
+        assert data["verification"]["is_verified"] is True
+        assert data["verification"]["status"] == "verified"
+        assert data["auto_reason"] == "auto_verified"
+
+        with app.app_context():
+            latest = SchoolVerification.query.filter_by(school_id="TEST-001").order_by(SchoolVerification.id.desc()).first()
+            assert latest is not None
+            assert latest.status == "verified"
+            assert latest.review_notes == "provider=provider_request_failed; local_heuristic=auto_verified"
+
 
 class TestAdmissionsEndpoints:
     """Test admissions endpoints."""
+
+    def test_finance_audit_endpoints_blocked_until_school_verification_is_complete(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import SchoolVerification, User, db
+
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.commit()
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        endpoints = [
+            ("GET", "/api/finance/audit/ledger"),
+            ("POST", "/api/finance/audit/verify"),
+            ("GET", "/api/finance/audit/summary"),
+            ("GET", "/api/finance/audit/events"),
+            ("GET", "/api/finance/audit/events/export"),
+        ]
+
+        for method, path in endpoints:
+            if method == "POST":
+                response = client.post(path, headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"})
+            else:
+                response = client.get(path, headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"})
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert data["error"] == "school_verification_required"
+
+    def test_delete_student_blocked_when_history_exists(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import Payment, Student, User, db
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            student_id = student.id
+            db.session.add(
+                Payment(
+                    student_id=student.id,
+                    school_id="TEST-001",
+                    amount=75.0,
+                    payment_type="Tuition",
+                    method="Cash",
+                    status="Confirmed",
+                    reference_id="DEL-BLOCK-001",
+                )
+            )
+            db.session.commit()
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        response = client.delete(
+            f"/api/admissions/students/{student_id}",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 409
+        data = json.loads(response.data)
+        assert data["error"] == "student_delete_blocked"
+        assert "payments" in data["blockers"]
+
+    def test_delete_student_allows_cleanup_without_history(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import Student, User, db
+
+            student = Student(
+                school_id="TEST-001",
+                first_name="Delete",
+                surname="Me",
+                name="Delete Me",
+                student_code="S999",
+                current_class="JHS 1",
+                total_tuition_owed=0.0,
+            )
+            db.session.add(student)
+            db.session.commit()
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            student_id = student.id
+
+        response = client.delete(
+            f"/api/admissions/students/{student_id}",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["deleted_student_id"] == student_id
+
+    def test_delete_academic_term_blocked_when_report_cards_exist(self, client, app):
+        with app.app_context():
+            from datetime import date
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import AcademicTerm, ReportCard, Student, User, db
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            term = AcademicTerm(
+                school_id="TEST-001",
+                name="Term 1",
+                academic_year="2025/2026",
+                start_date=date(2025, 9, 1),
+                end_date=date(2025, 12, 15),
+                is_active=False,
+            )
+            db.session.add(term)
+            db.session.flush()
+
+            db.session.add(
+                ReportCard(
+                    school_id="TEST-001",
+                    student_id=student.id,
+                    academic_term="Term 1",
+                    academic_year="2025/2026",
+                    class_name="JHS 1",
+                    subject_grades=[],
+                    status="Draft",
+                )
+            )
+            db.session.commit()
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            term_id = term.id
+
+        response = client.delete(
+            f"/api/school/terms/{term_id}",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 409
+        data = json.loads(response.data)
+        assert data["error"] == "academic_term_delete_blocked"
+        assert "report_cards" in data["blockers"]
+
+    def test_delete_academic_term_allows_cleanup_without_history(self, client, app):
+        with app.app_context():
+            from datetime import date
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import AcademicTerm, User, db
+
+            term = AcademicTerm(
+                school_id="TEST-001",
+                name="Term 2",
+                academic_year="2025/2026",
+                start_date=date(2026, 1, 10),
+                end_date=date(2026, 4, 10),
+                is_active=False,
+            )
+            db.session.add(term)
+            db.session.commit()
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            term_id = term.id
+
+        response = client.delete(
+            f"/api/school/terms/{term_id}",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
 
     def test_bulk_admit_header_variants(self, client, app):
         """Accept common human-readable CSV headers in bulk admissions."""

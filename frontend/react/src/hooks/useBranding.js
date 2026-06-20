@@ -32,6 +32,8 @@ const normalizeBranding = (data, fallback) => ({
   school_address: data?.school_address ?? fallback.school_address ?? fallback.address ?? '',
   website: data?.school_website ?? fallback.website ?? fallback.school_website ?? '',
   school_website: data?.school_website ?? fallback.school_website ?? fallback.website ?? '',
+  verification_status: data?.verification_status ?? fallback.verification_status ?? '',
+  is_verified: data?.is_verified ?? fallback.is_verified ?? false,
   bank_name: data?.bank_name ?? fallback.bank_name ?? '',
   bank_account: data?.bank_account ?? fallback.bank_account ?? '',
   bank_account_name: data?.bank_account_name ?? fallback.bank_account_name ?? '',

@@ -1519,9 +1519,9 @@ def test_payment_codes_include_convenience_fee_breakdown_and_cash_alternative(cl
     tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition + Terminal Report")
     assert tuition_code["base_amount"] == 100.0
     assert tuition_code["cash_amount"] == 100.0
-    assert tuition_code["convenience_fee_percent"] == 2.0
-    assert tuition_code["convenience_fee_amount"] == 2.0
-    assert tuition_code["total_amount"] == 102.0
+    assert tuition_code["convenience_fee_percent"] == 1.5
+    assert tuition_code["convenience_fee_amount"] == 1.5
+    assert tuition_code["total_amount"] == 101.5
     assert "cash at the school office" in tuition_code["instructions"].lower()
     assert "convenience fee" in payload["note"].lower()
 

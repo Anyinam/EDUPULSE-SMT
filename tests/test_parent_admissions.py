@@ -251,7 +251,7 @@ def test_parent_admission_review_rejects_invalid_action(client, app, test_school
     assert review_response.get_json()["message"] == "Invalid review action"
 
 
-def test_payment_codes_expose_stable_payment_identity_for_staff_and_public(client, app, db, test_school, test_proprietor, test_students):
+def test_payment_codes_expose_stable_payment_identity_for_staff_only(client, app, db, test_school, test_proprietor, test_students):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     settings.tuition_fee = 120.0
     settings.terminal_report_fee = 10.0
@@ -272,11 +272,55 @@ def test_payment_codes_expose_stable_payment_identity_for_staff_and_public(clien
     public_response = client.get(
         f"/api/public/schools/{test_school.id}/payments/{test_students[0].student_code}"
     )
-    assert public_response.status_code == 200
-    public_payload = public_response.get_json()
-    assert public_payload["payment_identity"]["stable_payment_identity"] == test_students[0].student_code
-    assert "parent_email" not in public_payload
-    assert public_payload["admission_fee"]["amount"] == 55.0
+    assert public_response.status_code == 404
+
+
+def test_payment_codes_blocked_when_free_tier_school_is_over_capacity(client, app, db, test_school, test_proprietor, test_students):
+    test_school.subscription_plan = "Free Tier"
+    test_school.trial_plan = None
+    test_school.trial_end_date = None
+
+    current_count = Student.query.filter_by(school_id=test_school.id).count()
+    for index in range(current_count + 1, 52):
+        db.session.add(
+            Student(
+                school_id=test_school.id,
+                first_name=f"Cap{index}",
+                surname="Student",
+                name=f"Cap{index} Student",
+                student_code=f"CAP{index:03d}",
+                current_class="JHS 1",
+                status="Active",
+                total_tuition_owed=100.0,
+            )
+        )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    staff_response = client.get(f"/api/students/{test_students[0].id}/payment-codes", headers=headers)
+    assert staff_response.status_code == 409
+    staff_payload = staff_response.get_json()
+    assert staff_payload["error"] == "payment_collection_blocked"
+    assert staff_payload["reason"] == "plan_over_capacity"
+
+    public_response = client.get(
+        f"/api/public/schools/{test_school.id}/payments/{test_students[0].student_code}"
+    )
+    assert public_response.status_code == 404
+
+
+def test_payment_codes_blocked_until_school_verification_is_complete(client, app, db, test_school, test_proprietor, test_students):
+    from backend.api.models import SchoolVerification
+
+    SchoolVerification.query.filter_by(school_id=test_school.id).delete()
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(f"/api/students/{test_students[0].id}/payment-codes", headers=headers)
+
+    assert response.status_code == 403
+    payload = response.get_json()
+    assert payload["error"] == "school_verification_required"
 
 
 def test_parent_admission_ocr_enriches_previous_report_scoring(client, test_school, monkeypatch):

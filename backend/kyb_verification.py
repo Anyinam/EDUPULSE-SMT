@@ -5,8 +5,9 @@ Identitypass, Dojah, or Smile ID via environment-based configuration.
 
 The adapter is intentionally conservative:
 - It auto-approves only when the provider response is clearly clean.
-- If the provider is unavailable or ambiguous, callers should fall back to
-  local heuristics or route the school to manual review.
+- If the provider is unavailable or ambiguous, callers should route the school
+    to manual review. Local heuristics may be used only as review support unless
+    an explicit environment override enables local auto-approval.
 """
 
 from __future__ import annotations
