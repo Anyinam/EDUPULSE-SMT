@@ -140,6 +140,34 @@ At the start of each new term:
 - After grace period, account may be suspended
 - No student data is lost - reactivation restores access
 
+### 3a. Term Close And Access Policy
+
+Operationally, term close should be treated as an archive event, not a data cutoff.
+
+- Closing one term does **not** delete or hide that term's records.
+- Activating the next term is the renewal trigger for paid plans.
+- If billing becomes overdue, schools move through grace and overdue handling before suspension.
+- If an account reaches suspension, EduPulse should still preserve limited read-only access to historical records needed for recovery.
+
+**Suspended-school read-only access currently preserved for:**
+- Academic term history
+- Archived student report history and terminal report reads
+- Billing timeline and subscription statement access
+- Finance transaction history
+- Finance audit ledger, audit summary, and audit event export
+
+**Suspended-school actions still blocked:**
+- New operational writes
+- New term activation workflows outside billing recovery
+- Protected create, update, and delete actions across the tenant app
+
+Recommended operating rule:
+
+1. Keep completed terms visible as historical records.
+2. Use term activation as the moment to initiate renewal billing.
+3. Let suspended schools review past terms and billing evidence so they can reconcile and pay.
+4. Restore full access immediately after successful payment or reactivation.
+
 ---
 
 ## Pro-Ration System

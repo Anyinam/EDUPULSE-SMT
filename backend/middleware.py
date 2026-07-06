@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -30,6 +31,24 @@ BILLING_RECOVERY_PREFIXES = (
     "/api/help",
 )
 
+# Suspended schools retain limited read-only access to archived records so
+# proprietors can review historical terms and billing evidence while resolving payment.
+SUSPENDED_READONLY_PATHS = {
+    "/api/school/terms",
+    "/api/school/terms/active",
+    "/api/finance/summary",
+    "/api/finance/transactions",
+    "/api/finance/audit/ledger",
+    "/api/finance/audit/summary",
+    "/api/finance/audit/events",
+    "/api/finance/audit/events/export",
+}
+
+SUSPENDED_READONLY_PATH_PATTERNS = (
+    re.compile(r"^/api/students/\d+/terminal-report$"),
+    re.compile(r"^/api/students/\d+/reports$"),
+)
+
 
 def _to_utc(dt_value):
     if dt_value is None:
@@ -50,6 +69,14 @@ def _billing_restriction_payload(status_info, message):
 
 def is_billing_recovery_path(path):
     return any(path.startswith(prefix) for prefix in BILLING_RECOVERY_PREFIXES)
+
+
+def is_suspended_readonly_path(path, method):
+    if (method or "GET").upper() not in {"GET", "HEAD"}:
+        return False
+    if path in SUSPENDED_READONLY_PATHS:
+        return True
+    return any(pattern.match(path or "") for pattern in SUSPENDED_READONLY_PATH_PATTERNS)
 
 
 def get_billing_status_info(school, now=None):
@@ -134,6 +161,8 @@ def enforce_school_billing_access(school):
 
     # Suspended: lock almost all product access, keep billing flows available.
     if status == "Suspended":
+        if is_suspended_readonly_path(path, method):
+            return None
         return jsonify(
             _billing_restriction_payload(
                 status_info,

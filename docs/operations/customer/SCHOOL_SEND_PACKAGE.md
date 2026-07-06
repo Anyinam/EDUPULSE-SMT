@@ -9,9 +9,10 @@ This is the master send guide for school-facing rollout materials. Use it to dec
 For a normal school onboarding or sales-to-implementation handoff, send these in this order:
 
 1. `SCHOOL_WELCOME_EMAIL_TEMPLATE.md`
-2. `SCHOOL_CLIENT_LAUNCH_PACKET.md`
-3. `SCHOOL_IMPLEMENTATION_GUIDE.md`
-4. `SCHOOL_WELCOME_PACK.md`
+2. `EDUPULSE_SCHOOL_USER_BOOKLET.md`
+3. `SCHOOL_CLIENT_LAUNCH_PACKET.md`
+4. `SCHOOL_IMPLEMENTATION_GUIDE.md`
+5. `SCHOOL_WELCOME_PACK.md`
 
 If you need a shorter version, send only:
 
@@ -36,6 +37,8 @@ For demos, presentations, investor previews, or internal rehearsals, use the fil
   Use when you want a lighter first contact that asks for onboarding inputs.
 - `SCHOOL_CLIENT_LAUNCH_PACKET.md`
   Use as the main polished overview document for school leadership.
+- `EDUPULSE_SCHOOL_USER_BOOKLET.md`
+  Use as the readable introduction handout for proprietors, headmasters, admins, finance users, and teachers.
 - `SCHOOL_IMPLEMENTATION_GUIDE.md`
   Use when the school wants more operational detail about rollout phases and responsibilities.
 - `SCHOOL_WELCOME_PACK.md`
@@ -64,6 +67,7 @@ Before sending any template externally:
 For most real school launches, start with:
 
 1. `SCHOOL_WELCOME_EMAIL_TEMPLATE.md`
-2. `SCHOOL_CLIENT_LAUNCH_PACKET.md`
+2. `EDUPULSE_SCHOOL_USER_BOOKLET.md`
+3. `SCHOOL_CLIENT_LAUNCH_PACKET.md`
 
 Then send the implementation guide only if the school asks for more detail or the rollout is operationally complex.

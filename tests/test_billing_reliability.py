@@ -170,6 +170,76 @@ def test_overdue_transition_and_restricted_write_access(client, db, test_school,
     assert payload["error"] == "billing_restriction"
 
 
+def test_suspended_school_keeps_historical_term_access_only(client, db, test_school, proprietor_headers):
+    from backend.api.models import AcademicTerm
+
+    archived_term = AcademicTerm(
+        school_id=test_school.id,
+        name="Term 1",
+        academic_year="2025/2026",
+        start_date=datetime(2025, 9, 9, tzinfo=timezone.utc).date(),
+        end_date=datetime(2025, 12, 18, tzinfo=timezone.utc).date(),
+        is_active=False,
+    )
+    db.session.add(archived_term)
+
+    test_school.subscription_plan = "Basic"
+    test_school.next_billing_date = datetime.now(timezone.utc) - timedelta(days=20)
+    test_school.subscription_status = "Active"
+    db.session.commit()
+
+    terms_response = client.get("/api/school/terms", headers=proprietor_headers)
+    assert terms_response.status_code == 200
+    payload = terms_response.get_json()
+    assert payload["count"] == 1
+    assert payload["terms"][0]["academic_year"] == "2025/2026"
+
+    blocked = client.get("/api/school/fees", headers=proprietor_headers)
+    assert blocked.status_code == 402
+    blocked_payload = blocked.get_json()
+    assert blocked_payload["error"] == "billing_restriction"
+    assert blocked_payload["billing_status"]["status"] == "Suspended"
+
+
+def test_suspended_school_keeps_archived_student_report_access(client, db, test_school, proprietor_headers):
+    from backend.api.models import ReportCard, Student
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Ama",
+        surname="Mensah",
+        name="Ama Mensah",
+        student_code="RPT001",
+        current_class="JHS 1",
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    report = ReportCard(
+        school_id=test_school.id,
+        student_id=student.id,
+        academic_term="Term 1",
+        academic_year="2025/2026",
+        class_name="JHS 1",
+        subject_grades=[],
+        term_average=78.5,
+        status="Published",
+    )
+    db.session.add(report)
+
+    test_school.subscription_plan = "Basic"
+    test_school.next_billing_date = datetime.now(timezone.utc) - timedelta(days=20)
+    test_school.subscription_status = "Active"
+    db.session.commit()
+
+    report_history = client.get(f"/api/students/{student.id}/reports", headers=proprietor_headers)
+    assert report_history.status_code == 200
+    payload = report_history.get_json()
+    assert len(payload) == 1
+    assert payload[0]["academic_term"] == "Term 1"
+    assert payload[0]["academic_year"] == "2025/2026"
+
+
 def test_paystack_webhook_duplicate_event_protection(client, db, test_school, monkeypatch):
     from backend.api.models import add_ledger_entry
 
