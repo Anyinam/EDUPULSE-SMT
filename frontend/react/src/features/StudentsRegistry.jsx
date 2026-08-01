@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 
+const PROFILE_TABS = ['Profile', 'Academic', 'Guardian', 'Finance', 'Documents'];
+
 const filterText = (value, query) => {
   if (!query) return true;
   if (value === null || value === undefined) return false;
@@ -12,6 +14,39 @@ const toCsvValue = (value) => {
   return `"${normalized.replace(/"/g, '""')}"`;
 };
 
+const formatCurrency = (value) => `GH₵ ${Number(value || 0).toLocaleString()}`;
+
+const formatDate = (value) => {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
+};
+
+const getInitials = (name) => {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'ST';
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
+};
+
+const buildTrendPolyline = (points) => {
+  if (!points.length) return '';
+  if (points.length === 1) return '8,42 112,42';
+
+  const maxValue = Math.max(...points.map((point) => Number(point.term_average || 0)), 1);
+  const minValue = Math.min(...points.map((point) => Number(point.term_average || 0)), 0);
+  const range = Math.max(maxValue - minValue, 1);
+
+  return points
+    .map((point, index) => {
+      const x = 8 + (index * 104) / Math.max(points.length - 1, 1);
+      const normalized = (Number(point.term_average || 0) - minValue) / range;
+      const y = 42 - (normalized * 32);
+      return `${x},${y}`;
+    })
+    .join(' ');
+};
+
 export default function StudentsRegistry() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,15 +54,31 @@ export default function StudentsRegistry() {
   const [classFilter, setClassFilter] = useState('All');
   const [editingStudent, setEditingStudent] = useState(null);
   const [editData, setEditData] = useState({});
+  const [profileStudent, setProfileStudent] = useState(null);
+  const [profileTab, setProfileTab] = useState('Profile');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileReports, setProfileReports] = useState([]);
+  const [profilePayments, setProfilePayments] = useState([]);
+  const [profilePromotions, setProfilePromotions] = useState([]);
+  const [profileDocuments, setProfileDocuments] = useState([]);
+  const [studentOwnedDocuments, setStudentOwnedDocuments] = useState([]);
+  const [admissionLinkedDocuments, setAdmissionLinkedDocuments] = useState([]);
+  const [documentUploadFiles, setDocumentUploadFiles] = useState([]);
+  const [documentUploadCategory, setDocumentUploadCategory] = useState('document');
+  const [documentUploadNote, setDocumentUploadNote] = useState('');
+  const [documentUploadBusy, setDocumentUploadBusy] = useState(false);
+
+  const getAuthHeaders = () => ({
+    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+    'X-School-ID': localStorage.getItem('school_id')
+  });
 
   useEffect(() => {
     const fetchStudents = async () => {
       setLoading(true);
       try {
-        const headers = {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'X-School-ID': localStorage.getItem('school_id')
-        };
+        const headers = getAuthHeaders();
         const res = await axios.get('/api/students', { headers });
         setStudents(res.data || []);
       } catch (err) {
@@ -73,10 +124,7 @@ export default function StudentsRegistry() {
     }
 
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
+      const headers = getAuthHeaders();
       await axios.delete(`/api/admissions/students/${student.id}`, { headers });
       alert(`${student.name} has been deleted successfully.`);
       // Refresh the list
@@ -108,10 +156,7 @@ export default function StudentsRegistry() {
     }
 
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
+      const headers = getAuthHeaders();
       await axios.put(`/api/students/${editingStudent.id}`, editData, { headers });
       alert('Student information updated successfully.');
       
@@ -124,6 +169,167 @@ export default function StudentsRegistry() {
       console.error('Update error:', err);
     }
   };
+
+  const openStudentProfile = async (student) => {
+    setProfileStudent(student);
+    setProfileTab('Profile');
+    setProfileLoading(true);
+    setProfileError('');
+    setProfileReports([]);
+    setProfilePayments([]);
+    setProfilePromotions([]);
+    setProfileDocuments([]);
+    setStudentOwnedDocuments([]);
+    setAdmissionLinkedDocuments([]);
+    setDocumentUploadFiles([]);
+    setDocumentUploadCategory('document');
+    setDocumentUploadNote('');
+
+    try {
+      const headers = getAuthHeaders();
+      const [reportsRes, paymentsRes, promotionsRes, documentsRes] = await Promise.all([
+        axios.get(`/api/students/${student.id}/reports`, { headers }),
+        axios.get(`/api/students/${student.id}/payments`, { headers }),
+        axios.get(`/api/students/${student.id}/promotions`, { headers }),
+        axios.get(`/api/students/${student.id}/documents`, { headers }),
+      ]);
+
+      setProfileReports(reportsRes.data || []);
+      setProfilePayments(paymentsRes.data || []);
+      setProfilePromotions(promotionsRes.data?.promotions || []);
+      setProfileDocuments(documentsRes.data?.documents || []);
+      setStudentOwnedDocuments(documentsRes.data?.student_documents || []);
+      setAdmissionLinkedDocuments(documentsRes.data?.admission_documents || []);
+    } catch (err) {
+      setProfileError(err.response?.data?.message || 'Failed to load student profile details.');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const openProfileDocument = async (documentItem) => {
+    if (!documentItem?.download_path) {
+      alert('This document is not available to open.');
+      return;
+    }
+
+    try {
+      const res = await axios.get(documentItem.download_path, {
+        headers: getAuthHeaders(),
+        responseType: 'blob'
+      });
+      const contentType = res.headers['content-type'] || documentItem.content_type || 'application/octet-stream';
+      const blob = new Blob([res.data], { type: contentType });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const opened = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+
+      if (!opened) {
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', documentItem.original_filename || documentItem.filename || 'student-document');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to open document.');
+    }
+  };
+
+  const handleUploadStudentDocuments = async () => {
+    if (!profileStudent || documentUploadFiles.length === 0) {
+      alert('Select at least one document to upload.');
+      return;
+    }
+
+    setDocumentUploadBusy(true);
+    try {
+      const payload = new FormData();
+      documentUploadFiles.forEach((file) => payload.append('documents', file));
+      payload.append('category', documentUploadCategory);
+      payload.append('note', documentUploadNote);
+
+      const res = await axios.post(`/api/students/${profileStudent.id}/documents`, payload, {
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      setStudentOwnedDocuments(res.data?.documents || []);
+      setProfileDocuments([...(res.data?.documents || []), ...admissionLinkedDocuments]);
+      setDocumentUploadFiles([]);
+      setDocumentUploadCategory('document');
+      setDocumentUploadNote('');
+
+      if (res.data?.profile_picture) {
+        setProfileStudent((current) => current ? { ...current, profile_picture: res.data.profile_picture } : current);
+        setStudents((current) => current.map((student) => (
+          student.id === profileStudent.id ? { ...student, profile_picture: res.data.profile_picture } : student
+        )));
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to upload student documents.');
+    } finally {
+      setDocumentUploadBusy(false);
+    }
+  };
+
+  const trendSummary = useMemo(() => {
+    if (profileReports.length < 2) return null;
+    const latest = Number(profileReports[profileReports.length - 1]?.term_average || 0);
+    const previous = Number(profileReports[profileReports.length - 2]?.term_average || 0);
+    const delta = Number((latest - previous).toFixed(1));
+    return {
+      delta,
+      direction: delta > 0 ? 'Improving' : delta < 0 ? 'Declining' : 'Stable',
+    };
+  }, [profileReports]);
+
+  const latestReport = profileReports[profileReports.length - 1] || null;
+  const outstandingPayments = profilePayments.filter((payment) => payment.status === 'Pending');
+  const totalConfirmedPayments = profilePayments
+    .filter((payment) => payment.status === 'Confirmed')
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const profileTrendLine = buildTrendPolyline(profileReports);
+  const profileDocumentCards = profileStudent ? [
+    {
+      title: 'Identity Record',
+      status: profileStudent.name && profileStudent.student_code ? 'Ready' : 'Incomplete',
+      description: 'Core student identity details used across attendance, reports, and billing.',
+      detail: `${profileStudent.name || 'Name missing'} • ${profileStudent.student_code || 'Code missing'}`,
+    },
+    {
+      title: 'Academic Evidence',
+      status: profileReports.length > 0 ? 'Available' : 'Awaiting records',
+      description: 'Published report-card history and trend evidence for progression reviews.',
+      detail: profileReports.length > 0
+        ? `${profileReports.length} term record${profileReports.length === 1 ? '' : 's'} captured`
+        : 'No report-card entries have been published yet.',
+    },
+    {
+      title: 'Guardian Authorization Pack',
+      status: profileStudent.guardian_name && (profileStudent.parent_phone || profileStudent.parent_email) ? 'Reachable' : 'Needs update',
+      description: 'Guardian contact channels needed for notices, approvals, and escalation.',
+      detail: `${profileStudent.guardian_name || 'Guardian missing'} • ${profileStudent.parent_phone || profileStudent.parent_email || 'No contact channel'}`,
+    },
+    {
+      title: 'Finance Standing',
+      status: Number(profileStudent.total_tuition_owed || 0) > 0 ? 'Attention needed' : 'Clear',
+      description: 'Current tuition standing and payment activity summary for administrative review.',
+      detail: `${formatCurrency(profileStudent.total_tuition_owed)} outstanding • ${profilePayments.length} payment entr${profilePayments.length === 1 ? 'y' : 'ies'}`,
+    },
+    {
+      title: 'Document Vault',
+      status: profileDocuments.length > 0 ? 'Available' : 'Awaiting records',
+      description: 'Birth certificates, admissions evidence, consent records, and scanned attachments linked to the learner.',
+      detail: profileDocuments.length > 0
+        ? `${profileDocuments.length} linked document${profileDocuments.length === 1 ? '' : 's'} available`
+        : 'No stored student or admissions documents yet.',
+    },
+  ] : [];
 
   const handleExport = () => {
     if (!filteredStudents.length) {
@@ -243,6 +449,15 @@ export default function StudentsRegistry() {
               {filteredStudents.map((student, index) => (
                 <tr
                   key={student.id}
+                  onClick={() => openStudentProfile(student)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      openStudentProfile(student);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                   className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}
                 >
                   <td className="p-3 font-medium text-slate-800">{student.name}</td>
@@ -272,14 +487,30 @@ export default function StudentsRegistry() {
                   <td className="p-3">
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleEditClick(student)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openStudentProfile(student);
+                        }}
+                        className="bg-slate-900 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:bg-slate-800 transition"
+                        title="Open full student profile"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleEditClick(student);
+                        }}
                         className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-sm font-semibold hover:bg-blue-200 transition"
                         title="Edit student information"
                       >
                         ✎️ Edit
                       </button>
                       <button
-                        onClick={() => handleDelete(student)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDelete(student);
+                        }}
                         className="bg-red-100 text-red-600 px-3 py-1 rounded-lg text-sm font-semibold hover:bg-red-200 transition"
                         title="Delete this student record"
                       >
@@ -435,6 +666,480 @@ export default function StudentsRegistry() {
               >
                 ✕ Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {profileStudent && (
+      <div className="fixed inset-0 z-50 bg-slate-950/60 p-4">
+        <div className="mx-auto flex h-full max-w-6xl items-center justify-center">
+          <div className="max-h-[92vh] w-full overflow-hidden rounded-4xl bg-white shadow-2xl">
+            <div className="border-b border-slate-200 bg-linear-to-r from-slate-900 via-slate-800 to-blue-900 px-8 py-7 text-white">
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-5">
+                  {profileStudent.profile_picture ? (
+                    <img
+                      src={profileStudent.profile_picture}
+                      alt={`${profileStudent.name} profile`}
+                      className="h-24 w-24 rounded-[1.75rem] object-cover ring-2 ring-white/20"
+                    />
+                  ) : (
+                    <div className="flex h-24 w-24 items-center justify-center rounded-[1.75rem] bg-white/10 text-3xl font-black tracking-wide text-white">
+                      {getInitials(profileStudent.name)}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-blue-200">Student Profile</p>
+                    <h2 className="mt-2 text-3xl font-black">{profileStudent.name}</h2>
+                    <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-100">
+                      <span className="rounded-full bg-white/10 px-3 py-1">ID: {profileStudent.student_code || 'Not assigned'}</span>
+                      <span className="rounded-full bg-white/10 px-3 py-1">Class: {profileStudent.current_class || 'Not assigned'}</span>
+                      <span className="rounded-full bg-white/10 px-3 py-1">Gender: {profileStudent.gender || 'Not recorded'}</span>
+                      <span className="rounded-full bg-white/10 px-3 py-1">Age: {profileStudent.age ?? 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 lg:w-[24rem]">
+                  <div className="rounded-2xl bg-white/10 p-4">
+                    <p className="text-xs uppercase tracking-wide text-blue-100">Latest Average</p>
+                    <p className="mt-2 text-3xl font-black">{latestReport ? `${latestReport.term_average}%` : 'N/A'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-4">
+                    <p className="text-xs uppercase tracking-wide text-blue-100">Outstanding Tuition</p>
+                    <p className="mt-2 text-3xl font-black">{formatCurrency(profileStudent.total_tuition_owed)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-b border-slate-200 bg-slate-50 px-8 py-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {PROFILE_TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setProfileTab(tab)}
+                    className={`rounded-full px-4 py-2 text-sm font-bold transition ${profileTab === tab ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setProfileStudent(null)}
+                  className="ml-auto rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[64vh] overflow-y-auto px-8 py-6">
+              {profileLoading && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Loading student profile...</div>}
+              {!profileLoading && profileError && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{profileError}</div>}
+
+              {!profileLoading && !profileError && profileTab === 'Profile' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Attendance Flag</p>
+                      <p className="mt-2 text-lg font-black text-slate-900">{profileStudent.is_present ? 'Present today' : 'Not marked present'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Feeding Status</p>
+                      <p className="mt-2 text-lg font-black text-slate-900">{profileStudent.feeding_paid ? 'Paid up' : 'Outstanding'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Scholarship</p>
+                      <p className="mt-2 text-lg font-black text-slate-900">{profileStudent.is_on_scholarship ? 'Active' : 'None'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Profile Completeness</p>
+                      <p className="mt-2 text-lg font-black text-slate-900">{[profileStudent.date_of_birth, profileStudent.gender, profileStudent.guardian_name, profileStudent.parent_phone].filter(Boolean).length}/4</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                    <div className="rounded-3xl border border-slate-200 p-6">
+                      <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Identity</p>
+                      <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Full Name</p>
+                          <p className="mt-2 text-lg font-bold text-slate-900">{profileStudent.name}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Student Code</p>
+                          <p className="mt-2 text-lg font-bold text-slate-900">{profileStudent.student_code || 'Not assigned'}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Date of Birth</p>
+                          <p className="mt-2 text-lg font-bold text-slate-900">{formatDate(profileStudent.date_of_birth)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Current Class</p>
+                          <p className="mt-2 text-lg font-bold text-slate-900">{profileStudent.current_class || 'Not assigned'}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                      <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Current Snapshot</p>
+                      <div className="mt-4 space-y-4">
+                        <div className="rounded-2xl bg-white p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Academic Trend</p>
+                          <p className="mt-2 text-lg font-black text-slate-900">{trendSummary ? `${trendSummary.direction} ${trendSummary.delta > 0 ? '+' : ''}${trendSummary.delta}` : 'Awaiting multiple term records'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-white p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent Promotion</p>
+                          <p className="mt-2 text-lg font-black text-slate-900">{profilePromotions[0] ? `${profilePromotions[0].from_class} -> ${profilePromotions[0].to_class}` : 'No promotion history yet'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!profileLoading && !profileError && profileTab === 'Academic' && (
+                <div className="space-y-6">
+                  <div className="rounded-3xl border border-slate-200 p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Performance Trend</p>
+                        <h3 className="mt-2 text-2xl font-black text-slate-900">Term Average Journey</h3>
+                      </div>
+                      <div className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white">
+                        {trendSummary ? `${trendSummary.direction} ${trendSummary.delta > 0 ? '+' : ''}${trendSummary.delta} pts` : 'Need 2+ reports'}
+                      </div>
+                    </div>
+
+                    {profileReports.length > 0 ? (
+                      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                        <div className="rounded-2xl bg-slate-50 p-5">
+                          <svg viewBox="0 0 120 48" className="h-52 w-full overflow-visible">
+                            <path d="M8 42 H112" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="4 4" fill="none" />
+                            <polyline points={profileTrendLine} fill="none" stroke="#0f172a" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+                            {profileReports.map((point, index) => {
+                              const coords = profileTrendLine.split(' ')[index]?.split(',') || [];
+                              return (
+                                <g key={`${point.academic_year}-${point.academic_term}`}>
+                                  <circle cx={coords[0]} cy={coords[1]} r="2.8" fill="#2563eb" />
+                                  <text x={coords[0]} y="46" textAnchor="middle" fontSize="4" fill="#475569">{point.academic_term.replace('Term ', 'T')}</text>
+                                </g>
+                              );
+                            })}
+                          </svg>
+                        </div>
+
+                        <div className="space-y-3">
+                          {profileReports.slice().reverse().map((report) => (
+                            <div key={`${report.academic_year}-${report.academic_term}`} className="rounded-2xl border border-slate-200 p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-bold text-slate-900">{report.academic_term}</p>
+                                  <p className="text-xs text-slate-500">{report.academic_year}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-2xl font-black text-slate-900">{report.term_average}%</p>
+                                  <p className="text-xs text-slate-500">{report.overall_position || 'No rank'}{report.out_of_students ? ` / ${report.out_of_students}` : ''}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-6 text-sm text-slate-500">No report-card history has been published for this student yet.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 p-6">
+                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Past Academic Records</p>
+                    <div className="mt-4 overflow-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-50 text-left text-slate-500">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">Academic Year</th>
+                            <th className="px-4 py-3 font-semibold">Term</th>
+                            <th className="px-4 py-3 font-semibold">Average</th>
+                            <th className="px-4 py-3 font-semibold">Position</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {profileReports.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-center text-slate-400">No academic records yet.</td>
+                            </tr>
+                          )}
+                          {profileReports.map((report) => (
+                            <tr key={`${report.academic_year}-${report.academic_term}`} className="border-t border-slate-100">
+                              <td className="px-4 py-3">{report.academic_year}</td>
+                              <td className="px-4 py-3">{report.academic_term}</td>
+                              <td className="px-4 py-3 font-bold text-slate-900">{report.term_average}%</td>
+                              <td className="px-4 py-3 text-slate-600">{report.overall_position || '-'}{report.out_of_students ? ` of ${report.out_of_students}` : ''}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 p-6">
+                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Promotion History</p>
+                    <div className="mt-4 space-y-3">
+                      {profilePromotions.length === 0 && <p className="text-sm text-slate-500">No promotion history recorded yet.</p>}
+                      {profilePromotions.map((promotion) => (
+                        <div key={promotion.id} className="rounded-2xl bg-slate-50 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-sm font-bold text-slate-900">{promotion.from_class} {'->'} {promotion.to_class}</p>
+                            <p className="text-xs text-slate-500">{formatDate(promotion.date)}</p>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-600">Promoted by {promotion.promoted_by || 'System'}</p>
+                          {promotion.remarks && <p className="mt-2 text-sm text-slate-700">{promotion.remarks}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!profileLoading && !profileError && profileTab === 'Guardian' && (
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_1fr]">
+                  <div className="rounded-3xl border border-slate-200 p-6">
+                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Guardian Contact</p>
+                    <div className="mt-5 space-y-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Guardian</p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">{profileStudent.guardian_name || profileStudent.parent_name || 'Not recorded'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Phone</p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">{profileStudent.parent_phone || 'Not recorded'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Email</p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">{profileStudent.parent_email || 'Not recorded'}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Support Notes</p>
+                    <div className="mt-5 space-y-4">
+                      <div className="rounded-2xl bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Scholarship Coverage</p>
+                        <p className="mt-2 text-lg font-black text-slate-900">
+                          {profileStudent.is_on_scholarship
+                            ? (profileStudent.scholarship_covers_feeding ? 'Tuition and feeding covered' : 'Tuition covered')
+                            : 'No scholarship recorded'}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Scholarship Notes</p>
+                        <p className="mt-2 text-sm text-slate-700">{profileStudent.scholarship_notes || 'No scholarship notes recorded.'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!profileLoading && !profileError && profileTab === 'Finance' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Outstanding Tuition</p>
+                      <p className="mt-2 text-3xl font-black text-slate-900">{formatCurrency(profileStudent.total_tuition_owed)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Confirmed Collections</p>
+                      <p className="mt-2 text-3xl font-black text-slate-900">{formatCurrency(totalConfirmedPayments)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Pending Entries</p>
+                      <p className="mt-2 text-3xl font-black text-slate-900">{outstandingPayments.length}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 p-6">
+                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Payment Timeline</p>
+                    <div className="mt-4 overflow-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-50 text-left text-slate-500">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">Date</th>
+                            <th className="px-4 py-3 font-semibold">Type</th>
+                            <th className="px-4 py-3 font-semibold">Method</th>
+                            <th className="px-4 py-3 font-semibold">Amount</th>
+                            <th className="px-4 py-3 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {profilePayments.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-6 text-center text-slate-400">No payment history recorded yet.</td>
+                            </tr>
+                          )}
+                          {profilePayments.map((payment) => (
+                            <tr key={payment.id} className="border-t border-slate-100">
+                              <td className="px-4 py-3 text-slate-600">{payment.date_paid}</td>
+                              <td className="px-4 py-3 font-medium text-slate-900">{payment.payment_type}</td>
+                              <td className="px-4 py-3 text-slate-600">{payment.method}</td>
+                              <td className="px-4 py-3 font-bold text-slate-900">{formatCurrency(payment.amount)}</td>
+                              <td className="px-4 py-3">
+                                <span className={`rounded-full px-3 py-1 text-xs font-bold ${payment.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {payment.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!profileLoading && !profileError && profileTab === 'Documents' && (
+                <div className="space-y-6">
+                  <div className="rounded-3xl border border-slate-200 p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Student Dossier</p>
+                        <h3 className="mt-2 text-2xl font-black text-slate-900">Administrative and academic packet</h3>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                        Upload new learner files here, and keep parent-admissions attachments linked for later staff review.
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      {profileDocumentCards.map((card) => (
+                        <div key={card.title} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-lg font-black text-slate-900">{card.title}</p>
+                              <p className="mt-2 text-sm text-slate-600">{card.description}</p>
+                            </div>
+                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${card.status === 'Ready' || card.status === 'Available' || card.status === 'Reachable' || card.status === 'Clear' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {card.status}
+                            </span>
+                          </div>
+                          <p className="mt-4 text-sm font-medium text-slate-800">{card.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Upload Records</p>
+                        <h3 className="mt-2 text-2xl font-black text-slate-900">Add documents to this learner profile</h3>
+                      </div>
+                      <button
+                        onClick={handleUploadStudentDocuments}
+                        disabled={documentUploadBusy || documentUploadFiles.length === 0}
+                        className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {documentUploadBusy ? 'Uploading...' : 'Upload Documents'}
+                      </button>
+                    </div>
+
+                    <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Category</label>
+                        <select
+                          value={documentUploadCategory}
+                          onChange={(event) => setDocumentUploadCategory(event.target.value)}
+                          className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                        >
+                          <option value="document">General Document</option>
+                          <option value="birth_certificate">Birth Certificate</option>
+                          <option value="admission_form">Admission Form</option>
+                          <option value="consent_letter">Consent Letter</option>
+                          <option value="previous_report">Scanned Report</option>
+                          <option value="identity_document">Identity Document</option>
+                          <option value="medical_record">Medical Record</option>
+                          <option value="passport_photo">Passport Photo</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Staff Note</label>
+                        <input
+                          value={documentUploadNote}
+                          onChange={(event) => setDocumentUploadNote(event.target.value)}
+                          placeholder="Optional note about what this document is for"
+                          className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5">
+                      <input
+                        type="file"
+                        multiple
+                        onChange={(event) => setDocumentUploadFiles(Array.from(event.target.files || []))}
+                        className="w-full text-sm text-slate-700 file:mr-4 file:rounded-full file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-bold file:text-white hover:file:bg-slate-800"
+                      />
+                      <p className="mt-3 text-xs text-slate-500">Upload birth certificates, admission forms, consent letters, scanned report cards, or other learner records.</p>
+                      {documentUploadFiles.length > 0 && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {documentUploadFiles.map((file) => (
+                            <span key={`${file.name}-${file.size}-${file.lastModified}`} className="rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                              {file.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_1fr]">
+                    <div className="rounded-3xl border border-slate-200 p-6">
+                      <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Stored Learner Documents</p>
+                      <div className="mt-4 space-y-3">
+                        {profileDocuments.length === 0 && (
+                          <p className="text-sm text-slate-500">No student-owned or linked admissions documents are stored yet.</p>
+                        )}
+                        {profileDocuments.map((documentItem) => (
+                          <button
+                            key={`${documentItem.source || 'student'}-${documentItem.document_id}`}
+                            type="button"
+                            onClick={() => openProfileDocument(documentItem)}
+                            className="flex w-full items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100"
+                          >
+                            <div>
+                              <p className="text-sm font-medium text-slate-800">{documentItem.original_filename || documentItem.filename || 'Document'}</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {(documentItem.category || 'document').replaceAll('_', ' ')} • {documentItem.source === 'parent_admission' ? (documentItem.source_label || 'Parent admission') : 'Student profile upload'}
+                              </p>
+                              {documentItem.note ? <p className="mt-1 text-xs text-slate-600">{documentItem.note}</p> : null}
+                            </div>
+                            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200">Open</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                      <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Profile Completion Signal</p>
+                      <div className="mt-5 rounded-3xl bg-white p-5">
+                        <div className="flex items-center justify-between text-sm font-semibold text-slate-600">
+                          <span>Operational completeness</span>
+                          <span>{Math.round((profileDocumentCards.filter((card) => ['Ready', 'Available', 'Reachable', 'Clear'].includes(card.status)).length / Math.max(profileDocumentCards.length, 1)) * 100)}%</span>
+                        </div>
+                        <div className="mt-3 h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-slate-900"
+                            style={{ width: `${Math.round((profileDocumentCards.filter((card) => ['Ready', 'Available', 'Reachable', 'Clear'].includes(card.status)).length / Math.max(profileDocumentCards.length, 1)) * 100)}%` }}
+                          />
+                        </div>
+                        <p className="mt-4 text-sm text-slate-600">
+                          This gives staff a quick sense of whether the learner's identity, academic, guardian, and finance records are complete enough for confident follow-up.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

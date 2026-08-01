@@ -25,7 +25,7 @@ def upgrade():
         sa.Column("school_id", sa.String(length=20), sa.ForeignKey("schools.id"), nullable=False),
         sa.Column("holiday_date", sa.Date(), nullable=False),
         sa.Column("name", sa.String(length=100), nullable=True),
-        sa.Column("is_holiday", sa.Boolean(), nullable=True, server_default=sa.text("1")),
+        sa.Column("is_holiday", sa.Boolean(), nullable=True, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.UniqueConstraint("school_id", "holiday_date", name="uq_school_holiday_date"),
     )

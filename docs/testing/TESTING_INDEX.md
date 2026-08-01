@@ -1,5 +1,12 @@
 # EduPulse Testing Infrastructure - Complete Index
 
+## Current Validation Snapshot - August 1, 2026
+
+- Full backend pytest suite currently passes: `213 passed`
+- Focused subscription and billing reliability suite currently passes: `33 passed`
+- Demo reseed flow currently passes through Alembic-backed rebuild: `python backend/seed.py`
+- Fresh local schema rebuilds now validate against the same Flask database connection used by the app runtime
+
 ## 📋 Overview
 Comprehensive testing infrastructure with **2,757 lines of code** across **11 files** providing **90+ test cases** with security, performance, and integration testing.
 

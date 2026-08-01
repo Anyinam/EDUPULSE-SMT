@@ -39,6 +39,7 @@ Current payload supports:
 - guardian contact details
 - desired test mode
 - internet quality
+- passport photo upload
 - uploaded supporting documents
 
 Public school profile payload supports:
@@ -77,7 +78,7 @@ Parents can view:
 - school branding on the public page
 
 If the school requests correction:
-- parents can upload missing documents
+- parents can upload missing documents and refresh passport-photo evidence
 - parents can update guardian contact details
 - the AI Registrar re-scores the application immediately after resubmission
 
@@ -124,8 +125,18 @@ Current supported staff actions:
 If staff approves an application:
 - a real learner record is created
 - the application is linked to that learner
+- the application passport photo can be copied into `Student.profile_picture`
+- uploaded admissions records remain available as linked documents in the learner profile document vault
 - the parent status endpoint can expose the payment link for the admitted learner
 - the parent receives a fresh status update email when an email address is on file
+
+## Student Profile Linkage
+
+Approved admissions now connect more directly to the learner workspace.
+
+- Admission passport photos can populate the student profile photo.
+- Admission documents remain school-scoped files and can be surfaced alongside direct learner uploads.
+- Student profiles now support document upload and download through the learner document vault, so schools can keep birth certificates, consent letters, admission forms, and prior reports in one place.
 
 If staff requests correction, schedules a visit, invites a test, or rejects:
 - the parent status page reflects the new state

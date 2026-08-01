@@ -2,33 +2,55 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from backend.api.models import AcademicTerm, School, Student, db
+from backend.subscription_state import get_effective_plan, normalize_utc_datetime, now_utc
 from backend.subscription_features import PRICING, PLAN_FEATURES
 
 
-NATIONAL_BASIC_TERM_STARTS = {
+TRIAL_DURATION_DAYS = 30
+
+NATIONAL_BASIC_TERM_CALENDARS = {
+    "2026/2027": [
+        {
+            "name": "Term 1",
+            "start_date": date(2026, 9, 8),
+            "end_date": date(2026, 12, 17),
+        },
+        {
+            "name": "Term 2",
+            "start_date": date(2027, 1, 5),
+            "end_date": date(2027, 3, 25),
+        },
+        {
+            "name": "Term 3",
+            "start_date": date(2027, 4, 20),
+            "end_date": date(2027, 7, 22),
+        },
+    ],
+}
+
+LEGACY_NATIONAL_BASIC_TERM_STARTS = {
     "Term 1": (9, 9),
     "Term 2": (1, 7),
     "Term 3": (5, 7),
 }
 
-
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return now_utc()
 
 
 def _normalize_dt(dt_value: datetime | None) -> datetime | None:
-    if not dt_value:
-        return None
-    if dt_value.tzinfo is None:
-        return dt_value.replace(tzinfo=timezone.utc)
-    return dt_value
+    return normalize_utc_datetime(dt_value)
 
 
 def _build_national_basic_term_windows(academic_year_start: int) -> list[dict[str, Any]]:
     academic_year = f"{academic_year_start}/{academic_year_start + 1}"
-    term_1_start = date(academic_year_start, *NATIONAL_BASIC_TERM_STARTS["Term 1"])
-    term_2_start = date(academic_year_start + 1, *NATIONAL_BASIC_TERM_STARTS["Term 2"])
-    term_3_start = date(academic_year_start + 1, *NATIONAL_BASIC_TERM_STARTS["Term 3"])
+    published_calendar = get_published_national_basic_term_windows(academic_year)
+    if published_calendar:
+        return published_calendar
+
+    term_1_start = date(academic_year_start, *LEGACY_NATIONAL_BASIC_TERM_STARTS["Term 1"])
+    term_2_start = date(academic_year_start + 1, *LEGACY_NATIONAL_BASIC_TERM_STARTS["Term 2"])
+    term_3_start = date(academic_year_start + 1, *LEGACY_NATIONAL_BASIC_TERM_STARTS["Term 3"])
 
     return [
         {
@@ -55,6 +77,59 @@ def _build_national_basic_term_windows(academic_year_start: int) -> list[dict[st
     ]
 
 
+def get_published_national_basic_term_windows(academic_year: str) -> list[dict[str, Any]]:
+    published_calendar = NATIONAL_BASIC_TERM_CALENDARS.get(academic_year)
+    if not published_calendar:
+        return []
+
+    enriched_terms: list[dict[str, Any]] = []
+    for index, term_window in enumerate(published_calendar):
+        next_term = published_calendar[index + 1] if index + 1 < len(published_calendar) else None
+        enriched_terms.append(
+            {
+                **term_window,
+                "academic_year": academic_year,
+                "source": "national_basic_calendar",
+                "reopening_date": next_term["start_date"] if next_term else None,
+            }
+        )
+    return enriched_terms
+
+
+def get_recommended_published_national_basic_academic_year(current_date: date | None = None) -> str | None:
+    today = current_date or _now_utc().date()
+    published_years = sorted(NATIONAL_BASIC_TERM_CALENDARS.keys())
+    if not published_years:
+        return None
+
+    for academic_year in published_years:
+        term_windows = get_published_national_basic_term_windows(academic_year)
+        if any(term_window["start_date"] <= today <= term_window["end_date"] for term_window in term_windows):
+            return academic_year
+
+    future_candidates: list[tuple[date, str]] = []
+    past_candidates: list[tuple[date, str]] = []
+    for academic_year in published_years:
+        term_windows = get_published_national_basic_term_windows(academic_year)
+        if not term_windows:
+            continue
+        first_start = term_windows[0]["start_date"]
+        if first_start >= today:
+            future_candidates.append((first_start, academic_year))
+        else:
+            past_candidates.append((first_start, academic_year))
+
+    if future_candidates:
+        future_candidates.sort()
+        return future_candidates[0][1]
+
+    if past_candidates:
+        past_candidates.sort()
+        return past_candidates[-1][1]
+
+    return published_years[-1]
+
+
 def _get_national_basic_term_reference(current_date: date | None = None) -> dict[str, Any] | None:
     today = current_date or _now_utc().date()
     for academic_year_start in range(today.year - 1, today.year + 2):
@@ -71,7 +146,14 @@ def _term_reference_to_end_datetime(term_reference: dict[str, Any] | None) -> da
     return datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=timezone.utc)
 
 
-def get_current_trial_term_reference(school_id: str) -> dict[str, Any] | None:
+def _trial_start_from_end(trial_end: datetime | None) -> datetime | None:
+    normalized_end = _normalize_dt(trial_end)
+    if not normalized_end:
+        return None
+    return normalized_end - timedelta(days=TRIAL_DURATION_DAYS)
+
+
+def get_current_term_reference(school_id: str) -> dict[str, Any] | None:
     today = _now_utc().date()
     active_term = AcademicTerm.query.filter_by(school_id=school_id, is_active=True).first()
 
@@ -88,31 +170,42 @@ def get_current_trial_term_reference(school_id: str) -> dict[str, Any] | None:
     return _get_national_basic_term_reference(today)
 
 
-def sync_active_trial_to_term_end(school: School, commit: bool = False) -> dict[str, Any] | None:
-    if school.trial_plan != "Premium" or not school.trial_end_date:
-        return get_current_trial_term_reference(school.id)
-
-    term_reference = get_current_trial_term_reference(school.id)
-    if not term_reference:
-        return None
-
-    current_trial_end = _normalize_dt(school.trial_end_date)
-    reference_end = _term_reference_to_end_datetime(term_reference)
-    now = _now_utc()
-
-    if current_trial_end and reference_end and now < current_trial_end < reference_end:
-        school.trial_end_date = reference_end
-        school.is_trial_active = True
-        if commit:
-            db.session.commit()
-
-    return term_reference
-
-
 def _get_active_term_trial_end(school_id: str) -> tuple[datetime | None, AcademicTerm | None]:
     active_term = AcademicTerm.query.filter_by(school_id=school_id, is_active=True).first()
-    term_reference = get_current_trial_term_reference(school_id)
+    term_reference = get_current_term_reference(school_id)
     return _term_reference_to_end_datetime(term_reference), active_term
+
+
+def get_term_proration_context(school_id: str, now: datetime | None = None) -> dict[str, Any]:
+    now_utc = _normalize_dt(now) or _now_utc()
+    term_reference = get_current_term_reference(school_id)
+    term_end = _term_reference_to_end_datetime(term_reference)
+
+    if not term_reference or not term_end:
+        return {
+            "days_remaining": None,
+            "days_in_term": None,
+            "proration_ratio": 1.0,
+            "term_name": None,
+            "academic_year": None,
+            "reference_source": None,
+            "term_end_date": None,
+        }
+
+    start_date = term_reference.get("start_date")
+    days_in_term = max(1, ((term_reference["end_date"] - start_date).days + 1) if start_date else 120)
+    days_remaining = max(1, (term_end.date() - now_utc.date()).days + 1)
+    proration_ratio = max(0.0, min(1.0, days_remaining / float(days_in_term)))
+
+    return {
+        "days_remaining": days_remaining,
+        "days_in_term": days_in_term,
+        "proration_ratio": round(proration_ratio, 6),
+        "term_name": term_reference.get("name"),
+        "academic_year": term_reference.get("academic_year"),
+        "reference_source": term_reference.get("source"),
+        "term_end_date": term_end.isoformat(),
+    }
 
 
 def _get_plan_pricing(school: School) -> dict[str, Any]:
@@ -152,12 +245,14 @@ def get_billing_visibility(school_id: str, commit: bool = True) -> dict[str, Any
     if not school:
         return {"error": "School not found"}
 
-    trial_reference = sync_active_trial_to_term_end(school, commit=False)
+    trial_reference = get_current_term_reference(school.id)
     ensure_trial_expiry(school, commit=False)
     active_students = sync_student_meter(school, commit=False)
+    trial_start = _trial_start_from_end(school.trial_end_date)
+    effective_plan = get_effective_plan(school)
 
     pricing = _get_plan_pricing(school)
-    plan_info = PLAN_FEATURES.get(school.subscription_plan or "Free Tier", PLAN_FEATURES["Free Tier"])
+    plan_info = PLAN_FEATURES.get(effective_plan, PLAN_FEATURES["Free Tier"])
     
     included = max(0, int(pricing["included_students"] or 0))
     max_students = plan_info.get("max_students", 50)
@@ -194,7 +289,8 @@ def get_billing_visibility(school_id: str, commit: bool = True) -> dict[str, Any
 
     return {
         "school_id": school.id,
-        "plan": school.subscription_plan or "Free Tier",
+        "plan": effective_plan,
+        "base_plan": school.subscription_plan or "Free Tier",
         "plan_version": school.plan_version,
         "pricing_locked": bool(school.pricing_locked_at),
         "pricing_locked_at": school.pricing_locked_at.isoformat() if school.pricing_locked_at else None,
@@ -202,7 +298,7 @@ def get_billing_visibility(school_id: str, commit: bool = True) -> dict[str, Any
             "active": bool(school.trial_plan and school.trial_end_date),
             "is_active": bool(school.trial_plan and school.trial_end_date),
             "plan": school.trial_plan,
-            "start_date": trial_reference.get("start_date").isoformat() if trial_reference and trial_reference.get("start_date") else None,
+            "start_date": trial_start.isoformat() if trial_start else None,
             "end_date": school.trial_end_date.isoformat() if school.trial_end_date else None,
             "term_name": trial_reference.get("name") if trial_reference else None,
             "academic_year": trial_reference.get("academic_year") if trial_reference else None,
@@ -251,12 +347,9 @@ def activate_premium_trial(school_id: str, days: int | None = None) -> dict[str,
     if school.trial_end_date is not None:
         return {"error": "This school has already used its one-time premium trial"}
 
-    term_reference = get_current_trial_term_reference(school_id)
-    trial_end = _term_reference_to_end_datetime(term_reference)
-    if not term_reference or not trial_end:
-        return {"error": "Unable to resolve the current term window for this school trial"}
-    if trial_end <= _now_utc():
-        return {"error": "The current term window has already ended. Activate the trial during an active term."}
+    term_reference = get_current_term_reference(school_id)
+    duration_days = max(1, int(days or TRIAL_DURATION_DAYS))
+    trial_end = _now_utc() + timedelta(days=duration_days)
 
     school.trial_plan = "Premium"
     school.trial_end_date = trial_end
@@ -264,11 +357,12 @@ def activate_premium_trial(school_id: str, days: int | None = None) -> dict[str,
     db.session.commit()
 
     return {
-        "message": "Premium trial activated for the current term window",
+        "message": "Premium trial activated for 30 days",
         "trial_plan": school.trial_plan,
-        "trial_start_date": term_reference["start_date"].isoformat() if term_reference.get("start_date") else None,
+        "trial_start_date": _now_utc().isoformat(),
         "trial_end_date": school.trial_end_date.isoformat(),
-        "trial_mode": "term",
+        "trial_mode": "month",
+        "trial_duration_days": duration_days,
         "term_name": term_reference.get("name"),
         "academic_year": term_reference.get("academic_year"),
         "reference_source": term_reference.get("source"),
@@ -287,7 +381,10 @@ def end_trial(school_id: str) -> dict[str, Any]:
     school.is_trial_active = False
     db.session.commit()
 
-    return {"message": "Trial ended. School is now on base subscription plan."}
+    return {
+        "message": "Trial ended. School is now on base subscription plan.",
+        "base_plan": school.subscription_plan or "Free Tier",
+    }
 
 
 def lock_pricing_version(school_id: str, version: str | None = None) -> dict[str, Any]:

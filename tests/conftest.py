@@ -83,9 +83,18 @@ def test_school(db):
 
     yield school
 
-    db.session.delete(verification)
-    db.session.delete(school)
-    db.session.delete(settings)
+    db.session.rollback()
+
+    verification_record = SchoolVerification.query.filter_by(school_id="TEST-001").first()
+    settings_record = SchoolSettings.query.filter_by(school_id="TEST-001").first()
+    school_record = School.query.get("TEST-001")
+
+    if verification_record is not None:
+        db.session.delete(verification_record)
+    if settings_record is not None:
+        db.session.delete(settings_record)
+    if school_record is not None:
+        db.session.delete(school_record)
     db.session.commit()
 
 

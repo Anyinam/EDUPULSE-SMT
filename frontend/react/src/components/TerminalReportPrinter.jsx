@@ -664,10 +664,6 @@ export default function TerminalReportPrinter() {
         Generate professional terminal reports with remarks from headmaster and proprietor
       </p>
 
-      <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        WhatsApp bulk report delivery is disabled for now to reduce startup messaging costs. Reports can still be reviewed, printed, and exported from this screen.
-      </div>
-
       {message && (
         <div className={`mb-6 p-4 rounded-lg ${message.includes('✅') ? 'bg-green-50 text-green-800 border border-green-200' : message.includes('❌') ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-blue-50 text-blue-800 border border-blue-200'}`}>
           {message}

@@ -1,7 +1,7 @@
 # EduPulse SMT Subscription Billing Guide
 
-**Date:** March 2026  
-**Version:** Model A (Hybrid Base + Overage)
+**Date:** August 2026  
+**Version:** Model A (Hybrid Base + Overage, Trial + Proration Update)
 
 ---
 
@@ -78,11 +78,18 @@ Where:
 
 ### Premium Trial Window
 
-- Premium trial access is term-based, not month-based.
-- The trial runs until the end of the current term window.
+- Premium trial access is a 30-day window from activation.
+- Trial access does not apply a separate promotional discount. When a school converts, the paid plan uses the normal term price model.
+- When a trial school converts to a paid term plan before the current term ends, EduPulse prorates the first paid charge by the remaining days in that term.
 - EduPulse uses the school's active academic term when it covers the current date.
-- If the school's term calendar is missing or outdated, EduPulse falls back to the centrally maintained national basic-school term calendar.
-- A school that activates trial mid-term receives only the remaining days in that current term window.
+- Schools can manage their own term start/end dates in Academic Term Management and can import the published GES calendar for a selected academic year.
+- If the school's term calendar is missing, EduPulse falls back to the centrally maintained national basic-school term calendar.
+
+### Checkout And Entitlement Guardrails
+
+- Paid upgrades must complete through Paystack before EduPulse grants the higher plan entitlement.
+- Direct subscription update routes are reserved for non-paid transitions such as scheduled downgrades or administrative cleanup.
+- Billing views now treat `base_plan` and `effective_plan` separately so active trials do not hide the school's underlying paid or free subscription state.
 
 ### 1. Initial Subscription (Start of Term)
 
@@ -115,13 +122,13 @@ When students are admitted **during an active term**:
 4. Sends invoice email to proprietor
 5. Logs charge in ledger
 
-**Example:** School on Basic plan (30 included) admits 3 students with 40 days remaining in a 120-day term:
+**Example:** School on Basic plan (30 included) admits 3 students with 40 days remaining in a 101-day term:
 
 ```
-Pro-ration Factor: 40 ÷ 120 = 33.3%
+Pro-ration Factor: 40 ÷ 101 = 39.6%
 Students Over Threshold: 3
 Full Term Rate: ₵12/student
-Pro-rated Charge: 3 × ₵12 × 0.333 = ₵12.00
+Pro-rated Charge: 3 × ₵12 × 0.396 = ₵14.26
 ```
 
 ### 3. Term Renewal
@@ -139,6 +146,7 @@ At the start of each new term:
 - Grace period depends on plan
 - After grace period, account may be suspended
 - No student data is lost - reactivation restores access
+- The system should not silently grant a higher paid plan before successful checkout verification
 
 ### 3a. Term Close And Access Policy
 
@@ -187,8 +195,8 @@ Recommended operating rule:
 
 ```python
 # Calculate remaining term percentage
-days_remaining = term_end_date - today
-days_total = term_end_date - term_start_date
+days_remaining = (term_end_date - today) + 1
+days_total = (term_end_date - term_start_date) + 1
 pro_ration_factor = days_remaining / days_total
 
 # Calculate overage students
@@ -205,8 +213,8 @@ pro_rated_charge = overage_students × per_student_rate × pro_ration_factor
 | **No active term** | No charge (admission allowed) |
 | **Free Tier school** | No charge (always free) |
 | **Students within included limit** | No charge (covered by base) |
-| **Last week of term** | Small charge (e.g., 7/120 = ~6%) |
-| **Term just started** | Near-full charge (e.g., 110/120 = ~92%) |
+| **Last week of term** | Small charge based on the actual term length (e.g., 7/101 = ~7%) |
+| **Term just started** | Near-full charge based on the actual term length |
 
 ---
 

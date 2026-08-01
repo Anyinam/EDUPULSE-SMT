@@ -74,24 +74,40 @@ export default function SubscriptionManager() {
   }, [sub, billingPeriod]);
 
   const calculateProration = () => {
-    if (!sub.next_billing_date) return;
-
     const now = new Date();
-    const nextBilling = new Date(sub.next_billing_date);
-    const daysRemaining = Math.floor((nextBilling - now) / (1000 * 60 * 60 * 24));
-    const daysInTerm = 120; // ~4 months
+    if (sub.next_billing_date) {
+      const nextBilling = new Date(sub.next_billing_date);
+      const daysRemaining = Math.floor((nextBilling - now) / (1000 * 60 * 60 * 24));
+      const daysInTerm = 120;
 
-    if (daysRemaining > 0 && daysRemaining < daysInTerm) {
-      const prorateRatio = daysRemaining / daysInTerm;
+      if (daysRemaining > 0 && daysRemaining < daysInTerm) {
+        const prorateRatio = daysRemaining / daysInTerm;
+        setProrateInfo({
+          daysRemaining,
+          daysInTerm,
+          prorateRatio: parseFloat(prorateRatio.toFixed(2)),
+          sourceLabel: 'current billing cycle',
+        });
+        return;
+      }
+    }
+
+    const termProration = sub.term_proration || {};
+    const daysRemaining = Number(termProration.days_remaining || 0);
+    const daysInTerm = Number(termProration.days_in_term || 0);
+    const prorateRatio = Number(termProration.proration_ratio || 0);
+
+    if (daysRemaining > 0 && daysInTerm > 0 && daysRemaining < daysInTerm && sub.plan === 'Free Tier') {
       setProrateInfo({
         daysRemaining,
         daysInTerm,
         prorateRatio: parseFloat(prorateRatio.toFixed(2)),
-        discount: parseFloat(((1 - prorateRatio) * 100).toFixed(0))
+        sourceLabel: 'remaining current-term days',
       });
-    } else {
-      setProrateInfo(null);
+      return;
     }
+
+    setProrateInfo(null);
   };
 
   const handleUpgrade = async (plan, cost) => {
@@ -135,7 +151,7 @@ export default function SubscriptionManager() {
     let proratedMsg = '';
     if (prorateInfo) {
       finalCost = cost * prorateInfo.prorateRatio;
-      proratedMsg = `\n\n💰 PRORATED OFFER:\n${prorateInfo.daysRemaining} days remaining in billing period\nYou save ${prorateInfo.discount}% (GH₵${(cost - finalCost).toFixed(2)})!`;
+      proratedMsg = `\n\n💰 PRORATED INITIAL CHARGE:\n${prorateInfo.daysRemaining} days remaining in ${prorateInfo.sourceLabel}\nInitial charge: GH₵ ${finalCost.toFixed(2)}`;
     }
 
     // Paid plans: Initialize Paystack payment
@@ -451,12 +467,12 @@ export default function SubscriptionManager() {
                     <div className="flex items-start gap-2">
                       <Tag className="text-amber-600 shrink-0 mt-0.5" size={16} />
                       <div className="text-sm">
-                        <p className="font-bold text-amber-900">🎁 Mid-Term Discount!</p>
+                        <p className="font-bold text-amber-900">Prorated Initial Charge</p>
                         <p className="text-amber-800 text-xs mt-1">
-                          {prorateInfo.daysRemaining} days remaining
+                          {prorateInfo.daysRemaining} days remaining in {prorateInfo.sourceLabel}
                         </p>
                         <p className="text-amber-900 font-bold text-xs mt-1">
-                          Save {prorateInfo.discount}% - Pay only GH₵ {(displayCost * prorateInfo.prorateRatio).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                          Initial charge: GH₵ {(displayCost * prorateInfo.prorateRatio).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                         </p>
                       </div>
                     </div>
@@ -508,7 +524,7 @@ export default function SubscriptionManager() {
                 <strong>Full Cost × (Days Remaining / 120)</strong>
               </p>
               <p className="text-xs">
-                Example: Upgrade on day 90? <strong>Pay only 25% of the full term cost</strong>
+                Example: Upgrade late in the term? <strong>Your first charge only covers the remaining current-term days</strong>
               </p>
             </div>
           </div>
@@ -519,7 +535,7 @@ export default function SubscriptionManager() {
               <p>• <strong>Active Students:</strong> {currentStudents}</p>
               <p>• <strong>Next Billing:</strong> {sub?.next_billing_date ? new Date(sub.next_billing_date).toLocaleDateString() : 'N/A'}</p>
               {prorateInfo && (
-                <p className="font-bold text-amber-600 mt-2">• <strong>🎁 Proration Available:</strong> {prorateInfo.daysRemaining} days remaining ({prorateInfo.discount}% discount)</p>
+                <p className="font-bold text-amber-600 mt-2">• <strong>Prorated initial charge:</strong> based on {prorateInfo.daysRemaining} remaining day(s) in the {prorateInfo.sourceLabel}</p>
               )}
             </div>
           </div>

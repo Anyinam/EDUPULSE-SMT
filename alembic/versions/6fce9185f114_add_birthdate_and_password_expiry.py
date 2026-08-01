@@ -26,7 +26,7 @@ def upgrade() -> None:
     
     # Add temporary password fields to users table
     with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('is_temp_password', sa.Boolean(), default=False, server_default='0'))
+        batch_op.add_column(sa.Column('is_temp_password', sa.Boolean(), default=False, server_default=sa.false()))
         batch_op.add_column(sa.Column('temp_password_expires_at', sa.DateTime(), nullable=True))
 
 

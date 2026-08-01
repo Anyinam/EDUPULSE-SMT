@@ -2,6 +2,8 @@
 
 > Historical strategy document: where example figures or funnel copy differ from current runtime pricing, the source of truth is `backend/subscription_features.py`, `PRICING_TABLE.txt`, and the active finance/product documentation.
 
+> Current runtime note: paid plans are term-based, Premium trial access is a fixed 30-day window, trial conversion uses remaining-term proration without a separate trial discount, and higher paid entitlements are granted only after Paystack checkout succeeds.
+
 ## Subscription Plan Overview
 
 ### Tier Hierarchy

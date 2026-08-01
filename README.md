@@ -26,16 +26,27 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 ### Subscription, Metering & Monetization (Metronome-Aligned)
 - Active-student metering with manual sync endpoint
 - Billing visibility endpoint with cost breakdown and threshold alerts (`80% warning`, `100% critical`)
-- Premium trial entitlement lifecycle (status, activate, end, expiry checks)
+- Premium trial entitlement lifecycle now uses a fixed 30-day activation window with no trial-only discounting
+- Billing responses now distinguish `base_plan` from the current trial-driven `effective_plan`
+- Post-trial conversions prorate only by remaining term days under the normal paid-plan price model
+- Paid plan upgrades must complete through Paystack before entitlements are granted; direct plan changes are limited to non-paid transitions such as downgrades
 - Pricing grandfathering/version lock endpoint
 - Price-cap management endpoint for predictable billing control
 - Usage-report email trigger endpoint and backend email service utilities
+- National basic-school calendar fallback when a school's active term is missing or does not cover today
 
 ### Frontend Billing Experience
 - Billing visibility widget (meter + alerts + cost transparency)
 - Trial management widget (activate/end, countdown, state-aware messaging)
 - Billing control panel (price cap toggle, cap amount, budget feedback)
 - Email usage report trigger button from billing UI
+- Public and in-app pricing surfaces now route paid upgrades through Paystack checkout and keep downgrade flows direct
+
+### Student Profiles, Admissions & Demo Data
+- Parent admissions now support passport-photo upload and keep uploaded source documents in school-scoped storage
+- Approved admissions can copy the passport photo into `Student.profile_picture`
+- Student profiles now expose a document vault with upload and download support for direct learner documents plus linked admission records
+- The demo seed now rebuilds the schema from Alembic migrations and repopulates a richer CCA Ofankor environment with profile photos, documents, linked admissions records, billing data, and multi-term report history
 
 ## 🧠 AI & Governance Features
 - AI-assisted academic insight surfaces
@@ -117,11 +128,16 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - `POST /api/public/schools/<school_id>/admissions/status/<status_token>/resubmit`
 - `GET /api/admissions/applications`
 - `POST /api/admissions/applications/<application_id>/review`
+- `GET /api/admissions/applications/<application_id>/documents/<document_id>/download`
+- `GET /api/students/<student_id>/documents`
+- `POST /api/students/<student_id>/documents`
+- `GET /api/students/<student_id>/documents/<document_id>/download`
 - `GET /api/school/subscription/billing-visibility`
 - `POST /api/school/subscription/meter/sync`
 - `GET /api/school/subscription/trial/status`
 - `POST /api/school/subscription/trial/activate`
 - `POST /api/school/subscription/trial/end`
+- `POST /api/school/terms/import-national-calendar`
 - `POST /api/school/subscription/lock-pricing`
 - `GET /api/school/subscription/price-cap`
 - `POST /api/school/subscription/price-cap`

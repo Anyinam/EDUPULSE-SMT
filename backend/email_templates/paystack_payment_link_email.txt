@@ -46,7 +46,7 @@ We accept payment through Paystack, which supports:
 
 **NEED HELP?**
 If you have any questions about the upgrade:
-📧 Email: support@edupulse.local
+📧 Email: support@edupulse.com
 📱 Contact support through your dashboard
 
 **SECURITY NOTICE**

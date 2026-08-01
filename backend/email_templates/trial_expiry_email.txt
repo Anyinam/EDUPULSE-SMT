@@ -1,8 +1,8 @@
-Subject: Your EduPulse Premium Trial For This Term Has Ended - Upgrade Now to Keep Full Access
+Subject: Your EduPulse Premium Trial Has Ended - Upgrade to Restore Full Access
 
 Dear {{school_name}},
 
-Your **current-term Premium Trial** with EduPulse has ended.
+Your **30-day Premium Trial** with EduPulse has ended.
 
 ---
 
@@ -50,20 +50,15 @@ We offer two paid plans:
 
 **PAYMENT & BILLING**
 ✓ Secure payment via Paystack
-✓ Monthly or annual billing options
-✓ Cancel anytime
-✓ No long-term contracts
-
----
-
-**SPECIAL OFFER**
-If you upgrade within 7 days, we'll give you a **10% loyalty discount** on your first month.
+✓ Term-based pricing aligned to the school calendar
+✓ First paid charge after trial is prorated to the remaining current-term days
+✓ Future renewals follow the normal term billing cycle
 
 ---
 
 **QUESTIONS?**
 If you need help choosing a plan or have questions about features:
-📧 Email: support@edupulse.local
+📧 Email: support@edupulse.com
 📱 Contact support through the dashboard
 
 We'd love to have you back on Premium!

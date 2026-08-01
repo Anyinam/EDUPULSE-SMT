@@ -22,15 +22,7 @@ Getting Started (5 Simple Steps):
 
 Your Current Subscription: {{subscription_plan}}
 
-Your plan includes access to:
-✅ Student & Staff Management
-✅ Grade Recording & Reports
-✅ Payment Tracking
-✅ Attendance Records
-✅ Lesson Note Submissions
-✅ Timetable Management
-✅ Inventory Management
-✅ Financial Reports
+Feature access depends on your active subscription plan. You can review, upgrade, or change your plan anytime from Subscription & Billing in the dashboard.
 
 Next Steps:
 
@@ -63,7 +55,6 @@ Need Help?
 
 We're here to support you! 
 • Email: support@edupulse.com
-• Phone: +233-XXX-XXX-XXXX
 • Support Tickets: Open "Help & Support" in your dashboard
 
 Thank you for choosing EduPulse. We're excited to help {{school_name}} succeed!

@@ -9,6 +9,7 @@ This job runs periodically to:
 import logging
 from datetime import datetime, timezone
 from backend.api.models import School, db
+from backend.subscription_state import get_trial_days_remaining, normalize_utc_datetime
 from backend.email_templates import get_trial_expiry_email, get_trial_reminder_email
 from backend.utils import send_email_notification
 import os
@@ -60,9 +61,9 @@ def process_expired_trials():
                         except Exception as e:
                             logger.error(f"Failed to send trial expiry email for school {school.id}: {str(e)}")
                 
-                # Clear trial data
+                # End the trial but retain the end timestamp for audit/history and one-time-use enforcement.
                 school.trial_plan = None
-                school.trial_end_date = None
+                school.is_trial_active = False
                 db.session.commit()
                 
                 logger.info(f"Trial expired for school {school.id} ({school.name}). Downgraded to Free Tier.")
@@ -121,12 +122,13 @@ def send_trial_reminder_email(days_before_expiry=3):
                 proprietor = school.users.filter_by(role='proprietor').first()
                 if proprietor and proprietor.email:
                     login_url = os.getenv("FRONTEND_URL", "http://localhost:5173/login")
-                    days_remaining = (school.trial_end_date - now).days
+                    trial_end_date = normalize_utc_datetime(school.trial_end_date)
+                    days_remaining = get_trial_days_remaining(trial_end_date, now=now)
                     
                     trial_subject, trial_body = get_trial_reminder_email(
                         school_name=school.name,
                         login_url=login_url,
-                        trial_end_date=school.trial_end_date,
+                        trial_end_date=trial_end_date,
                         days_remaining=days_remaining
                     )
                     

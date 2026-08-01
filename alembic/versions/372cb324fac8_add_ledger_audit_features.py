@@ -38,7 +38,7 @@ def upgrade() -> None:
             sa.Column("metadata", sa.JSON(), nullable=True),
             sa.Column("previous_hash", sa.String(length=64), nullable=True),
             sa.Column("hash", sa.String(length=64), nullable=False),
-            sa.Column("is_verified", sa.Boolean(), nullable=True, server_default=sa.text("1")),
+            sa.Column("is_verified", sa.Boolean(), nullable=True, server_default=sa.true()),
             sa.Column("created_at", sa.DateTime(), nullable=True),
             sa.ForeignKeyConstraint(["school_id"], ["schools.id"]),
             sa.ForeignKeyConstraint(["actor_id"], ["users.id"]),

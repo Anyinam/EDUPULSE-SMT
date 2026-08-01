@@ -31,6 +31,7 @@ export default function ParentAdmissionStatus() {
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitMessage, setResubmitMessage] = useState('');
   const [resubmitFiles, setResubmitFiles] = useState([]);
+  const [resubmitPassportPhoto, setResubmitPassportPhoto] = useState(null);
   const [resubmitForm, setResubmitForm] = useState({
     guardian_name: '',
     parent_email: '',
@@ -87,6 +88,9 @@ export default function ParentAdmissionStatus() {
     try {
       const formPayload = new FormData();
       Object.entries(resubmitForm).forEach(([key, value]) => formPayload.append(key, value));
+      if (resubmitPassportPhoto) {
+        formPayload.append('passport_photo', resubmitPassportPhoto);
+      }
       Array.from(resubmitFiles).forEach((file) => formPayload.append('documents', file));
       const response = await axios.post(
         `/api/public/schools/${schoolId}/admissions/status/${payload.status_path?.split('/').at(-1) || tokenInput}/resubmit`,
@@ -95,6 +99,7 @@ export default function ParentAdmissionStatus() {
       );
       setPayload((current) => ({ ...current, ...response.data.application }));
       setResubmitFiles([]);
+      setResubmitPassportPhoto(null);
       setResubmitForm((current) => ({ ...current, parent_notes: '' }));
       setResubmitMessage('Correction update submitted successfully.');
     } catch (requestError) {
@@ -262,6 +267,11 @@ export default function ParentAdmissionStatus() {
                   </select>
                   <div className="md:col-span-2">
                     <textarea name="parent_notes" value={resubmitForm.parent_notes} onChange={handleResubmitChange} rows={4} placeholder="What have you added or corrected?" className="w-full rounded-2xl border border-rose-200 bg-white px-4 py-3" />
+                  </div>
+                  <div className="md:col-span-2 rounded-2xl border border-dashed border-rose-200 bg-white p-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-rose-700">Updated Passport Photo</p>
+                    <input type="file" accept="image/*" onChange={(event) => setResubmitPassportPhoto(event.target.files?.[0] || null)} className="mt-3 w-full text-sm file:mr-4 file:rounded-full file:border-0 file:bg-rose-600 file:px-4 file:py-2 file:font-bold file:text-white" />
+                    {resubmitPassportPhoto ? <p className="mt-2 text-xs font-semibold text-rose-800">Selected photo: {resubmitPassportPhoto.name}</p> : null}
                   </div>
                   <div className="md:col-span-2 rounded-2xl border border-dashed border-rose-200 bg-white p-4">
                     <input type="file" multiple onChange={(event) => setResubmitFiles(event.target.files || [])} className="w-full text-sm file:mr-4 file:rounded-full file:border-0 file:bg-rose-600 file:px-4 file:py-2 file:font-bold file:text-white" />

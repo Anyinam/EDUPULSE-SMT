@@ -120,6 +120,8 @@ Your school helps implementation succeed by:
 
 - `Free` plan schools can begin using the platform after setup is complete.
 - `Basic` and `Premium` plan schools are activated after payment confirmation.
+- Premium trial activation, where offered, is currently a fixed 30-day window.
+- Trial conversion does not use a separate discount table; if the school subscribes during an active term, the first paid charge is prorated by the remaining term days under the standard plan pricing.
 - If your school downgrades later, already-paid access remains active until the end of the paid billing period.
 - Billing decisions follow the agreed plan rules and active student counts.
 

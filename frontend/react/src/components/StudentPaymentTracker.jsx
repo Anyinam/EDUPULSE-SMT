@@ -719,10 +719,6 @@ export default function StudentPaymentTracker() {
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-slate-800">💳 Student Payment Tracker</h2>
       </div>
-
-      <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        WhatsApp payment reminders are disabled for now to keep operating costs lean. Use the payment instructions panel, print, or copy actions to share payment details with parents.
-      </div>
       
       {/* Search & Filter */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">

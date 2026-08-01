@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
+const fallbackAcademicYear = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1;
+  return month >= 8 ? `${year}/${year + 1}` : `${year - 1}/${year}`;
+};
+
 const DEFAULT_FORM = {
   name: 'Term 1',
-  academic_year: `${new Date().getFullYear()}/${new Date().getFullYear() + 1}`,
+  academic_year: fallbackAcademicYear(),
   start_date: '',
   end_date: '',
   reopening_date: '',
@@ -14,7 +21,12 @@ export default function TermManagementPanel() {
   const [terms, setTerms] = useState([]);
   const [form, setForm] = useState(DEFAULT_FORM);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const schoolId = localStorage.getItem('school_id') || 'unknown-school';
+
+  const getPromptStorageKey = (academicYear) => `term_calendar_prompted:${schoolId}:${academicYear}`;
 
   const getAuthHeaders = () => ({
     headers: {
@@ -25,16 +37,44 @@ export default function TermManagementPanel() {
 
   const fetchTerms = async () => {
     try {
+      setLoading(true);
       const res = await axios.get('/api/school/terms', getAuthHeaders());
       setTerms(res.data.terms || []);
+      if (res.data?.suggested_academic_year) {
+        setForm((current) => ({ ...current, academic_year: res.data.suggested_academic_year }));
+      }
     } catch (err) {
       setMessage('Failed to load academic terms');
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchTerms();
   }, []);
+
+  useEffect(() => {
+    if (loading || terms.length > 0 || importing || !form.academic_year) {
+      return;
+    }
+
+    const promptStorageKey = getPromptStorageKey(form.academic_year);
+    if (localStorage.getItem(promptStorageKey)) {
+      return;
+    }
+
+    localStorage.setItem(promptStorageKey, 'true');
+    const shouldImport = window.confirm(
+      'No academic terms are configured for this school yet.\n\nImport the published GES academic calendar now?\n\nYou can edit the dates afterward if your school uses a different schedule.'
+    );
+
+    if (shouldImport) {
+      handleImportGesCalendar();
+    } else {
+      setMessage('No term calendar imported yet. You can import the published GES academic calendar below or enter dates manually.');
+    }
+  }, [form.academic_year, importing, loading, terms.length]);
 
   const handleCreateTerm = async (e) => {
     e.preventDefault();
@@ -89,12 +129,46 @@ export default function TermManagementPanel() {
     }
   };
 
+  const handleImportGesCalendar = async () => {
+    try {
+      setImporting(true);
+      setMessage('');
+      const res = await axios.post(
+        '/api/school/terms/import-national-calendar',
+        form.academic_year ? { academic_year: form.academic_year } : {},
+        getAuthHeaders()
+      );
+      const { created_count: createdCount, skipped_count: skippedCount } = res.data || {};
+      setMessage(
+        `${res.data?.message || 'Published GES calendar imported.'}${
+          skippedCount ? ` ${skippedCount} term(s) were already present.` : ''
+        }`
+      );
+      if (createdCount) {
+        fetchTerms();
+      }
+    } catch (err) {
+      setMessage(err.response?.data?.message || 'Failed to import published GES calendar');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="mt-10 border-t pt-8">
       <h3 className="text-xl font-bold text-slate-800 mb-4">🗓️ Academic Term Management</h3>
       <p className="text-sm text-slate-600 mb-4">
         Proprietor/Headmaster sets term calendar. Vacation Day maps to term end date; Reopening Date is stored and shown on terminal reports.
       </p>
+      <p className="text-sm text-slate-600 mb-4">
+        Schools can enter dates manually or import the published GES academic calendar, then edit any school-specific changes.
+      </p>
+
+      {!loading && terms.length === 0 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          No academic terms are set up yet. Import the published GES academic calendar or enter your school's dates manually before billing and term rollover depend on them.
+        </div>
+      )}
 
       {message && (
         <div className="mb-4 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-line">
@@ -168,13 +242,23 @@ export default function TermManagementPanel() {
         </div>
 
         <div className="md:col-span-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save Term Calendar'}
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="submit"
+              disabled={saving || importing}
+              className="px-5 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Term Calendar'}
+            </button>
+            <button
+              type="button"
+              onClick={handleImportGesCalendar}
+              disabled={saving || importing}
+              className="px-5 py-2 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-900 disabled:opacity-50"
+            >
+              {importing ? 'Importing...' : 'Import GES Academic Calendar'}
+            </button>
+          </div>
         </div>
       </form>
 

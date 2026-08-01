@@ -9,6 +9,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from backend.api.models import School, Student, add_ledger_entry, db
 from backend.email_templates import get_payment_confirmation_email
+from backend.subscription_metering import _normalize_dt
 from backend.utils import send_email_notification
 
 logger = logging.getLogger(__name__)
@@ -246,6 +247,7 @@ def process_payment_confirmation(school_id, plan_name, amount_paid_cedis, refere
         default_student_count = Student.query.filter_by(school_id=school.id).count()
         student_count = int(meta.get('student_count', default_student_count))
         terms = int(meta.get('terms', 1))
+        proration_data = meta.get('proration_data') if isinstance(meta.get('proration_data'), dict) else {}
         
         # Update school subscription
         old_plan = school.subscription_plan
@@ -256,11 +258,19 @@ def process_payment_confirmation(school_id, plan_name, amount_paid_cedis, refere
         # Termly billing: approximately 4 months per term (3 terms per year)
         days_per_term = 120  # ~4 months
         days_to_add = days_per_term * terms
-        school.next_billing_date = datetime.now(timezone.utc) + timedelta(days=days_to_add)
+        next_billing_override = _normalize_dt(
+            datetime.fromisoformat(proration_data.get('next_billing_date_override'))
+        ) if proration_data.get('next_billing_date_override') else None
+
+        if next_billing_override:
+            school.next_billing_date = next_billing_override
+        else:
+            school.next_billing_date = datetime.now(timezone.utc) + timedelta(days=days_to_add)
         
         # Clear trial if it exists
         school.trial_plan = None
         school.trial_end_date = None
+        school.is_trial_active = False
         
         # Record subscription payment in ledger
         tx_ref = reference or f"SUB-{school_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
@@ -277,7 +287,8 @@ def process_payment_confirmation(school_id, plan_name, amount_paid_cedis, refere
                 "previous_plan": old_plan,
                 "billing_cycle": f"{terms} Term(s)" if billing_period == 'term' else f"Annual ({terms} Terms)",
                 "student_count": student_count,
-                "billing_period": billing_period
+                "billing_period": billing_period,
+                "proration_data": proration_data,
             },
         )
 

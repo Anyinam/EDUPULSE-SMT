@@ -41,3 +41,10 @@ Legal and privacy documents remain under `compliance/` and lawyer-facing operati
 - `finance/PAYMENT_INTEGRATION.md`
 - `academics/REPORT_BUILDER_GUIDE.md`
 - `testing/TESTING_INDEX.md`
+
+## Recent August 2026 Updates
+
+- Billing and subscription changes are now summarized in `finance/SUBSCRIPTION_BILLING_GUIDE.md`, including the fixed 30-day Premium trial, post-trial term proration, Paystack-only paid upgrades, and migration-backed local reset flows.
+- Admissions and student-profile document updates now live in `academics/PARENT_ADMISSIONS_WORKFLOW.md`, including passport-photo upload, student document vault behavior, and admissions-to-profile document linkage.
+- Local setup, seed, and migration rebuild behavior now live in `platform/SETUP.md` and `platform/IMPLEMENTATION_SUMMARY.md`.
+- Current automated validation status now lives in `testing/TESTING_INDEX.md` and `testing/FINAL_TEST_SUMMARY.md`.

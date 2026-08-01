@@ -1,16 +1,16 @@
-Subject: Welcome to EduPulse SMT Premium Trial - Free Access For This Term
+Subject: Welcome to EduPulse SMT Premium Trial - 30 Days of Full Access
 
 Dear {{school_name}},
 
 Welcome to EduPulse SMT! 🎉
 
-We're excited to have you on board. Your school has been set up with a **Premium Trial for the current academic term** at no cost, starting today.
+We're excited to have you on board. Your school has been set up with a **30-day Premium Trial** at no cost, starting today.
 
 ---
 
 **TRIAL DETAILS**
 ✅ Plan: Premium (Full Features)
-📅 Duration: Current academic term
+📅 Duration: 30 days from activation
 ⏰ Expires: {{trial_end_date}}
 💰 Cost: FREE
 
@@ -29,11 +29,13 @@ We're excited to have you on board. Your school has been set up with a **Premium
 4. Explore all Premium features
 
 **BEFORE YOUR TRIAL ENDS**
-When your current-term trial ends on {{trial_end_date}}, your school will automatically transition to our **Free Tier** plan (50 students, basic features) unless you subscribe to a paid plan.
+When your 30-day trial ends on {{trial_end_date}}, your school will automatically transition to our **Free Tier** plan (50 students, basic features) unless you subscribe to a paid plan.
 
 To continue enjoying Premium features after your trial:
 - Upgrade to Basic Plan (starts at ₵360/term, up to 200 students)
 - Upgrade to Premium Plan (starts at ₵750/term, unlimited students with AI narratives)
+
+If you subscribe after the trial ends, your first paid charge is prorated to the remaining days in the current school term.
 
 ---
 
@@ -42,7 +44,7 @@ We accept payment through secure Paystack integration. You can upgrade your plan
 
 **NEED HELP?**
 If you have any questions or need assistance:
-📧 Email: support@edupulse.local
+📧 Email: support@edupulse.com
 📱 Contact our support team through the dashboard
 
 Thank you for choosing EduPulse!

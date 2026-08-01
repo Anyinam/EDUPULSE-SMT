@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Info, Loader } from 'lucide-react';
 import axios from 'axios';
 
+const PLAN_ORDER = {
+  'Free Tier': 0,
+  Basic: 1,
+  Premium: 2,
+};
+
 const SubscriptionPlans = () => {
   const [billingPeriod, setBillingPeriod] = useState('term'); // 'term' or 'annual'
   const [studentCount, setStudentCount] = useState(100);
@@ -102,21 +108,45 @@ const SubscriptionPlans = () => {
     try {
       const token = localStorage.getItem('token');
       const schoolId = localStorage.getItem('school_id');
-      const response = await axios.post(
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'X-School-ID': schoolId,
+      };
+
+      const basePlan = currentSubscription?.base_plan || currentSubscription?.plan || 'Free Tier';
+      const currentRank = PLAN_ORDER[basePlan] ?? 0;
+      const targetRank = PLAN_ORDER[planName] ?? 0;
+
+      if (targetRank > currentRank) {
+        const response = await axios.post(
+          '/api/paystack/initialize',
+          {
+            plan_name: planName,
+            billing_period: billingPeriod,
+            student_count: studentCount,
+          },
+          { headers }
+        );
+
+        const authorizationUrl = response.data?.data?.authorization_url;
+        if (!authorizationUrl) {
+          throw new Error('Missing authorization URL for billing checkout.');
+        }
+
+        window.location.href = authorizationUrl;
+        return;
+      }
+
+      await axios.post(
         '/api/school/subscription/upgrade',
         { plan: planName },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'X-School-ID': schoolId
-          }
-        }
+        { headers }
       );
-      alert(`Successfully upgraded to ${planName}!`);
+      alert(`Plan changed to ${planName} successfully.`);
       window.location.reload();
     } catch (error) {
       console.error('Subscription error:', error);
-      alert('Failed to process subscription. Please try again or contact support.');
+      alert(error.response?.data?.message || 'Failed to process subscription. Please try again or contact support.');
     }
   };
 

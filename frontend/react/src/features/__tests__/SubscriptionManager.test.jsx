@@ -40,4 +40,35 @@ describe('SubscriptionManager', () => {
 
     expect(screen.getByText(/current paid plan remains active until the next billing date/i)).toBeInTheDocument();
   });
+
+  it('shows prorated post-trial billing guidance for free-tier conversions', async () => {
+    axios.get
+      .mockResolvedValueOnce({
+        data: {
+          plan: 'Free Tier',
+          subscription_plan: 'Free Tier',
+          status: 'Active',
+          current_enrollment: 54,
+          term_cost: 0,
+          term_proration: {
+            days_remaining: 18,
+            days_in_term: 120,
+            proration_ratio: 0.15,
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          plans: [],
+        },
+      });
+
+    render(<SubscriptionManager />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/prorated initial charge:/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/18 remaining day\(s\) in the remaining current-term days/i)).toBeInTheDocument();
+  });
 });

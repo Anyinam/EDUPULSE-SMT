@@ -3,9 +3,10 @@ Email Service for EduPulse
 Handles usage reports, billing alerts, and trial notifications
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from backend.api.models import db, School, Student, Payment, User
+from backend.subscription_state import get_trial_days_remaining, normalize_utc_datetime
 from backend.subscription_features import PRICING
 import os
 from email.mime.text import MIMEText
@@ -30,7 +31,7 @@ def get_school_usage_stats(school_id, month=None, year=None):
         return None
     
     # Default to current month/year
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     month = month or now.month
     year = year or now.year
     
@@ -41,8 +42,13 @@ def get_school_usage_stats(school_id, month=None, year=None):
     else:
         month_end = datetime(year, month + 1, 1)
     
-    # Import models locally to avoid circular imports
-    from backend.api.models import FeedingLog, ReportCard
+    # Import optional models locally to avoid circular imports and tolerate
+    # deployments that have not enabled every product module.
+    try:
+        from backend.api.models import FeedingLog, ReportCard
+    except ImportError:
+        FeedingLog = None
+        ReportCard = None
     
     # Query statistics
     
@@ -50,23 +56,25 @@ def get_school_usage_stats(school_id, month=None, year=None):
     total_fees = db.session.query(func.sum(Payment.amount)).filter(
         Payment.school_id == school_id,
         Payment.status == 'Confirmed',
-        Payment.payment_date >= month_start,
-        Payment.payment_date < month_end
+        Payment.date_paid >= month_start,
+        Payment.date_paid < month_end
     ).scalar() or 0.0
     
     # 2. Transaction count
     transaction_count = Payment.query.filter(
         Payment.school_id == school_id,
-        Payment.payment_date >= month_start,
-        Payment.payment_date < month_end
+        Payment.date_paid >= month_start,
+        Payment.date_paid < month_end
     ).count()
     
     # 3. Report cards generated
-    report_cards_generated = ReportCard.query.filter(
-        ReportCard.school_id == school_id,
-        ReportCard.generated_at >= month_start,
-        ReportCard.generated_at < month_end
-    ).count()
+    report_cards_generated = 0
+    if ReportCard is not None:
+        report_cards_generated = ReportCard.query.filter(
+            ReportCard.school_id == school_id,
+            ReportCard.generated_at >= month_start,
+            ReportCard.generated_at < month_end
+        ).count()
     
     # 4. Active students
     active_student_count = Student.query.filter(
@@ -75,18 +83,22 @@ def get_school_usage_stats(school_id, month=None, year=None):
     ).count()
     
     # 5. Feeding logs
-    feeding_logs_count = FeedingLog.query.filter(
-        FeedingLog.school_id == school_id,
-        FeedingLog.log_date >= month_start,
-        FeedingLog.log_date < month_end
-    ).count()
+    feeding_logs_count = 0
+    if FeedingLog is not None:
+        feeding_logs_count = FeedingLog.query.filter(
+            FeedingLog.school_id == school_id,
+            FeedingLog.log_date >= month_start,
+            FeedingLog.log_date < month_end
+        ).count()
     
     # Get plan pricing
     plan = school.subscription_plan or 'Free Tier'
     pricing = PRICING.get(plan, PRICING['Free Tier'])
     
     # Calculate billing metrics
-    included_students = pricing['included_students']
+    included_students = int(
+        pricing.get('included_students', pricing.get('max_free_students', 0)) or 0
+    )
     current_count = school.current_student_count or active_student_count
     usage_percent = (current_count / included_students * 100) if included_students > 0 else 0
     
@@ -106,23 +118,16 @@ def get_school_usage_stats(school_id, month=None, year=None):
     
     # Calculate overage
     overage_count = max(0, current_count - included_students)
-    overage_rate = pricing['overage_rate']
+    overage_rate = float(pricing.get('per_student_per_term', 0) or 0)
     overage_cost = overage_count * overage_rate
-    base_fee = pricing['base_fee']
+    base_fee = float(pricing.get('base_fee_per_term', 0) or 0)
     total_term_cost = base_fee + overage_cost
     
-    # Forecast next month (simple linear projection)
-    # Get student count from 1 month ago
-    prev_month_start = month_start - timedelta(days=30)
-    prev_student_count = Student.query.filter(
-        Student.school_id == school_id,
-        Student.status == 'Active',
-        Student.created_at < month_start
-    ).count()
-    
-    growth_count = current_count - prev_student_count
-    growth_trend = f"+{growth_count} from last month" if growth_count > 0 else f"{growth_count} from last month"
-    projected_students = current_count + growth_count
+    # Forecast next month using current active enrollment. Historical student
+    # creation timestamps are not consistently available in this schema.
+    growth_count = 0
+    growth_trend = "Stable this month"
+    projected_students = current_count
     projected_overage = max(0, projected_students - included_students)
     projected_cost = base_fee + (projected_overage * overage_rate)
     projected_percent = (projected_students / included_students * 100) if included_students > 0 else 0
@@ -135,20 +140,22 @@ def get_school_usage_stats(school_id, month=None, year=None):
     trial_end_date_str = ""
     
     if has_active_trial and school.trial_end_date:
-        trial_days_remaining = max(0, (school.trial_end_date - now).days)
+        trial_days_remaining = get_trial_days_remaining(school.trial_end_date, now=now)
         trial_expiring_soon = trial_days_remaining <= 3
-        trial_end_date_str = school.trial_end_date.strftime('%B %d, %Y')
+        normalized_trial_end = normalize_utc_datetime(school.trial_end_date)
+        trial_end_date_str = normalized_trial_end.strftime('%B %d, %Y') if normalized_trial_end else ""
     
     # Get proprietor info
     proprietor = User.query.filter_by(
         school_id=school_id,
         role='proprietor'
     ).first()
+    proprietor_name = proprietor.username if proprietor else 'Proprietor'
     
     return {
         # School info
         'school_name': school.name,
-        'proprietor_name': proprietor.full_name if proprietor else 'Proprietor',
+        'proprietor_name': proprietor_name,
         'proprietor_email': proprietor.email if proprietor else None,
         'report_month': datetime(year, month, 1).strftime('%B'),
         'report_year': year,
@@ -607,7 +614,7 @@ def check_and_send_trial_reminders():
     Check for expiring trials and send reminders.
     Should be called daily.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     reminder_count = 0
     
     # Find schools with active trials
@@ -617,7 +624,7 @@ def check_and_send_trial_reminders():
     ).all()
     
     for school in active_trials:
-        days_remaining = (school.trial_end_date - now).days
+        days_remaining = get_trial_days_remaining(school.trial_end_date, now=now)
         
         # Send reminders at 7 days, 3 days, and 1 day before expiry
         if days_remaining in [7, 3, 1]:

@@ -23,7 +23,7 @@ export default function TrialManager() {
   };
 
   const handleActivateTrial = async () => {
-    if (!window.confirm('Activate Premium trial for the current term window?\n\nYou will gain access to:\n• Unlimited students & classes\n• AI-powered features\n• Custom templates\n• Priority support\n\nThis is a one-time offer and runs until the end of the current school term or EduPulse national basic-school term window.')) {
+    if (!window.confirm('Activate a 30-day Premium trial?\n\nYou will gain access to:\n• Unlimited students & classes\n• AI-powered features\n• Custom templates\n• Priority support\n\nThis is a one-time offer and lasts 30 days from activation.')) {
       return;
     }
 
@@ -124,7 +124,7 @@ export default function TrialManager() {
             
             <div className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Current term access ends:</span>
+                <span className="text-slate-600">Trial access ends:</span>
                 <span className="font-semibold text-slate-800">
                   {new Date(trialStatus.end_date).toLocaleDateString('en-GB', { 
                     day: 'numeric', month: 'short', year: 'numeric' 
@@ -133,7 +133,7 @@ export default function TrialManager() {
               </div>
               {(trialStatus.term_name || trialStatus.academic_year) && (
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-600">Term window:</span>
+                  <span className="text-slate-600">Proration term:</span>
                   <span className="font-semibold text-slate-800">
                     {[trialStatus.term_name, trialStatus.academic_year].filter(Boolean).join(' • ')}
                   </span>
@@ -163,7 +163,7 @@ export default function TrialManager() {
                     <p className="font-bold text-amber-900">⏰ Trial Expiring Soon!</p>
                     <p className="text-amber-800 mt-1">
                       Your trial ends in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}. 
-                      Upgrade now to keep Premium features.
+                      Upgrade now to keep Premium features. Your first paid charge after trial is based on the remaining days in the current term.
                     </p>
                   </div>
                 </div>
@@ -235,10 +235,10 @@ export default function TrialManager() {
               <div>
                 <p className="font-bold text-purple-900 mb-2">🎁 Activate Your Free Premium Trial!</p>
                 <p className="text-sm text-slate-700 mb-3">
-                  Experience all Premium features at no cost. No credit card required.
+                  Experience all Premium features for 30 days at no cost. No credit card is required to start the trial.
                 </p>
                 <p className="text-xs text-slate-500 mb-3">
-                  The trial now follows the current term window. If the school's active term is outdated, EduPulse falls back to the national basic-school term calendar.
+                  After the trial ends, your first paid subscription charge is prorated to the remaining days in the current school term.
                 </p>
                 <ul className="space-y-1.5 text-sm text-slate-600 mb-3">
                   <li className="flex items-center gap-2">
@@ -259,7 +259,7 @@ export default function TrialManager() {
                   </li>
                 </ul>
                 <p className="text-xs text-purple-700 font-semibold">
-                  ⏰ This is a one-time offer. Trial lasts until the end of the active academic term.
+                  ⏰ This is a one-time offer. Trial lasts 30 days from activation.
                 </p>
               </div>
             </div>
@@ -278,7 +278,7 @@ export default function TrialManager() {
             ) : (
               <>
                 <Zap className="inline-block mr-2" size={18} />
-                Activate Premium Trial For This Term
+                Activate 30-Day Premium Trial
               </>
             )}
           </button>

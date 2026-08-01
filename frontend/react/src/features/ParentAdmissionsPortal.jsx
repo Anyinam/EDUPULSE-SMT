@@ -71,6 +71,7 @@ export default function ParentAdmissionsPortal() {
     parent_notes: ''
   });
   const [documents, setDocuments] = useState([]);
+  const [passportPhoto, setPassportPhoto] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -115,6 +116,11 @@ export default function ParentAdmissionsPortal() {
     setDocuments((current) => current.filter((file) => getDocumentKey(file) !== fileKey));
   };
 
+  const handlePassportPhotoChange = (event) => {
+    setPassportPhoto(event.target.files?.[0] || null);
+    event.target.value = '';
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setSubmitting(true);
@@ -127,6 +133,9 @@ export default function ParentAdmissionsPortal() {
     try {
       const payload = new FormData();
       Object.entries(formData).forEach(([key, value]) => payload.append(key, value));
+      if (passportPhoto) {
+        payload.append('passport_photo', passportPhoto);
+      }
       Array.from(documents).forEach((file) => payload.append('documents', file));
       payload.append('consent_confirmed', 'true');
       payload.append('consent_version', PARENT_ADMISSION_CONSENT_VERSION);
@@ -316,6 +325,9 @@ export default function ParentAdmissionsPortal() {
                   <p className="mt-3 text-sm leading-6 text-slate-600">
                     Clear photos or PDFs are acceptable for report cards, birth certificates, and identity documents. Previous reports may be scanned for academic details automatically.
                   </p>
+                  <p className="mt-3 text-sm font-semibold text-slate-800">
+                    A learner passport photo can also be uploaded below and carried into the student profile after approval.
+                  </p>
                 </div>
               </div>
 
@@ -403,6 +415,28 @@ export default function ParentAdmissionsPortal() {
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Documents and Notes</p>
                   <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <FieldLabel helper="Upload one clear passport-style photo for the learner profile.">Passport Photo</FieldLabel>
+                <div className="mt-2 rounded-3xl border border-dashed border-slate-300 bg-white p-5">
+                  <input type="file" accept="image/*" onChange={handlePassportPhotoChange} className="w-full text-sm text-slate-700 file:mr-4 file:rounded-full file:border-0 file:bg-cyan-600 file:px-4 file:py-2 file:text-sm file:font-bold file:text-white hover:file:bg-cyan-700" />
+                  <p className="mt-3 text-xs text-slate-500">This photo is kept with the application and can become the student's profile picture after admission approval.</p>
+                  {passportPhoto ? (
+                    <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{passportPhoto.name}</p>
+                        <p className="text-xs text-slate-500">{Math.max(1, Math.round(passportPhoto.size / 1024))} KB</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPassportPhoto(null)}
+                        className="rounded-full border border-slate-300 px-3 py-1 text-xs font-bold text-slate-600 transition hover:bg-white"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
               <div className="md:col-span-2">
                 <FieldLabel helper="Birth certificate, previous report, or guardian ID if available.">Supporting Documents</FieldLabel>
                 <div className="mt-2 rounded-3xl border border-dashed border-slate-300 bg-white p-5">

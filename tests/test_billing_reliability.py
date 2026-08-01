@@ -146,6 +146,382 @@ def test_card_management_flow(client, db, test_school, proprietor_headers):
     assert unsubscribed.get_json()["enabled"] is False
 
 
+def test_paystack_initialize_prorates_post_trial_free_tier_conversion(
+    client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch
+):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm, Student
+
+    today = date.today()
+    term = AcademicTerm(
+        school_id=test_school.id,
+        name="Term 3",
+        academic_year="2025/2026",
+        start_date=today - timedelta(days=44),
+        end_date=today + timedelta(days=15),
+        is_active=True,
+        created_by=test_proprietor.id,
+    )
+    db.session.add(term)
+
+    existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
+    to_add = max(0, 35 - existing)
+    for idx in range(to_add):
+        db.session.add(
+            Student(
+                school_id=test_school.id,
+                first_name=f"Paid{idx}",
+                surname="Student",
+                name=f"Paid Student {idx}",
+                student_code=f"PD{idx:04d}",
+                current_class="JHS 1",
+                status="Active",
+            )
+        )
+
+    test_school.subscription_plan = "Free Tier"
+    test_school.subscription_status = "Active"
+    test_school.next_billing_date = None
+    test_school.trial_plan = None
+    test_school.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+    test_school.is_trial_active = False
+    db.session.commit()
+
+    captured = {}
+
+    def fake_initialize_payment(email, amount_cents, plan_name, school_id, metadata=None):
+        captured["email"] = email
+        captured["amount_cents"] = amount_cents
+        captured["plan_name"] = plan_name
+        captured["school_id"] = school_id
+        captured["metadata"] = metadata or {}
+        return {
+            "status": "success",
+            "authorization_url": "https://paystack.test/authorize",
+            "access_code": "ACCESS-123",
+            "reference": "PSK-INIT-001",
+        }
+
+    monkeypatch.setattr("backend.paystack_integration.initialize_payment", fake_initialize_payment)
+
+    response = client.post(
+        "/api/paystack/initialize",
+        headers=proprietor_headers,
+        data=json.dumps({"plan_name": "Basic", "billing_period": "term"}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "success"
+    assert payload["data"]["reference"] == "PSK-INIT-001"
+
+    metadata = captured["metadata"]
+    proration_data = metadata.get("proration_data") or {}
+    assert captured["plan_name"] == "Basic"
+    assert captured["school_id"] == test_school.id
+    assert metadata.get("student_count") == 35
+    assert metadata.get("billing_period") == "term"
+    assert proration_data.get("is_prorated") is True
+    assert proration_data.get("calculation_source") == "current_term_remaining"
+    assert proration_data.get("days_remaining") == 16
+    assert proration_data.get("days_in_period") == 60
+    assert proration_data.get("next_billing_date_override")
+
+    expected_term_cost = 360 + (5 * 12)
+    expected_prorated_cost = expected_term_cost * (16 / 60)
+    assert metadata.get("amount_cedis") == pytest.approx(expected_prorated_cost, rel=0, abs=0.01)
+    assert captured["amount_cents"] == int(expected_prorated_cost * 100)
+
+
+def test_direct_subscription_upgrade_blocks_unpaid_paid_plan_changes(
+    client, db, test_school, proprietor_headers
+):
+    test_school.subscription_plan = "Free Tier"
+    test_school.subscription_status = "Active"
+    db.session.commit()
+
+    response = client.post(
+        "/api/school/subscription/upgrade",
+        headers=proprietor_headers,
+        data=json.dumps({"plan": "Basic"}),
+    )
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["error"] == "payment_required_for_upgrade"
+
+    db.session.refresh(test_school)
+    assert test_school.subscription_plan == "Free Tier"
+
+
+def test_subscription_reads_use_effective_plan_and_shared_active_student_count(
+    client, db, test_school, test_proprietor, proprietor_headers
+):
+    from backend.api.models import Student
+
+    test_school.subscription_plan = "Free Tier"
+    test_school.trial_plan = "Premium"
+    test_school.trial_end_date = datetime.now(timezone.utc) + timedelta(days=5)
+    test_school.is_trial_active = True
+    db.session.add(
+        Student(
+            school_id=test_school.id,
+            first_name="Lower",
+            surname="Case",
+            name="Lower Case",
+            student_code="LC001",
+            current_class="JHS 1",
+            status="active",
+        )
+    )
+    db.session.commit()
+
+    subscription_response = client.get("/api/school/subscription", headers=proprietor_headers)
+    assert subscription_response.status_code == 200
+    subscription_payload = subscription_response.get_json()
+    assert subscription_payload["plan"] == "Premium"
+    assert subscription_payload["subscription_plan"] == "Premium"
+    assert subscription_payload["base_plan"] == "Free Tier"
+    assert subscription_payload["billing_visibility"]["plan"] == "Premium"
+    assert subscription_payload["billing_visibility"]["base_plan"] == "Free Tier"
+    assert subscription_payload["current_enrollment"] == 1
+
+    effective_plan_response = client.get(
+        "/api/school/subscription/effective-plan",
+        headers=proprietor_headers,
+    )
+    assert effective_plan_response.status_code == 200
+    effective_plan_payload = effective_plan_response.get_json()
+    assert effective_plan_payload["plan"] == "Premium"
+    assert effective_plan_payload["base_plan"] == "Free Tier"
+    assert effective_plan_payload["effective_plan"] == "Premium"
+
+
+def test_paystack_initialize_uses_active_students_for_default_billing_count(
+    client, db, test_school, test_proprietor, proprietor_headers, monkeypatch
+):
+    from backend.api.models import Student
+
+    db.session.add_all(
+        [
+            Student(
+                school_id=test_school.id,
+                first_name="Active",
+                surname="Learner",
+                name="Active Learner",
+                student_code="ACT001",
+                current_class="JHS 1",
+                status="Active",
+            ),
+            Student(
+                school_id=test_school.id,
+                first_name="Inactive",
+                surname="Learner",
+                name="Inactive Learner",
+                student_code="INA001",
+                current_class="JHS 1",
+                status="Withdrawn",
+            ),
+        ]
+    )
+    db.session.commit()
+
+    captured = {}
+
+    def fake_initialize_payment(email, amount_cents, plan_name, school_id, metadata=None):
+        captured["email"] = email
+        captured["amount_cents"] = amount_cents
+        captured["plan_name"] = plan_name
+        captured["school_id"] = school_id
+        captured["metadata"] = metadata or {}
+        return {
+            "status": "success",
+            "authorization_url": "https://paystack.test/authorize",
+            "access_code": "ACCESS-456",
+            "reference": "PSK-INIT-COUNT-001",
+        }
+
+    monkeypatch.setattr("backend.paystack_integration.initialize_payment", fake_initialize_payment)
+
+    response = client.post(
+        "/api/paystack/initialize",
+        headers=proprietor_headers,
+        data=json.dumps({"plan_name": "Basic", "billing_period": "term"}),
+    )
+
+    assert response.status_code == 200
+    assert captured["metadata"]["student_count"] == 1
+
+
+def test_shared_effective_plan_helper_handles_naive_trial_dates(client, test_school):
+    from backend.subscription_state import get_effective_plan, is_trial_active
+
+    test_school.subscription_plan = "Free Tier"
+    test_school.trial_plan = "Premium"
+    test_school.trial_end_date = datetime.utcnow() + timedelta(days=2)
+
+    assert get_effective_plan(test_school) == "Premium"
+    assert is_trial_active(test_school) is True
+
+
+def test_usage_stats_handle_naive_trial_end_date(client, db, test_school, test_proprietor):
+    from backend.email_service import get_school_usage_stats
+
+    test_school.trial_plan = "Premium"
+    test_school.trial_end_date = datetime.utcnow() + timedelta(days=2)
+    test_school.is_trial_active = True
+    db.session.commit()
+
+    stats = get_school_usage_stats(test_school.id)
+
+    assert stats is not None
+    assert stats["trial_days_remaining"] >= 0
+    assert stats["trial_expiring_soon"] in [True, False]
+
+
+def test_term_proration_context_uses_published_national_calendar_when_school_term_missing(
+    client, app, test_school, monkeypatch
+):
+    from backend.subscription_metering import get_current_term_reference, get_term_proration_context
+
+    fake_now = datetime(2026, 9, 20, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("backend.subscription_metering._now_utc", lambda: fake_now)
+
+    with app.app_context():
+        term_reference = get_current_term_reference(test_school.id)
+        assert term_reference is not None
+        assert term_reference["source"] == "national_basic_calendar"
+        assert term_reference["start_date"].isoformat() == "2026-09-08"
+        assert term_reference["end_date"].isoformat() == "2026-12-17"
+
+        proration = get_term_proration_context(test_school.id, now=fake_now)
+        assert proration["days_in_term"] == 101
+        assert proration["days_remaining"] == 89
+        assert proration["proration_ratio"] == pytest.approx(89 / 101, rel=0, abs=1e-6)
+
+
+def test_import_published_national_calendar_terms(client, db, test_school, proprietor_headers):
+    response = client.post(
+        "/api/school/terms/import-national-calendar",
+        headers=proprietor_headers,
+        data=json.dumps({"academic_year": "2026/2027"}),
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["created_count"] == 3
+    assert payload["skipped_count"] == 0
+
+    terms_response = client.get("/api/school/terms", headers=proprietor_headers)
+    assert terms_response.status_code == 200
+    terms = terms_response.get_json()["terms"]
+    assert [term["name"] for term in terms] == ["Term 1", "Term 2", "Term 3"]
+
+    imported_term_1 = next(term for term in terms if term["name"] == "Term 1")
+    imported_term_2 = next(term for term in terms if term["name"] == "Term 2")
+    imported_term_3 = next(term for term in terms if term["name"] == "Term 3")
+
+    assert imported_term_1["start_date"] == "2026-09-08"
+    assert imported_term_1["end_date"] == "2026-12-17"
+    assert imported_term_1["billing_due_date"] == "2027-01-05"
+    assert imported_term_2["billing_due_date"] == "2027-04-20"
+    assert imported_term_3["billing_due_date"] is None
+
+    second_response = client.post(
+        "/api/school/terms/import-national-calendar",
+        headers=proprietor_headers,
+        data=json.dumps({"academic_year": "2026/2027"}),
+    )
+    assert second_response.status_code == 200
+    second_payload = second_response.get_json()
+    assert second_payload["created_count"] == 0
+    assert second_payload["skipped_count"] == 3
+
+
+def test_import_published_national_calendar_terms_uses_recommended_year_when_omitted(
+    client, app, db, test_school, proprietor_headers, monkeypatch
+):
+    monkeypatch.setattr(
+        "backend.subscription_metering._now_utc",
+        lambda: datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc),
+    )
+
+    response = client.post(
+        "/api/school/terms/import-national-calendar",
+        headers=proprietor_headers,
+        data=json.dumps({}),
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["academic_year"] == "2026/2027"
+
+    terms_response = client.get("/api/school/terms", headers=proprietor_headers)
+    assert terms_response.status_code == 200
+    terms_payload = terms_response.get_json()
+    assert terms_payload["suggested_academic_year"] == "2026/2027"
+
+
+def test_paystack_initialize_existing_term_cycle_uses_actual_term_days(
+    client, app, db, test_school, proprietor_headers, monkeypatch
+):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm
+
+    today = date.today()
+    term = AcademicTerm(
+        school_id=test_school.id,
+        name="Term 3",
+        academic_year="2025/2026",
+        start_date=today - timedelta(days=44),
+        end_date=today + timedelta(days=15),
+        is_active=True,
+        created_by="system",
+    )
+    db.session.add(term)
+
+    test_school.subscription_plan = "Basic"
+    test_school.subscription_status = "Active"
+    test_school.next_billing_date = datetime.now(timezone.utc) + timedelta(days=15)
+    db.session.commit()
+
+    captured = {}
+
+    def fake_initialize_payment(email, amount_cents, plan_name, school_id, metadata=None):
+        captured["email"] = email
+        captured["amount_cents"] = amount_cents
+        captured["plan_name"] = plan_name
+        captured["school_id"] = school_id
+        captured["metadata"] = metadata or {}
+        return {
+            "status": "success",
+            "authorization_url": "https://paystack.test/authorize",
+            "access_code": "ACCESS-TERM-001",
+            "reference": "PSK-TERM-001",
+        }
+
+    monkeypatch.setattr("backend.paystack_integration.initialize_payment", fake_initialize_payment)
+
+    response = client.post(
+        "/api/paystack/initialize",
+        headers=proprietor_headers,
+        data=json.dumps({"plan_name": "Premium", "billing_period": "term"}),
+    )
+
+    assert response.status_code == 200
+    metadata = captured["metadata"]
+    proration_data = metadata.get("proration_data") or {}
+    assert proration_data.get("is_prorated") is True
+    assert proration_data.get("calculation_source") == "existing_cycle"
+    assert proration_data.get("days_remaining") == 16
+    assert proration_data.get("days_in_period") == 60
+    assert proration_data.get("term_name") == "Term 3"
+    assert proration_data.get("reference_source") == "school_active_term"
+    assert metadata.get("amount_cedis") == pytest.approx(proration_data.get("prorated_cost"), rel=0, abs=0.01)
+
+
 def test_overdue_transition_and_restricted_write_access(client, db, test_school, proprietor_headers):
     test_school.subscription_plan = "Basic"
     test_school.next_billing_date = datetime.now(timezone.utc) - timedelta(days=10)
@@ -816,6 +1192,59 @@ def test_prorated_admission_charge_uses_actual_term_length(client, app, db, test
         assert entry is not None
         meta = entry.meta or {}
         assert meta.get("days_in_term") == 121
+
+
+def test_process_payment_confirmation_uses_prorated_term_end_anchor(client, app, db, test_school):
+    from backend.api.models import LedgerEntry, School
+    from backend.paystack_integration import process_payment_confirmation
+
+    with app.app_context():
+        override = datetime.now(timezone.utc) + timedelta(days=18)
+        test_school.subscription_plan = "Free Tier"
+        test_school.subscription_status = "Active"
+        test_school.trial_plan = "Premium"
+        test_school.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        test_school.is_trial_active = False
+        db.session.commit()
+
+        result = process_payment_confirmation(
+            school_id=test_school.id,
+            plan_name="Basic",
+            amount_paid_cedis=180.0,
+            reference="SUB-PRORATE-001",
+            metadata={
+                "billing_period": "term",
+                "terms": 1,
+                "student_count": 42,
+                "proration_data": {
+                    "is_prorated": True,
+                    "days_remaining": 18,
+                    "days_in_period": 120,
+                    "proration_ratio": 0.15,
+                    "next_billing_date_override": override.isoformat(),
+                    "calculation_source": "current_term_remaining",
+                },
+            },
+        )
+
+        updated_school = School.query.get(test_school.id)
+        assert result["status"] == "success"
+        assert result["reference"] == "SUB-PRORATE-001"
+        assert updated_school.subscription_plan == "Basic"
+        assert updated_school.trial_plan is None
+        assert updated_school.trial_end_date is None
+        assert updated_school.is_trial_active is False
+        assert updated_school.next_billing_date is not None
+        normalized_next_billing = updated_school.next_billing_date
+        if normalized_next_billing.tzinfo is None:
+            normalized_next_billing = normalized_next_billing.replace(tzinfo=timezone.utc)
+        assert normalized_next_billing.isoformat() == override.isoformat()
+
+        entry = LedgerEntry.query.filter_by(tx_ref="SUB-PRORATE-001", tx_type="subscription").first()
+        assert entry is not None
+        meta = entry.meta or {}
+        assert meta.get("billing_period") == "term"
+        assert (meta.get("proration_data") or {}).get("next_billing_date_override") == override.isoformat()
 
 
 def test_profile_has_two_factor_status(client, app, db, test_school, test_proprietor, proprietor_headers):

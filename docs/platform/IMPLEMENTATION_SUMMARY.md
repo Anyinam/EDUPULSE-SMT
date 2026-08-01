@@ -1,5 +1,34 @@
 # 🔒 SECURITY IMPLEMENTATION SUMMARY
 
+## Current Platform Update - August 1, 2026
+
+### Operational Fixes Completed
+
+- Local schema lifecycle is now Alembic-first for app startup, reset, and demo seed flows.
+- Alembic online migrations now run through the live Flask database connection, avoiding drift between migration targets and the active app database.
+- Local SQLite rebuilds now reset cleanly before migrations are applied.
+- The `platform_settings` migration now uses a SQLite-safe JSON default while preserving the Postgres-specific default where supported.
+
+### Billing And Subscription Updates Completed
+
+- Premium trials now use a fixed 30-day activation window.
+- Trial conversions use normal paid-plan pricing with remaining-term proration and no trial-only discount.
+- Paid upgrades require Paystack checkout before entitlements are granted.
+- Shared effective-plan logic is now centralized so middleware, routes, metering, and email reminders use the same trial-resolution behavior.
+
+### Student Profile And Admissions Updates Completed
+
+- Parent admissions now support passport-photo uploads.
+- Approved admissions can promote the passport photo into the learner profile.
+- Student profiles now expose a document vault for direct uploads and linked admissions records.
+- Demo seed data now showcases richer student profiles, admissions links, photos, documents, and multi-term report history.
+
+### Current Validation
+
+- Full backend pytest suite: `213 passed`
+- Billing reliability suite: `33 passed`
+- Demo reseed flow: `python backend/seed.py` completed successfully
+
 ## ✅ All 10 Critical Issues RESOLVED
 
 ---

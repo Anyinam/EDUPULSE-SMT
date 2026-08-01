@@ -66,8 +66,27 @@ if [ "$APP_ROLE" = "migrate" ]; then
 fi
 
 if [ "$SEED_DEMO_DATA" = "true" ]; then
-    echo "🌱 Seeding demo data..."
-    python backend/seed.py || echo "  ⚠️  Seed script not available or already seeded"
+    echo "🌱 Seeding full demo data..."
+    python backend/seed.py || echo "  ⚠️  Full seed script not available or already seeded"
+elif [ "$SEED_DEMO_DATA" = "auto" ]; then
+    echo "🌱 Auto-seeding the full local demo environment if the database is empty..."
+    DEMO_SEED_STATE=$(python <<'EOF'
+from backend.api.api import app
+from backend.api.models import School
+
+with app.app_context():
+    print("empty" if School.query.count() == 0 else "populated")
+EOF
+)
+
+    if [ "$DEMO_SEED_STATE" = "empty" ]; then
+        if ! python backend/seed.py; then
+            echo "  ⚠️  Full demo seed failed; falling back to minimal bootstrap"
+            python backend/bootstrap_demo.py || echo "  ⚠️  Demo bootstrap script failed"
+        fi
+    else
+        echo "⏭️  Demo seed skipped: database already has school data"
+    fi
 else
     echo "⏭️  Demo seeding disabled"
 fi

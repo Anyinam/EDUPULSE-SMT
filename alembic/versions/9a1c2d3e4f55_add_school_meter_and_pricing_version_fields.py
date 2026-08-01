@@ -29,7 +29,7 @@ def upgrade() -> None:
     """Upgrade schema."""
     with op.batch_alter_table("schools", schema=None) as batch_op:
         if not _has_column("schools", "is_trial_active"):
-            batch_op.add_column(sa.Column("is_trial_active", sa.Boolean(), nullable=True, server_default=sa.text("0")))
+            batch_op.add_column(sa.Column("is_trial_active", sa.Boolean(), nullable=True, server_default=sa.false()))
         if not _has_column("schools", "current_student_count"):
             batch_op.add_column(sa.Column("current_student_count", sa.Integer(), nullable=True, server_default=sa.text("0")))
         if not _has_column("schools", "last_metered_at"):

@@ -40,7 +40,7 @@ export default function PricingComparison() {
     features: plan.marketing_features || [],
     addonOptions: plan.addon_options || [],
     packagingSummary: plan.packaging_summary || '',
-    cta: plan.name === 'Free Tier' ? 'Get Started Free' : 'Start Free Trial For This Term',
+    cta: plan.name === 'Free Tier' ? 'Get Started Free' : 'Start 30-Day Premium Trial',
     highlighted: Boolean(plan.popular),
     badge: plan.popular ? 'MOST POPULAR' : undefined,
   }));
@@ -183,7 +183,7 @@ export default function PricingComparison() {
                 </p>
 
                 <p className="text-center text-xs text-slate-500 mt-4">
-                  No credit card required
+                  {plan.rawName === 'Free Tier' ? 'Start free immediately' : 'Start the trial without a card. Pay only when you activate a paid plan.'}
                 </p>
               </div>
 
@@ -259,10 +259,10 @@ export default function PricingComparison() {
             <div>
               <h4 className="font-bold text-slate-900 mb-3">✅ Active Students Count</h4>
               <p className="text-sm mb-3">
-                Only students with status = "Active" are counted for billing. If students leave mid-term, you get a credit.
+                Only students with status = "Active" are counted for billing.
               </p>
               <p className="text-sm">
-                Student uploads don't auto-charge instantly. Billing happens at term activation.
+                New paid activations after trial are prorated to the remaining days in the current term. Regular billing continues on the normal term cycle.
               </p>
             </div>
 
@@ -276,7 +276,7 @@ export default function PricingComparison() {
             <div>
               <h4 className="font-bold text-slate-900 mb-3">🔄 Flexible Upgrades</h4>
               <p className="text-sm mb-3">
-                Upgrade or downgrade plans between terms. Changes take effect in the next billing cycle.
+                You can change plans anytime. Mid-term paid activations are charged only for the remaining days in the current term.
               </p>
             </div>
           </div>

@@ -286,6 +286,7 @@ class Student(db.Model):
     feeding_paid = db.Column(db.Boolean, default=False)
 
     current_class = db.Column(db.String(20))
+    profile_picture = db.Column(db.Text())  # Base64 encoded student passport/profile photo
     guardian_name = db.Column(EncryptedString)
     # Added contact fields for proprietor communication
     parent_name = db.Column(EncryptedString)
@@ -1326,47 +1327,6 @@ class PromotionThreshold(db.Model):
     __table_args__ = (
         db.UniqueConstraint('school_id', 'class_name', name='uq_school_class_threshold'),
     )
-
-
-class Subscription(db.Model):
-    """School subscription management - tracks SaaS plans and billing"""
-
-    __tablename__ = "subscriptions"
-    id = db.Column(db.Integer, primary_key=True)
-    school_id = db.Column(
-        db.String(20), db.ForeignKey("schools.id"), nullable=False, unique=True
-    )
-    school = db.relationship("School", backref="subscription", uselist=False)
-
-    plan = db.Column(db.String(20), nullable=False, default="free")
-    status = db.Column(db.String(20), nullable=False, default="active")
-
-    start_date = db.Column(
-        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
-    )
-    end_date = db.Column(db.DateTime)
-    trial_end_date = db.Column(db.DateTime)
-
-    last_payment_date = db.Column(db.DateTime)
-    next_billing_date = db.Column(db.DateTime)
-    auto_renew = db.Column(db.Boolean, default=True)
-    billing_email = db.Column(db.String(120))
-
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, onupdate=lambda: datetime.now(timezone.utc))
-
-    def days_remaining(self):
-        if not self.end_date:
-            return None
-        remaining = (self.end_date - datetime.now(timezone.utc)).days
-        return max(0, remaining)
-
-    def is_expired(self):
-        if not self.end_date:
-            return False
-        return datetime.now(timezone.utc) > self.end_date
-
-
 class PlatformSetting(db.Model):
     """Global platform settings controlled by software owner (not tenant-scoped)."""
 

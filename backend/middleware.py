@@ -9,6 +9,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from backend.api.models import School, User, db
+from backend.subscription_state import get_effective_plan
 from backend.subscription_features import (
     PLAN_FEATURES,
     SUBSCRIPTION_TIERS,
@@ -441,21 +442,6 @@ def feature_required(feature_name, min_level=True):
         return wrapper
 
     return decorator
-
-
-def get_effective_plan(school):
-    """Get effective subscription plan, honoring trial overrides"""
-    if not school:
-        return "Free Tier"
-
-    effective_plan = school.subscription_plan or "Free Tier"
-
-    if school.trial_plan and school.trial_end_date:
-        if datetime.now(timezone.utc) < school.trial_end_date:
-            effective_plan = school.trial_plan
-
-    return effective_plan
-
 
 def get_required_plan_for_feature(feature_name):
     """Find minimum plan required for a feature"""

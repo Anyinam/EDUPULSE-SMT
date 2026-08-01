@@ -1,9 +1,11 @@
 import os
 import sys
+import base64
+import shutil
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from werkzeug.security import generate_password_hash
 
@@ -13,21 +15,161 @@ from backend.api.models import (
     AuditLog,
     Inventory,
     Payment,
+    ParentAdmissionApplication,
     ReportCard,
     School,
     SchoolSettings,
+    SchoolVerification,
     Student,
     User,
     add_ledger_entry,
     db,
 )
+from backend.schema_management import rebuild_database_from_migrations
+
+
+def _build_demo_profile_picture(name, primary_color, accent_color):
+    initials = "".join(part[0].upper() for part in str(name).split()[:2] if part) or "ST"
+    svg = f"""
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'>
+      <defs>
+        <linearGradient id='bg' x1='0%' y1='0%' x2='100%' y2='100%'>
+          <stop offset='0%' stop-color='{primary_color}' />
+          <stop offset='100%' stop-color='{accent_color}' />
+        </linearGradient>
+      </defs>
+      <rect width='240' height='240' rx='56' fill='url(#bg)' />
+      <circle cx='120' cy='94' r='42' fill='rgba(255,255,255,0.24)' />
+      <path d='M54 196c10-34 36-54 66-54s56 20 66 54' fill='rgba(255,255,255,0.18)' />
+      <text x='120' y='214' text-anchor='middle' font-size='42' font-family='Arial, sans-serif' font-weight='700' fill='white'>{initials}</text>
+    </svg>
+    """.strip()
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def _reset_school_storage(instance_path, folder_name, school_id):
+    school_dir = os.path.join(instance_path, folder_name, school_id)
+    if os.path.isdir(school_dir):
+        shutil.rmtree(school_dir)
+    os.makedirs(school_dir, exist_ok=True)
+    return school_dir
+
+
+def _write_demo_document(instance_path, folder_name, school_id, document_id, original_filename, content_type, body_bytes):
+    school_dir = os.path.join(instance_path, folder_name, school_id)
+    os.makedirs(school_dir, exist_ok=True)
+    stored_filename = f"{document_id}_{original_filename}"
+    file_path = os.path.join(school_dir, stored_filename)
+    with open(file_path, "wb") as handle:
+        handle.write(body_bytes)
+    return {
+        "document_id": document_id,
+        "stored_filename": stored_filename,
+        "original_filename": original_filename,
+        "content_type": content_type,
+        "size_bytes": os.path.getsize(file_path),
+    }
+
+
+def _build_demo_student_document_manifest(instance_path, school_id, student_code, uploaded_by_user_id):
+    documents = []
+
+    birth_certificate = _write_demo_document(
+        instance_path,
+        "student-documents",
+        school_id,
+        f"student_doc_{student_code.lower()}_birth",
+        f"{student_code.lower()}_birth_certificate.txt",
+        "text/plain",
+        (
+            f"Learner Birth Record\nStudent: {student_code}\nIssued by: Demo Civil Registry\n"
+            f"Verified for demo profile view on {datetime.now(timezone.utc).date().isoformat()}\n"
+        ).encode("utf-8"),
+    )
+    birth_certificate.update(
+        {
+            "category": "birth_certificate",
+            "source": "student_profile",
+            "note": "Seeded proof-of-age record for the student dossier demo.",
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "uploaded_by_user_id": uploaded_by_user_id,
+        }
+    )
+    documents.append(birth_certificate)
+
+    consent_letter = _write_demo_document(
+        instance_path,
+        "student-documents",
+        school_id,
+        f"student_doc_{student_code.lower()}_consent",
+        f"{student_code.lower()}_guardian_consent_letter.txt",
+        "text/plain",
+        (
+            f"Guardian Consent Letter\nStudent: {student_code}\nPurpose: Academic records, welfare follow-up, and school communication.\n"
+            f"Status: Accepted in demo environment.\n"
+        ).encode("utf-8"),
+    )
+    consent_letter.update(
+        {
+            "category": "consent_letter",
+            "source": "student_profile",
+            "note": "Guardian communication and data-use consent.",
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "uploaded_by_user_id": uploaded_by_user_id,
+        }
+    )
+    documents.append(consent_letter)
+
+    return documents
+
+
+def _build_demo_admission_manifest(instance_path, school_id, student_code):
+    admission_form = _write_demo_document(
+        instance_path,
+        "parent-admission-documents",
+        school_id,
+        f"parent_doc_{student_code.lower()}_form",
+        f"{student_code.lower()}_admission_form.txt",
+        "text/plain",
+        (
+            f"Parent Admissions Form\nApplicant Code: APP-{student_code}\n"
+            f"Contains original intake details used to admit learner {student_code}.\n"
+        ).encode("utf-8"),
+    )
+    admission_form.update(
+        {
+            "category": "admission_form",
+        }
+    )
+
+    prior_report = _write_demo_document(
+        instance_path,
+        "parent-admission-documents",
+        school_id,
+        f"parent_doc_{student_code.lower()}_report",
+        f"{student_code.lower()}_previous_report.txt",
+        "text/plain",
+        (
+            f"Previous Academic Report\nStudent: {student_code}\nAverage: 64.0\nStrength: English and Social Studies\n"
+            f"Support Need: Mathematics improvement plan.\n"
+        ).encode("utf-8"),
+    )
+    prior_report.update(
+        {
+            "category": "previous_report",
+        }
+    )
+
+    return [admission_form, prior_report]
 
 
 def seed_everything():
     with app.app_context():
         print(" Initializing EduPulse SMT Database for CCA Ofankor...")
-        db.drop_all()
-        db.create_all()
+        rebuild_database_from_migrations(db)
+        _reset_school_storage(app.instance_path, "student-documents", "CCA-OFK")
+        _reset_school_storage(app.instance_path, "parent-admission-documents", "CCA-OFK")
 
         # 1. Setup School
         cca = School(
@@ -120,6 +262,56 @@ def seed_everything():
         db.session.add_all(
             [boss, homeroom, subject_teacher, headmaster, finance, kitchen, store_manager]
         )
+        db.session.flush()
+
+        cca.trial_plan = "Premium"
+        cca.trial_end_date = datetime.now(timezone.utc) + timedelta(days=30)
+        cca.is_trial_active = True
+
+        cca_settings.report_template_config = {
+            "__global_report_settings__": {
+                "data_compliance_workflow": {
+                    "registration_acknowledgements": {
+                        "school_data_authority_confirmed": True,
+                        "legacy_and_exam_consent_plan_confirmed": True,
+                        "aggregated_analytics_accepted": True,
+                        "accepted_at": datetime.now(timezone.utc).isoformat(),
+                        "accepted_ip": "127.0.0.1",
+                        "terms_version": "demo-seed",
+                        "policy_version": "demo-seed",
+                        "proprietor_user_id": boss.id,
+                    },
+                    "legacy_migration": {
+                        "parent_notice_dispatched": True,
+                        "consent_collection_completed": True,
+                        "consent_collection_date": datetime.now(timezone.utc).date().isoformat(),
+                        "evidence_notes": "Seeded demo environment includes exam-intelligence policy readiness.",
+                        "evidence_artifacts": [],
+                        "bece_result_processing_enabled": True,
+                        "bece_parent_notice_confirmed": True,
+                    },
+                }
+            }
+        }
+
+        db.session.add(
+            SchoolVerification(
+                school_id="CCA-OFK",
+                status="verified",
+                risk_tier="low",
+                legal_name="Christian Centre Academy - Ofankor",
+                organization_id="CCA-OFK",
+                registration_number="DEMO-CCA-2026",
+                bank_account_name="Christian Centre Academy - Ofankor",
+                bank_account_number="1234567890123",
+                bank_name="GCB Bank",
+                submitted_by_user_id=boss.id,
+                review_notes="Seeded demo verification approved for local development.",
+                submitted_at=datetime.now(timezone.utc),
+                reviewed_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=365),
+            )
+        )
 
         # 3. Setup Students (Sack Risk Scenarios)
         # Kofi is the 'Stable' control
@@ -130,13 +322,16 @@ def seed_everything():
             student_code="S001",
             school_id="CCA-OFK",
             current_class="JHS 1",
+            profile_picture=_build_demo_profile_picture("Kofi Mensah", "#0f766e", "#14b8a6"),
             feeding_paid=True,
             is_present=True,
             guardian_name="Ama Mensah",
+            parent_name="Ama Mensah",
             parent_phone="+233501234567",
             parent_email="ama@example.com",
             total_tuition_owed=500.0,
             tuition_deadline=datetime.now(timezone.utc) + timedelta(days=7),
+            date_of_birth=date(2012, 5, 14),
             gender="Male",
         )
         # Abena is our 'At Risk' student for the demo
@@ -147,17 +342,81 @@ def seed_everything():
             student_code="S002",
             school_id="CCA-OFK",
             current_class="JHS 1",
+            profile_picture=_build_demo_profile_picture("Abena Selorm", "#7c3aed", "#ec4899"),
             feeding_paid=False,
             is_present=True,
             guardian_name="John Selorm",
+            parent_name="John Selorm",
             parent_phone="+233502345678",
             parent_email="john@example.com",
             total_tuition_owed=750.0,
             tuition_deadline=datetime.now(timezone.utc) - timedelta(days=10),
+            date_of_birth=date(2013, 1, 23),
             gender="Female",
         )
         db.session.add_all([kofi, abena])
         db.session.commit()  # Commit to get student IDs for payments
+
+        kofi.custom_attributes = {
+            "document_manifest": _build_demo_student_document_manifest(
+                app.instance_path,
+                "CCA-OFK",
+                kofi.student_code,
+                boss.id,
+            ),
+            "profile_highlights": [
+                "Reads confidently and contributes actively in class.",
+                "Maintains steady attendance and positive conduct.",
+            ],
+        }
+        abena.custom_attributes = {
+            "document_manifest": _build_demo_student_document_manifest(
+                app.instance_path,
+                "CCA-OFK",
+                abena.student_code,
+                boss.id,
+            ),
+            "profile_highlights": [
+                "Needs close math support and fee follow-up.",
+                "Responds well to structured mentoring and guardianship check-ins.",
+            ],
+        }
+
+        abena_application = ParentAdmissionApplication(
+            school_id="CCA-OFK",
+            application_code="APP-S002-DEMO",
+            status_token="demo-status-abena-s002",
+            first_name="Abena",
+            surname="Selorm",
+            gender="Female",
+            date_of_birth=abena.date_of_birth,
+            preferred_class="JHS 1",
+            guardian_name="John Selorm",
+            parent_email="john@example.com",
+            parent_phone="+233502345678",
+            prior_school="Glorious Future Preparatory",
+            desired_test_mode="either",
+            internet_quality="limited",
+            parent_notes="Seeded linked admissions file set for student profile demo.",
+            document_manifest=_build_demo_admission_manifest(
+                app.instance_path,
+                "CCA-OFK",
+                abena.student_code,
+            ),
+            ai_summary="Admissions review found enough supporting records to proceed, with follow-up recommended on mathematics support and fee planning.",
+            ai_recommendation="manual_review",
+            ai_readiness_score=74,
+            ai_flags=["fee_follow_up", "math_support"],
+            ai_missing_items=[],
+            status="Approved",
+            submitted_at=datetime.now(timezone.utc) - timedelta(days=30),
+            reviewed_at=datetime.now(timezone.utc) - timedelta(days=27),
+            reviewed_by_user_id=headmaster.id,
+            reviewer_notes="Approved after review. Keep guardian updated on academic support milestones.",
+            admitted_student_id=abena.id,
+        )
+        db.session.add(abena_application)
+        db.session.commit()
 
         # 4. Financials: Test payment tracking (MoMo + Bank Transfer Automation with Reference Parsing)
         # Reference Format: STUDENT_CODE-CATEGORY (e.g., S001-T1, S002-FEED-MON)

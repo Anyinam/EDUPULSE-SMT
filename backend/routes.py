@@ -109,11 +109,13 @@ from backend.email_templates import (
 from backend.subscription_metering import (
     activate_premium_trial,
     end_trial,
-    get_current_trial_term_reference,
+    get_current_term_reference,
     get_billing_visibility,
+    get_published_national_basic_term_windows,
+    get_recommended_published_national_basic_academic_year,
+    get_term_proration_context,
     lock_pricing_version,
     sync_student_meter,
-    _term_reference_to_end_datetime,
 )
 from backend.academic_guidance import (
     build_academic_guidance_summary,
@@ -1154,6 +1156,14 @@ def _count_active_students_for_billing(school_id):
     ).count()
 
 
+def _subscription_plan_rank(plan_name):
+    plan_order = ["Free Tier", "Basic", "Premium"]
+    try:
+        return plan_order.index(plan_name or "Free Tier")
+    except ValueError:
+        return -1
+
+
 def _get_payment_collection_block(school):
     if not school:
         return None
@@ -1783,13 +1793,15 @@ def _infer_document_category(filename):
         return "birth_certificate"
     if "report" in lowered or "result" in lowered:
         return "previous_report"
+    if "passport photo" in lowered or "passport_photo" in lowered or "headshot" in lowered:
+        return "passport_photo"
     if "id" in lowered or "passport" in lowered:
         return "identity_document"
     return "document"
 
 
-def _extract_parent_admission_document_details(filename, content_type, file_bytes):
-    category = _infer_document_category(filename)
+def _extract_parent_admission_document_details(filename, content_type, file_bytes, category_override=None):
+    category = category_override or _infer_document_category(filename)
     entry = {
         "filename": filename,
         "content_type": content_type,
@@ -1862,6 +1874,39 @@ def _store_parent_admission_document(school_id, uploaded, file_bytes):
     }
 
 
+def _build_student_profile_picture_data_url(file_bytes, content_type):
+    if not file_bytes:
+        return None
+
+    normalized_content_type = sanitize_string(content_type or "") or "image/jpeg"
+    encoded = base64.b64encode(file_bytes).decode("ascii")
+    return f"data:{normalized_content_type};base64,{encoded}"
+
+
+def _extract_latest_parent_admission_passport_photo(manifest, school_id):
+    for entry in reversed(manifest or []):
+        if not isinstance(entry, dict) or entry.get("category") != "passport_photo":
+            continue
+
+        resolved_path = _resolve_existing_school_file(
+            _get_parent_admission_document_storage_root(school_id=school_id),
+            entry.get("stored_filename"),
+        )
+        if not resolved_path:
+            continue
+
+        try:
+            with open(resolved_path, "rb") as image_file:
+                return _build_student_profile_picture_data_url(
+                    image_file.read(),
+                    entry.get("content_type") or "image/jpeg",
+                )
+        except OSError as exc:
+            logger.warning("Unable to read parent admission passport photo %s: %s", entry.get("stored_filename"), exc)
+
+    return None
+
+
 def _build_staff_parent_admission_document_entry(application_id, raw_entry):
     if not isinstance(raw_entry, dict):
         return None
@@ -1880,6 +1925,75 @@ def _build_staff_parent_admission_document_entry(application_id, raw_entry):
         entry["download_available"] = False
 
     return entry
+
+
+def _store_student_document(school_id, uploaded, file_bytes):
+    original_filename = secure_filename(uploaded.filename or "") or f"student_document_{secrets.token_hex(4)}"
+    document_id = f"student_doc_{secrets.token_hex(6)}"
+    stored_filename = f"{document_id}_{original_filename}"
+    target_path = os.path.join(_get_student_document_storage_root(school_id=school_id), stored_filename)
+    with open(target_path, "wb") as stored_file:
+        stored_file.write(file_bytes or b"")
+
+    return {
+        "document_id": document_id,
+        "stored_filename": stored_filename,
+        "original_filename": original_filename,
+        "size_bytes": os.path.getsize(target_path),
+    }
+
+
+def _get_student_document_manifest(student):
+    custom_attributes = json.loads(json.dumps(student.custom_attributes or {}))
+    manifest = custom_attributes.get("document_manifest") or []
+    return manifest if isinstance(manifest, list) else []
+
+
+def _set_student_document_manifest(student, manifest):
+    custom_attributes = json.loads(json.dumps(student.custom_attributes or {}))
+    custom_attributes["document_manifest"] = manifest
+    student.custom_attributes = custom_attributes
+
+
+def _build_student_document_entry(student_id, raw_entry):
+    if not isinstance(raw_entry, dict):
+        return None
+
+    entry = dict(raw_entry)
+    document_id = sanitize_string(entry.get("document_id") or entry.get("id") or "") or None
+    stored_filename = sanitize_string(entry.get("stored_filename") or "") or None
+    original_filename = sanitize_string(entry.get("original_filename") or entry.get("filename") or "") or None
+
+    if document_id and stored_filename:
+        entry["document_id"] = document_id
+        entry["original_filename"] = original_filename or entry.get("filename") or "document"
+        entry["download_path"] = _build_student_document_download_path(student_id, document_id)
+        entry["download_available"] = True
+    else:
+        entry["download_available"] = False
+
+    entry["source"] = entry.get("source") or "student_profile"
+    return entry
+
+
+def _build_linked_student_admission_documents(student):
+    application = ParentAdmissionApplication.query.filter_by(
+        admitted_student_id=student.id,
+        school_id=student.school_id,
+    ).first()
+    if not application:
+        return []
+
+    entries = []
+    for raw_entry in application.document_manifest or []:
+        entry = _build_staff_parent_admission_document_entry(application.id, raw_entry)
+        if not entry:
+            continue
+        entry["source"] = "parent_admission"
+        entry["source_label"] = f"Admissions application {application.application_code}"
+        entries.append(entry)
+
+    return entries
 
 
 def _build_staff_parent_admission_payload(application, settings, school_id):
@@ -2230,6 +2344,10 @@ def _get_parent_admission_document_storage_root(school_id=None):
     return _get_school_storage_root("PARENT_ADMISSION_DOCUMENT_STORAGE_DIR", "parent-admission-documents", school_id=school_id)
 
 
+def _get_student_document_storage_root(school_id=None):
+    return _get_school_storage_root("STUDENT_DOCUMENT_STORAGE_DIR", "student-documents", school_id=school_id)
+
+
 def _resolve_existing_school_file(storage_root, stored_filename):
     if not stored_filename:
         return None
@@ -2249,6 +2367,10 @@ def _build_exam_import_download_path(batch_id):
 
 def _build_parent_admission_document_download_path(application_id, document_id):
     return f"/api/admissions/applications/{quote(str(application_id))}/documents/{quote(document_id)}/download"
+
+
+def _build_student_document_download_path(student_id, document_id):
+    return f"/api/students/{quote(str(student_id))}/documents/{quote(document_id)}/download"
 
 
 def _build_exam_rows_snapshot_path(batch_id):
@@ -3663,18 +3785,6 @@ def recalculate_class_positions(school_id, class_name, academic_term, academic_y
             last_score = score
         report.overall_position = ordinal(position)
         report.out_of_students = student_count
-
-
-def get_effective_plan(school):
-    """Returns active plan, honoring trial overrides when present."""
-    if school and school.trial_plan and school.trial_end_date:
-        trial_end = school.trial_end_date
-        if trial_end.tzinfo is None:
-            trial_end = trial_end.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) < trial_end:
-            return school.trial_plan
-    return school.subscription_plan if school else "Free Tier"
-
 
 def get_plan_limits(plan_name):
     """Returns resource quotas based on subscription plan."""
@@ -6632,6 +6742,155 @@ def get_students():
         return response
     except Exception as e:
         return jsonify({"message": "Error retrieving students", "error": str(e)}), 500
+
+
+@api.route("/students/<int:student_id>/documents", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "finance", "headmaster", "homeroom", "teacher")
+@jwt_required()
+def get_student_documents(student_id):
+    student = Student.query.filter_by(id=student_id, school_id=g.school_id).first_or_404()
+
+    student_documents = [
+        item
+        for item in (
+            _build_student_document_entry(student.id, entry)
+            for entry in _get_student_document_manifest(student)
+        )
+        if item
+    ]
+    admission_documents = _build_linked_student_admission_documents(student)
+
+    return jsonify(
+        {
+            "student_id": student.id,
+            "student_name": student.name,
+            "student_documents": student_documents,
+            "admission_documents": admission_documents,
+            "documents": [*student_documents, *admission_documents],
+        }
+    )
+
+
+@api.route("/students/<int:student_id>/documents", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster", "homeroom", "teacher")
+@jwt_required()
+def upload_student_documents(student_id):
+    student = Student.query.filter_by(id=student_id, school_id=g.school_id).first_or_404()
+    uploaded_files = [item for item in request.files.getlist("documents") if item and item.filename]
+    if not uploaded_files:
+        return jsonify({"message": "At least one document is required."}), 400
+
+    category_override = sanitize_string(request.form.get("category") or "") or None
+    note = sanitize_string(request.form.get("note") or "") or None
+    user_id = int(get_jwt_identity())
+    document_manifest = list(_get_student_document_manifest(student))
+
+    for uploaded in uploaded_files:
+        file_bytes = uploaded.read()
+        if not file_bytes:
+            continue
+
+        entry = _extract_parent_admission_document_details(
+            uploaded.filename,
+            uploaded.mimetype,
+            file_bytes,
+            category_override=category_override,
+        )
+        entry.update(_store_student_document(g.school_id, uploaded, file_bytes))
+        entry["source"] = "student_profile"
+        entry["note"] = note
+        entry["uploaded_at"] = get_utc_now().isoformat()
+        entry["uploaded_by_user_id"] = user_id
+        document_manifest.append(entry)
+
+        if entry.get("category") == "passport_photo":
+            student.profile_picture = _build_student_profile_picture_data_url(
+                file_bytes,
+                uploaded.mimetype,
+            )
+
+    _set_student_document_manifest(student, document_manifest)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "message": "Student documents uploaded successfully.",
+            "documents": [
+                item
+                for item in (
+                    _build_student_document_entry(student.id, entry)
+                    for entry in document_manifest
+                )
+                if item
+            ],
+            "profile_picture": student.profile_picture,
+        }
+    )
+
+
+@api.route("/students/<int:student_id>/documents/<string:document_id>/download", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "finance", "headmaster", "homeroom", "teacher")
+@jwt_required()
+def download_student_document(student_id, document_id):
+    student = Student.query.filter_by(id=student_id, school_id=g.school_id).first()
+    if not student:
+        return jsonify({"message": "Student not found"}), 404
+
+    matching_document = next(
+        (
+            item
+            for item in _get_student_document_manifest(student)
+            if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
+        ),
+        None,
+    )
+    if matching_document:
+        resolved_path = _resolve_existing_school_file(
+            _get_student_document_storage_root(),
+            matching_document.get("stored_filename"),
+        )
+        if not resolved_path:
+            return jsonify({"message": "Document file is no longer available"}), 404
+
+        return send_file(
+            resolved_path,
+            as_attachment=False,
+            download_name=matching_document.get("original_filename") or matching_document.get("filename") or "student-document",
+        )
+
+    application = ParentAdmissionApplication.query.filter_by(
+        admitted_student_id=student.id,
+        school_id=g.school_id,
+    ).first()
+    if not application:
+        return jsonify({"message": "Document not found"}), 404
+
+    linked_document = next(
+        (
+            item
+            for item in (application.document_manifest or [])
+            if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
+        ),
+        None,
+    )
+    if not linked_document:
+        return jsonify({"message": "Document not found"}), 404
+
+    resolved_path = _resolve_existing_school_file(
+        _get_parent_admission_document_storage_root(),
+        linked_document.get("stored_filename"),
+    )
+    if not resolved_path:
+        return jsonify({"message": "Document file is no longer available"}), 404
+
+    return send_file(
+        resolved_path,
+        as_attachment=False,
+        download_name=linked_document.get("original_filename") or linked_document.get("filename") or "admission-document",
+    )
 
 
 @api.route("/students/<int:student_id>/payments", methods=["GET"])
@@ -10631,6 +10890,20 @@ def submit_parent_admission_application(school_id):
             return jsonify({"message": "Invalid date_of_birth format. Use YYYY-MM-DD."}), 400
 
     document_manifest = []
+    passport_photo = request.files.get("passport_photo")
+    if passport_photo and passport_photo.filename:
+        file_bytes = passport_photo.read()
+        if file_bytes:
+            entry = _extract_parent_admission_document_details(
+                passport_photo.filename,
+                passport_photo.mimetype,
+                file_bytes,
+                category_override="passport_photo",
+            )
+            entry.update(_store_parent_admission_document(school_id, passport_photo, file_bytes))
+            entry["is_primary_photo"] = True
+            document_manifest.append(entry)
+
     for uploaded in request.files.getlist("documents"):
         if not uploaded or not uploaded.filename:
             continue
@@ -10842,6 +11115,21 @@ def resubmit_parent_admission_application(school_id, status_token):
         application.parent_notes = f"{existing_notes}\n\nCorrection update: {new_notes}".strip()
 
     document_manifest = list(application.document_manifest or [])
+    passport_photo = request.files.get("passport_photo")
+    if passport_photo and passport_photo.filename:
+        file_bytes = passport_photo.read()
+        if file_bytes:
+            entry = _extract_parent_admission_document_details(
+                passport_photo.filename,
+                passport_photo.mimetype,
+                file_bytes,
+                category_override="passport_photo",
+            )
+            entry.update(_store_parent_admission_document(school_id, passport_photo, file_bytes))
+            entry["submitted_in_correction"] = True
+            entry["is_primary_photo"] = True
+            document_manifest.append(entry)
+
     for uploaded in request.files.getlist("documents"):
         if not uploaded or not uploaded.filename:
             continue
@@ -11286,6 +11574,7 @@ def admit_student():
         scholarship_notes=scholarship_notes or None,
         feeding_paid=False,
         is_present=True,
+        profile_picture=data.get("profile_picture") or None,
     )
     db.session.add(new_student)
     school.current_student_count = current_count + 1
@@ -13080,6 +13369,7 @@ def get_proprietor_students():
                 "id": s.id,
                 "name": s.name,
                 "student_code": s.student_code,
+                    "profile_picture": s.profile_picture,
                 "current_class": s.current_class,
                 "guardian_name": s.guardian_name,
                 "parent_name": s.parent_name,
@@ -16469,7 +16759,7 @@ def get_subscription():
         school.subscription_status = billing_status.get("status")
         db.session.commit()
 
-    current_students = Student.query.filter_by(school_id=g.school_id, status='Active').count()
+    current_students = _count_active_students_for_billing(g.school_id)
     current_classes = (
         len(school.academic_classes) if hasattr(school, "academic_classes") else 0
     )
@@ -16499,6 +16789,7 @@ def get_subscription():
 
     # Billing visibility with active-student meter and 80%/100% alerts
     billing_visibility = get_billing_visibility(g.school_id, commit=False)
+    term_proration = get_term_proration_context(g.school_id)
     
     # Get enabled modules from settings
     enabled_modules = {}
@@ -16509,6 +16800,7 @@ def get_subscription():
         {
             "plan": effective_plan,
             "subscription_plan": effective_plan,  # Explicit alias for clarity
+            "base_plan": school.subscription_plan or "Free Tier",
             "status": billing_status.get("status", school.subscription_status),
             "billing_status": billing_status,
             "next_billing": next_billing_date or "N/A",
@@ -16555,6 +16847,7 @@ def get_subscription():
             "features_display": plan_display,
             "report_templates": plan_info.get("report_templates", []),
             "billing_visibility": billing_visibility,
+            "term_proration": term_proration,
             "pending_plan": getattr(school, "pending_plan", None),
         }
     )
@@ -16576,7 +16869,8 @@ def get_effective_subscription_plan():
 
     return jsonify(
         {
-            "plan": school.subscription_plan or "Free Tier",
+            "plan": effective_plan,
+            "base_plan": school.subscription_plan or "Free Tier",
             "effective_plan": effective_plan,
             "trial": {
                 "active": bool(
@@ -16603,6 +16897,27 @@ def upgrade_subscription():
         
         school = School.query.get(g.school_id)
         previous_plan = school.subscription_plan or "Free Tier"
+        current_effective_plan = get_effective_plan(school)
+
+        if new_plan not in PLAN_FEATURES:
+            return jsonify({"message": "Unknown subscription plan."}), 400
+
+        if _subscription_plan_rank(new_plan) > _subscription_plan_rank(previous_plan):
+            return jsonify(
+                {
+                    "message": "Paid plan upgrades must go through the billing checkout flow.",
+                    "error": "payment_required_for_upgrade",
+                }
+            ), 409
+
+        if new_plan == previous_plan:
+            return jsonify(
+                {
+                    "message": f"School is already on {new_plan}.",
+                    "plan": current_effective_plan,
+                    "base_plan": previous_plan,
+                }
+            ), 200
         
         # Get proprietor email
         proprietor = User.query.filter_by(
@@ -16613,23 +16928,25 @@ def upgrade_subscription():
         if not proprietor or not proprietor.email:
             return jsonify({"message": "Proprietor email not found"}), 400
         
-        # Update subscription
+        # Direct changes here are restricted to downgrades or same-tier admin corrections.
         school.subscription_plan = new_plan
         school.subscription_status = "Active"
-        school.next_billing_date = get_utc_now() + timedelta(days=30)
+        if new_plan == "Free Tier":
+            school.next_billing_date = None
         db.session.commit()
         
         # Get plan details
-        from backend.subscription_features import PLAN_FEATURES
         plan_info = PLAN_FEATURES.get(new_plan, {})
         
-        # Generate upgrade confirmation email
+        # Generate plan-change confirmation email
         upgrade_date = get_utc_now().strftime("%Y-%m-%d")
-        next_billing_date = school.next_billing_date.strftime("%Y-%m-%d")
+        next_billing_date = (
+            school.next_billing_date.strftime("%Y-%m-%d")
+            if school.next_billing_date
+            else None
+        )
         
-        # Format features list
         features = plan_info.get("features", {})
-        features_list = "\n".join([f"✅ {key.replace('_', ' ').title()}" for key in features.keys()])
         
         # Format usage limits  
         max_students = plan_info.get("max_students", 50)
@@ -16642,36 +16959,11 @@ def upgrade_subscription():
         new_features_set = set(features.keys()) - prev_features
         new_features = "\n".join([f"✨ {f.replace('_', ' ').title()}" for f in new_features_set]) if new_features_set else "Access to all features in your new plan"
         
-        upgrade_subject, upgrade_body = get_subscription_upgrade_email(
-            school_name=school.name,
-            previous_plan=previous_plan,
-            plan_name=new_plan,
-            upgrade_date=upgrade_date,
-            price=plan_info.get("price", "Contact Sales"),
-            billing_cycle="month",
-            new_features=new_features or "Enhanced features and capabilities",
-            removed_limitations="Increased student and staff limits",
-            new_usage_limits=usage_limits,
-            new_resources="Check dashboard for training materials",
-            feature_highlights="Your school can now do more with EduPulse SMT",
-            support_email="support@edupulse.com",
-            support_phone="+233-XXX-XXX-XXXX",
-            next_billing_date=next_billing_date,
-            invoice_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/billing/invoices"
-        )
-        
-        if upgrade_subject and upgrade_body:
-            send_email_notification(
-                to_email=proprietor.email,
-                subject=upgrade_subject,
-                body=upgrade_body,
-                attachments=IMPORT_TEMPLATE_ATTACHMENTS,
-            )
-        
-        logger.info(f"School {g.school_id} upgraded from {previous_plan} to {new_plan}")
+        logger.info(f"School {g.school_id} changed plan from {previous_plan} to {new_plan}")
         return jsonify({
-            "message": f"Upgraded to {new_plan} successfully.",
+            "message": f"Plan changed to {new_plan} successfully.",
             "plan": new_plan,
+            "base_plan": new_plan,
             "next_billing_date": next_billing_date
         })
         
@@ -17308,10 +17600,12 @@ def get_academic_terms():
             AcademicTerm.academic_year.desc(),
             AcademicTerm.name.asc()
         ).all()
+        suggested_academic_year = get_recommended_published_national_basic_academic_year()
         
         return jsonify({
             "terms": [term.to_dict() for term in terms],
-            "count": len(terms)
+            "count": len(terms),
+            "suggested_academic_year": suggested_academic_year,
         }), 200
         
     except Exception as e:
@@ -17338,6 +17632,85 @@ def get_active_term():
     except Exception as e:
         logger.error(f"Get active term error: {str(e)}")
         return jsonify({"message": f"Failed to retrieve active term: {str(e)}"}), 500
+
+
+@api.route("/school/terms/import-national-calendar", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "headmaster")
+def import_national_calendar_terms():
+    """Import published national basic-school term windows for an academic year."""
+    try:
+        data = request.json or {}
+        academic_year = (data.get("academic_year") or "").strip() or get_recommended_published_national_basic_academic_year()
+        if not academic_year:
+            return jsonify({"message": "No published national calendar is available yet."}), 404
+
+        published_terms = get_published_national_basic_term_windows(academic_year)
+        if not published_terms:
+            return jsonify({"message": f"No published national calendar found for {academic_year}"}), 404
+
+        created_terms = []
+        skipped_terms = []
+        active_term = AcademicTerm.query.filter_by(school_id=g.school_id, is_active=True).first()
+        today = date.today()
+        creator_id = get_jwt_identity()
+
+        for term_window in published_terms:
+            existing = AcademicTerm.query.filter_by(
+                school_id=g.school_id,
+                academic_year=academic_year,
+                name=term_window["name"],
+            ).first()
+
+            if existing:
+                skipped_terms.append(existing.name)
+                continue
+
+            should_activate = (
+                active_term is None
+                and term_window["start_date"] <= today <= term_window["end_date"]
+            )
+            new_term = AcademicTerm(
+                school_id=g.school_id,
+                name=term_window["name"],
+                academic_year=academic_year,
+                start_date=term_window["start_date"],
+                end_date=term_window["end_date"],
+                billing_due_date=term_window.get("reopening_date"),
+                is_active=should_activate,
+                created_by=creator_id,
+            )
+            db.session.add(new_term)
+            created_terms.append(new_term)
+            if should_activate:
+                active_term = new_term
+
+        db.session.commit()
+
+        status_code = 201 if created_terms else 200
+        return (
+            jsonify(
+                {
+                    "message": (
+                        f"Imported {len(created_terms)} published term(s) for {academic_year}"
+                        if created_terms
+                        else f"Published terms for {academic_year} are already in your calendar"
+                    ),
+                    "academic_year": academic_year,
+                    "created_count": len(created_terms),
+                    "skipped_count": len(skipped_terms),
+                    "created_terms": [term.to_dict() for term in created_terms],
+                    "skipped_terms": skipped_terms,
+                }
+            ),
+            status_code,
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Import national calendar terms error: {str(e)}")
+        return jsonify({"message": f"Failed to import national calendar terms: {str(e)}"}), 500
 
 
 @api.route("/school/terms", methods=["POST"])
@@ -18307,7 +18680,7 @@ def impersonate_proprietor(school_id):
 @api.route("/admin/school/<school_id>/trial", methods=["POST"])
 @jwt_required()
 def grant_school_trial(school_id):
-    """Super Admin: Grant a term-bound trial plan to a school."""
+    """Super Admin: Grant a 30-day trial plan to a school."""
     user_id = get_jwt_identity()
     user = User.query.get(user_id)
     if user.role != "super_admin":
@@ -18317,10 +18690,9 @@ def grant_school_trial(school_id):
     trial_plan = data.get("trial_plan", "Premium")
 
     school = School.query.get_or_404(school_id)
-    term_reference = get_current_trial_term_reference(school.id)
-    trial_end = _term_reference_to_end_datetime(term_reference)
-    if not term_reference or not trial_end:
-        return jsonify({"message": "Unable to resolve the current term window for this school."}), 400
+    term_reference = get_current_term_reference(school.id)
+    trial_start = datetime.now(timezone.utc)
+    trial_end = trial_start + timedelta(days=30)
 
     school.trial_plan = trial_plan
     school.trial_end_date = trial_end
@@ -18328,13 +18700,13 @@ def grant_school_trial(school_id):
     school.subscription_status = "Trial"
     db.session.commit()
 
-    log_action(user.id, school.id, "ADMIN_TRIAL_GRANT", f"Granted {trial_plan} trial for {term_reference.get('name')} {term_reference.get('academic_year')} to school {school.id}")
+    log_action(user.id, school.id, "ADMIN_TRIAL_GRANT", f"Granted 30-day {trial_plan} trial to school {school.id}")
 
     return jsonify(
         {
-            "message": f"Trial granted: {trial_plan} until the end of {term_reference.get('name')} {term_reference.get('academic_year')}",
+            "message": f"Trial granted: {trial_plan} for 30 days",
             "trial_plan": school.trial_plan,
-            "trial_start": term_reference.get("start_date").isoformat() if term_reference.get("start_date") else None,
+            "trial_start": trial_start.isoformat(),
             "trial_end": school.trial_end_date.strftime("%Y-%m-%d"),
             "term_name": term_reference.get("name"),
             "academic_year": term_reference.get("academic_year"),
@@ -18730,7 +19102,7 @@ def admin_send_trial_reminders():
 def paystack_initialize_payment():
     """
     Initialize a payment transaction with Paystack for subscription billing.
-    Includes PRORATED BILLING for mid-term upgrades!
+    Includes PRORATED BILLING for mid-term upgrades and post-trial conversions.
     
     Calculation:
     - Full Cost = Students × Price/Student × Terms
@@ -18749,16 +19121,13 @@ def paystack_initialize_payment():
         data = request.get_json()
         plan_name = data.get('plan_name')
         billing_period = data.get('billing_period', 'term')  # 'term' or 'annual'
-        default_student_count = Student.query.filter_by(school_id=school.id).count()
+        default_student_count = _count_active_students_for_billing(school.id)
         student_count = data.get('student_count', default_student_count)
         amount_cedis = data.get('amount_cedis')
         email = data.get('email') or user.email
         
         if not plan_name or not email:
             return jsonify({"message": "Missing required fields: plan_name, email"}), 400
-        
-        if not amount_cedis or amount_cedis <= 0:
-            return jsonify({"message": "Invalid amount"}), 400
         
         # Model A Pricing: Base Fee + Included Students + Overage
         pricing = {
@@ -18785,18 +19154,19 @@ def paystack_initialize_payment():
         overage_count = max(0, student_count - included)
         term_cost = base_fee + (overage_count * plan_config['overage_rate'])
         full_cost = term_cost * terms
+        amount_cedis = float(amount_cedis or full_cost)
         
-        # ===== PRORATION LOGIC FOR MID-TERM UPGRADES =====
-        # Calculate remaining days in current billing period
-        days_per_term = 120  # ~4 months
         now = datetime.now(timezone.utc)
+        term_proration = get_term_proration_context(school.id, now=now) if billing_period == 'term' else {}
+        days_per_term = max(1, int(term_proration.get('days_in_term') or 120))
         
         # Get days remaining until next billing
         proration_data = {
             'is_prorated': False,
             'days_remaining': days_per_term,
             'days_in_period': days_per_term,
-            'proration_ratio': 1.0
+            'proration_ratio': 1.0,
+            'calculation_source': 'standard',
         }
         
         next_billing_date = school.next_billing_date
@@ -18805,7 +19175,10 @@ def paystack_initialize_payment():
 
         if next_billing_date and next_billing_date > now:
             # Calculate days remaining in current billing period
-            days_remaining = (next_billing_date - now).days
+            if billing_period == 'term':
+                days_remaining = max(1, (next_billing_date.date() - now.date()).days + 1)
+            else:
+                days_remaining = max(0, (next_billing_date - now).days)
             
             if days_remaining < days_per_term:
                 # Mid-term upgrade detected
@@ -18817,9 +19190,41 @@ def paystack_initialize_payment():
                     'days_in_period': days_per_term,
                     'proration_ratio': round(proration_ratio, 2),
                     'full_cost': round(full_cost, 2),
-                    'prorated_cost': round(prorated_cost, 2)
+                    'prorated_cost': round(prorated_cost, 2),
+                    'calculation_source': 'existing_cycle',
+                }
+                if billing_period == 'term':
+                    proration_data.update({
+                        'term_name': term_proration.get('term_name'),
+                        'academic_year': term_proration.get('academic_year'),
+                        'reference_source': term_proration.get('reference_source'),
+                    })
+                amount_cedis = prorated_cost
+        elif billing_period == 'term' and (school.subscription_plan or 'Free Tier') == 'Free Tier':
+            days_remaining = term_proration.get('days_remaining')
+            days_in_period = term_proration.get('days_in_term')
+            term_end_date = term_proration.get('term_end_date')
+
+            if days_remaining and days_in_period and days_remaining < days_in_period:
+                proration_ratio = max(0.0, min(1.0, days_remaining / float(days_in_period)))
+                prorated_cost = term_cost * proration_ratio
+                proration_data = {
+                    'is_prorated': True,
+                    'days_remaining': days_remaining,
+                    'days_in_period': days_in_period,
+                    'proration_ratio': round(proration_ratio, 2),
+                    'full_cost': round(term_cost, 2),
+                    'prorated_cost': round(prorated_cost, 2),
+                    'term_name': term_proration.get('term_name'),
+                    'academic_year': term_proration.get('academic_year'),
+                    'reference_source': term_proration.get('reference_source'),
+                    'next_billing_date_override': term_end_date,
+                    'calculation_source': 'current_term_remaining',
                 }
                 amount_cedis = prorated_cost
+
+        if amount_cedis <= 0:
+            return jsonify({"message": "Invalid amount"}), 400
         
         # Verify calculation (security check) - with tolerance for proration
         expected_cost = full_cost
@@ -19257,8 +19662,7 @@ def initialize_termly_payment():
             return jsonify({"message": "Proprietor email not found"}), 400
         
         # Get current student count
-        from backend.api.models import Student
-        num_students = Student.query.filter_by(school_id=g.school_id, status='Active').count()
+        num_students = _count_active_students_for_billing(g.school_id)
         
         if num_students == 0:
             return jsonify({"message": "No students enrolled. Add students before subscribing."}), 400

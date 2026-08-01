@@ -16,6 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from backend import settings as app_settings
 from backend.middleware import limiter, run_billing_enforcement_sweep
+from backend.schema_management import upgrade_database_to_head
 
 from .models import School, StudentGrade, User, db
 
@@ -218,15 +219,15 @@ limiter.init_app(app)
 # IMPORTANT: Initialize the DB with the App
 db.init_app(app)
 
-# Create tables if they don't exist (prevents 500 error on fresh start).
-# Skip in tests where fixtures manage the database lifecycle.
+# Optionally apply migrations on startup for local/dev recovery.
+# Tests and dedicated migration roles manage schema lifecycle elsewhere.
 if (
     os.getenv("ALLOW_CREATE_ALL") == "1"
     and os.getenv("ALEMBIC_RUNNING") != "1"
     and os.getenv("FLASK_ENV") != "testing"
 ):
     with app.app_context():
-        db.create_all()
+        upgrade_database_to_head()
 
 mail = Mail(app)
 jwt = JWTManager(app)

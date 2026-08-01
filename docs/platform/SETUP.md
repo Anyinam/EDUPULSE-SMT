@@ -61,15 +61,18 @@ Use one of these models:
 
 ### 4. Initialize Database
 
-Note: The default dev SQLite database is `edupulse.db` in the workspace root.
-For dev-only bootstrapping without Alembic, set `ALLOW_CREATE_ALL=1`.
+Note: The default dev SQLite database is `instance/edupulse.db`.
+The current local reset and seed flows rebuild the schema from Alembic migrations before inserting demo data.
 
 ```bash
-# Run seed script to create initial data
+# Apply migrations explicitly when needed
+alembic upgrade head
+
+# Run seed script to rebuild and create demo data
 python backend/seed.py
 
-# Or use Alembic for migrations (if set up)
-# alembic upgrade head
+# Optional empty-schema reset (drops local data and rebuilds from migrations)
+python backend/reset_db.py
 ```
 
 ### 5. Start Backend
@@ -109,24 +112,32 @@ npm run dev
 **School:** CCA-OFK
 ```
 Proprietor:
-- Username: proprietor
+- Username: proprietor_cca
 - Password: cca2026
 
 Homeroom Teacher:
-- Username: homeroom1
+- Username: homeroom_teacher
 - Password: homeroom123
 
 Subject Teacher:
-- Username: teacher1
+- Username: subject_teacher
 - Password: subject123
 
 Headmaster:
-- Username: headmaster
+- Username: headmaster_cca
 - Password: headmaster123
 
+Finance Officer:
+- Username: finance_cca
+- Password: finance123
+
 Kitchen Staff:
-- Username: kitchen1
+- Username: kitchen_staff
 - Password: kitchen123
+
+Store Manager:
+- Username: store_manager
+- Password: store123
 ```
 
 ---
@@ -173,12 +184,15 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 pytest tests/ -v
 
 # Database migrations
-# Prevent Flask from auto-creating tables during Alembic runs
-FLASK_ENV=testing ALEMBIC_RUNNING=1 alembic upgrade head
+# Local schema lifecycle is Alembic-first
+alembic upgrade head
 alembic downgrade -1
 
-# Generate test data
+# Generate test/demo data (rebuilds schema from migrations first)
 python backend/seed.py
+
+# Rebuild empty local schema from migrations
+python backend/reset_db.py
 
 # Check database
 psql -U edupulse_user -d edupulse_db
@@ -208,6 +222,9 @@ npm install -D dev-package-name
 ```bash
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
 python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('LEDGER_SECRET_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('BANK_WEBHOOK_SECRET=' + secrets.token_urlsafe(32))"
+python3 -c "from cryptography.fernet import Fernet; print('DATA_ENCRYPTION_KEY=' + Fernet.generate_key().decode())"
 ```
 
 ### Gmail App Password
@@ -235,6 +252,20 @@ TRUST_PROXY_HEADERS=true
 ```
 
 For local development, localhost defaults are still supported when `FLASK_ENV` is not production.
+
+### Runtime Roles
+
+Production and container runtime now support explicit app roles:
+
+```bash
+APP_ROLE=web
+APP_ROLE=scheduler
+APP_ROLE=migrate
+```
+
+- `web` serves the API
+- `scheduler` runs background jobs such as trial and reconciliation sweeps
+- `migrate` applies Alembic migrations and exits
 
 ---
 
