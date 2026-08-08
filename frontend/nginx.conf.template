@@ -1,6 +1,7 @@
 server {
     listen 80;
     client_max_body_size 5m;
+    resolver 127.0.0.11 valid=30s;
 
     location / {
         root /usr/share/nginx/html;
@@ -9,7 +10,8 @@ server {
     }
 
     location /api {
-        proxy_pass ${API_UPSTREAM_URL};
+        set $api_upstream ${API_UPSTREAM_URL};
+        proxy_pass $api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

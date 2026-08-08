@@ -1,6 +1,7 @@
 import os
 import sys
 import base64
+import json
 import shutil
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -21,6 +22,9 @@ from backend.api.models import (
     SchoolSettings,
     SchoolVerification,
     Student,
+    StudentGrade,
+    TeacherAssignment,
+    Timetable,
     User,
     add_ledger_entry,
     db,
@@ -70,6 +74,119 @@ def _write_demo_document(instance_path, folder_name, school_id, document_id, ori
         "content_type": content_type,
         "size_bytes": os.path.getsize(file_path),
     }
+
+
+def _seed_exam_intelligence_demo(instance_path, school_id, settings, uploaded_by_user_id):
+    school_dir = _reset_school_storage(instance_path, "exam-intelligence", school_id)
+
+    latest_rows = [
+        {"candidate_identifier": "S006", "candidate_name": "Akua Owusu", "class_name": "JHS 2", "gender": "Female", "subject": "Mathematics", "score": 88.0, "grade": "A1"},
+        {"candidate_identifier": "S006", "candidate_name": "Akua Owusu", "class_name": "JHS 2", "gender": "Female", "subject": "Science", "score": 79.0, "grade": "B2"},
+        {"candidate_identifier": "S007", "candidate_name": "Kojo Asante", "class_name": "JHS 2", "gender": "Male", "subject": "Mathematics", "score": 72.0, "grade": "B3"},
+        {"candidate_identifier": "S007", "candidate_name": "Kojo Asante", "class_name": "JHS 2", "gender": "Male", "subject": "Science", "score": 64.0, "grade": "C4"},
+        {"candidate_identifier": "S008", "candidate_name": "Ama Tetteh", "class_name": "JHS 2", "gender": "Female", "subject": "Mathematics", "score": 81.0, "grade": "B2"},
+        {"candidate_identifier": "S008", "candidate_name": "Ama Tetteh", "class_name": "JHS 2", "gender": "Female", "subject": "Science", "score": 73.0, "grade": "B3"},
+        {"candidate_identifier": "S009", "candidate_name": "Kwesi Darko", "class_name": "JHS 2", "gender": "Male", "subject": "Mathematics", "score": 69.0, "grade": "C4"},
+        {"candidate_identifier": "S009", "candidate_name": "Kwesi Darko", "class_name": "JHS 2", "gender": "Male", "subject": "Science", "score": 61.0, "grade": "C5"},
+    ]
+    previous_rows = [
+        {"candidate_identifier": "S006", "candidate_name": "Akua Owusu", "class_name": "JHS 2", "gender": "Female", "subject": "Mathematics", "score": 84.0, "grade": "A1"},
+        {"candidate_identifier": "S006", "candidate_name": "Akua Owusu", "class_name": "JHS 2", "gender": "Female", "subject": "Science", "score": 75.0, "grade": "B2"},
+        {"candidate_identifier": "S007", "candidate_name": "Kojo Asante", "class_name": "JHS 2", "gender": "Male", "subject": "Mathematics", "score": 68.0, "grade": "C4"},
+        {"candidate_identifier": "S007", "candidate_name": "Kojo Asante", "class_name": "JHS 2", "gender": "Male", "subject": "Science", "score": 59.0, "grade": "C5"},
+        {"candidate_identifier": "S008", "candidate_name": "Ama Tetteh", "class_name": "JHS 2", "gender": "Female", "subject": "Mathematics", "score": 77.0, "grade": "B3"},
+        {"candidate_identifier": "S008", "candidate_name": "Ama Tetteh", "class_name": "JHS 2", "gender": "Female", "subject": "Science", "score": 69.0, "grade": "C4"},
+        {"candidate_identifier": "S009", "candidate_name": "Kwesi Darko", "class_name": "JHS 2", "gender": "Male", "subject": "Mathematics", "score": 64.0, "grade": "C4"},
+        {"candidate_identifier": "S009", "candidate_name": "Kwesi Darko", "class_name": "JHS 2", "gender": "Male", "subject": "Science", "score": 57.0, "grade": "C5"},
+    ]
+
+    demo_files = [
+        {
+            "batch_id": "demo_bece_2025_2026",
+            "academic_year": "2025/2026",
+            "exam_type": "BECE",
+            "source_filename": "demo-bece-2025-2026.csv",
+            "stored_filename": "demo_bece_2025_2026_demo-bece-2025-2026.csv",
+            "parsed_rows_filename": "demo_bece_2025_2026_rows.json",
+            "rows": latest_rows,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "source_format": "csv",
+            "parse_mode": "csv",
+        },
+        {
+            "batch_id": "demo_bece_2024_2025",
+            "academic_year": "2024/2025",
+            "exam_type": "BECE",
+            "source_filename": "demo-bece-2024-2025.csv",
+            "stored_filename": "demo_bece_2024_2025_demo-bece-2024-2025.csv",
+            "parsed_rows_filename": "demo_bece_2024_2025_rows.json",
+            "rows": previous_rows,
+            "uploaded_at": (datetime.now(timezone.utc) - timedelta(days=90)).isoformat(),
+            "source_format": "csv",
+            "parse_mode": "csv",
+        },
+    ]
+
+    imports = []
+    for file_info in demo_files:
+        csv_lines = ["candidate_id,candidate_name,class_name,gender,subject,score,grade"]
+        for row in file_info["rows"]:
+            csv_lines.append(
+                ",".join([
+                    str(row["candidate_identifier"]),
+                    row["candidate_name"],
+                    row["class_name"],
+                    row["gender"],
+                    row["subject"],
+                    str(row["score"]),
+                    row["grade"],
+                ])
+            )
+        with open(os.path.join(school_dir, file_info["stored_filename"]), "w", encoding="utf-8") as handle:
+            handle.write("\n".join(csv_lines) + "\n")
+        with open(os.path.join(school_dir, file_info["parsed_rows_filename"]), "w", encoding="utf-8") as handle:
+            json.dump({"rows": file_info["rows"]}, handle)
+
+        subject_buckets = {}
+        for row in file_info["rows"]:
+            bucket = subject_buckets.setdefault(row["subject"], {"scores": [], "passes": 0, "entries": 0})
+            bucket["scores"].append(float(row["score"]))
+            bucket["entries"] += 1
+            if float(row["score"]) >= 50:
+                bucket["passes"] += 1
+        subject_summaries = []
+        for subject_name, bucket in sorted(subject_buckets.items()):
+            subject_summaries.append({
+                "subject": subject_name,
+                "average_score": round(sum(bucket["scores"]) / len(bucket["scores"]), 2),
+                "pass_rate": round((bucket["passes"] / bucket["entries"]) * 100, 2),
+                "entries": bucket["entries"],
+            })
+
+        imports.append({
+            "id": file_info["batch_id"],
+            "exam_type": file_info["exam_type"],
+            "academic_year": file_info["academic_year"],
+            "source_filename": file_info["source_filename"],
+            "stored_filename": file_info["stored_filename"],
+            "parsed_rows_filename": file_info["parsed_rows_filename"],
+            "source_format": file_info["source_format"],
+            "parse_mode": file_info["parse_mode"],
+            "uploaded_at": file_info["uploaded_at"],
+            "uploaded_by": uploaded_by_user_id,
+            "candidate_count": len({row["candidate_identifier"] for row in file_info["rows"]}),
+            "subject_entry_count": len(file_info["rows"]),
+            "average_score": round(sum(float(row["score"]) for row in file_info["rows"]) / len(file_info["rows"]), 2),
+            "pass_rate": round((sum(1 for row in file_info["rows"] if float(row["score"]) >= 50) / len(file_info["rows"])) * 100, 2),
+            "subject_summaries": subject_summaries,
+        })
+
+    report_config = json.loads(json.dumps(settings.report_template_config or {})) if isinstance(settings.report_template_config, dict) else {}
+    global_settings = report_config.get("__global_report_settings__") or {}
+    global_settings["exam_intelligence"] = {"imports": imports}
+    global_settings["teacher_class_level_exam_summaries_enabled"] = True
+    report_config["__global_report_settings__"] = global_settings
+    settings.report_template_config = report_config
 
 
 def _build_demo_student_document_manifest(instance_path, school_id, student_code, uploaded_by_user_id):
@@ -263,6 +380,106 @@ def seed_everything():
             [boss, homeroom, subject_teacher, headmaster, finance, kitchen, store_manager]
         )
         db.session.flush()
+
+        db.session.add_all(
+            [
+                TeacherAssignment(
+                    school_id="CCA-OFK",
+                    teacher_id=homeroom.id,
+                    class_name="JHS 1",
+                    subject_name="English Language",
+                ),
+                TeacherAssignment(
+                    school_id="CCA-OFK",
+                    teacher_id=homeroom.id,
+                    class_name="JHS 1",
+                    subject_name="Social Studies",
+                ),
+                TeacherAssignment(
+                    school_id="CCA-OFK",
+                    teacher_id=homeroom.id,
+                    class_name="JHS 3",
+                    subject_name="English Language",
+                ),
+                TeacherAssignment(
+                    school_id="CCA-OFK",
+                    teacher_id=subject_teacher.id,
+                    class_name="JHS 2",
+                    subject_name="Mathematics",
+                ),
+                TeacherAssignment(
+                    school_id="CCA-OFK",
+                    teacher_id=subject_teacher.id,
+                    class_name="JHS 2",
+                    subject_name="Science",
+                ),
+            ]
+        )
+
+        db.session.add_all(
+            [
+                Timetable(
+                    school_id="CCA-OFK",
+                    class_name="JHS 1",
+                    subject_name="English Language",
+                    teacher_id=homeroom.id,
+                    day_of_week="Monday",
+                    start_time="09:00",
+                    end_time="10:00",
+                    location="Room 1",
+                ),
+                Timetable(
+                    school_id="CCA-OFK",
+                    class_name="JHS 1",
+                    subject_name="Social Studies",
+                    teacher_id=homeroom.id,
+                    day_of_week="Wednesday",
+                    start_time="11:00",
+                    end_time="12:00",
+                    location="Room 1",
+                ),
+                Timetable(
+                    school_id="CCA-OFK",
+                    class_name="JHS 3",
+                    subject_name="English Language",
+                    teacher_id=homeroom.id,
+                    day_of_week="Friday",
+                    start_time="08:00",
+                    end_time="09:00",
+                    location="Room 6",
+                ),
+                Timetable(
+                    school_id="CCA-OFK",
+                    class_name="JHS 2",
+                    subject_name="Mathematics",
+                    teacher_id=subject_teacher.id,
+                    day_of_week="Monday",
+                    start_time="08:00",
+                    end_time="09:00",
+                    location="Room 3",
+                ),
+                Timetable(
+                    school_id="CCA-OFK",
+                    class_name="JHS 2",
+                    subject_name="Science",
+                    teacher_id=subject_teacher.id,
+                    day_of_week="Tuesday",
+                    start_time="10:00",
+                    end_time="11:00",
+                    location="Science Lab",
+                ),
+                Timetable(
+                    school_id="CCA-OFK",
+                    class_name="JHS 2",
+                    subject_name="Mathematics",
+                    teacher_id=subject_teacher.id,
+                    day_of_week="Thursday",
+                    start_time="09:00",
+                    end_time="10:00",
+                    location="Room 3",
+                ),
+            ]
+        )
 
         cca.trial_plan = "Premium"
         cca.trial_end_date = datetime.now(timezone.utc) + timedelta(days=30)
@@ -459,6 +676,7 @@ def seed_everything():
             missed = Payment(
                 student_id=abena.id,
                 school_id="CCA-OFK",
+                created_by_user_id=homeroom.id,
                 amount=5.0,
                 payment_type="Feeding",
                 method="Bank",
@@ -486,6 +704,7 @@ def seed_everything():
         abena_feeding = Payment(
             student_id=abena.id,
             school_id="CCA-OFK",
+            created_by_user_id=kitchen.id,
             amount=100.0,
             payment_type="Feeding",
             method="Cash",
@@ -500,6 +719,7 @@ def seed_everything():
         abena_uniform = Payment(
             student_id=abena.id,
             school_id="CCA-OFK",
+            created_by_user_id=store_manager.id,
             amount=150.0,
             payment_type="Uniform",
             method="Cash",
@@ -610,6 +830,7 @@ def seed_everything():
         abena_inventory = Payment(
             student_id=abena.id,
             school_id="CCA-OFK",
+            created_by_user_id=store_manager.id,
             amount=120.0,
             payment_type="Inventory",
             method="Cash",
@@ -630,6 +851,7 @@ def seed_everything():
         kofi_report_fee = Payment(
             student_id=kofi.id,
             school_id="CCA-OFK",
+            created_by_user_id=finance.id,
             amount=50.0,
             payment_type="Terminal Report",
             method="Cash",
@@ -648,6 +870,24 @@ def seed_everything():
             academic_year="2025/2026",
             class_name="JHS 1",
             term_average=78.5,
+            subject_grades=[
+                {
+                    "subject": "Mathematics",
+                    "total": 84,
+                    "diagnostic_topics": [
+                        {"topic": "Geometry", "score": 6, "max_score": 15},
+                        {"topic": "Algebra", "score": 9, "max_score": 12},
+                    ],
+                },
+                {
+                    "subject": "Science",
+                    "total": 76,
+                    "diagnostic_topics": [
+                        {"topic": "Scientific Units", "score": 6, "max_score": 10},
+                        {"topic": "Energy Transfer", "score": 8, "max_score": 10},
+                    ],
+                },
+            ],
             overall_position="3rd",
             out_of_students=25,
             status="Published",
@@ -659,6 +899,24 @@ def seed_everything():
             academic_year="2025/2026",
             class_name="JHS 1",
             term_average=62.0,
+            subject_grades=[
+                {
+                    "subject": "Mathematics",
+                    "total": 62,
+                    "diagnostic_topics": [
+                        {"topic": "Geometry", "score": 4, "max_score": 15},
+                        {"topic": "Fractions", "score": 5, "max_score": 12},
+                    ],
+                },
+                {
+                    "subject": "Science",
+                    "total": 58,
+                    "diagnostic_topics": [
+                        {"topic": "Scientific Units", "score": 3, "max_score": 10},
+                        {"topic": "Energy Transfer", "score": 4, "max_score": 10},
+                    ],
+                },
+            ],
             overall_position="12th",
             out_of_students=25,
             status="Published",
@@ -763,6 +1021,38 @@ def seed_everything():
             efua, kofi_jhs3, adwoa, kwabena, afua
         ])
         db.session.commit()  # Commit to get student IDs
+
+        db.session.add_all(
+            [
+                Payment(
+                    student_id=akua.id,
+                    school_id="CCA-OFK",
+                    created_by_user_id=finance.id,
+                    amount=80.0,
+                    payment_type="Tuition",
+                    method="Cash",
+                    status="Pending",
+                    payment_category={"term": "Term 2"},
+                    date_paid=datetime.now(timezone.utc),
+                ),
+                Payment(
+                    student_id=kwabena.id,
+                    school_id="CCA-OFK",
+                    created_by_user_id=store_manager.id,
+                    amount=90.0,
+                    payment_type="Inventory",
+                    method="Cash",
+                    status="Pending",
+                    payment_category={
+                        "item_name": "Mathematics Textbook",
+                        "item_type": "Textbook",
+                        "sku": "MATHJHS",
+                        "quantity": 1,
+                    },
+                    date_paid=datetime.now(timezone.utc),
+                ),
+            ]
+        )
         
         # 9c. Create Report Cards for multiple terms to test Class Performance Analytics
         report_cards = []
@@ -939,6 +1229,295 @@ def seed_everything():
         ])
         
         db.session.add_all(report_cards)
+
+        db.session.add_all([
+            StudentGrade(
+                student_id=akua.id,
+                subject_name="Mathematics",
+                class_name="JHS 2",
+                class_score=25.0,
+                exam_score=63.0,
+                total_score=88.0,
+                is_finalized=True,
+                remarks="Excellent",
+                diagnostic_topics=[
+                    {"topic": "Geometry", "score": 10, "max_score": 15},
+                    {"topic": "Algebra", "score": 10, "max_score": 12},
+                ],
+            ),
+            StudentGrade(
+                student_id=akua.id,
+                subject_name="Science",
+                class_name="JHS 2",
+                class_score=23.0,
+                exam_score=56.0,
+                total_score=79.0,
+                is_finalized=True,
+                remarks="Very Good",
+                diagnostic_topics=[
+                    {"topic": "Scientific Units", "score": 7, "max_score": 10},
+                    {"topic": "Energy Transfer", "score": 8, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=kojo.id,
+                subject_name="Mathematics",
+                class_name="JHS 2",
+                class_score=21.0,
+                exam_score=51.0,
+                total_score=72.0,
+                is_finalized=True,
+                remarks="Very Good",
+                diagnostic_topics=[
+                    {"topic": "Geometry", "score": 5, "max_score": 15},
+                    {"topic": "Fractions", "score": 6, "max_score": 12},
+                ],
+            ),
+            StudentGrade(
+                student_id=kojo.id,
+                subject_name="Science",
+                class_name="JHS 2",
+                class_score=18.0,
+                exam_score=46.0,
+                total_score=64.0,
+                is_finalized=True,
+                remarks="Good",
+                diagnostic_topics=[
+                    {"topic": "Scientific Units", "score": 4, "max_score": 10},
+                    {"topic": "Forces", "score": 5, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=ama.id,
+                subject_name="Mathematics",
+                class_name="JHS 2",
+                class_score=24.0,
+                exam_score=57.0,
+                total_score=81.0,
+                is_finalized=True,
+                remarks="Excellent",
+                diagnostic_topics=[
+                    {"topic": "Geometry", "score": 8, "max_score": 15},
+                    {"topic": "Word Problems", "score": 7, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=ama.id,
+                subject_name="Science",
+                class_name="JHS 2",
+                class_score=22.0,
+                exam_score=51.0,
+                total_score=73.0,
+                is_finalized=True,
+                remarks="Very Good",
+                diagnostic_topics=[
+                    {"topic": "Scientific Units", "score": 6, "max_score": 10},
+                    {"topic": "Energy Transfer", "score": 6, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=kwesi.id,
+                subject_name="Mathematics",
+                class_name="JHS 2",
+                class_score=20.0,
+                exam_score=49.0,
+                total_score=69.0,
+                is_finalized=True,
+                remarks="Good",
+                diagnostic_topics=[
+                    {"topic": "Geometry", "score": 4, "max_score": 15},
+                    {"topic": "Fractions", "score": 5, "max_score": 12},
+                ],
+            ),
+            StudentGrade(
+                student_id=kwesi.id,
+                subject_name="Science",
+                class_name="JHS 2",
+                class_score=18.0,
+                exam_score=43.0,
+                total_score=61.0,
+                is_finalized=True,
+                remarks="Good",
+                diagnostic_topics=[
+                    {"topic": "Scientific Units", "score": 3, "max_score": 10},
+                    {"topic": "Forces", "score": 5, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=kofi.id,
+                subject_name="English Language",
+                class_name="JHS 1",
+                class_score=24.0,
+                exam_score=54.0,
+                total_score=78.0,
+                is_finalized=True,
+                remarks="Very Good",
+                diagnostic_topics=[
+                    {"topic": "Comprehension", "score": 8, "max_score": 10},
+                    {"topic": "Grammar", "score": 6, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=abena.id,
+                subject_name="English Language",
+                class_name="JHS 1",
+                class_score=19.0,
+                exam_score=40.0,
+                total_score=59.0,
+                is_finalized=True,
+                remarks="Pass",
+                diagnostic_topics=[
+                    {"topic": "Comprehension", "score": 4, "max_score": 10},
+                    {"topic": "Grammar", "score": 3, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=kwame.id,
+                subject_name="English Language",
+                class_name="JHS 1",
+                class_score=26.0,
+                exam_score=58.0,
+                total_score=84.0,
+                is_finalized=True,
+                remarks="Excellent",
+                diagnostic_topics=[
+                    {"topic": "Comprehension", "score": 9, "max_score": 10},
+                    {"topic": "Essay Writing", "score": 8, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=esi.id,
+                subject_name="English Language",
+                class_name="JHS 1",
+                class_score=22.0,
+                exam_score=49.0,
+                total_score=71.0,
+                is_finalized=True,
+                remarks="Very Good",
+                diagnostic_topics=[
+                    {"topic": "Comprehension", "score": 6, "max_score": 10},
+                    {"topic": "Grammar", "score": 5, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=yaw.id,
+                subject_name="English Language",
+                class_name="JHS 1",
+                class_score=20.0,
+                exam_score=45.0,
+                total_score=65.0,
+                is_finalized=True,
+                remarks="Good",
+                diagnostic_topics=[
+                    {"topic": "Comprehension", "score": 5, "max_score": 10},
+                    {"topic": "Grammar", "score": 4, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=efua.id,
+                subject_name="English Language",
+                class_name="JHS 3",
+                class_score=27.0,
+                exam_score=61.0,
+                total_score=88.0,
+                is_finalized=True,
+                remarks="Excellent",
+                diagnostic_topics=[
+                    {"topic": "Summary Writing", "score": 9, "max_score": 10},
+                    {"topic": "Grammar", "score": 8, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=kofi_jhs3.id,
+                subject_name="English Language",
+                class_name="JHS 3",
+                class_score=24.0,
+                exam_score=55.0,
+                total_score=79.0,
+                is_finalized=True,
+                remarks="Very Good",
+                diagnostic_topics=[
+                    {"topic": "Summary Writing", "score": 7, "max_score": 10},
+                    {"topic": "Grammar", "score": 6, "max_score": 10},
+                ],
+            ),
+            StudentGrade(
+                student_id=adwoa.id,
+                subject_name="English Language",
+                class_name="JHS 3",
+                class_score=25.0,
+                exam_score=58.0,
+                total_score=83.0,
+                is_finalized=True,
+                remarks="Excellent",
+                diagnostic_topics=[
+                    {"topic": "Summary Writing", "score": 8, "max_score": 10},
+                    {"topic": "Grammar", "score": 7, "max_score": 10},
+                ],
+            ),
+        ])
+
+        latest_jhs2_subject_grades = {
+            akua.id: [
+                {"subject": "Mathematics", "total": 88, "diagnostic_topics": [{"topic": "Geometry", "score": 10, "max_score": 15}, {"topic": "Algebra", "score": 10, "max_score": 12}]},
+                {"subject": "Science", "total": 79, "diagnostic_topics": [{"topic": "Scientific Units", "score": 7, "max_score": 10}, {"topic": "Energy Transfer", "score": 8, "max_score": 10}]},
+            ],
+            kojo.id: [
+                {"subject": "Mathematics", "total": 72, "diagnostic_topics": [{"topic": "Geometry", "score": 5, "max_score": 15}, {"topic": "Fractions", "score": 6, "max_score": 12}]},
+                {"subject": "Science", "total": 64, "diagnostic_topics": [{"topic": "Scientific Units", "score": 4, "max_score": 10}, {"topic": "Forces", "score": 5, "max_score": 10}]},
+            ],
+            ama.id: [
+                {"subject": "Mathematics", "total": 81, "diagnostic_topics": [{"topic": "Geometry", "score": 8, "max_score": 15}, {"topic": "Word Problems", "score": 7, "max_score": 10}]},
+                {"subject": "Science", "total": 73, "diagnostic_topics": [{"topic": "Scientific Units", "score": 6, "max_score": 10}, {"topic": "Energy Transfer", "score": 6, "max_score": 10}]},
+            ],
+            kwesi.id: [
+                {"subject": "Mathematics", "total": 69, "diagnostic_topics": [{"topic": "Geometry", "score": 4, "max_score": 15}, {"topic": "Fractions", "score": 5, "max_score": 12}]},
+                {"subject": "Science", "total": 61, "diagnostic_topics": [{"topic": "Scientific Units", "score": 3, "max_score": 10}, {"topic": "Forces", "score": 5, "max_score": 10}]},
+            ],
+        }
+        latest_jhs1_subject_grades = {
+            kofi.id: [
+                {"subject": "English Language", "total": 78, "diagnostic_topics": [{"topic": "Comprehension", "score": 8, "max_score": 10}, {"topic": "Grammar", "score": 6, "max_score": 10}]},
+                {"subject": "Social Studies", "total": 74, "diagnostic_topics": [{"topic": "Civic Responsibilities", "score": 7, "max_score": 10}, {"topic": "Map Skills", "score": 6, "max_score": 10}]},
+            ],
+            abena.id: [
+                {"subject": "English Language", "total": 59, "diagnostic_topics": [{"topic": "Comprehension", "score": 4, "max_score": 10}, {"topic": "Grammar", "score": 3, "max_score": 10}]},
+                {"subject": "Social Studies", "total": 61, "diagnostic_topics": [{"topic": "Civic Responsibilities", "score": 5, "max_score": 10}, {"topic": "Map Skills", "score": 4, "max_score": 10}]},
+            ],
+            kwame.id: [
+                {"subject": "English Language", "total": 84, "diagnostic_topics": [{"topic": "Comprehension", "score": 9, "max_score": 10}, {"topic": "Essay Writing", "score": 8, "max_score": 10}]},
+                {"subject": "Social Studies", "total": 82, "diagnostic_topics": [{"topic": "Civic Responsibilities", "score": 8, "max_score": 10}, {"topic": "Map Skills", "score": 8, "max_score": 10}]},
+            ],
+            esi.id: [
+                {"subject": "English Language", "total": 71, "diagnostic_topics": [{"topic": "Comprehension", "score": 6, "max_score": 10}, {"topic": "Grammar", "score": 5, "max_score": 10}]},
+                {"subject": "Social Studies", "total": 69, "diagnostic_topics": [{"topic": "Civic Responsibilities", "score": 6, "max_score": 10}, {"topic": "Map Skills", "score": 5, "max_score": 10}]},
+            ],
+            yaw.id: [
+                {"subject": "English Language", "total": 65, "diagnostic_topics": [{"topic": "Comprehension", "score": 5, "max_score": 10}, {"topic": "Grammar", "score": 4, "max_score": 10}]},
+                {"subject": "Social Studies", "total": 63, "diagnostic_topics": [{"topic": "Civic Responsibilities", "score": 4, "max_score": 10}, {"topic": "Map Skills", "score": 5, "max_score": 10}]},
+            ],
+        }
+        latest_jhs3_subject_grades = {
+            efua.id: [
+                {"subject": "English Language", "total": 88, "diagnostic_topics": [{"topic": "Summary Writing", "score": 9, "max_score": 10}, {"topic": "Grammar", "score": 8, "max_score": 10}]},
+            ],
+            kofi_jhs3.id: [
+                {"subject": "English Language", "total": 79, "diagnostic_topics": [{"topic": "Summary Writing", "score": 7, "max_score": 10}, {"topic": "Grammar", "score": 6, "max_score": 10}]},
+            ],
+            adwoa.id: [
+                {"subject": "English Language", "total": 83, "diagnostic_topics": [{"topic": "Summary Writing", "score": 8, "max_score": 10}, {"topic": "Grammar", "score": 7, "max_score": 10}]},
+            ],
+        }
+        for report in report_cards:
+            if report.academic_term == "Term 3" and report.academic_year == "2025/2026":
+                if report.student_id in latest_jhs1_subject_grades:
+                    report.subject_grades = latest_jhs1_subject_grades[report.student_id]
+                elif report.student_id in latest_jhs2_subject_grades:
+                    report.subject_grades = latest_jhs2_subject_grades[report.student_id]
+                elif report.student_id in latest_jhs3_subject_grades:
+                    report.subject_grades = latest_jhs3_subject_grades[report.student_id]
+
+        _seed_exam_intelligence_demo(app.instance_path, "CCA-OFK", cca_settings, boss.id)
 
         # 10. Audit Log: Mock initial action
         init_log = AuditLog(

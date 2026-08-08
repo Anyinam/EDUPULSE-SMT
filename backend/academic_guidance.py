@@ -41,6 +41,25 @@ def normalize_topic_key(topic_name: str | None) -> str:
     return " ".join(str(topic_name or "").strip().lower().split())
 
 
+def _build_report_learner_snapshot(report, fit_score: float):
+    student = getattr(report, "student", None)
+    student_name = None
+    student_code = None
+    if student is not None:
+        student_name = getattr(student, "name", None) or " ".join(
+            part for part in [getattr(student, "first_name", None), getattr(student, "surname", None)] if part
+        ).strip()
+        student_code = getattr(student, "student_code", None)
+
+    return {
+        "student_id": getattr(report, "student_id", None),
+        "student_name": student_name or "Learner",
+        "student_code": student_code,
+        "class_name": getattr(report, "class_name", None) or "Unassigned",
+        "fit_score": round(float(fit_score or 0.0), 1),
+    }
+
+
 def build_pathway_recommendations(subject_grades: Iterable[dict], top_n: int = 2):
     normalized_scores = {}
     for item in subject_grades or []:
@@ -167,6 +186,7 @@ def build_academic_guidance_summary(
     hotspot_buckets = defaultdict(lambda: {"low_count": 0, "subject": None, "topic": None, "advice": None, "practice": set()})
     pathway_counter = Counter()
     pathway_scores = defaultdict(list)
+    pathway_learners = defaultdict(list)
     class_counter = Counter()
     class_pathway_counter = defaultdict(Counter)
     analyzed_reports = 0
@@ -200,6 +220,9 @@ def build_academic_guidance_summary(
             top_pathway = guidance["pathway_recommendations"][0]
             pathway_counter[top_pathway["pathway"]] += 1
             pathway_scores[top_pathway["pathway"]].append(top_pathway["fit_score"])
+            pathway_learners[top_pathway["pathway"]].append(
+                _build_report_learner_snapshot(report, top_pathway["fit_score"])
+            )
             class_pathway_counter[class_name][top_pathway["pathway"]] += 1
 
     diagnostic_hotspots = []
@@ -220,6 +243,10 @@ def build_academic_guidance_summary(
             "pathway": pathway,
             "student_count": count,
             "average_fit_score": round(sum(pathway_scores[pathway]) / len(pathway_scores[pathway]), 1) if pathway_scores[pathway] else 0.0,
+            "learners": sorted(
+                pathway_learners[pathway],
+                key=lambda item: (-item["fit_score"], item["student_name"], item["class_name"]),
+            ),
         }
         for pathway, count in pathway_counter.most_common()
     ]

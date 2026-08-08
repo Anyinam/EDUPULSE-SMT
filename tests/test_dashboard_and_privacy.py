@@ -8,7 +8,7 @@ from reportlab.pdfgen import canvas
 
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import AcademicTerm, Payment, PlatformSetting, PlatformUser, School, SchoolSettings, Student, TeacherAssignment, User, db
+from backend.api.models import AcademicTerm, Payment, PlatformSetting, PlatformUser, School, SchoolSettings, Student, StudentGrade, TeacherAssignment, User, db
 from backend.api.models import ReportCard
 from backend.utils import generate_descriptive_analysis
 
@@ -26,6 +26,16 @@ def _proprietor_headers(app, school_id, proprietor_id):
 def _headmaster_headers(app, school_id, headmaster_id):
     with app.app_context():
         token = create_access_token(identity=str(headmaster_id))
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-School-ID": school_id,
+        "Content-Type": "application/json",
+    }
+
+
+def _finance_headers(app, school_id, finance_id):
+    with app.app_context():
+        token = create_access_token(identity=str(finance_id))
     return {
         "Authorization": f"Bearer {token}",
         "X-School-ID": school_id,
@@ -241,6 +251,216 @@ def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test
     assert student_payload["risk_score"] >= 45
     assert student_payload["recommended_actions"]
     assert payload["student_rescue_agent"]["summary"]["total_flagged_students"] >= 1
+
+
+def test_live_feed_groups_pending_payments_by_class(client, app, test_school, test_proprietor):
+    jhs_student = Student(
+        school_id=test_school.id,
+        first_name="Efia",
+        surname="Owusu",
+        name="Efia Owusu",
+        student_code="S920",
+        current_class="JHS 1",
+        total_tuition_owed=300.0,
+        parent_name="Mansa Owusu",
+        parent_phone="+233500000001",
+        is_present=True,
+        feeding_paid=False,
+    )
+    primary_student = Student(
+        school_id=test_school.id,
+        first_name="Kojo",
+        surname="Baah",
+        name="Kojo Baah",
+        student_code="S921",
+        current_class="Primary 4",
+        total_tuition_owed=250.0,
+        parent_name="Akosua Baah",
+        parent_phone="+233500000002",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add_all([jhs_student, primary_student])
+    db.session.flush()
+
+    db.session.add_all(
+        [
+            Payment(
+                student_id=jhs_student.id,
+                school_id=test_school.id,
+                amount=120.0,
+                payment_type="Tuition",
+                method="Cash",
+                status="Pending",
+            ),
+            Payment(
+                student_id=primary_student.id,
+                school_id=test_school.id,
+                amount=15.0,
+                payment_type="Feeding",
+                method="Cash",
+                status="Pending",
+            ),
+        ]
+    )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/proprietor/live-feed", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["pending_payments"]) == 2
+    assert {item["class_name"] for item in payload["pending_payments"]} == {"JHS 1", "Primary 4"}
+
+    grouped = {group["class_name"]: group for group in payload["pending_payments_by_class"]}
+    assert grouped["JHS 1"]["count"] == 1
+    assert grouped["JHS 1"]["total_amount"] == 120.0
+    assert grouped["JHS 1"]["payments"][0]["student"] == "Efia Owusu"
+    assert grouped["Primary 4"]["payments"][0]["type"] == "Feeding"
+
+
+def test_proprietor_can_bulk_confirm_pending_payments_for_class(client, app, test_school, test_proprietor):
+    student_one = Student(
+        school_id=test_school.id,
+        first_name="Yaw",
+        surname="Mills",
+        name="Yaw Mills",
+        student_code="S930",
+        current_class="JHS 2",
+        total_tuition_owed=500.0,
+        parent_name="Martha Mills",
+        parent_phone="+233500000003",
+        is_present=True,
+        feeding_paid=False,
+    )
+    student_two = Student(
+        school_id=test_school.id,
+        first_name="Adjoa",
+        surname="Kumi",
+        name="Adjoa Kumi",
+        student_code="S931",
+        current_class="JHS 2",
+        total_tuition_owed=200.0,
+        parent_name="Kwesi Kumi",
+        parent_phone="+233500000004",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add_all([student_one, student_two])
+    db.session.flush()
+
+    payment_one = Payment(
+        student_id=student_one.id,
+        school_id=test_school.id,
+        amount=150.0,
+        payment_type="Tuition",
+        method="Cash",
+        status="Pending",
+    )
+    payment_two = Payment(
+        student_id=student_two.id,
+        school_id=test_school.id,
+        amount=20.0,
+        payment_type="Feeding",
+        method="Cash",
+        status="Pending",
+    )
+    db.session.add_all([payment_one, payment_two])
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.post(
+        "/api/finance/confirm-payments/bulk",
+        headers=headers,
+        data=json.dumps(
+            {
+                "class_name": "JHS 2",
+                "payment_ids": [payment_one.id, payment_two.id],
+            }
+        ),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["count"] == 2
+    assert payload["class_name"] == "JHS 2"
+    assert payload["total_amount"] == 170.0
+
+    refreshed_one = Payment.query.get(payment_one.id)
+    refreshed_two = Payment.query.get(payment_two.id)
+    updated_student_one = Student.query.get(student_one.id)
+    updated_student_two = Student.query.get(student_two.id)
+
+    assert refreshed_one.status == "Confirmed"
+    assert refreshed_two.status == "Confirmed"
+    assert refreshed_one.verified_by == test_proprietor.id
+    assert refreshed_two.verified_by == test_proprietor.id
+    assert updated_student_one.total_tuition_owed == 350.0
+    assert updated_student_two.feeding_paid is True
+
+
+def test_finance_dashboard_groups_pending_payments_and_exposes_recorder_metadata(client, app, test_school):
+    finance_user = User(
+        username="finance_case",
+        school_id=test_school.id,
+        role="finance",
+        email="finance@test.edu",
+    )
+    homeroom_user = User(
+        username="homeroom_case",
+        school_id=test_school.id,
+        role="homeroom",
+        email="homeroom@test.edu",
+        assigned_class="JHS 1",
+    )
+    finance_user.set_password("FinancePass123")
+    homeroom_user.set_password("HomeroomPass123")
+    db.session.add_all([finance_user, homeroom_user])
+    db.session.flush()
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Akua",
+        surname="Mensima",
+        name="Akua Mensima",
+        student_code="S940",
+        current_class="JHS 1",
+        total_tuition_owed=420.0,
+        parent_name="Yaa Mensima",
+        parent_phone="+233500000005",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    pending_payment = Payment(
+        student_id=student.id,
+        school_id=test_school.id,
+        created_by_user_id=homeroom_user.id,
+        amount=25.0,
+        payment_type="Feeding",
+        method="Cash",
+        status="Pending",
+    )
+    db.session.add(pending_payment)
+    db.session.commit()
+
+    headers = _finance_headers(app, test_school.id, finance_user.id)
+    response = client.get("/api/finance/dashboard", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["pending_payments"]) == 1
+    assert payload["pending_payments"][0]["recorded_by_role"] == "homeroom"
+    assert payload["pending_payments"][0]["recorded_by_label"] == "Homeroom Teacher"
+    assert payload["pending_payments"][0]["recorded_by_name"] == "homeroom_case"
+
+    grouped = payload["pending_payments_by_class"]
+    assert len(grouped) == 1
+    assert grouped[0]["class_name"] == "JHS 1"
+    assert grouped[0]["payments"][0]["recorded_by_role"] == "homeroom"
 
 
 def test_student_rescue_agent_does_not_flag_tuition_just_after_reopening_without_other_behaviour_signals(client, app, test_school, test_proprietor):
@@ -1496,6 +1716,281 @@ def test_teacher_receives_class_level_exam_summary_when_setting_enabled(client, 
 
     db.session.delete(assignment)
     db.session.commit()
+
+
+def test_teacher_demo_exam_summary_and_academic_guidance_payloads_are_populated(client, app, test_school, test_proprietor, test_teacher, tmp_path):
+    app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-intelligence")
+
+    proprietor_headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    settings_response = client.post(
+        "/api/school/settings",
+        headers=proprietor_headers,
+        data=json.dumps(
+            {
+                "data_compliance_school_authority_confirmed": True,
+                "legacy_parent_notice_dispatched": True,
+                "legacy_consent_collection_completed": True,
+                "bece_result_processing_enabled": True,
+                "bece_parent_notice_confirmed": True,
+                "teacher_class_level_exam_summaries_enabled": True,
+            }
+        ),
+    )
+    assert settings_response.status_code == 200
+
+    student_one = Student(
+        school_id=test_school.id,
+        first_name="Ama",
+        surname="Mensah",
+        name="Ama Mensah",
+        student_code="STU101",
+        current_class="JHS 1",
+    )
+    student_two = Student(
+        school_id=test_school.id,
+        first_name="Kojo",
+        surname="Owusu",
+        name="Kojo Owusu",
+        student_code="STU102",
+        current_class="JHS 1",
+    )
+    db.session.add_all([student_one, student_two])
+    db.session.flush()
+
+    db.session.add_all(
+        [
+            TeacherAssignment(
+                school_id=test_school.id,
+                teacher_id=test_teacher.id,
+                class_name="JHS 1",
+                subject_name="Mathematics",
+            ),
+            TeacherAssignment(
+                school_id=test_school.id,
+                teacher_id=test_teacher.id,
+                class_name="JHS 1",
+                subject_name="Science",
+            ),
+        ]
+    )
+
+    latest_reports = [
+        ReportCard(
+            school_id=test_school.id,
+            student_id=student_one.id,
+            academic_term="Term 3",
+            academic_year="2025/2026",
+            class_name="JHS 1",
+            subject_grades=[
+                {"subject": "Mathematics", "total": 84, "diagnostic_topics": [{"topic": "Geometry", "score": 6, "max_score": 15}]},
+                {"subject": "Science", "total": 76, "diagnostic_topics": [{"topic": "Scientific Units", "score": 6, "max_score": 10}]},
+            ],
+            status="Approved",
+        ),
+        ReportCard(
+            school_id=test_school.id,
+            student_id=student_two.id,
+            academic_term="Term 3",
+            academic_year="2025/2026",
+            class_name="JHS 1",
+            subject_grades=[
+                {"subject": "Mathematics", "total": 62, "diagnostic_topics": [{"topic": "Geometry", "score": 4, "max_score": 15}]},
+                {"subject": "Science", "total": 58, "diagnostic_topics": [{"topic": "Scientific Units", "score": 3, "max_score": 10}]},
+            ],
+            status="Approved",
+        ),
+    ]
+    db.session.add_all(latest_reports)
+    db.session.commit()
+
+    multipart_headers = {key: value for key, value in proprietor_headers.items() if key != "Content-Type"}
+    upload_latest = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2025/2026",
+            "file": (
+                BytesIO(
+                    (
+                        "candidate_id,candidate_name,class_name,gender,subject,score,grade\n"
+                        "STU101,Ama Mensah,JHS 1,Female,Mathematics,84,A1\n"
+                        "STU101,Ama Mensah,JHS 1,Female,Science,76,B2\n"
+                        "STU102,Kojo Owusu,JHS 1,Male,Mathematics,62,C4\n"
+                        "STU102,Kojo Owusu,JHS 1,Male,Science,58,C5\n"
+                    ).encode("utf-8")
+                ),
+                "demo-bece-2025-2026.csv",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_latest.status_code == 201
+
+    upload_previous = client.post(
+        "/api/analytics/exam-imports",
+        headers=multipart_headers,
+        data={
+            "exam_type": "BECE",
+            "academic_year": "2024/2025",
+            "file": (
+                BytesIO(
+                    (
+                        "candidate_id,candidate_name,class_name,gender,subject,score,grade\n"
+                        "STU101,Ama Mensah,JHS 1,Female,Mathematics,79,B2\n"
+                        "STU101,Ama Mensah,JHS 1,Female,Science,71,B3\n"
+                        "STU102,Kojo Owusu,JHS 1,Male,Mathematics,57,C5\n"
+                        "STU102,Kojo Owusu,JHS 1,Male,Science,54,C6\n"
+                    ).encode("utf-8")
+                ),
+                "demo-bece-2024-2025.csv",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_previous.status_code == 201
+
+    headers = _teacher_headers(app, test_school.id, test_teacher.id)
+    exam_response = client.get("/api/analytics/exam-intelligence", headers=headers)
+    guidance_response = client.get("/api/analytics/academic-guidance", headers=headers)
+
+    assert exam_response.status_code == 200
+    exam_payload = exam_response.get_json()
+    assert exam_payload["view_scope"] == "teacher_subject_summary"
+    assert exam_payload["summary"]["tracked_subjects"] == 2
+    assert exam_payload["summary"]["latest_subject_count"] == 2
+    assert exam_payload["latest_batch"]["academic_year"] == "2025/2026"
+    assert {item["subject"] for item in exam_payload["latest_batch"]["subject_summaries"]} == {"Mathematics", "Science"}
+    assert len(exam_payload["class_summaries"]) == 1
+    assert exam_payload["class_summaries"][0]["class_name"] == "JHS 1"
+
+    assert guidance_response.status_code == 200
+    guidance_payload = guidance_response.get_json()
+    assert guidance_payload["summary"]["reports_analyzed"] == 2
+    assert guidance_payload["summary"]["tracked_subjects"] == 2
+    assert guidance_payload["summary"]["classes_in_scope"] == 1
+    assert guidance_payload["scope"]["allowed_subjects"] == ["Mathematics", "Science"]
+    assert any(item["subject"] == "Mathematics" and item["topic"] == "Geometry" for item in guidance_payload["diagnostic_hotspots"])
+    assert guidance_payload["pathway_distribution"]
+    business_signal = next(item for item in guidance_payload["pathway_distribution"] if item["pathway"] == "Business")
+    assert [learner["student_name"] for learner in business_signal["learners"]] == ["Ama Mensah", "Kojo Owusu"]
+    assert [learner["student_code"] for learner in business_signal["learners"]] == ["STU101", "STU102"]
+    assert all(learner["class_name"] == "JHS 1" for learner in business_signal["learners"])
+
+
+def test_subject_teacher_diagnostics_flow_into_homeroom_report_builder(client, app, test_school):
+    subject_teacher = User(
+        username="diag_subject_teacher",
+        password_hash="hash",
+        role="teacher",
+        school_id=test_school.id,
+    )
+    homeroom_teacher = User(
+        username="diag_homeroom_teacher",
+        password_hash="hash",
+        role="teacher",
+        school_id=test_school.id,
+        assigned_class="JHS 1",
+    )
+    student = Student(
+        school_id=test_school.id,
+        first_name="Yaw",
+        surname="Mensah",
+        name="Yaw Mensah",
+        student_code="DG001",
+        current_class="JHS 1",
+    )
+    db.session.add_all([
+        subject_teacher,
+        homeroom_teacher,
+        student,
+    ])
+    db.session.flush()
+    db.session.add(
+        TeacherAssignment(
+            school_id=test_school.id,
+            teacher_id=subject_teacher.id,
+            class_name="JHS 1",
+            subject_name="Mathematics",
+        )
+    )
+    db.session.commit()
+
+    try:
+        subject_headers = _teacher_headers(app, test_school.id, subject_teacher.id)
+        homeroom_headers = _homeroom_headers(app, test_school.id, homeroom_teacher.id)
+
+        submit_response = client.post(
+            "/api/teacher/submit-grades-to-homeroom",
+            headers=subject_headers,
+            data=json.dumps(
+                {
+                    "class_name": "JHS 1",
+                    "subject": "Mathematics",
+                    "grade_data": {
+                        str(student.id): {
+                            "class_score": 24,
+                            "exam_score": 52,
+                            "diagnostic_topics": [
+                                {"topic": "Geometry", "score": 6, "max_score": 15},
+                                {"topic": "Algebra", "score": 5, "max_score": 12},
+                            ],
+                        }
+                    },
+                }
+            ),
+        )
+        assert submit_response.status_code == 200
+
+        stored_grade = StudentGrade.query.filter_by(student_id=student.id, subject_name="Mathematics", class_name="JHS 1").first()
+        assert stored_grade is not None
+        assert stored_grade.diagnostic_topics == [
+            {"topic": "Geometry", "score": 6.0, "max_score": 15.0},
+            {"topic": "Algebra", "score": 5.0, "max_score": 12.0},
+        ]
+
+        autofill_response = client.get(
+            f"/api/homeroom/report-builder/auto-fill/{student.id}?class_name=JHS%201&academic_term=Term%203&academic_year=2025/2026",
+            headers=homeroom_headers,
+        )
+        assert autofill_response.status_code == 200
+        autofill_payload = autofill_response.get_json()
+        assert autofill_payload["subject_grades"][0]["diagnostic_topics"] == [
+            {"topic": "Geometry", "score": 6.0, "max_score": 15.0},
+            {"topic": "Algebra", "score": 5.0, "max_score": 12.0},
+        ]
+
+        save_response = client.post(
+            "/api/homeroom/report-builder/report",
+            headers=homeroom_headers,
+            data=json.dumps(
+                {
+                    "student_id": student.id,
+                    "academic_term": "Term 3",
+                    "academic_year": "2025/2026",
+                    "subject_grades": autofill_payload["subject_grades"],
+                    "overall_position": "1st",
+                    "out_of_students": 1,
+                    "attendance_percentage": 95,
+                    "total_attendance": 68,
+                    "homeroom_teacher_remarks": "Good diagnostic data captured.",
+                }
+            ),
+        )
+        assert save_response.status_code == 200
+        saved_payload = save_response.get_json()
+        assert saved_payload["report"]["subject_grades"][0]["diagnostic_topics"] == [
+            {"topic": "Geometry", "score": 6.0, "max_score": 15.0},
+            {"topic": "Algebra", "score": 5.0, "max_score": 12.0},
+        ]
+    finally:
+        TeacherAssignment.query.filter_by(teacher_id=subject_teacher.id).delete()
+        StudentGrade.query.filter_by(student_id=student.id).delete()
+        ReportCard.query.filter_by(student_id=student.id).delete()
+        db.session.delete(student)
+        db.session.delete(subject_teacher)
+        db.session.delete(homeroom_teacher)
+        db.session.commit()
 
 
 def test_payment_codes_include_convenience_fee_breakdown_and_cash_alternative(client, app, test_school, test_proprietor, test_students):

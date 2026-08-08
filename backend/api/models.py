@@ -353,6 +353,7 @@ class StudentGrade(db.Model):
     total_score = db.Column(db.Float)  # Calculated: 0-100 range
     is_finalized = db.Column(db.Boolean, default=False)
     remarks = db.Column(db.String(255))
+    diagnostic_topics = db.Column(db.JSON, default=list)
     ai_narrative = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, onupdate=lambda: datetime.now(timezone.utc))
@@ -529,6 +530,7 @@ class Payment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey("students.id"), nullable=False)
     school_id = db.Column(db.String(20), db.ForeignKey("schools.id"), nullable=False)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
 
     amount = db.Column(db.Float, nullable=False)
     payment_type = db.Column(
@@ -561,6 +563,8 @@ class Payment(db.Model):
             "amount > 0 AND amount <= 100000", name="check_payment_amount"
         ),
     )
+
+    created_by = db.relationship("User", foreign_keys=[created_by_user_id])
 
 
 class SchoolVerification(db.Model):

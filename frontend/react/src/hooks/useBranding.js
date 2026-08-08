@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 
+const BRANDING_REFRESH_TTL_MS = 30_000;
+const BRANDING_REFRESH_AT_KEY = 'branding_refreshed_at';
+
 const readStoredBrandingForCurrentSchool = () => {
   try {
     const schoolId = localStorage.getItem('school_id') || '';
@@ -49,6 +52,16 @@ export const useBranding = ({ refreshOnMount = false } = {}) => {
     const schoolId = localStorage.getItem('school_id');
     if (!token || !schoolId) return;
 
+    const lastRefreshedAt = Number(localStorage.getItem(BRANDING_REFRESH_AT_KEY) || 0);
+    const cachedBranding = readStoredBrandingForCurrentSchool();
+    if (
+      cachedBranding?.school_name &&
+      lastRefreshedAt > 0 &&
+      Date.now() - lastRefreshedAt < BRANDING_REFRESH_TTL_MS
+    ) {
+      return;
+    }
+
     try {
       const res = await axios.get('/api/school/branding', {
         headers: {
@@ -56,9 +69,10 @@ export const useBranding = ({ refreshOnMount = false } = {}) => {
           'X-School-ID': schoolId
         }
       });
-      const nextBranding = normalizeBranding(res.data, branding);
+      const nextBranding = normalizeBranding(res.data, cachedBranding);
       localStorage.setItem('branding', JSON.stringify(nextBranding));
       localStorage.setItem('branding_school_id', schoolId);
+      localStorage.setItem(BRANDING_REFRESH_AT_KEY, String(Date.now()));
       if (nextBranding.theme_color) {
         document.documentElement.style.setProperty('--school-primary', nextBranding.theme_color);
       }
@@ -67,7 +81,7 @@ export const useBranding = ({ refreshOnMount = false } = {}) => {
     } catch (err) {
       // Silent fail to avoid breaking UI when branding endpoint is unavailable.
     }
-  }, [branding]);
+  }, []);
 
   useEffect(() => {
     if (refreshOnMount) {

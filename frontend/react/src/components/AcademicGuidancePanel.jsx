@@ -127,6 +127,27 @@ export default function AcademicGuidancePanel({ title = 'Academic Guidance Intel
                     <span className="text-xs font-bold text-slate-500">{item.student_count} learners</span>
                   </div>
                   <p className="mt-2 text-xs text-slate-600">Average fit score {Number(item.average_fit_score || 0).toFixed(1)}%</p>
+                  {(item.learners || []).length > 0 && (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Learners in this signal</p>
+                      <div className="mt-2 space-y-2">
+                        {item.learners.map((learner) => (
+                          <div
+                            key={`${item.pathway}-${learner.student_id || learner.student_name}`}
+                            className="flex items-start justify-between gap-3 text-xs text-slate-700"
+                          >
+                            <div>
+                              <p className="font-semibold text-slate-800">{learner.student_name}</p>
+                              <p className="text-slate-500">
+                                {[learner.student_code, learner.class_name].filter(Boolean).join(' • ')}
+                              </p>
+                            </div>
+                            <span className="whitespace-nowrap font-bold text-cyan-700">{Number(learner.fit_score || 0).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             )}

@@ -31,6 +31,7 @@ export default function ProprietorPanel() {
   const activeTab = searchParams.get('tab') || 'dashboard';
 
   const [pendingPayments, setPendingPayments] = useState([]);
+  const [pendingPaymentGroups, setPendingPaymentGroups] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
   const [stats, setStats] = useState({ today_revenue: 0, canteen_count: 0 });
   const [reportApprovals, setReportApprovals] = useState([]);
@@ -39,6 +40,10 @@ export default function ProprietorPanel() {
   const [attendanceStats, setAttendanceStats] = useState(null);
   const [billingNotice, setBillingNotice] = useState(null);
   const [lastDashboardRefresh, setLastDashboardRefresh] = useState(null);
+  const [selectedPaymentClass, setSelectedPaymentClass] = useState('all');
+  const [selectedPaymentRecorderRole, setSelectedPaymentRecorderRole] = useState('all');
+  const [processingPaymentId, setProcessingPaymentId] = useState(null);
+  const [bulkApprovingClass, setBulkApprovingClass] = useState('');
   const { branding } = useBranding();
   const plan = localStorage.getItem('subscription_plan') || 'Free Tier';
 
@@ -51,6 +56,7 @@ export default function ProprietorPanel() {
       const res = await axios.get('/api/proprietor/live-feed', { headers });
       
       setPendingPayments(res.data.pending_payments || []);
+      setPendingPaymentGroups(res.data.pending_payments_by_class || []);
       setStats(res.data.stats || { today_revenue: 0, canteen_count: 0 });
       setBillingNotice(res.data.billing_notice || null);
       
@@ -61,6 +67,20 @@ export default function ProprietorPanel() {
       console.error('Failed to fetch proprietor dashboard live data', err);
     }
   };
+
+  useEffect(() => {
+    if (selectedPaymentClass === 'all') return;
+    if (!pendingPaymentGroups.some(group => group.class_name === selectedPaymentClass)) {
+      setSelectedPaymentClass('all');
+    }
+  }, [pendingPaymentGroups, selectedPaymentClass]);
+
+  useEffect(() => {
+    if (selectedPaymentRecorderRole === 'all') return;
+    if (!pendingPayments.some(payment => (payment.recorded_by_role || 'unknown') === selectedPaymentRecorderRole)) {
+      setSelectedPaymentRecorderRole('all');
+    }
+  }, [pendingPayments, selectedPaymentRecorderRole]);
 
   // Fetch AI-flagged students for the Intervention List
   useEffect(() => {
@@ -138,11 +158,14 @@ export default function ProprietorPanel() {
       'X-School-ID': localStorage.getItem('school_id') 
     };
     try {
+      setProcessingPaymentId(id);
       await axios.post(`/api/finance/confirm-payment/${id}`, {}, { headers });
       alert("Payment confirmed and added to immutable audit ledger!");
       await fetchRiskData();
     } catch (err) {
       alert("Failed to confirm payment.");
+    } finally {
+      setProcessingPaymentId(null);
     }
   };
 
@@ -155,13 +178,80 @@ export default function ProprietorPanel() {
       return;
     }
     try {
+      setProcessingPaymentId(id);
       await axios.post(`/api/finance/reject-payment/${id}`, {}, { headers });
       alert("Payment rejected and removed.");
       await fetchRiskData();
     } catch (err) {
       alert(err.response?.data?.message || "Failed to reject payment.");
+    } finally {
+      setProcessingPaymentId(null);
     }
   };
+
+  const approveClassPayments = async (group) => {
+    if (!group?.payments?.length) return;
+
+    const confirmed = window.confirm(
+      `Approve all ${group.count} pending payment${group.count === 1 ? '' : 's'} for ${group.class_name}?`
+    );
+    if (!confirmed) return;
+
+    const headers = {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'X-School-ID': localStorage.getItem('school_id')
+    };
+
+    try {
+      setBulkApprovingClass(group.class_name);
+      const res = await axios.post(
+        '/api/finance/confirm-payments/bulk',
+        {
+          class_name: group.class_name,
+          payment_ids: group.payments.map(payment => payment.id)
+        },
+        { headers }
+      );
+      alert(res.data?.message || 'Class payments approved.');
+      await fetchRiskData();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to approve class payments.');
+    } finally {
+      setBulkApprovingClass('');
+    }
+  };
+
+  const paymentRoleOptions = Array.from(
+    new Map(
+      pendingPayments.map(payment => [
+        payment.recorded_by_role || 'unknown',
+        payment.recorded_by_label || 'Unknown Staff'
+      ])
+    ).entries()
+  ).map(([value, label]) => ({ value, label }));
+
+  const visiblePaymentGroups = pendingPaymentGroups.reduce((groups, group) => {
+    if (selectedPaymentClass !== 'all' && group.class_name !== selectedPaymentClass) {
+      return groups;
+    }
+
+    const payments = (group.payments || []).filter(payment => (
+      selectedPaymentRecorderRole === 'all'
+      || (payment.recorded_by_role || 'unknown') === selectedPaymentRecorderRole
+    ));
+
+    if (!payments.length) {
+      return groups;
+    }
+
+    groups.push({
+      ...group,
+      payments,
+      count: payments.length,
+      total_amount: payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+    });
+    return groups;
+  }, []);
 
   return (
     <div className="flex-1 bg-gray-100 font-sans">
@@ -295,21 +385,90 @@ export default function ProprietorPanel() {
                 
                 {pendingPayments.length > 0 && (
                   <div className="bg-yellow-50 p-6 rounded-3xl border border-yellow-200">
-                    <h3 className="font-bold text-yellow-800 mb-2">⏳ Pending Manual Payments (Requires Your Approval)</h3>
-                    <p className="text-xs text-yellow-700 mb-3">These payments were recorded by staff and need your confirmation before being added to the immutable audit ledger.</p>
-                    {pendingPayments.map(p => (
-                      <div key={p.id} className="flex justify-between items-center bg-white p-3 rounded-lg mb-2 shadow-sm">
-                        <span className="text-sm text-gray-600">{p.student} paid <b>GH₵{p.amount}</b> ({p.type})</span>
-                        <div className="flex gap-2">
-                          <button onClick={() => confirmCash(p.id)} className="text-xs bg-green-600 text-white px-3 py-1 rounded-full font-bold hover:bg-green-700">
-                            ✓ Approve & Hash
-                          </button>
-                          <button onClick={() => rejectPayment(p.id)} className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded-full font-bold hover:bg-red-200">
-                            ✗ Reject
-                          </button>
+                    <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-4">
+                      <div>
+                        <h3 className="font-bold text-yellow-800 mb-2">⏳ Pending Manual Payments (Requires Your Approval)</h3>
+                        <p className="text-xs text-yellow-700">These payments were recorded by staff and need your confirmation before being added to the immutable audit ledger.</p>
+                      </div>
+                      <div className="grid min-w-56 gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wide text-yellow-800 mb-1">Class Queue</label>
+                          <select
+                            value={selectedPaymentClass}
+                            onChange={(event) => setSelectedPaymentClass(event.target.value)}
+                            className="w-full rounded-xl border border-yellow-300 bg-white px-3 py-2 text-sm text-slate-700"
+                          >
+                            <option value="all">All Classes</option>
+                            {pendingPaymentGroups.map(group => (
+                              <option key={group.class_name} value={group.class_name}>
+                                {group.class_name} ({group.count})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wide text-yellow-800 mb-1">Recorded By</label>
+                          <select
+                            value={selectedPaymentRecorderRole}
+                            onChange={(event) => setSelectedPaymentRecorderRole(event.target.value)}
+                            className="w-full rounded-xl border border-yellow-300 bg-white px-3 py-2 text-sm text-slate-700"
+                          >
+                            <option value="all">All Staff Roles</option>
+                            {paymentRoleOptions.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
                         </div>
                       </div>
-                    ))}
+                    </div>
+
+                    <div className="space-y-4">
+                      {visiblePaymentGroups.map(group => (
+                        <div key={group.class_name} className="rounded-2xl border border-yellow-200 bg-white/80 p-4 shadow-sm">
+                          <div className="flex flex-col gap-3 border-b border-yellow-100 pb-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="text-sm font-black text-slate-800">{group.class_name}</p>
+                              <p className="text-xs text-slate-500">{group.count} pending payment{group.count === 1 ? '' : 's'} • GH₵{Number(group.total_amount || 0).toFixed(2)}</p>
+                            </div>
+                            <button
+                              onClick={() => approveClassPayments(group)}
+                              disabled={bulkApprovingClass === group.class_name}
+                              className="rounded-full bg-green-600 px-4 py-2 text-xs font-bold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-green-300"
+                            >
+                              {bulkApprovingClass === group.class_name ? 'Approving...' : 'Approve All In Class'}
+                            </button>
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            {group.payments.map(p => (
+                              <div key={p.id} className="flex flex-col gap-3 rounded-xl border border-slate-100 bg-white p-3 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                  <span className="text-sm text-gray-600">{p.student} paid <b>GH₵{Number(p.amount).toFixed(2)}</b> ({p.type})</span>
+                                  <p className="mt-1 text-xs text-slate-500">{p.recorded_by_label || 'Unknown Staff'}{p.recorded_by_name ? ` • ${p.recorded_by_name}` : ''}</p>
+                                  <p className="mt-1 text-xs text-slate-400">{p.method || 'Cash'}{p.reference_id ? ` • Ref: ${p.reference_id}` : ''}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => confirmCash(p.id)}
+                                    disabled={processingPaymentId === p.id || bulkApprovingClass === group.class_name}
+                                    className="text-xs bg-green-600 text-white px-3 py-1 rounded-full font-bold hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-green-300"
+                                  >
+                                    {processingPaymentId === p.id ? 'Approving...' : '✓ Approve & Hash'}
+                                  </button>
+                                  <button
+                                    onClick={() => rejectPayment(p.id)}
+                                    disabled={processingPaymentId === p.id || bulkApprovingClass === group.class_name}
+                                    className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded-full font-bold hover:bg-red-200 disabled:cursor-not-allowed disabled:bg-red-50 disabled:text-red-300"
+                                  >
+                                    ✗ Reject
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 

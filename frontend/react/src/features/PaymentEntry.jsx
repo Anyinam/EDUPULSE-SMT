@@ -2,6 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 
 export default function PaymentEntry({ students, onSuccess }) {
+  const role = localStorage.getItem('role');
+  const roles = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('roles') || '[]');
+    } catch (err) {
+      return [];
+    }
+  })();
+  const canUseInventoryCatalog = role === 'proprietor' || role === 'inventory_manager' || roles.includes('proprietor') || roles.includes('inventory_manager');
   const [form, setForm] = useState({
     student_id: '',
     amount: '',
@@ -64,6 +73,17 @@ export default function PaymentEntry({ students, onSuccess }) {
   }), []);
 
   useEffect(() => {
+    if (!canUseInventoryCatalog) {
+      setInventoryItems([]);
+      return;
+    }
+    if (form.type !== 'Inventory' && form.type !== 'Uniform') {
+      return;
+    }
+    if (inventoryItems.length > 0) {
+      return;
+    }
+
     const fetchInventory = async () => {
       try {
         const res = await axios.get('/api/inventory', { headers });
@@ -73,7 +93,7 @@ export default function PaymentEntry({ students, onSuccess }) {
       }
     };
     fetchInventory();
-  }, [headers]);
+  }, [canUseInventoryCatalog, form.type, headers, inventoryItems.length]);
 
   const uniformItems = useMemo(
     () => inventoryItems.filter(i => (i.category || '').toLowerCase() === 'uniform'),
@@ -192,10 +212,10 @@ export default function PaymentEntry({ students, onSuccess }) {
           }}>
             <option value="Tuition">Tuition</option>
             <option value="Feeding">Feeding Fee</option>
-            <option value="Uniform">Uniform</option>
             <option value="Transport">Transport</option>
             <option value="Terminal Report">Terminal Report</option>
-            <option value="Inventory">Inventory Item</option>
+            {canUseInventoryCatalog && <option value="Uniform">Uniform</option>}
+            {canUseInventoryCatalog && <option value="Inventory">Inventory Item</option>}
           </select>
         </div>
 

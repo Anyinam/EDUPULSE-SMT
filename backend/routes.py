@@ -186,6 +186,12 @@ REPORT_TEMPLATE_HISTORY_KEY = "report_template_history"
 REPORT_TEMPLATE_HISTORY_LIMIT = 40
 ANALYTICS_PRESET_HISTORY_KEY = "analytics_preset_history"
 ANALYTICS_PRESET_HISTORY_LIMIT = 40
+DEFAULT_SUPPORT_EMAIL = (
+    os.getenv("FOUNDER_EMAIL")
+    or os.getenv("MAIL_DEFAULT_SENDER")
+    or os.getenv("MAIL_USERNAME")
+    or "info@edupulsesmt.com"
+)
 
 
 # --- HELPERS ---
@@ -3699,33 +3705,40 @@ def remark_from_grade(grade):
     }.get(grade, "")
 
 
-def normalize_subject_grades(subject_grades):
+def normalize_diagnostic_topics(raw_topics):
     def to_number(value):
         try:
             return float(value)
         except (TypeError, ValueError):
             return 0.0
 
-    def normalize_diagnostic_topics(raw_topics):
-        normalized_topics = []
-        for topic in raw_topics or []:
-            if not isinstance(topic, dict):
-                continue
-            topic_name = sanitize_string(topic.get("topic") or "") or ""
-            if not topic_name:
-                continue
-            score = to_number(topic.get("score"))
-            max_score = to_number(topic.get("max_score"))
-            if max_score <= 0:
-                continue
-            normalized_topics.append(
-                {
-                    "topic": topic_name,
-                    "score": round(score, 1),
-                    "max_score": round(max_score, 1),
-                }
-            )
-        return normalized_topics
+    normalized_topics = []
+    for topic in raw_topics or []:
+        if not isinstance(topic, dict):
+            continue
+        topic_name = sanitize_string(topic.get("topic") or "") or ""
+        if not topic_name:
+            continue
+        score = to_number(topic.get("score"))
+        max_score = to_number(topic.get("max_score"))
+        if max_score <= 0:
+            continue
+        normalized_topics.append(
+            {
+                "topic": topic_name,
+                "score": round(score, 1),
+                "max_score": round(max_score, 1),
+            }
+        )
+    return normalized_topics
+
+
+def normalize_subject_grades(subject_grades):
+    def to_number(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
 
     normalized = []
     for entry in subject_grades or []:
@@ -3853,7 +3866,7 @@ DEFAULT_PLATFORM_PUBLIC_CONTENT = {
         "If anything feels suspicious, stop immediately, do not complete the transaction, and contact official support before taking any further step.",
     ],
     "support": {
-        "email": "support@edupulse.com",
+        "email": DEFAULT_SUPPORT_EMAIL,
         "phone": "+233 552 141 384",
         "website": "",
         "response_time": "within 24 hours on business days",
@@ -4773,7 +4786,7 @@ def _get_staff_support_contact(school):
         "email": (
             (support_user.email if support_user and support_user.email else None)
             or (school.school_email if school else None)
-            or "support@edupulse.com"
+            or DEFAULT_SUPPORT_EMAIL
         ),
         "phone": (school.school_phone if school and school.school_phone else "+233 552 141 384"),
     }
@@ -7352,6 +7365,7 @@ def get_report_builder_autofill(student_id):
             "exam_score": g.exam_score,
             "total": g.total_score,
             "remarks": g.remarks,
+            "diagnostic_topics": g.diagnostic_topics,
         }
         for g in grades
     ]
@@ -8949,6 +8963,7 @@ def submit_grades_to_homeroom():
     for student_id, scores in grade_data.items():
         class_score = float(scores.get("class_score", 0))
         exam_score = float(scores.get("exam_score", 0))
+        diagnostic_topics = normalize_diagnostic_topics(scores.get("diagnostic_topics"))
 
         # Validate ranges using school's grading scheme
         if class_score < 0 or class_score > class_score_max:
@@ -8983,6 +8998,8 @@ def submit_grades_to_homeroom():
             existing.exam_score = exam_score
             existing.total_score = total_score
             existing.is_finalized = True
+            existing.remarks = remark_from_grade(grade_from_total(total_score))
+            existing.diagnostic_topics = diagnostic_topics
             existing.updated_at = get_utc_now()
         else:
             # Create new grade record
@@ -8994,6 +9011,8 @@ def submit_grades_to_homeroom():
                 exam_score=exam_score,
                 total_score=total_score,
                 is_finalized=True,
+                remarks=remark_from_grade(grade_from_total(total_score)),
+                diagnostic_topics=diagnostic_topics,
             )
             db.session.add(grade)
 
@@ -9045,6 +9064,7 @@ def get_subject_grades_for_class(class_name):
                 "exam_score": g.exam_score,
                 "total": g.total_score,
                 "remarks": g.remarks,
+                "diagnostic_topics": g.diagnostic_topics or [],
             }
             for g in grades
         ]
@@ -9580,6 +9600,7 @@ def receive_payment():
     payment = Payment(
         student_id=student.id,
         school_id=g.school_id,
+        created_by_user_id=user.id,
         amount=validation_payload["amount"],
         payment_type=payment_type,
         method=validation_payload["method"],
@@ -9922,21 +9943,17 @@ def get_live_feed():
 
         # Fetch pending payments recorded by teachers
         pending_payments = (
-            db.session.query(Payment, Student.name)
+            db.session.query(Payment, Student)
             .join(Student)
             .filter(Payment.school_id == g.school_id, Payment.status == "Pending")
             .all()
         )
 
         pending_list = [
-            {
-                "id": p.Payment.id,
-                "amount": p.Payment.amount,
-                "student": p.name,
-                "type": p.Payment.payment_type,
-            }
-            for p in pending_payments
+            _serialize_pending_payment(row.Payment, row.Student)
+            for row in pending_payments
         ]
+        pending_groups = _group_pending_payments_by_class(pending_list)
 
         # Canteen Stats for Proprietor Oversight
         student_meals = Student.query.filter_by(
@@ -10043,6 +10060,7 @@ def get_live_feed():
                     "low_stock_count": len(low_stock_items),
                 },
                 "pending_payments": pending_list,
+                "pending_payments_by_class": pending_groups,
                 "critical_list": critical_list,
                 "student_rescue_agent": rescue_payload,
                 "recent_payments": [
@@ -10460,6 +10478,115 @@ def proprietor_live_events():
     )
 
 
+def _serialize_pending_payment(payment, student):
+    recorder_role = "unknown"
+    recorder_name = "Unknown Staff"
+
+    if payment.created_by and payment.created_by.role:
+        recorder_role = payment.created_by.role
+        recorder_name = payment.created_by.username or recorder_name
+    elif (payment.method or "").endswith("_Auto") or payment.method in {"Paystack_Payment", "Bank_Auto", "MoMo_Auto"}:
+        recorder_role = "automation"
+        recorder_name = "System Automation"
+
+    role_labels = {
+        "automation": "System Automation",
+        "finance": "Finance Officer",
+        "homeroom": "Homeroom Teacher",
+        "inventory_manager": "Store Manager",
+        "kitchen": "Kitchen Staff",
+        "proprietor": "Proprietor",
+        "teacher": "Teacher",
+        "unknown": "Unknown Staff",
+    }
+
+    class_name = (student.current_class if student else None) or "Unassigned"
+    submitted_at = payment.created_at or payment.date_paid
+    return {
+        "id": payment.id,
+        "amount": payment.amount,
+        "student": student.name if student else "Unknown",
+        "student_code": student.student_code if student else None,
+        "class_name": class_name,
+        "type": payment.payment_type,
+        "method": payment.method,
+        "reference_id": payment.reference_id,
+        "payment_category": payment.payment_category or {},
+        "recorded_by_user_id": payment.created_by_user_id,
+        "recorded_by_name": recorder_name,
+        "recorded_by_role": recorder_role,
+        "recorded_by_label": role_labels.get(recorder_role, recorder_role.replace("_", " ").title()),
+        "submitted_at": submitted_at.isoformat() if submitted_at else None,
+    }
+
+
+def _group_pending_payments_by_class(pending_list):
+    grouped = {}
+    for item in pending_list:
+        class_name = item.get("class_name") or "Unassigned"
+        bucket = grouped.setdefault(
+            class_name,
+            {
+                "class_name": class_name,
+                "count": 0,
+                "total_amount": 0.0,
+                "payments": [],
+            },
+        )
+        bucket["payments"].append(item)
+        bucket["count"] += 1
+        bucket["total_amount"] += float(item.get("amount") or 0)
+
+    ordered_groups = []
+    for class_name in sorted(grouped.keys(), key=lambda value: value.lower()):
+        group = grouped[class_name]
+        group["payments"] = sorted(
+            group["payments"],
+            key=lambda payment: (
+                payment.get("submitted_at") or "",
+                payment.get("student") or "",
+            ),
+        )
+        group["total_amount"] = round(group["total_amount"], 2)
+        ordered_groups.append(group)
+    return ordered_groups
+
+
+def _confirm_pending_payment_record(payment, confirmed_by_user_id, confirmed_by_username):
+    if payment.status == "Confirmed":
+        raise ValueError("Payment already confirmed.")
+
+    payment.status = "Confirmed"
+    payment.verified_at = get_utc_now()
+    payment.verified_by = confirmed_by_user_id
+
+    student = Student.query.get(payment.student_id)
+    if student and payment.payment_type == "Tuition":
+        student.total_tuition_owed = max(
+            0, (student.total_tuition_owed or 0) - float(payment.amount)
+        )
+    elif student and payment.payment_type == "Feeding":
+        student.feeding_paid = True
+
+    add_ledger_entry(
+        school_id=g.school_id,
+        tx_type=payment.payment_type.lower(),
+        tx_ref=payment.reference_id or f"PAY-{payment.id}",
+        amount=payment.amount,
+        currency="GH₵",
+        actor_id=confirmed_by_user_id,
+        student_id=payment.student_id,
+        source=(payment.method or "cash").lower(),
+        metadata={
+            "payment_id": payment.id,
+            "student_name": student.name if student else "Unknown",
+            "student_code": student.student_code if student else "N/A",
+            "payment_category": payment.payment_category,
+            "confirmed_by": confirmed_by_username or "System",
+        },
+    )
+
+
 @api.route("/finance/confirm-payment/<int:payment_id>", methods=["POST"])
 @multi_tenant_guard
 @role_required("proprietor")
@@ -10476,44 +10603,86 @@ def confirm_payment(payment_id):
     payment = Payment.query.filter_by(
         id=payment_id, school_id=g.school_id
     ).first_or_404()
-    
+
     if payment.status == "Confirmed":
         return jsonify({"message": "Payment already confirmed."}), 400
-    
-    payment.status = "Confirmed"
-    payment.verified_at = datetime.now(timezone.utc)
-    payment.verified_by = int(get_jwt_identity())
-    
-    # Update student stats
-    student = Student.query.get(payment.student_id)
-    if student and payment.payment_type == "Tuition":
-        student.total_tuition_owed = max(
-            0, student.total_tuition_owed - float(payment.amount)
-        )
-    elif student and payment.payment_type == "Feeding":
-        student.feeding_paid = True
-    
-    # Create immutable ledger entry
-    add_ledger_entry(
-        school_id=g.school_id,
-        tx_type=payment.payment_type.lower(),
-        tx_ref=payment.reference_id or f"PAY-{payment.id}",
-        amount=payment.amount,
-        currency="GH₵",
-        actor_id=payment.verified_by,
-        student_id=payment.student_id,
-        source=payment.method.lower(),
-        metadata={
-            "payment_id": payment.id,
-            "student_name": student.name if student else "Unknown",
-            "student_code": student.student_code if student else "N/A",
-            "payment_category": payment.payment_category,
-            "confirmed_by": User.query.get(payment.verified_by).username if payment.verified_by else "System"
-        }
+
+    confirmed_by_user_id = int(get_jwt_identity())
+    confirmed_by_user = User.query.get(confirmed_by_user_id)
+    _confirm_pending_payment_record(
+        payment,
+        confirmed_by_user_id,
+        confirmed_by_user.username if confirmed_by_user else "System",
     )
-    
+
     db.session.commit()
     return jsonify({"message": "Cash receipt confirmed and logged to immutable ledger."})
+
+
+@api.route("/finance/confirm-payments/bulk", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def confirm_payments_bulk():
+    """Proprietor confirms a class or explicit batch of pending manual payments."""
+    verification_block, _snapshot = _finance_verification_block_response(
+        g.school_id,
+        action="confirm_payments_bulk",
+    )
+    if verification_block:
+        return verification_block
+
+    payload = request.get_json(silent=True) or {}
+    class_name = str(payload.get("class_name") or "").strip()
+    payment_ids = [
+        int(payment_id)
+        for payment_id in (payload.get("payment_ids") or [])
+        if str(payment_id).isdigit()
+    ]
+
+    if not class_name and not payment_ids:
+        return jsonify({"message": "class_name or payment_ids is required."}), 400
+
+    query = (
+        db.session.query(Payment)
+        .join(Student, Student.id == Payment.student_id)
+        .filter(Payment.school_id == g.school_id, Payment.status == "Pending")
+    )
+
+    if class_name:
+        query = query.filter(Student.current_class == class_name)
+    if payment_ids:
+        query = query.filter(Payment.id.in_(payment_ids))
+
+    payments = query.order_by(Payment.id.asc()).all()
+    if not payments:
+        return jsonify({"message": "No pending payments found for the selected class."}), 404
+
+    confirmed_by_user_id = int(get_jwt_identity())
+    confirmed_by_user = User.query.get(confirmed_by_user_id)
+    confirmed_by_username = confirmed_by_user.username if confirmed_by_user else "System"
+
+    confirmed_payment_ids = []
+    total_amount = 0.0
+    for payment in payments:
+        _confirm_pending_payment_record(
+            payment,
+            confirmed_by_user_id,
+            confirmed_by_username,
+        )
+        confirmed_payment_ids.append(payment.id)
+        total_amount += float(payment.amount or 0)
+
+    db.session.commit()
+    return jsonify(
+        {
+            "message": f"Confirmed {len(confirmed_payment_ids)} pending payments.",
+            "payment_ids": confirmed_payment_ids,
+            "count": len(confirmed_payment_ids),
+            "total_amount": round(total_amount, 2),
+            "class_name": class_name or None,
+        }
+    )
 
 
 @api.route("/finance/reject-payment/<int:payment_id>", methods=["POST"])
@@ -10541,7 +10710,7 @@ def reject_payment(payment_id):
     # AUDIT PROTECTION: Cannot delete confirmed payments (they're in immutable ledger)
     if payment.status == "Confirmed":
         return jsonify({"message": "Cannot reject confirmed payments - they are in the immutable audit ledger. Contact system administrator if correction needed."}), 403
-    
+
     # Get details before deletion for audit log
     student = Student.query.get(payment.student_id)
     user_id = int(get_jwt_identity())
@@ -10551,6 +10720,7 @@ def reject_payment(payment_id):
         user_id=user_id,
         school_id=g.school_id,
         action="PAYMENT_REJECTED",
+
         details=f"Proprietor rejected pending payment: GH₵{payment.amount} from {student.name if student else 'Unknown'} ({payment.payment_type}, Ref: {payment.reference_id or 'N/A'})",
     )
     
@@ -10559,7 +10729,6 @@ def reject_payment(payment_id):
     db.session.commit()
     
     return jsonify({"message": "Pending payment rejected and removed."})
-
 
 @api.route("/proprietor/intervene", methods=["POST"])
 @multi_tenant_guard
@@ -13810,22 +13979,19 @@ def get_finance_dashboard():
                 }
             )
 
-        # Pending payments recorded by teachers
+        # Pending payments recorded by staff and awaiting proprietor approval
         pending_payments = (
-            db.session.query(Payment, Student.name)
+            db.session.query(Payment, Student)
             .join(Student)
             .filter(Payment.school_id == g.school_id, Payment.status == "Pending")
+            .order_by(Student.current_class.asc(), Payment.created_at.asc(), Payment.id.asc())
             .all()
         )
         pending_list = [
-            {
-                "id": p.Payment.id,
-                "amount": p.Payment.amount,
-                "student": p.name,
-                "type": p.Payment.payment_type,
-            }
-            for p in pending_payments
+            _serialize_pending_payment(row.Payment, row.Student)
+            for row in pending_payments
         ]
+        pending_groups = _group_pending_payments_by_class(pending_list)
 
         return jsonify(
             {
@@ -13838,6 +14004,7 @@ def get_finance_dashboard():
                 "unpaid_count": unpaid_count,
                 "recent_transactions": recent_transactions,
                 "pending_payments": pending_list,
+                "pending_payments_by_class": pending_groups,
             }
         )
     except Exception as e:
@@ -15365,6 +15532,7 @@ def get_class_performance():
 
 
 @api.route("/school/branding", methods=["GET"])
+@rate_limit_api
 @multi_tenant_guard
 def get_school_branding():
     """Get school branding information for documents and fee configuration."""
@@ -18192,7 +18360,12 @@ def create_support_ticket():
     school = School.query.get(g.school_id)
     
     # 1. SEND EMAIL TO ADMIN (YOU)
-    admin_email = os.getenv("FOUNDER_EMAIL", "danielasareanyinam2020@gmail.com")
+    admin_email = (
+        os.getenv("FOUNDER_EMAIL")
+        or os.getenv("MAIL_DEFAULT_SENDER")
+        or os.getenv("MAIL_USERNAME")
+        or "noreply@edupulse.local"
+    )
     try:
         admin_subject = f"🎫 New Support Ticket #{ticket.id} - {ticket.type}"
         admin_body = f"""New support ticket submitted:

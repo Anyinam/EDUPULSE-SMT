@@ -31,7 +31,7 @@ const DEFAULT_PUBLIC_CONTENT = {
     { title: 'How diagnostic strands appear on terminal reports', url: 'https://www.youtube.com/watch?v=Q5l2Qh4Aq_0' }
   ],
   support: {
-    email: 'support@edupulse.com',
+    email: 'info@edupulsesmt.com',
     phone: '+233 552 141 384',
     response_time: 'within 24 hours on business days'
   },

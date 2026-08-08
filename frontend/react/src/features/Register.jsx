@@ -12,7 +12,7 @@ const POLICY_VERSION = '2026-03-07';
 
 const DEFAULT_PUBLIC_CONTENT = {
   support: {
-    email: 'support@edupulse.com',
+    email: 'info@edupulsesmt.com',
     phone: '+233 552 141 384',
     response_time: 'within 24 hours on business days',
   },

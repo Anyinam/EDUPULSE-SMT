@@ -9,22 +9,17 @@ import { useBranding } from '../hooks/useBranding';
  * Finance Dashboard - Handles fee collection, payment records, and financial reports
  */
 export default function FinanceDashboard() {
-  // Use React Router's useSearchParams hook to properly handle query parameters
   const [searchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab') || 'dashboard';
-  
-  const [activeTab, setActiveTab] = useState(tabFromUrl);
+  const activeTab = searchParams.get('tab') || 'dashboard';
   const [stats, setStats] = useState(null);
   const [payments, setPayments] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
+  const [pendingPaymentGroups, setPendingPaymentGroups] = useState([]);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPaymentClass, setSelectedPaymentClass] = useState('all');
+  const [selectedPaymentRecorderRole, setSelectedPaymentRecorderRole] = useState('all');
   const { branding } = useBranding();
-
-  // Update activeTab whenever URL search params change
-  useEffect(() => {
-    setActiveTab(searchParams.get('tab') || 'dashboard');
-  }, [searchParams]);
 
   const getAuthHeaders = () => ({
     headers: {
@@ -40,6 +35,7 @@ export default function FinanceDashboard() {
         const res = await axios.get('/api/finance/dashboard', getAuthHeaders());
         setStats(res.data);
         setPendingPayments(res.data?.pending_payments || []);
+        setPendingPaymentGroups(res.data?.pending_payments_by_class || []);
         
         // Fetch students for payment entry
         const studentsRes = await axios.get('/api/students', getAuthHeaders());
@@ -56,22 +52,68 @@ export default function FinanceDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Render different content based on activeTab
-  if (activeTab === 'payment-tracker') {
-    return <StudentPaymentTracker />;
-  }
-
   const refreshData = async () => {
     try {
       const res = await axios.get('/api/finance/dashboard', getAuthHeaders());
       setStats(res.data);
       setPendingPayments(res.data?.pending_payments || []);
+      setPendingPaymentGroups(res.data?.pending_payments_by_class || []);
     } catch (err) {
       console.error("Failed to refresh data:", err);
     }
   };
 
+  useEffect(() => {
+    if (selectedPaymentClass === 'all') return;
+    if (!pendingPaymentGroups.some(group => group.class_name === selectedPaymentClass)) {
+      setSelectedPaymentClass('all');
+    }
+  }, [pendingPaymentGroups, selectedPaymentClass]);
+
+  useEffect(() => {
+    if (selectedPaymentRecorderRole === 'all') return;
+    if (!pendingPayments.some(payment => (payment.recorded_by_role || 'unknown') === selectedPaymentRecorderRole)) {
+      setSelectedPaymentRecorderRole('all');
+    }
+  }, [pendingPayments, selectedPaymentRecorderRole]);
+
+  const paymentRoleOptions = Array.from(
+    new Map(
+      pendingPayments.map(payment => [
+        payment.recorded_by_role || 'unknown',
+        payment.recorded_by_label || 'Unknown Staff'
+      ])
+    ).entries()
+  ).map(([value, label]) => ({ value, label }));
+
+  const visiblePaymentGroups = pendingPaymentGroups.reduce((groups, group) => {
+    if (selectedPaymentClass !== 'all' && group.class_name !== selectedPaymentClass) {
+      return groups;
+    }
+
+    const paymentsForGroup = (group.payments || []).filter(payment => (
+      selectedPaymentRecorderRole === 'all'
+      || (payment.recorded_by_role || 'unknown') === selectedPaymentRecorderRole
+    ));
+
+    if (!paymentsForGroup.length) {
+      return groups;
+    }
+
+    groups.push({
+      ...group,
+      payments: paymentsForGroup,
+      count: paymentsForGroup.length,
+      total_amount: paymentsForGroup.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+    });
+    return groups;
+  }, []);
+
   // Default: Finance Dashboard view
+  if (activeTab === 'payment-tracker') {
+    return <StudentPaymentTracker />;
+  }
+
   if (loading || !stats) {
     return <div className="p-8 text-center text-gray-600">Loading Finance Dashboard...</div>;
   }
@@ -165,15 +207,56 @@ export default function FinanceDashboard() {
         <h3 className="font-bold text-emerald-900 mb-4">⏳ Pending Payments (Awaiting Proprietor Approval)</h3>
         <p className="text-xs text-gray-600 mb-3">Manual payments require proprietor approval before being added to the immutable audit ledger.</p>
         {pendingPayments.length > 0 ? (
-          <div className="space-y-3">
-            {pendingPayments.map(p => (
-              <div key={p.id} className="flex items-center justify-between bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                <span className="text-sm text-gray-900">
-                  {p.student} paid <b>GH₵{Number(p.amount).toFixed(2)}</b> ({p.type})
-                </span>
-                <span className="text-xs px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 font-bold">
-                  Awaiting Approval
-                </span>
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wide text-emerald-800 mb-1">Class Queue</label>
+                <select
+                  value={selectedPaymentClass}
+                  onChange={(event) => setSelectedPaymentClass(event.target.value)}
+                  className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="all">All Classes</option>
+                  {pendingPaymentGroups.map(group => (
+                    <option key={group.class_name} value={group.class_name}>{group.class_name} ({group.count})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wide text-emerald-800 mb-1">Recorded By</label>
+                <select
+                  value={selectedPaymentRecorderRole}
+                  onChange={(event) => setSelectedPaymentRecorderRole(event.target.value)}
+                  className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="all">All Staff Roles</option>
+                  {paymentRoleOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {visiblePaymentGroups.map(group => (
+              <div key={group.class_name} className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
+                <div className="border-b border-yellow-200 pb-3">
+                  <p className="text-sm font-black text-slate-800">{group.class_name}</p>
+                  <p className="text-xs text-slate-500">{group.count} pending payment{group.count === 1 ? '' : 's'} • GH₵{Number(group.total_amount || 0).toFixed(2)}</p>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {group.payments.map(p => (
+                    <div key={p.id} className="flex flex-col gap-2 rounded-xl border border-yellow-200 bg-white p-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <span className="text-sm text-gray-900">{p.student} paid <b>GH₵{Number(p.amount).toFixed(2)}</b> ({p.type})</span>
+                        <p className="mt-1 text-xs text-slate-500">{p.recorded_by_label || 'Unknown Staff'}{p.recorded_by_name ? ` • ${p.recorded_by_name}` : ''}</p>
+                        <p className="mt-1 text-xs text-slate-400">{p.method || 'Cash'}{p.reference_id ? ` • Ref: ${p.reference_id}` : ''}</p>
+                      </div>
+                      <span className="text-xs px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 font-bold">
+                        Awaiting Approval
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
