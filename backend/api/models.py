@@ -252,7 +252,10 @@ class TeacherAssignment(db.Model):
     subject_name = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
-    teacher = db.relationship("User", backref="teaching_assignments")
+    teacher = db.relationship(
+        "User",
+        backref=backref("teaching_assignments", cascade="all, delete-orphan", lazy=True),
+    )
 
     __table_args__ = (
         db.UniqueConstraint(
