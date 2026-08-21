@@ -13617,6 +13617,39 @@ def _find_platform_user_by_email(email, exclude_user_id=None):
     )
 
 
+def _normalize_staff_roles(raw_roles, primary_role=None):
+    allowed_roles = ["teacher", "homeroom", "headmaster", "finance", "inventory_manager"]
+    roles = raw_roles if isinstance(raw_roles, list) else []
+    roles = list(dict.fromkeys(roles))
+
+    effective_primary_role = primary_role or (roles[0] if roles else "teacher")
+    if effective_primary_role not in allowed_roles or any(role not in allowed_roles for role in roles):
+        return None, None, "Invalid role."
+
+    if not roles:
+        roles = [effective_primary_role]
+        effective_primary_role = roles[0]
+    else:
+        effective_primary_role = roles[0]
+
+    if "teacher" in roles and "homeroom" in roles:
+        return None, None, "Homeroom teachers cannot also be assigned the subject teacher role."
+
+    return roles, effective_primary_role, None
+
+
+def _normalize_homeroom_assignment(roles, assigned_class):
+    normalized_assigned_class = (assigned_class or "").strip()
+
+    if "homeroom" in roles and not normalized_assigned_class:
+        return None, "Homeroom teachers must have an assigned homeroom class."
+
+    if "homeroom" not in roles:
+        return None, None
+
+    return normalized_assigned_class, None
+
+
 @api.route("/staff/add", methods=["POST"])
 @multi_tenant_guard
 @role_required("proprietor")
@@ -13635,14 +13668,19 @@ def add_staff():
     if _find_school_user_by_email(g.school_id, email):
         return jsonify({"message": "Email address is already assigned to another staff member in this school."}), 400
 
-    roles = data.get("roles") if isinstance(data.get("roles"), list) else []
-    primary_role = data.get("role") or (roles[0] if roles else "teacher")
-    allowed_roles = ["teacher", "homeroom", "headmaster", "finance", "inventory_manager"]
-    if primary_role not in allowed_roles or any(r not in allowed_roles for r in roles):
-        return jsonify({"message": "Invalid role."}), 400
+    roles, primary_role, role_error = _normalize_staff_roles(
+        data.get("roles") if isinstance(data.get("roles"), list) else [],
+        data.get("role"),
+    )
+    if role_error:
+        return jsonify({"message": role_error}), 400
 
-    if not roles:
-        roles = [primary_role]
+    assigned_class, assigned_class_error = _normalize_homeroom_assignment(
+        roles,
+        data.get("assigned_class"),
+    )
+    if assigned_class_error:
+        return jsonify({"message": assigned_class_error}), 400
 
     temp_password = _generate_staff_temp_password()
 
@@ -13658,11 +13696,7 @@ def add_staff():
         password_hash=generate_password_hash(temp_password),
         is_temp_password=True,
         temp_password_expires_at=temp_expires,
-        assigned_class=(
-            data.get("assigned_class")
-            if "homeroom" in roles or "teacher" in roles
-            else None
-        ),
+        assigned_class=assigned_class,
     )
     db.session.add(new_user)
     db.session.commit()
@@ -13819,13 +13853,18 @@ def bulk_upload_staff():
                 normalized_roles = roles_str.replace(";", ",")
                 roles = [r.strip() for r in normalized_roles.split(",") if r.strip()] if normalized_roles else ["teacher"]
                 
-                # Validate roles
-                for role in roles:
-                    if role not in allowed_roles:
-                        errors.append(f"Row {idx}: Invalid role '{role}'. Allowed: {', '.join(allowed_roles)}")
-                        continue
-                
-                primary_role = roles[0] if roles else "teacher"
+                roles, primary_role, role_error = _normalize_staff_roles(roles)
+                if role_error:
+                    errors.append(f"Row {idx}: {role_error}")
+                    continue
+
+                assigned_class, assigned_class_error = _normalize_homeroom_assignment(
+                    roles,
+                    row.get("assigned_class"),
+                )
+                if assigned_class_error:
+                    errors.append(f"Row {idx}: {assigned_class_error}")
+                    continue
 
                 try:
                     # Create the user
@@ -13836,11 +13875,7 @@ def bulk_upload_staff():
                         roles=roles,
                         school_id=g.school_id,
                         password_hash=generate_password_hash(password),
-                        assigned_class=(
-                            (row.get("assigned_class") or "").strip()
-                            if any(r in roles for r in ["homeroom", "teacher"])
-                            else None
-                        ),
+                        assigned_class=assigned_class,
                     )
                     db.session.add(new_staff)
                     db.session.flush()  # Get the ID without committing yet
@@ -15970,16 +16005,20 @@ def update_staff(user_id):
     if roles:
         primary_role = roles[0]
 
-    allowed_roles = ["teacher", "homeroom", "headmaster", "finance", "inventory_manager"]
-    if primary_role not in allowed_roles or any(r not in allowed_roles for r in roles):
-        return jsonify({"message": "Invalid role."}), 400
+    roles, primary_role, role_error = _normalize_staff_roles(roles, primary_role)
+    if role_error:
+        return jsonify({"message": role_error}), 400
+
+    assigned_class, assigned_class_error = _normalize_homeroom_assignment(
+        roles,
+        data.get("assigned_class", user.assigned_class),
+    )
+    if assigned_class_error:
+        return jsonify({"message": assigned_class_error}), 400
 
     user.role = primary_role
     user.roles = roles
-    assigned_class = data.get("assigned_class", user.assigned_class)
-    user.assigned_class = (
-        assigned_class if "homeroom" in roles or "teacher" in roles else None
-    )
+    user.assigned_class = assigned_class
 
     if "homeroom" in roles or "teacher" in roles:
         if "assigned_classes" in data or "assigned_subjects" in data:

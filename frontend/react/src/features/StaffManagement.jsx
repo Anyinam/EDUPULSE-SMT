@@ -63,12 +63,56 @@ export default function StaffManagement() {
   });
 
   const roleOptions = [
-    { value: 'teacher', label: 'Teacher' },
+    { value: 'teacher', label: 'Subject Teacher' },
     { value: 'homeroom', label: 'Homeroom Teacher' },
     { value: 'headmaster', label: 'Headmaster' },
     { value: 'finance', label: 'Finance Officer' },
     { value: 'inventory_manager', label: 'Store Manager' }
   ];
+
+  const roleLabelMap = Object.fromEntries(roleOptions.map((option) => [option.value, option.label]));
+
+  const formatRoleLabels = (roles) => roles.map((role) => roleLabelMap[role] || role).join(', ');
+
+  const renderHomeroomClassPicker = (selectedClass, onSelect, inputName) => (
+    <div>
+      <label className="text-xs font-bold text-slate-600 block mb-2">Homeroom Class Assignment</label>
+      <div className="border rounded-lg p-3 bg-white max-h-40 overflow-y-auto">
+        {availableClasses.length > 0 ? (
+          availableClasses.map((cls) => (
+            <label key={cls} className="flex items-center gap-2 text-sm mb-2">
+              <input
+                type="radio"
+                name={inputName}
+                checked={selectedClass === cls}
+                onChange={() => onSelect(cls)}
+                required
+              />
+              {cls}
+            </label>
+          ))
+        ) : (
+          <p className="text-xs text-slate-500 italic">No classes available</p>
+        )}
+      </div>
+    </div>
+  );
+
+  const normalizeRoleSelection = (roles, toggledRole) => {
+    const nextRoles = roles.includes(toggledRole)
+      ? roles.filter((role) => role !== toggledRole)
+      : [...roles, toggledRole];
+
+    if (toggledRole === 'teacher' && !roles.includes('teacher')) {
+      return nextRoles.filter((role) => role !== 'homeroom');
+    }
+
+    if (toggledRole === 'homeroom' && !roles.includes('homeroom')) {
+      return nextRoles.filter((role) => role !== 'teacher');
+    }
+
+    return nextRoles;
+  };
 
   const getAuthHeaders = () => ({
     headers: {
@@ -115,15 +159,12 @@ export default function StaffManagement() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const toggleRole = (roles, role) => {
-    if (roles.includes(role)) {
-      return roles.filter((r) => r !== role);
-    }
-    return [...roles, role];
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (formData.roles.includes('homeroom') && !formData.assigned_class.trim()) {
+      alert('Homeroom teachers must have an assigned homeroom class.');
+      return;
+    }
     try {
       await axios.post('/api/staff/add', formData, getAuthHeaders());
       alert("Staff member added successfully!");
@@ -178,7 +219,9 @@ export default function StaffManagement() {
   const openEdit = (staff) => {
     setEditingStaffId(staff.id);
     setEditForm({
-      roles: staff.roles || [staff.role || 'teacher'],
+      roles: (staff.roles || [staff.role || 'teacher']).filter(
+        (role, index, roles) => !(role === 'teacher' && roles.includes('homeroom')) && roles.indexOf(role) === index
+      ),
       assigned_class: staff.assigned_class || '',
       assigned_classes: staff.assigned_classes || [],
       assigned_subjects: staff.assigned_subjects || []
@@ -196,6 +239,10 @@ export default function StaffManagement() {
   };
 
   const saveEdit = async (staffId) => {
+    if (editForm.roles.includes('homeroom') && !editForm.assigned_class.trim()) {
+      alert('Homeroom teachers must have an assigned homeroom class.');
+      return;
+    }
     try {
       await axios.put(`/api/staff/${staffId}`, editForm, getAuthHeaders());
       alert("Staff member updated successfully!");
@@ -236,6 +283,7 @@ export default function StaffManagement() {
           />
           <div className="col-span-1 md:col-span-2">
             <p className="text-xs font-bold text-slate-600 mb-2">Assign Roles</p>
+            <p className="text-xs text-slate-500 mb-3">Homeroom teachers already have subject-teacher access, so those two roles cannot be combined.</p>
             <div className="flex flex-wrap gap-3">
               {roleOptions.map((opt) => (
                 <label key={opt.value} className="flex items-center gap-2 text-sm">
@@ -243,11 +291,11 @@ export default function StaffManagement() {
                     type="checkbox"
                     checked={formData.roles.includes(opt.value)}
                     onChange={() => {
-                      const nextRoles = toggleRole(formData.roles, opt.value);
+                      const nextRoles = normalizeRoleSelection(formData.roles, opt.value);
                       setFormData({
                         ...formData,
                         roles: nextRoles,
-                        assigned_class: nextRoles.includes('teacher') || nextRoles.includes('homeroom') ? formData.assigned_class : ''
+                        assigned_class: nextRoles.includes('homeroom') ? formData.assigned_class : ''
                       });
                     }}
                   />
@@ -256,15 +304,17 @@ export default function StaffManagement() {
               ))}
             </div>
           </div>
+          {formData.roles.includes('homeroom') && (
+            <div className="col-span-1 md:col-span-2 border-t pt-3">
+              {renderHomeroomClassPicker(
+                formData.assigned_class,
+                (selectedClass) => setFormData({ ...formData, assigned_class: selectedClass }),
+                'new-homeroom-class'
+              )}
+            </div>
+          )}
           {(formData.roles.includes('teacher') || formData.roles.includes('homeroom')) && (
             <div className="col-span-1 md:col-span-2 space-y-3 border-t pt-3">
-              <input 
-                name="assigned_class" 
-                placeholder="Homeroom Class (optional, e.g., JHS 1)" 
-                value={formData.assigned_class}
-                onChange={handleInputChange}
-                className="p-3 border rounded-lg w-full text-sm"
-              />
               <div>
                 <label className="text-xs font-bold text-slate-600 block mb-2">Classes to Teach</label>
                 <div className="border rounded-lg p-3 bg-white max-h-40 overflow-y-auto">
@@ -430,17 +480,18 @@ export default function StaffManagement() {
                 <td className="p-4 capitalize">
                   {editingStaffId === staff.id ? (
                     <div className="flex flex-col gap-1">
+                      <p className="text-[11px] text-slate-500 mb-1">Homeroom and Subject Teacher cannot both be selected.</p>
                       {roleOptions.map((opt) => (
                         <label key={opt.value} className="flex items-center gap-2 text-xs">
                           <input
                             type="checkbox"
                             checked={editForm.roles.includes(opt.value)}
                             onChange={() => {
-                              const nextRoles = toggleRole(editForm.roles, opt.value);
+                              const nextRoles = normalizeRoleSelection(editForm.roles, opt.value);
                               setEditForm({
                                 ...editForm,
                                 roles: nextRoles,
-                                assigned_class: nextRoles.includes('teacher') || nextRoles.includes('homeroom') ? editForm.assigned_class : ''
+                                assigned_class: nextRoles.includes('homeroom') ? editForm.assigned_class : ''
                               });
                             }}
                           />
@@ -449,18 +500,19 @@ export default function StaffManagement() {
                       ))}
                     </div>
                   ) : (
-                    (staff.roles || [staff.role]).join(', ')
+                    formatRoleLabels(staff.roles || [staff.role])
                   )}
                 </td>
                 <td className="p-4">
                   {editingStaffId === staff.id ? (
-                    (editForm.roles.includes('teacher') || editForm.roles.includes('homeroom')) ? (
-                      <input
-                        value={editForm.assigned_class}
-                        onChange={(e) => setEditForm({ ...editForm, assigned_class: e.target.value })}
-                        placeholder="Homeroom class"
-                        className="p-2 border rounded-lg text-sm w-full"
-                      />
+                    editForm.roles.includes('homeroom') ? (
+                      <div className="min-w-44">
+                        {renderHomeroomClassPicker(
+                          editForm.assigned_class,
+                          (selectedClass) => setEditForm({ ...editForm, assigned_class: selectedClass }),
+                          `edit-homeroom-class-${staff.id}`
+                        )}
+                      </div>
                     ) : (
                       <span className="text-slate-400 text-sm">-</span>
                     )

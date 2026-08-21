@@ -7,6 +7,7 @@ import { useBranding } from '../hooks/useBranding';
 
 export default function TeacherDashboard() {
   const [students, setStudents] = useState([]);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
   const [studentLoadError, setStudentLoadError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [lessonNoteData, setLessonNoteData] = useState({
@@ -64,6 +65,7 @@ export default function TeacherDashboard() {
       try {
         if (!selectedClass) {
           setStudents([]);
+          setSelectedStudentId('');
           setStudentLoadError(null);
           return;
         }
@@ -77,10 +79,23 @@ export default function TeacherDashboard() {
         const errorMsg = err.response?.data?.message || err.message || 'Failed to load students';
         setStudentLoadError(errorMsg);
         setStudents([]);
+        setSelectedStudentId('');
       }
     };
     fetchStudents();
   }, [selectedClass]);
+
+  useEffect(() => {
+    if (students.length === 0) {
+      setSelectedStudentId('');
+      return;
+    }
+
+    const hasSelectedStudent = students.some((student) => String(student.id) === String(selectedStudentId));
+    if (!hasSelectedStudent) {
+      setSelectedStudentId(String(students[0].id));
+    }
+  }, [students, selectedStudentId]);
 
   // Fetch grading scheme
   useEffect(() => {
@@ -210,6 +225,14 @@ export default function TeacherDashboard() {
   const classOptions = availableClasses.length > 0 
     ? availableClasses 
     : ['JHS 1', 'JHS 2', 'JHS 3', 'Class 6', 'Class 5'];
+
+  const selectedStudent = students.find((student) => String(student.id) === String(selectedStudentId)) || null;
+  const completedStudentCount = students.filter((student) => (
+    student.class_score !== ''
+    && student.class_score !== undefined
+    && student.exam_score !== ''
+    && student.exam_score !== undefined
+  )).length;
 
   const lessonNoteSubjectOptions = useTimetable
     ? timetableSubjects.filter((subject) => allowedSubjects.includes(subject))
@@ -989,47 +1012,77 @@ export default function TeacherDashboard() {
           )}
 
           {students.length > 0 && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-4 font-bold text-gray-400 text-sm px-2">
-              <span>Student Name</span>
-              <span>Class Score</span>
-              <span>Exam Score</span>
-              <span>Total</span>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div className="flex-1">
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Select Student
+                  </label>
+                  <select
+                    value={selectedStudentId}
+                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  >
+                    {students.map((student) => (
+                      <option key={student.id} value={student.id}>
+                        {student.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rounded-lg bg-white px-4 py-3 text-sm text-slate-600 border border-slate-200">
+                  Completed: <span className="font-bold text-slate-900">{completedStudentCount}/{students.length}</span>
+                </div>
+              </div>
             </div>
-            {students.map(s => (
-              <div key={s.id} className="p-3 bg-gray-50 rounded-lg hover:bg-blue-50 transition-colors space-y-3">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <span className="font-medium text-gray-800">{s.name}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max={classScoreMax}
-                    step="0.5"
-                    className={`w-24 p-1 border rounded text-center focus:ring-2 outline-none ${
-                      s.class_score && parseFloat(s.class_score) > classScoreMax 
-                        ? 'border-red-500 bg-red-50 focus:ring-red-500' 
-                        : 'focus:ring-blue-500'
-                    }`}
-                    value={s.class_score || ''}
-                    onChange={(e) => handleClassAssignmentChange(s.id, e.target.value)}
-                    title={`Max: ${classScoreMax}`}
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max={examScoreMax}
-                    step="0.5"
-                    className={`w-24 p-1 border rounded text-center focus:ring-2 outline-none ${
-                      s.exam_score && parseFloat(s.exam_score) > examScoreMax 
-                        ? 'border-red-500 bg-red-50 focus:ring-red-500' 
-                        : 'focus:ring-green-500'
-                    }`}
-                    value={s.exam_score || ''}
-                    onChange={(e) => handleExamScoreChange(s.id, e.target.value)}
-                    title={`Max: ${examScoreMax}`}
-                  />
-                  <div className="font-bold text-slate-700">
-                    {(parseFloat(s.class_score) || 0) + (parseFloat(s.exam_score) || 0)}
+
+            {selectedStudent && (
+              <div className="p-4 bg-gray-50 rounded-lg hover:bg-blue-50 transition-colors space-y-3">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-center">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Student Name</p>
+                    <p className="mt-1 font-medium text-gray-800">{selectedStudent.name}</p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Class Score</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={classScoreMax}
+                      step="0.5"
+                      className={`w-full p-2 border rounded text-center focus:ring-2 outline-none ${
+                        selectedStudent.class_score && parseFloat(selectedStudent.class_score) > classScoreMax 
+                          ? 'border-red-500 bg-red-50 focus:ring-red-500' 
+                          : 'focus:ring-blue-500'
+                      }`}
+                      value={selectedStudent.class_score || ''}
+                      onChange={(e) => handleClassAssignmentChange(selectedStudent.id, e.target.value)}
+                      title={`Max: ${classScoreMax}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Exam Score</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={examScoreMax}
+                      step="0.5"
+                      className={`w-full p-2 border rounded text-center focus:ring-2 outline-none ${
+                        selectedStudent.exam_score && parseFloat(selectedStudent.exam_score) > examScoreMax 
+                          ? 'border-red-500 bg-red-50 focus:ring-red-500' 
+                          : 'focus:ring-green-500'
+                      }`}
+                      value={selectedStudent.exam_score || ''}
+                      onChange={(e) => handleExamScoreChange(selectedStudent.id, e.target.value)}
+                      title={`Max: ${examScoreMax}`}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Total</p>
+                    <div className="mt-1 font-bold text-slate-700 text-lg">
+                      {(parseFloat(selectedStudent.class_score) || 0) + (parseFloat(selectedStudent.exam_score) || 0)}
+                    </div>
                   </div>
                 </div>
 
@@ -1038,24 +1091,24 @@ export default function TeacherDashboard() {
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Diagnostic strands for {selectedSubject}</p>
                     <button
                       type="button"
-                      onClick={() => addDiagnosticTopic(s.id)}
+                      onClick={() => addDiagnosticTopic(selectedStudent.id)}
                       className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
                     >
                       + Add Diagnostic
                     </button>
                   </div>
-                  {(s.diagnostic_topics || []).length === 0 ? (
+                  {(selectedStudent.diagnostic_topics || []).length === 0 ? (
                     <p className="mt-2 text-xs text-slate-400">Optional: add topic-level diagnostics that should flow to the homeroom report builder.</p>
                   ) : (
                     <div className="mt-3 space-y-2">
-                      {s.diagnostic_topics.map((topic, index) => (
-                        <div key={`${s.id}-${index}`} className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,2fr)_90px_90px_auto] md:items-center">
+                      {selectedStudent.diagnostic_topics.map((topic, index) => (
+                        <div key={`${selectedStudent.id}-${index}`} className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,2fr)_90px_90px_auto] md:items-center">
                           <input
                             type="text"
                             className="rounded border p-2 text-sm"
                             placeholder="Topic or strand"
                             value={topic.topic || ''}
-                            onChange={(e) => handleDiagnosticTopicChange(s.id, index, 'topic', e.target.value)}
+                            onChange={(e) => handleDiagnosticTopicChange(selectedStudent.id, index, 'topic', e.target.value)}
                           />
                           <input
                             type="number"
@@ -1064,7 +1117,7 @@ export default function TeacherDashboard() {
                             className="rounded border p-2 text-sm"
                             placeholder="Score"
                             value={topic.score || ''}
-                            onChange={(e) => handleDiagnosticTopicChange(s.id, index, 'score', e.target.value)}
+                            onChange={(e) => handleDiagnosticTopicChange(selectedStudent.id, index, 'score', e.target.value)}
                           />
                           <input
                             type="number"
@@ -1073,11 +1126,11 @@ export default function TeacherDashboard() {
                             className="rounded border p-2 text-sm"
                             placeholder="Max"
                             value={topic.max_score || ''}
-                            onChange={(e) => handleDiagnosticTopicChange(s.id, index, 'max_score', e.target.value)}
+                            onChange={(e) => handleDiagnosticTopicChange(selectedStudent.id, index, 'max_score', e.target.value)}
                           />
                           <button
                             type="button"
-                            onClick={() => removeDiagnosticTopic(s.id, index)}
+                            onClick={() => removeDiagnosticTopic(selectedStudent.id, index)}
                             className="rounded border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                           >
                             Remove
@@ -1088,7 +1141,7 @@ export default function TeacherDashboard() {
                   )}
                 </div>
               </div>
-            ))}
+            )}
           </div>
           )}
           <button onClick={handleSave} className="mt-6 w-full btn-primary">

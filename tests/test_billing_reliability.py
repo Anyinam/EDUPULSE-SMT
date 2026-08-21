@@ -1340,6 +1340,89 @@ def test_staff_add_rejects_duplicate_email_in_same_school(
     assert response.get_json()["message"] == "Email address is already assigned to another staff member in this school."
 
 
+def test_staff_add_rejects_teacher_and_homeroom_combo(
+    client, app, db, test_school, test_proprietor, proprietor_headers
+):
+    payload = {
+        "username": "combo_role_staff",
+        "email": "combo@example.com",
+        "roles": ["teacher", "homeroom"],
+    }
+
+    response = client.post("/api/staff/add", json=payload, headers=proprietor_headers)
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "Homeroom teachers cannot also be assigned the subject teacher role."
+
+
+def test_staff_update_rejects_teacher_and_homeroom_combo(
+    client, app, db, test_school, test_proprietor, proprietor_headers
+):
+    from backend.api.models import User
+
+    staff = User(
+        username="role_update_staff",
+        school_id=test_school.id,
+        role="teacher",
+        roles=["teacher"],
+        email="roleupdate@example.com",
+    )
+    staff.set_password("ExistingPass123")
+    db.session.add(staff)
+    db.session.commit()
+
+    response = client.put(
+        f"/api/staff/{staff.id}",
+        json={"roles": ["teacher", "homeroom"]},
+        headers=proprietor_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "Homeroom teachers cannot also be assigned the subject teacher role."
+
+
+def test_staff_add_rejects_homeroom_without_assigned_class(
+    client, app, db, test_school, test_proprietor, proprietor_headers
+):
+    payload = {
+        "username": "homeroom_without_class",
+        "email": "homeroom-no-class@example.com",
+        "roles": ["homeroom"],
+        "assigned_class": "",
+    }
+
+    response = client.post("/api/staff/add", json=payload, headers=proprietor_headers)
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "Homeroom teachers must have an assigned homeroom class."
+
+
+def test_staff_update_rejects_homeroom_without_assigned_class(
+    client, app, db, test_school, test_proprietor, proprietor_headers
+):
+    from backend.api.models import User
+
+    staff = User(
+        username="homeroom_update_staff",
+        school_id=test_school.id,
+        role="teacher",
+        roles=["teacher"],
+        email="homeroomupdate@example.com",
+    )
+    staff.set_password("ExistingPass123")
+    db.session.add(staff)
+    db.session.commit()
+
+    response = client.put(
+        f"/api/staff/{staff.id}",
+        json={"roles": ["homeroom"], "assigned_class": ""},
+        headers=proprietor_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "Homeroom teachers must have an assigned homeroom class."
+
+
 def test_resend_staff_invite_rotates_temp_password_and_sends_email(
     client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch
 ):
