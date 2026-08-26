@@ -1,0 +1,9 @@
+.env
+.env.*
+*.env
+*.env.*
+node_modules/
+react/node_modules/
+dist/
+react/dist/
+npm-debug.log*

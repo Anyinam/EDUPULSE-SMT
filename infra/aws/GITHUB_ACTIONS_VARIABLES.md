@@ -2,6 +2,18 @@
 
 Use this file as the source of truth when populating the GitHub Actions `production` environment for EduPulse.
 
+## Secret Handling Rule
+
+Production secret values should live in AWS Secrets Manager, not in the repository and not in a committed `.env` file.
+
+GitHub should only store:
+
+- the AWS credentials needed to run the deployment workflow
+- non-secret deployment variables
+- AWS Secrets Manager ARNs that point to the real secret values
+
+The ECS task definitions then pull the actual runtime secret values directly from AWS Secrets Manager at container start.
+
 ## GitHub Secrets
 
 - `AWS_ACCESS_KEY_ID`: IAM access key for the deployment user or role broker.

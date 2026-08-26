@@ -1,0 +1,17 @@
+.env
+.env.*
+*.env
+*.env.*
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+instance/
+tests/
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+Eduenv/
+venv/
+.venv/
