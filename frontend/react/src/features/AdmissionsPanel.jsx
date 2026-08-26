@@ -4,6 +4,21 @@ import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
 import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
+const getAdmissionsBillingMessage = (err, fallbackMessage) => {
+  const payload = err?.response?.data || {};
+  if (payload.error !== 'billing_growth_blocked') {
+    return payload.message || fallbackMessage;
+  }
+
+  const included = Number(payload.included_students || 0);
+  const projected = Number(payload.projected_active_students || payload.active_students || 0);
+  const coverageNote = payload.reason === 'pending_overage_invoice'
+    ? `\n\nOutstanding overage invoice: ${payload.invoice_ref || 'unavailable'}${payload.invoice_due_date ? ` due ${payload.invoice_due_date}` : ''}.`
+    : `\n\nThis action would take active enrollment to ${projected} against ${included} included seats without saved-card coverage.`;
+
+  return `${payload.message || fallbackMessage}${coverageNote}`;
+};
+
 export default function AdmissionsPanel() {
   const { plan: subscriptionPlan } = useEffectiveSubscriptionPlan();
   const aiRegistrarIncluded = subscriptionPlan === 'Basic' || subscriptionPlan === 'Premium';
@@ -170,7 +185,7 @@ export default function AdmissionsPanel() {
       });
       fetchApplications();
     } catch (err) {
-      alert(err.response?.data?.message || "Admission failed.");
+      alert(getAdmissionsBillingMessage(err, 'Admission failed.'));
     }
   };
 
@@ -199,7 +214,7 @@ export default function AdmissionsPanel() {
       setCsvFile(null);
       fetchApplications();
     } catch (err) {
-      alert(err.response?.data?.message || "Bulk upload failed.");
+      alert(getAdmissionsBillingMessage(err, 'Bulk upload failed.'));
     }
   };
 

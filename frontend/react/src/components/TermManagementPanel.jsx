@@ -1,6 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
+const buildActivationMessage = (payload) => {
+  if (!payload) {
+    return 'Failed to activate term';
+  }
+
+  if (payload.error === 'billing_payment_required') {
+    return `${payload.message}\n\nPayment link ready: ${payload.payment_link}\nReference: ${payload.reference}\n\nThe term will activate after payment is completed.`;
+  }
+
+  if (payload.error === 'billing_charge_failed' || payload.error === 'billing_processing_failed' || payload.error === 'billing_precheck_failed') {
+    return `${payload.message}\n\nThe term remains inactive until billing is resolved.`;
+  }
+
+  return payload.message || 'Failed to activate term';
+};
+
 const fallbackAcademicYear = () => {
   const today = new Date();
   const year = today.getFullYear();
@@ -125,7 +141,14 @@ export default function TermManagementPanel() {
       
       fetchTerms();
     } catch (err) {
-      setMessage(err.response?.data?.message || 'Failed to activate term');
+      const payload = err?.response?.data || {};
+      setMessage(buildActivationMessage(payload));
+
+      if (payload.error === 'billing_payment_required' && payload.payment_link) {
+        if (window.confirm('Payment is required before activation. Open the payment page now?')) {
+          window.open(payload.payment_link, '_blank', 'noopener,noreferrer');
+        }
+      }
     }
   };
 

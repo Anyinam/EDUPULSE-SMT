@@ -146,6 +146,229 @@ def test_card_management_flow(client, db, test_school, proprietor_headers):
     assert unsubscribed.get_json()["enabled"] is False
 
 
+def test_admission_blocks_billable_growth_without_saved_card_coverage(
+    client,
+    db,
+    test_school,
+    proprietor_headers,
+    monkeypatch,
+):
+    from backend.api.models import Student
+
+    monkeypatch.setattr("backend.routes.get_plan_limits", lambda _plan_name: 200)
+
+    for index in range(30):
+        db.session.add(
+            Student(
+                school_id=test_school.id,
+                first_name=f"Covered{index}",
+                surname="Student",
+                name=f"Covered{index} Student",
+                student_code=f"COV{index:03d}",
+                current_class="JHS 1",
+                status="Active",
+            )
+        )
+    db.session.commit()
+
+    response = client.post(
+        "/api/admissions/admit",
+        headers=proprietor_headers,
+        data=json.dumps(
+            {
+                "first_name": "Blocked",
+                "surname": "Applicant",
+                "class_assigned": "JHS 1",
+                "score": 84,
+            }
+        ),
+    )
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["error"] == "billing_growth_blocked"
+    assert payload["reason"] == "payment_method_required"
+
+
+def test_unsubscribe_auto_billing_blocks_when_school_is_above_included_students(
+    client,
+    db,
+    test_school,
+    proprietor_headers,
+):
+    from backend.api.models import PlatformSetting, Student
+
+    db.session.add(
+        PlatformSetting(
+            setting_key=f"auto_billing:{test_school.id}",
+            setting_value={
+                "enabled": True,
+                "cards": [
+                    {
+                        "card_id": "card-1",
+                        "authorization_code": "AUTH_A",
+                        "last4": "1111",
+                        "brand": "visa",
+                        "bank": "BANK-A",
+                        "customer_email": "owner@test.edu",
+                        "is_default": True,
+                        "added_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
+            },
+        )
+    )
+    for index in range(31):
+        db.session.add(
+            Student(
+                school_id=test_school.id,
+                first_name=f"Seat{index}",
+                surname="Student",
+                name=f"Seat{index} Student",
+                student_code=f"SEA{index:03d}",
+                current_class="JHS 1",
+                status="Active",
+            )
+        )
+    db.session.commit()
+
+    response = client.post(
+        "/api/school/subscription/auto-billing/unsubscribe",
+        data=json.dumps({}),
+        headers=proprietor_headers,
+    )
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["error"] == "billing_growth_blocked"
+    assert payload["reason"] == "payment_method_required"
+
+
+def test_remove_last_saved_card_blocks_when_school_is_above_included_students(
+    client,
+    db,
+    test_school,
+    proprietor_headers,
+):
+    from backend.api.models import PlatformSetting, Student
+
+    db.session.add(
+        PlatformSetting(
+            setting_key=f"auto_billing:{test_school.id}",
+            setting_value={
+                "enabled": True,
+                "cards": [
+                    {
+                        "card_id": "card-1",
+                        "authorization_code": "AUTH_A",
+                        "last4": "1111",
+                        "brand": "visa",
+                        "bank": "BANK-A",
+                        "customer_email": "owner@test.edu",
+                        "is_default": True,
+                        "added_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
+            },
+        )
+    )
+    for index in range(31):
+        db.session.add(
+            Student(
+                school_id=test_school.id,
+                first_name=f"Card{index}",
+                surname="Student",
+                name=f"Card{index} Student",
+                student_code=f"CRD{index:03d}",
+                current_class="JHS 1",
+                status="Active",
+            )
+        )
+    db.session.commit()
+
+    response = client.delete(
+        "/api/school/subscription/cards/card-1",
+        headers=proprietor_headers,
+    )
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["error"] == "billing_growth_blocked"
+    assert payload["reason"] == "payment_method_required"
+
+
+def test_paid_term_activation_requires_payment_before_activation(
+    client,
+    app,
+    db,
+    test_school,
+    test_proprietor,
+    proprietor_headers,
+    monkeypatch,
+):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm, LedgerEntry, Student
+
+    term = AcademicTerm(
+        school_id=test_school.id,
+        name="Term 1",
+        academic_year="2026/2027",
+        start_date=date.today(),
+        end_date=date.today() + timedelta(days=90),
+        billing_due_date=date.today() + timedelta(days=30),
+        is_active=False,
+        created_by=test_proprietor.id,
+    )
+    db.session.add(term)
+    db.session.add(
+        Student(
+            school_id=test_school.id,
+            first_name="Term",
+            surname="Student",
+            name="Term Student",
+            student_code="TERM001",
+            current_class="JHS 1",
+            status="Active",
+        )
+    )
+    db.session.commit()
+
+    monkeypatch.setattr(
+        "backend.routes.send_email_notification",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "backend.paystack_integration.initialize_termly_payment",
+        lambda email, plan_name, school_id, num_students, academic_term_id: {
+            "status": "success",
+            "authorization_url": "https://paystack.test/authorize",
+            "reference": "TERM-PAY-001",
+        },
+    )
+
+    response = client.post(
+        f"/api/school/terms/{term.id}/activate",
+        headers=proprietor_headers,
+    )
+
+    assert response.status_code == 402
+    payload = response.get_json()
+    assert payload["error"] == "billing_payment_required"
+    assert payload["reference"] == "TERM-PAY-001"
+    assert payload["payment_link"] == "https://paystack.test/authorize"
+
+    with app.app_context():
+        refreshed_term = AcademicTerm.query.get(term.id)
+        assert refreshed_term.is_active is False
+
+        entry = LedgerEntry.query.filter_by(tx_ref="TERM-PAY-001", tx_type="subscription").first()
+        assert entry is not None
+        assert (entry.meta or {}).get("status") == "Pending"
+
+
 def test_paystack_initialize_prorates_post_trial_free_tier_conversion(
     client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch
 ):
@@ -1192,6 +1415,145 @@ def test_prorated_admission_charge_uses_actual_term_length(client, app, db, test
         assert entry is not None
         meta = entry.meta or {}
         assert meta.get("days_in_term") == 121
+
+
+def test_prorated_admission_charge_reuses_same_term_vacated_seat(client, app, db, test_school, test_proprietor):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm, LedgerEntry, Student
+    from backend.routes import calculate_prorated_admission_charge, get_utc_now
+
+    with app.app_context():
+        today = date.today()
+        term = AcademicTerm(
+            school_id=test_school.id,
+            name="Term 1",
+            academic_year="2025/2026",
+            start_date=today - timedelta(days=20),
+            end_date=today + timedelta(days=40),
+            is_active=True,
+            created_by=test_proprietor.id,
+        )
+        db.session.add(term)
+
+        for idx in range(31):
+            db.session.add(
+                Student(
+                    school_id=test_school.id,
+                    first_name=f"Reuse{idx}",
+                    surname="Student",
+                    name=f"Reuse {idx}",
+                    student_code=f"RS{idx:04d}",
+                    current_class="JHS 1",
+                    status="Active",
+                )
+            )
+        db.session.commit()
+
+        departed = Student.query.filter_by(school_id=test_school.id, student_code="RS0000").first()
+        departed.status = "Withdrawn"
+        departed.status_updated_at = get_utc_now()
+        db.session.commit()
+
+        result = calculate_prorated_admission_charge(
+            test_school,
+            1,
+            "Basic",
+            pre_admission_active_students=30,
+        )
+
+        assert result["prorated_charge"] == 0.0
+        assert "reused 1 seat" in result["charge_reason"]
+        assert LedgerEntry.query.filter_by(school_id=test_school.id, tx_type="subscription_prorated").count() == 0
+
+
+def test_admission_route_creates_single_overage_invoice_with_correct_baseline(
+    client,
+    app,
+    db,
+    test_school,
+    test_proprietor,
+    proprietor_headers,
+):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm, LedgerEntry, PlatformSetting, Student
+
+    with app.app_context():
+        db.session.add(
+            PlatformSetting(
+                setting_key=f"auto_billing:{test_school.id}",
+                setting_value={
+                    "enabled": True,
+                    "cards": [
+                        {
+                            "card_id": "card-1",
+                            "authorization_code": "AUTH_BASELINE",
+                            "customer_email": test_proprietor.email,
+                            "is_default": True,
+                            "added_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ],
+                },
+            )
+        )
+
+        today = date.today()
+        term = AcademicTerm(
+            school_id=test_school.id,
+            name="Term 1",
+            academic_year="2025/2026",
+            start_date=today - timedelta(days=30),
+            end_date=today + timedelta(days=30),
+            is_active=True,
+            created_by=test_proprietor.id,
+        )
+        db.session.add(term)
+
+        existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
+        to_add = max(0, 30 - existing)
+        for idx in range(to_add):
+            db.session.add(
+                Student(
+                    school_id=test_school.id,
+                    first_name=f"Base{idx}",
+                    surname="Student",
+                    name=f"Base {idx}",
+                    student_code=f"BS{idx:04d}",
+                    current_class="JHS 1",
+                    status="Active",
+                )
+            )
+        db.session.commit()
+
+    response = client.post(
+        "/api/admissions/admit",
+        headers=proprietor_headers,
+        data=json.dumps(
+            {
+                "first_name": "New",
+                "surname": "Billable",
+                "class_assigned": "JHS 1",
+                "score": 84,
+            }
+        ),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["billing_notice"]["amount"] > 0
+
+    with app.app_context():
+        entry = (
+            LedgerEntry.query.filter_by(school_id=test_school.id, tx_type="subscription_prorated")
+            .order_by(LedgerEntry.id.desc())
+            .first()
+        )
+        assert entry is not None
+        meta = entry.meta or {}
+        assert meta.get("students_over_included") == 1
+        assert meta.get("reused_seats") == 0
 
 
 def test_process_payment_confirmation_uses_prorated_term_end_anchor(client, app, db, test_school):

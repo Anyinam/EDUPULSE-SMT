@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Shield, DollarSign, Settings, AlertCircle, CheckCircle, Repeat, CreditCard, Trash2, Plus, Star } from 'lucide-react';
 
+const getBillingActionErrorMessage = (err, fallbackMessage) => {
+  const payload = err?.response?.data || {};
+
+  if (payload.error === 'billing_growth_blocked') {
+    const invoiceNote = payload.invoice_ref
+      ? `\n\nOutstanding invoice: ${payload.invoice_ref}${payload.invoice_due_date ? ` due ${payload.invoice_due_date}` : ''}`
+      : '';
+    return `${payload.message || fallbackMessage}${invoiceNote}`;
+  }
+
+  return payload.message || fallbackMessage;
+};
+
 /**
  * Billing Control Panel
  * Implements "Control" pillar from Metronome whitepaper
@@ -127,7 +140,7 @@ export default function BillingControlPanel() {
       await fetchAutoBilling();
     } catch (err) {
       console.error('Failed to save auto-billing settings:', err);
-      alert('❌ Failed to save auto-billing settings. Please try again.');
+      alert(`❌ ${getBillingActionErrorMessage(err, 'Failed to save auto-billing settings. Please try again.')}`);
     } finally {
       setSaving(false);
     }
@@ -146,7 +159,7 @@ export default function BillingControlPanel() {
       alert('✅ Default card updated successfully.');
     } catch (err) {
       console.error('Failed to set default card:', err);
-      alert('❌ Failed to update default card. Please try again.');
+      alert(`❌ ${getBillingActionErrorMessage(err, 'Failed to update default card. Please try again.')}`);
     } finally {
       setCardActionLoading(false);
     }
@@ -163,7 +176,7 @@ export default function BillingControlPanel() {
       alert('✅ Card removed successfully.');
     } catch (err) {
       console.error('Failed to remove card:', err);
-      alert('❌ Failed to remove card. Please try again.');
+      alert(`❌ ${getBillingActionErrorMessage(err, 'Failed to remove card. Please try again.')}`);
     } finally {
       setCardActionLoading(false);
     }
@@ -202,7 +215,7 @@ export default function BillingControlPanel() {
       alert('✅ Recurring auto-billing disabled.');
     } catch (err) {
       console.error('Failed to unsubscribe auto-billing:', err);
-      alert('❌ Failed to disable recurring auto-billing.');
+      alert(`❌ ${getBillingActionErrorMessage(err, 'Failed to disable recurring auto-billing.')}`);
     } finally {
       setCardActionLoading(false);
     }

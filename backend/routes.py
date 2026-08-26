@@ -1162,6 +1162,32 @@ def _count_active_students_for_billing(school_id):
     ).count()
 
 
+def _count_same_term_recyclable_seats(school_id, active_term):
+    if not school_id or not active_term:
+        return 0
+
+    term_start = getattr(active_term, "start_date", None)
+    term_end = getattr(active_term, "end_date", None)
+    if not term_start or not term_end:
+        return 0
+
+    recyclable_statuses = ["Graduated", "Withdrawn", "Transferred", "Suspended", "Inactive"]
+    departures = 0
+    for student in Student.query.filter(
+        Student.school_id == school_id,
+        Student.status.in_(recyclable_statuses),
+    ).all():
+        updated_at = getattr(student, "status_updated_at", None)
+        if not updated_at:
+            continue
+        updated_date = updated_at.date() if hasattr(updated_at, "date") else None
+        if not updated_date:
+            continue
+        if term_start <= updated_date <= term_end:
+            departures += 1
+    return departures
+
+
 def _subscription_plan_rank(plan_name):
     plan_order = ["Free Tier", "Basic", "Premium"]
     try:
@@ -1197,6 +1223,118 @@ def _get_payment_collection_block(school):
             "Upgrade the subscription or reduce active enrollment to resume collection."
         ),
     }
+
+
+def _get_unsettled_overage_invoice(school_id):
+    if not school_id:
+        return None
+
+    settlements = {
+        (entry.meta or {}).get("invoice_tx_ref")
+        for entry in LedgerEntry.query.filter_by(
+            school_id=school_id,
+            tx_type="subscription_overage_charge",
+        ).all()
+    }
+
+    candidates = (
+        LedgerEntry.query.filter_by(school_id=school_id, tx_type="subscription_prorated")
+        .order_by(LedgerEntry.created_at.asc(), LedgerEntry.id.asc())
+        .all()
+    )
+    for entry in candidates:
+        meta = entry.meta or {}
+        if meta.get("status") != "Pending":
+            continue
+        if entry.tx_ref in settlements:
+            continue
+        return entry
+    return None
+
+
+def _has_active_auto_billing_coverage(school_id):
+    config = _normalize_auto_billing_config(_get_auto_billing_config(school_id))
+    if not config.get("enabled"):
+        return False
+
+    default_card = _get_default_saved_card(config)
+    return bool((default_card or {}).get("authorization_code"))
+
+
+def _get_included_students_for_school_plan(school, effective_plan=None):
+    if not school:
+        return 0
+
+    resolved_plan = effective_plan or get_effective_plan(school)
+    pricing_info = PRICING.get(resolved_plan, {}) if resolved_plan != "Free Tier" else {}
+    if school.custom_included_students is not None:
+        return max(0, int(school.custom_included_students))
+    return max(0, int(pricing_info.get("included_students", 0) or 0))
+
+
+def _get_billing_growth_block(school, projected_active_students=None, assume_no_payment_coverage=False):
+    if not school:
+        return None
+
+    effective_plan = get_effective_plan(school)
+    active_students = _count_active_students_for_billing(school.id)
+    projected = active_students if projected_active_students is None else max(0, int(projected_active_students))
+
+    pending_invoice = _get_unsettled_overage_invoice(school.id)
+    if pending_invoice:
+        invoice_meta = pending_invoice.meta or {}
+        return {
+            "status": "blocked",
+            "error": "billing_growth_blocked",
+            "reason": "pending_overage_invoice",
+            "effective_plan": effective_plan,
+            "active_students": active_students,
+            "projected_active_students": projected,
+            "included_students": _get_included_students_for_school_plan(school, effective_plan),
+            "invoice_ref": pending_invoice.tx_ref,
+            "invoice_amount": float(pending_invoice.amount or 0),
+            "invoice_due_date": invoice_meta.get("due_date"),
+            "message": (
+                "Billable growth is blocked because an earlier overage invoice is still unpaid. "
+                "Settle the outstanding invoice before adding more students or disabling card coverage."
+            ),
+        }
+
+    if effective_plan == "Free Tier":
+        return None
+
+    included_students = _get_included_students_for_school_plan(school, effective_plan)
+    if projected <= included_students:
+        return None
+
+    if not assume_no_payment_coverage and _has_active_auto_billing_coverage(school.id):
+        return None
+
+    return {
+        "status": "blocked",
+        "error": "billing_growth_blocked",
+        "reason": "payment_method_required",
+        "effective_plan": effective_plan,
+        "active_students": active_students,
+        "projected_active_students": projected,
+        "included_students": included_students,
+        "message": (
+            "Billable growth is blocked because this school would exceed its included student threshold "
+            "without an active saved-card auto-billing method. Add or re-enable a billing card before "
+            "creating more paid-seat exposure."
+        ),
+    }
+
+
+def _billing_growth_block_response(school, projected_active_students=None, assume_no_payment_coverage=False):
+    payload = _get_billing_growth_block(
+        school,
+        projected_active_students=projected_active_students,
+        assume_no_payment_coverage=assume_no_payment_coverage,
+    )
+    if not payload:
+        return None
+    return jsonify(payload), 409
 
 
 def _payment_collection_block_response(school, public=False):
@@ -1489,7 +1627,7 @@ def _save_reusable_authorization(school_id, authorization, customer_email):
     return next((c for c in (saved.get("cards") or []) if c.get("card_id") == card_id), None)
 
 
-def calculate_prorated_admission_charge(school, num_new_students, effective_plan):
+def calculate_prorated_admission_charge(school, num_new_students, effective_plan, pre_admission_active_students=None):
     """
     Calculate and process pro-rated charges for mid-term student admissions.
     Returns dict with charge info and logs/sends notifications if applicable.
@@ -1534,11 +1672,15 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
     included_students = pricing_info.get('included_students', 0)
     per_student_rate = pricing_info.get('per_student_per_term', 0)
     
-    # Get current (pre-admission) student count with Active status
-    current_active_students = Student.query.filter_by(
-        school_id=school.id,
-        status='Active'
-    ).count()
+    # Callers that have already committed admissions should pass the pre-admission
+    # baseline explicitly so proration is not computed from post-admission state.
+    if pre_admission_active_students is None:
+        current_active_students = Student.query.filter_by(
+            school_id=school.id,
+            status='Active'
+        ).count()
+    else:
+        current_active_students = max(0, int(pre_admission_active_students))
     
     # Post-admission count
     new_total = current_active_students + num_new_students
@@ -1547,10 +1689,19 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
     old_billable = max(0, current_active_students - included_students)
     new_billable = max(0, new_total - included_students)
     students_over_included = max(0, new_billable - old_billable)
+
+    recyclable_seats = _count_same_term_recyclable_seats(school.id, active_term)
+    reused_seats = min(students_over_included, recyclable_seats)
+    students_over_included = max(0, students_over_included - reused_seats)
     
     if students_over_included <= 0:
         # All new students fall within included threshold
-        result['charge_reason'] = f'All {num_new_students} new student(s) within included threshold'
+        if reused_seats > 0:
+            result['charge_reason'] = (
+                f'All {num_new_students} new student(s) reused {reused_seats} seat(s) vacated earlier in the same term'
+            )
+        else:
+            result['charge_reason'] = f'All {num_new_students} new student(s) within included threshold'
         return result
     
     # Calculate remaining days in term for pro-ration
@@ -1580,6 +1731,8 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
     
     result['prorated_charge'] = overage_charge
     result['charge_reason'] = f'{students_over_included} student(s) above threshold × ₵{per_student_rate} × {proration_factor:.1%} pro-ration'
+    if reused_seats > 0:
+        result['charge_reason'] += f' after reusing {reused_seats} same-term vacated seat(s)'
     
     # Record pending invoice in tamper-evident ledger + timeline
     try:
@@ -1608,6 +1761,8 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
                 'academic_year': getattr(active_term, 'academic_year', None),
                 'num_new_students': int(num_new_students),
                 'students_over_included': int(students_over_included),
+                'reused_seats': int(reused_seats),
+                'same_term_vacated_seats': int(recyclable_seats),
                 'per_student_rate': float(per_student_rate),
                 'days_remaining': int(remaining_days),
                 'days_in_term': int(days_in_term),
@@ -1622,7 +1777,7 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
             event_type='overage_invoice',
             status='pending',
             title='Mid-term overage invoice created',
-            details=f"Invoice {invoice_number}: {students_over_included} student(s) above included threshold (pro-rated).",
+            details=f"Invoice {invoice_number}: {students_over_included} student(s) above included threshold (pro-rated)." + (f" Reused {reused_seats} same-term vacated seat(s)." if reused_seats else ""),
             amount=float(overage_charge),
             reference=invoice_number,
             due_date=due_at.date().isoformat(),
@@ -3454,7 +3609,12 @@ def _admit_student_from_payload(school_id, data, actor_id):
         details=f"Admitted {new_student.name} to {new_student.current_class} (Score: {data.get('score')}%)",
     )
 
-    proration_result = calculate_prorated_admission_charge(school, 1, get_effective_plan(school))
+    proration_result = calculate_prorated_admission_charge(
+        school,
+        1,
+        get_effective_plan(school),
+        pre_admission_active_students=current_count,
+    )
     return new_student, school, scholarship_type, name_conflict_warning, proration_result
 
 
@@ -11635,6 +11795,13 @@ def admit_student():
             403,
         )
 
+    billing_growth_block = _billing_growth_block_response(
+        school,
+        projected_active_students=current_count + 1,
+    )
+    if billing_growth_block:
+        return billing_growth_block
+
     # Support both old format (name) and new format (first_name, surname)
     first_name = (data.get("first_name") or "").strip()
     surname = (data.get("surname") or "").strip()
@@ -11759,7 +11926,12 @@ def admit_student():
     
     # Check for pro-rated mid-term charges
     effective_plan = get_effective_plan(school)
-    proration_result = calculate_prorated_admission_charge(school, 1, effective_plan)
+    proration_result = calculate_prorated_admission_charge(
+        school,
+        1,
+        effective_plan,
+        pre_admission_active_students=current_count,
+    )
     
     response = {
         "message": f"Student {new_student.name} admitted successfully.",
@@ -11819,6 +11991,7 @@ def bulk_admit_students():
             prefix = normalize_student_code_prefix(g.school_id)
             next_index = max(current_count, 0) + 1
 
+            starting_active_count = current_count
             added_count = 0
             errors = []
             warnings = []
@@ -11878,6 +12051,14 @@ def bulk_admit_students():
                     errors.append(
                         f"Stopped at row {idx}: Plan limit of {limit} students reached."
                     )
+                    break
+
+                billing_block = _get_billing_growth_block(
+                    school,
+                    projected_active_students=current_count + 1,
+                )
+                if billing_block:
+                    errors.append(f"Stopped at row {idx}: {billing_block['message']}")
                     break
 
                 # Basic Validation - support both old format (name) and new format (first_name, surname)
@@ -11975,7 +12156,12 @@ def bulk_admit_students():
             school = School.query.get(g.school_id)
             if added_count > 0 and school:
                 effective_plan = get_effective_plan(school)
-                proration_result = calculate_prorated_admission_charge(school, added_count, effective_plan)
+                proration_result = calculate_prorated_admission_charge(
+                    school,
+                    added_count,
+                    effective_plan,
+                    pre_admission_active_students=starting_active_count,
+                )
             else:
                 proration_result = {'prorated_charge': 0.0}
 
@@ -17591,6 +17777,10 @@ def unsubscribe_auto_billing():
     if not school:
         return jsonify({"message": "School not found"}), 404
 
+    billing_growth_block = _billing_growth_block_response(school, assume_no_payment_coverage=True)
+    if billing_growth_block:
+        return billing_growth_block
+
     config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
     config["enabled"] = False
     config["updated_at"] = get_utc_now().isoformat()
@@ -17691,6 +17881,15 @@ def remove_saved_card(card_id):
 
     config = _normalize_auto_billing_config(_get_auto_billing_config(g.school_id))
     cards = config.get("cards") or []
+    target_card = next((c for c in cards if c.get("card_id") == card_id), None)
+    if not target_card:
+        return jsonify({"message": "Card not found"}), 404
+
+    if len(cards) == 1:
+        billing_growth_block = _billing_growth_block_response(school, assume_no_payment_coverage=True)
+        if billing_growth_block:
+            return billing_growth_block
+
     retained = [c for c in cards if c.get("card_id") != card_id]
 
     if len(retained) == len(cards):
@@ -18127,21 +18326,11 @@ def activate_academic_term(term_id):
         if not school:
             return jsonify({"message": "School not found"}), 404
         
-        # Deactivate all other terms
-        AcademicTerm.query.filter_by(
-            school_id=g.school_id,
-            is_active=True
-        ).update({"is_active": False})
-        
-        # Activate this term
-        term.is_active = True
-        db.session.commit()
-        
-        logger.info(f"Activated term {term_id} ({term.name} {term.academic_year}) for school {g.school_id}")
-        
         # Trigger billing for paid plans
         billing_initiated = False
         payment_link = None
+        pending_reference = None
+        payment_required_payload = None
         
         effective_plan = get_effective_plan(school)
         if effective_plan != "Free Tier":
@@ -18200,15 +18389,23 @@ def activate_academic_term(term_id):
                                     )
 
                                     reference = auto_result.get("reference") or f"AUTO-{g.school_id}-{term.id}-{int(time.time())}"
-                                    ledger_entry = LedgerEntry(
+                                    pending_reference = reference
+                                    add_ledger_entry(
                                         school_id=g.school_id,
                                         tx_type="subscription",
                                         tx_ref=reference,
-                                        description=f"Auto-billed subscription for {term.name} {term.academic_year}",
                                         amount=term_cost,
-                                        status="Completed",
+                                        source="paystack_auto",
+                                        metadata={
+                                            "status": "Completed",
+                                            "billing_type": "termly_auto",
+                                            "academic_term_id": term.id,
+                                            "term_name": term.name,
+                                            "academic_year": term.academic_year,
+                                            "plan_name": effective_plan,
+                                            "num_students": num_students,
+                                        },
                                     )
-                                    db.session.add(ledger_entry)
                                     payment_link = None
                                     billing_initiated = True
                                     logger.info(
@@ -18224,6 +18421,11 @@ def activate_academic_term(term_id):
                                         reference=reference,
                                         due_date=billing_due_date.isoformat() if billing_due_date else None,
                                     )
+                                    if billing_due_date:
+                                        school.next_billing_date = datetime.combine(
+                                            billing_due_date,
+                                            datetime.min.time()
+                                        )
                                 else:
                                     payment_result = initialize_termly_payment(
                                         email=proprietor.email,
@@ -18235,16 +18437,25 @@ def activate_academic_term(term_id):
 
                                     payment_link = payment_result['authorization_url']
                                     reference = payment_result['reference']
+                                    pending_reference = reference
 
-                                    ledger_entry = LedgerEntry(
+                                    add_ledger_entry(
                                         school_id=g.school_id,
                                         tx_type="subscription",
                                         tx_ref=reference,
-                                        description=f"Subscription fee for {term.name} {term.academic_year}",
                                         amount=term_cost,
-                                        status="Pending"
+                                        source="paystack",
+                                        metadata={
+                                            "status": "Pending",
+                                            "billing_type": "termly_manual_link",
+                                            "academic_term_id": term.id,
+                                            "term_name": term.name,
+                                            "academic_year": term.academic_year,
+                                            "plan_name": effective_plan,
+                                            "num_students": num_students,
+                                            "payment_link": payment_link,
+                                        },
                                     )
-                                    db.session.add(ledger_entry)
                                     _append_billing_timeline_event(
                                         g.school_id,
                                         event_type="manual_payment_link_created",
@@ -18257,14 +18468,16 @@ def activate_academic_term(term_id):
                                         next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
                                         metadata={"payment_link": payment_link},
                                     )
-                                
-                                # Update school next_billing_date
-                                if billing_due_date:
-                                    school.next_billing_date = datetime.combine(
-                                        billing_due_date,
-                                        datetime.min.time()
-                                    )
-                                
+
+                                    payment_required_payload = {
+                                        "message": f"Payment is required before activating {term.name} {term.academic_year}.",
+                                        "error": "billing_payment_required",
+                                        "term": term.to_dict(),
+                                        "billing_initiated": True,
+                                        "payment_link": payment_link,
+                                        "reference": reference,
+                                    }
+
                                 db.session.commit()
                                 
                                 # Send billing notification email
@@ -18288,7 +18501,7 @@ def activate_academic_term(term_id):
                                 student_overage = billable_stu * rate_per_student
                                 
                                 subject, body = get_term_billing_notification_email(
-                                    school_name=school.school_name,
+                                    school_name=school.name,
                                     proprietor_name=proprietor.username,
                                     term_name=term.name,
                                     academic_year=term.academic_year,
@@ -18319,9 +18532,12 @@ def activate_academic_term(term_id):
                                         subject=subject,
                                         body=body
                                     )
-                                
+
                                 billing_initiated = True
                                 logger.info(f"Billing initiated for term {term_id}: ₵{term_cost} for {num_students} students")
+
+                                if payment_required_payload:
+                                    return jsonify(payment_required_payload), 402
                             
                             except PaystackError as e:
                                 logger.error(f"Paystack error during term activation billing: {str(e)}")
@@ -18336,7 +18552,13 @@ def activate_academic_term(term_id):
                                     due_date=safe_due.isoformat() if safe_due else None,
                                     next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
                                 )
-                                # Continue anyway - activation succeeds even if billing fails
+                                db.session.commit()
+                                return jsonify({
+                                    "message": f"Automatic billing failed for {term.name} {term.academic_year}. Resolve payment before activation.",
+                                    "error": "billing_charge_failed",
+                                    "term": term.to_dict(),
+                                    "billing_initiated": False,
+                                }), 402
                             except Exception as e:
                                 logger.error(f"Error processing billing for term activation: {str(e)}")
                                 safe_due = locals().get("billing_due_date")
@@ -18350,7 +18572,13 @@ def activate_academic_term(term_id):
                                     due_date=safe_due.isoformat() if safe_due else None,
                                     next_retry_at=(get_utc_now() + timedelta(days=1)).isoformat(),
                                 )
-                                # Continue anyway
+                                db.session.commit()
+                                return jsonify({
+                                    "message": f"Billing processing failed for {term.name} {term.academic_year}. Resolve payment before activation.",
+                                    "error": "billing_processing_failed",
+                                    "term": term.to_dict(),
+                                    "billing_initiated": False,
+                                }), 502
                         else:
                             logger.warning(f"No proprietor email found for billing notification")
                     else:
@@ -18359,7 +18587,24 @@ def activate_academic_term(term_id):
                     logger.info(f"No active students, skipping billing")
             except Exception as e:
                 logger.error(f"Error in billing logic: {str(e)}")
-                # Continue anyway - activation succeeds even if billing fails
+
+                return jsonify({
+                    "message": f"Billing check failed before activating {term.name} {term.academic_year}.",
+                    "error": "billing_precheck_failed",
+                    "term": term.to_dict(),
+                    "billing_initiated": False,
+                }), 502
+
+        # Deactivate all other terms only after billing coverage is satisfied.
+        AcademicTerm.query.filter_by(
+            school_id=g.school_id,
+            is_active=True
+        ).update({"is_active": False})
+
+        term.is_active = True
+        db.session.commit()
+
+        logger.info(f"Activated term {term_id} ({term.name} {term.academic_year}) for school {g.school_id}")
         
         response = {
             "message": f"Activated {term.name} {term.academic_year}",
