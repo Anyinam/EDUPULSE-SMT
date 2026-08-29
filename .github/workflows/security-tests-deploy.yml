@@ -375,13 +375,68 @@ jobs:
           TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://infra/aws/ecs/migration-task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
           echo "task_def_arn=$TASK_DEF_ARN" >> "$GITHUB_OUTPUT"
 
+      - name: Validate migration network configuration
+        id: migration-network
+        run: |
+          normalize_csv() {
+            printf '%s' "$1" | tr -d '\r\n' | awk -F',' '{
+              out = ""
+              for (i = 1; i <= NF; i++) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+                if (length($i) > 0) {
+                  out = out (out ? "," : "") $i
+                }
+              }
+              print out
+            }'
+          }
+
+          subnet_list="$(normalize_csv '${{ vars.ECS_SUBNET_IDS }}')"
+          security_group_list="$(normalize_csv '${{ vars.ECS_SECURITY_GROUP_IDS }}')"
+
+          if [[ -z "$subnet_list" ]]; then
+            echo "ECS_SUBNET_IDS must be set in GitHub Actions variables." >&2
+            exit 1
+          fi
+
+          read -r -a subnet_ids <<< "${subnet_list//,/ }"
+          subnet_vpcs=$(aws ec2 describe-subnets --subnet-ids "${subnet_ids[@]}" --query 'Subnets[].VpcId' --output text | tr '\t' '\n' | sed '/^$/d' | sort -u)
+          subnet_vpc_count=$(printf '%s\n' "$subnet_vpcs" | sed '/^$/d' | wc -l)
+
+          if [[ "$subnet_vpc_count" -ne 1 ]]; then
+            echo "ECS_SUBNET_IDS must contain only subnets from one VPC. Resolved VPCs: $subnet_vpcs" >&2
+            exit 1
+          fi
+
+          subnet_vpc_id="$(printf '%s\n' "$subnet_vpcs" | head -n 1)"
+
+          if [[ -n "$security_group_list" ]]; then
+            read -r -a security_group_ids <<< "${security_group_list//,/ }"
+            security_group_vpcs=$(aws ec2 describe-security-groups --group-ids "${security_group_ids[@]}" --query 'SecurityGroups[].VpcId' --output text | tr '\t' '\n' | sed '/^$/d' | sort -u)
+            security_group_vpc_count=$(printf '%s\n' "$security_group_vpcs" | sed '/^$/d' | wc -l)
+
+            if [[ "$security_group_vpc_count" -ne 1 ]]; then
+              echo "ECS_SECURITY_GROUP_IDS must contain only security groups from one VPC. Resolved VPCs: $security_group_vpcs" >&2
+              exit 1
+            fi
+
+            security_group_vpc_id="$(printf '%s\n' "$security_group_vpcs" | head -n 1)"
+            if [[ "$security_group_vpc_id" != "$subnet_vpc_id" ]]; then
+              echo "ECS_SUBNET_IDS and ECS_SECURITY_GROUP_IDS must belong to the same VPC. Subnet VPC: $subnet_vpc_id; security-group VPC: $security_group_vpc_id" >&2
+              exit 1
+            fi
+          fi
+
+          echo "subnet_list=$subnet_list" >> "$GITHUB_OUTPUT"
+          echo "security_group_list=$security_group_list" >> "$GITHUB_OUTPUT"
+
       - name: Run database migrations
         run: |
           TASK_ARN=$(aws ecs run-task \
             --cluster "${{ vars.ECS_CLUSTER_NAME }}" \
             --launch-type FARGATE \
             --task-definition "${{ steps.migration-task.outputs.task_def_arn }}" \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.ECS_SUBNET_IDS }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP_IDS }}],assignPublicIp=ENABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.migration-network.outputs.subnet_list }}],securityGroups=[${{ steps.migration-network.outputs.security_group_list }}],assignPublicIp=ENABLED}" \
             --query 'tasks[0].taskArn' \
             --output text)
           aws ecs wait tasks-stopped --cluster "${{ vars.ECS_CLUSTER_NAME }}" --tasks "$TASK_ARN"
