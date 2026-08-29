@@ -7,6 +7,10 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
