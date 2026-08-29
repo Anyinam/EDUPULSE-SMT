@@ -53,7 +53,6 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 - `FRONTEND_ORIGIN`: main frontend origin, for example `https://app.edupulse.com.gh`.
 - `CORS_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API.
 - `GUNICORN_WORKERS`: Gunicorn worker count, default `4`.
-WHATSAPP_API_TOKEN_SECRET_ARN
 
 ### Email and optional integrations
 
@@ -62,8 +61,6 @@ WHATSAPP_API_TOKEN_SECRET_ARN
 - `MAIL_USE_TLS`: `true` or `false`.
 - `MAIL_USERNAME`: SMTP username.
 - `MAIL_DEFAULT_SENDER`: visible sender address.
-- `WHATSAPP_PHONE_NUMBER_ID`: optional WhatsApp phone number ID.
-- `WHATSAPP_BUSINESS_ACCOUNT_ID`: optional WhatsApp business account ID.
 - `PLATFORM_OWNER_KEY_SECRET_ARN`: optional Secrets Manager ARN for the platform-owner API key.
 
 ### CloudWatch log groups
@@ -85,7 +82,6 @@ WHATSAPP_API_TOKEN_SECRET_ARN
 - `MAIL_PASSWORD_SECRET_ARN`
 - `PAYSTACK_SECRET_KEY_SECRET_ARN`
 - `PAYSTACK_PUBLIC_KEY_SECRET_ARN`
-- `WHATSAPP_API_TOKEN_SECRET_ARN`: optional
 
 ## Recommended Population Order
 

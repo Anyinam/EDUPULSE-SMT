@@ -27,8 +27,6 @@
         {"name": "MAIL_USE_TLS", "value": "${MAIL_USE_TLS}"},
         {"name": "MAIL_USERNAME", "value": "${MAIL_USERNAME}"},
         {"name": "MAIL_DEFAULT_SENDER", "value": "${MAIL_DEFAULT_SENDER}"},
-        {"name": "WHATSAPP_PHONE_NUMBER_ID", "value": "${WHATSAPP_PHONE_NUMBER_ID}"},
-        {"name": "WHATSAPP_BUSINESS_ACCOUNT_ID", "value": "${WHATSAPP_BUSINESS_ACCOUNT_ID}"},
         {"name": "GUNICORN_WORKERS", "value": "1"}
       ],
       "secrets": [
@@ -41,8 +39,7 @@
         {"name": "PLATFORM_OWNER_KEY", "valueFrom": "${PLATFORM_OWNER_KEY_SECRET_ARN}"},
         {"name": "MAIL_PASSWORD", "valueFrom": "${MAIL_PASSWORD_SECRET_ARN}"},
         {"name": "PAYSTACK_SECRET_KEY", "valueFrom": "${PAYSTACK_SECRET_KEY_SECRET_ARN}"},
-        {"name": "PAYSTACK_PUBLIC_KEY", "valueFrom": "${PAYSTACK_PUBLIC_KEY_SECRET_ARN}"},
-        {"name": "WHATSAPP_API_TOKEN", "valueFrom": "${WHATSAPP_API_TOKEN_SECRET_ARN}"}
+        {"name": "PAYSTACK_PUBLIC_KEY", "valueFrom": "${PAYSTACK_PUBLIC_KEY_SECRET_ARN}"}
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

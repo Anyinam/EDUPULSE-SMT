@@ -1,7 +1,20 @@
+import json
 import os
 import re
 import sys
 from pathlib import Path
+
+
+def _prune_empty_secrets(task_definition):
+    for container in task_definition.get("containerDefinitions", []):
+        secrets = container.get("secrets")
+        if not isinstance(secrets, list):
+            continue
+        container["secrets"] = [
+            entry
+            for entry in secrets
+            if str(entry.get("valueFrom") or "").strip()
+        ]
 
 
 def main() -> int:
@@ -19,8 +32,11 @@ def main() -> int:
             f"Unresolved environment variable(s) in {template_path}: {', '.join(sorted(set(unresolved)))}"
         )
 
+    task_definition = json.loads(rendered)
+    _prune_empty_secrets(task_definition)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(rendered, encoding="utf-8")
+    output_path.write_text(f"{json.dumps(task_definition, indent=2)}\n", encoding="utf-8")
     return 0
 
 
