@@ -483,6 +483,30 @@ jobs:
           service: ${{ vars.ECS_SCHEDULER_SERVICE }}
           cluster: ${{ vars.ECS_CLUSTER_NAME }}
           wait-for-service-stability: true
+
+      - name: Post-deploy smoke test
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          base_url="$(printf '%s' "$PRODUCTION_URL" | tr -d '\r\n' | sed 's:/*$::')"
+
+          if [[ -z "$base_url" ]]; then
+            echo "PRODUCTION_URL must be set for smoke testing." >&2
+            exit 1
+          fi
+
+          frontend_url="$base_url/"
+          health_url="$base_url/api/health"
+
+          for url in "$frontend_url" "$health_url"; do
+            echo "Checking $url"
+            curl --fail --silent --show-error \
+              --retry 10 \
+              --retry-delay 15 \
+              --retry-all-errors \
+              --max-time 20 \
+              "$url" > /dev/null
+          done
       
       - name: Create deployment record
         uses: chrnorm/deployment-action@v2
