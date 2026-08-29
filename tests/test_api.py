@@ -784,6 +784,15 @@ class TestSchoolVerificationEndpoints:
                 "bank_account_name": "Test School",
                 "bank_account_number": "0123456789",
                 "bank_name": "Test Bank",
+                "documents": [
+                    {
+                        "document_id": "reg-cert-1",
+                        "original_filename": "certificate.pdf",
+                        "filename": "certificate.pdf",
+                        "content_type": "application/pdf",
+                        "category": "registration_certificate",
+                    }
+                ],
                 "owner_information": {"owner_name": "Jane Owner"},
             },
             headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
@@ -833,6 +842,15 @@ class TestSchoolVerificationEndpoints:
                 "bank_account_name": "Test School",
                 "bank_account_number": "0123456789",
                 "bank_name": "Test Bank",
+                "documents": [
+                    {
+                        "document_id": "reg-cert-1",
+                        "original_filename": "certificate.pdf",
+                        "filename": "certificate.pdf",
+                        "content_type": "application/pdf",
+                        "category": "registration_certificate",
+                    }
+                ],
                 "owner_information": {"owner_name": "Jane Owner"},
             },
             headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
@@ -883,6 +901,15 @@ class TestSchoolVerificationEndpoints:
                 "bank_account_name": "Test School",
                 "bank_account_number": "0123456789",
                 "bank_name": "Test Bank",
+                "documents": [
+                    {
+                        "document_id": "reg-cert-1",
+                        "original_filename": "certificate.pdf",
+                        "filename": "certificate.pdf",
+                        "content_type": "application/pdf",
+                        "category": "registration_certificate",
+                    }
+                ],
                 "owner_information": {"owner_name": "Jane Owner"},
             },
             headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
