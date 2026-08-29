@@ -296,6 +296,7 @@ jobs:
           append_env() {
             local key="$1"
             local value="$2"
+            value="$(printf '%s' "$value" | tr -d '\r\n')"
             {
               printf '%s<<__ENV__\n' "$key"
               printf '%s\n' "$value"
