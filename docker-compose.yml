@@ -2,7 +2,9 @@
 
 services:
   migrate:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-edupulse_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set a strong value in .env / secrets manager)}
@@ -53,7 +55,9 @@ services:
       - ./alembic.ini:/app/alembic.ini
 
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "${BACKEND_BIND:-127.0.0.1}:5000:5000"
     environment:
@@ -114,7 +118,9 @@ services:
       retries: 3
 
   scheduler:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-edupulse_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set a strong value in .env / secrets manager)}
