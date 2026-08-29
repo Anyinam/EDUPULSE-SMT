@@ -273,6 +273,7 @@ class TestAuthenticationEndpoints:
     def test_register_paid_plan_sends_welcome_email_before_payment(self, client, mocker, mock_email):
         """Premium registrations should still receive the welcome/credential email immediately."""
         paystack_mock = mocker.patch("backend.paystack_integration.initialize_payment")
+        async_email_mock = mocker.patch("backend.routes.send_email_notification_async")
         paystack_mock.return_value = {
             "authorization_url": "https://paystack.example/checkout",
             "reference": "pay_ref_123",
@@ -301,8 +302,45 @@ class TestAuthenticationEndpoints:
         data = json.loads(response.data)
         assert data["requires_payment"] is True
         assert data["payment_url"] == "https://paystack.example/checkout"
-        mock_email.assert_called_once()
+        async_email_mock.assert_called_once()
         paystack_mock.assert_called_once()
+
+    def test_register_welcome_email_uses_frontend_origin_when_frontend_url_missing(self, client, mocker, monkeypatch):
+        """Registration emails should use the deployed frontend origin when FRONTEND_URL is unset."""
+        monkeypatch.delenv("FRONTEND_URL", raising=False)
+        monkeypatch.setenv("FRONTEND_ORIGIN", "https://app.edupulsesmt.com")
+
+        captured = {}
+
+        def fake_get_welcome_email(**kwargs):
+            captured.update(kwargs)
+            return ("Welcome", "Body")
+
+        mocker.patch("backend.routes.get_welcome_email", side_effect=fake_get_welcome_email)
+        async_email_mock = mocker.patch("backend.routes.send_email_notification_async")
+
+        response = client.post(
+            "/api/register",
+            headers={"Origin": "https://app.edupulsesmt.com"},
+            json={
+                "schoolCode": "WELCOME-001",
+                "schoolName": "Welcome School",
+                "username": "welcome-owner",
+                "email": "owner@welcome.edu",
+                "password": "WelcomePass123!",
+                "termsAccepted": True,
+                "termsVersion": "2026-02-22",
+                "policyAccepted": True,
+                "policyVersion": "2026-03-07",
+                "schoolDataAuthorityConfirmed": True,
+                "legacyAndExamConsentPlanConfirmed": True,
+                "aggregatedAnalyticsAccepted": True,
+            },
+        )
+
+        assert response.status_code == 200
+        assert captured["login_url"] == "https://app.edupulsesmt.com/login"
+        async_email_mock.assert_called_once()
 
     def test_register_weak_password(self, client):
         """Test registration with weak password."""

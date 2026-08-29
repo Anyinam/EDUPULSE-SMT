@@ -128,6 +128,7 @@ from backend.utils import (
     generate_descriptive_analysis,
     get_utc_now,
     send_email_notification,
+    send_email_notification_async,
 )
 from backend.validators import (
     LoginSchema,
@@ -5075,11 +5076,12 @@ def _build_report_term_calendar(school_id, academic_term, academic_year):
     }
 
 
-def _get_frontend_login_url():
+def _get_frontend_base_url():
     configured_url = (os.getenv("FRONTEND_URL") or "").strip()
+    configured_origin = (os.getenv("FRONTEND_ORIGIN") or "").strip()
     origin_url = (request.headers.get("Origin") or "").strip()
 
-    base_url = configured_url
+    base_url = configured_url or configured_origin
     if origin_url and (
         not base_url
         or "localhost" in base_url.lower()
@@ -5090,7 +5092,13 @@ def _get_frontend_login_url():
     if not base_url:
         base_url = request.host_url.rstrip("/")
 
-    return f"{base_url.rstrip('/')}/login"
+    return base_url.rstrip("/")
+
+
+def _get_frontend_login_url():
+    base_url = _get_frontend_base_url()
+
+    return f"{base_url}/login"
 
 
 def _get_staff_support_contact(school):
@@ -5468,7 +5476,7 @@ def register():
             if existing:
                 return
             try:
-                login_url = os.getenv("FRONTEND_URL", "http://localhost:5173/login")
+                login_url = _get_frontend_login_url()
                 subscription_plan = subscription_plan_override or new_school.subscription_plan or "Free Tier"
                 welcome_subject, welcome_body = get_welcome_email(
                     username=username,
@@ -5478,7 +5486,7 @@ def register():
                     subscription_plan=subscription_plan,
                 )
                 if welcome_subject and welcome_body:
-                    send_email_notification(
+                    send_email_notification_async(
                         to_email=email,
                         subject=welcome_subject,
                         body=welcome_body,
@@ -5513,7 +5521,7 @@ def register():
             return jsonify({"message": "Unable to compute payment amount for selected plan."}), 400
 
         auth_token = create_access_token(identity=str(new_user.id))
-        callback_url = os.getenv("FRONTEND_URL", "http://localhost:3000") + "/payment/callback?onboarding=registration"
+        callback_url = _get_frontend_base_url() + "/payment/callback?onboarding=registration"
 
         try:
             paystack_result = initialize_payment(

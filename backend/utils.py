@@ -1,7 +1,10 @@
 import logging
 import mimetypes
 import os
+from threading import Thread
 from datetime import datetime, timezone
+
+from flask import current_app
 
 from backend.academic_guidance import (
     build_pathway_recommendations,
@@ -53,6 +56,27 @@ def send_email_notification(to_email, subject, body, attachments=None):
         if _is_production_env():
             raise
         return False
+
+
+def send_email_notification_async(to_email, subject, body, attachments=None):
+    """Dispatch email work off the request path when an app context is available."""
+    try:
+        app = current_app._get_current_object()
+    except RuntimeError:
+        return send_email_notification(to_email, subject, body, attachments=attachments)
+
+    if app.config.get("TESTING"):
+        return send_email_notification(to_email, subject, body, attachments=attachments)
+
+    def _deliver():
+        with app.app_context():
+            try:
+                send_email_notification(to_email, subject, body, attachments=attachments)
+            except Exception:
+                logger.exception("Async email delivery failed for %s", to_email)
+
+    Thread(target=_deliver, daemon=True).start()
+    return True
 
 
 def get_utc_now():
