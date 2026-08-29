@@ -441,9 +441,25 @@ jobs:
             --network-configuration "awsvpcConfiguration={subnets=[${{ steps.migration-network.outputs.subnet_list }}],securityGroups=[${{ steps.migration-network.outputs.security_group_list }}],assignPublicIp=ENABLED}" \
             --query 'tasks[0].taskArn' \
             --output text)
+
+          TASK_ID="${TASK_ARN##*/}"
           aws ecs wait tasks-stopped --cluster "${{ vars.ECS_CLUSTER_NAME }}" --tasks "$TASK_ARN"
+
+          describe_query='tasks[0].{stopCode:stopCode,stoppedReason:stoppedReason,exitCode:containers[0].exitCode,containerReason:containers[0].reason,lastStatus:lastStatus}'
+          aws ecs describe-tasks --cluster "${{ vars.ECS_CLUSTER_NAME }}" --tasks "$TASK_ARN" --query "$describe_query" --output json
+
           EXIT_CODE=$(aws ecs describe-tasks --cluster "${{ vars.ECS_CLUSTER_NAME }}" --tasks "$TASK_ARN" --query 'tasks[0].containers[0].exitCode' --output text)
-          test "$EXIT_CODE" = "0"
+          if [[ "$EXIT_CODE" != "0" ]]; then
+            LOG_STREAM="ecs/edupulse-migrate/${TASK_ID}"
+            echo "Migration task failed; attempting to read CloudWatch log stream $LOG_STREAM"
+            aws logs get-log-events \
+              --log-group-name "${{ vars.MIGRATION_LOG_GROUP }}" \
+              --log-stream-name "$LOG_STREAM" \
+              --limit 100 \
+              --query 'events[*].message' \
+              --output text || true
+            exit 1
+          fi
 
       - name: Deploy app task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
