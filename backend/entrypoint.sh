@@ -23,7 +23,7 @@ import os
 import sys
 import psycopg2
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 database_url = (os.getenv('DATABASE_URL') or '').strip()
 
@@ -34,6 +34,7 @@ password = os.getenv('POSTGRES_PASSWORD', 'try123')
 
 if database_url:
     parsed = urlparse(database_url)
+    query = parse_qs(parsed.query or "")
     if parsed.hostname:
         host = parsed.hostname
     if parsed.port:
@@ -42,19 +43,26 @@ if database_url:
         user = parsed.username
     if parsed.password is not None:
         password = parsed.password
+    sslmode = (query.get('sslmode') or [''])[0].strip()
+else:
+    sslmode = ''
 
 max_retries = 30
 retry_count = 0
 
 while retry_count < max_retries:
     try:
-        conn = psycopg2.connect(
+        connect_kwargs = dict(
             host=host,
             port=port,
             user=user,
             password=password,
             database='postgres'  # Connect to system database
         )
+        if sslmode:
+            connect_kwargs['sslmode'] = sslmode
+
+        conn = psycopg2.connect(**connect_kwargs)
         conn.close()
         print("✅ PostgreSQL is ready!")
         break
