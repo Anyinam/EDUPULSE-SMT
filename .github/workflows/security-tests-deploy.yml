@@ -276,19 +276,10 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set deployment image URIs
+        id: image-uris
         run: |
-          append_env() {
-            local key="$1"
-            local value="$2"
-            {
-              printf '%s<<__ENV__\n' "$key"
-              printf '%s\n' "$value"
-              printf '__ENV__\n'
-            } >> "$GITHUB_ENV"
-          }
-
-          append_env "BACKEND_IMAGE" "${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}"
-          append_env "FRONTEND_IMAGE" "${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}"
+          echo "backend_image=${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Set deployment config env
         run: |
@@ -345,7 +336,7 @@ jobs:
           context: ./backend
           push: true
           tags: |
-            ${{ env.BACKEND_IMAGE }}
+            ${{ steps.image-uris.outputs.backend_image }}
             ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_BACKEND_REPOSITORY }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -356,12 +347,15 @@ jobs:
           context: ./frontend
           push: true
           tags: |
-            ${{ env.FRONTEND_IMAGE }}
+            ${{ steps.image-uris.outputs.frontend_image }}
             ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
       - name: Render ECS task definitions
+        env:
+          BACKEND_IMAGE: ${{ steps.image-uris.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ steps.image-uris.outputs.frontend_image }}
         run: |
           python infra/aws/render_task_definition.py infra/aws/ecs/app-task-definition.json.tpl infra/aws/ecs/app-task-definition.json
           python infra/aws/render_task_definition.py infra/aws/ecs/scheduler-task-definition.json.tpl infra/aws/ecs/scheduler-task-definition.json
