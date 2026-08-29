@@ -23,11 +23,25 @@ import os
 import sys
 import psycopg2
 import time
+from urllib.parse import urlparse
+
+database_url = (os.getenv('DATABASE_URL') or '').strip()
 
 host = os.getenv('DB_HOST') or os.getenv('DATABASE_HOST', 'db')
 port = int(os.getenv('DB_PORT') or os.getenv('DATABASE_PORT', '5432'))
 user = os.getenv('POSTGRES_USER', 'edupulse_user')
 password = os.getenv('POSTGRES_PASSWORD', 'try123')
+
+if database_url:
+    parsed = urlparse(database_url)
+    if parsed.hostname:
+        host = parsed.hostname
+    if parsed.port:
+        port = parsed.port
+    if parsed.username:
+        user = parsed.username
+    if parsed.password is not None:
+        password = parsed.password
 
 max_retries = 30
 retry_count = 0
