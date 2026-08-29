@@ -13,13 +13,9 @@ const EMPTY_FORM = {
   registration_number: '',
   tax_id: '',
   license_number: '',
-  bank_account_name: '',
-  bank_account_number: '',
-  bank_name: '',
   owner_name: '',
   owner_phone: '',
   owner_email: '',
-  document_links: '',
 };
 
 export default function SchoolCompliancePanel() {
@@ -27,6 +23,9 @@ export default function SchoolCompliancePanel() {
   const [profile, setProfile] = useState(null);
   const [flags, setFlags] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [existingDocuments, setExistingDocuments] = useState([]);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -45,31 +44,21 @@ export default function SchoolCompliancePanel() {
       if (verificationRes.data?.profile) {
         const nextProfile = verificationRes.data.profile;
         const ownerInfo = nextProfile.owner_information || {};
-        const documentLinks = Array.isArray(nextProfile.documents)
-          ? nextProfile.documents.map((entry) => {
-              if (typeof entry === 'string') {
-                return entry;
-              }
-              if (entry && typeof entry === 'object') {
-                return entry.url || entry.link || entry.name || '';
-              }
-              return '';
-            }).filter(Boolean).join('\n')
-          : '';
+        setExistingDocuments(Array.isArray(nextProfile.documents) ? nextProfile.documents : []);
         setForm({
           legal_name: nextProfile.legal_name || '',
           registration_number: nextProfile.registration_number || '',
           tax_id: nextProfile.tax_id || '',
           license_number: nextProfile.license_number || '',
-          bank_account_name: nextProfile.bank_account_name || '',
-          bank_account_number: '',
-          bank_name: nextProfile.bank_name || '',
           owner_name: ownerInfo.full_name || ownerInfo.name || '',
           owner_phone: ownerInfo.phone || ownerInfo.phone_number || '',
           owner_email: ownerInfo.email || '',
-          document_links: documentLinks,
         });
+      } else {
+        setExistingDocuments([]);
       }
+      setSelectedFiles([]);
+      setFileInputKey((current) => current + 1);
       setError('');
       setMessage('');
     } catch (err) {
@@ -88,36 +77,52 @@ export default function SchoolCompliancePanel() {
     setForm((current) => ({ ...current, [name]: value }));
   };
 
+  const handleFileChange = (event) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    const files = Array.from(event.target.files || []).filter((file) => {
+      if (allowedTypes.includes(file.type)) {
+        return true;
+      }
+      return /\.(jpg|jpeg|png|pdf)$/i.test(file.name || '');
+    });
+    setSelectedFiles(files);
+  };
+
   const submitVerification = async (event) => {
     event.preventDefault();
     setSaving(true);
     setError('');
     setMessage('');
 
+    if (selectedFiles.length === 0 && existingDocuments.length === 0) {
+      setError('Upload at least one JPG, PNG, or PDF verification document.');
+      setSaving(false);
+      return;
+    }
+
     const ownerInformation = {
       full_name: form.owner_name.trim(),
       phone: form.owner_phone.trim(),
       email: form.owner_email.trim(),
     };
-    const documents = form.document_links
-      .split('\n')
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((url) => ({ url }));
-
     try {
-      const payload = {
-        legal_name: form.legal_name,
-        registration_number: form.registration_number,
-        tax_id: form.tax_id,
-        license_number: form.license_number,
-        bank_account_name: form.bank_account_name,
-        bank_account_number: form.bank_account_number,
-        bank_name: form.bank_name,
-        owner_information: ownerInformation,
-        documents,
-      };
-      const response = await axios.put('/api/school/verification', payload, { headers: getHeaders() });
+      const payload = new FormData();
+      payload.append('legal_name', form.legal_name);
+      payload.append('registration_number', form.registration_number);
+      payload.append('tax_id', form.tax_id);
+      payload.append('license_number', form.license_number);
+      payload.append('owner_information', JSON.stringify(ownerInformation));
+      payload.append('existing_documents', JSON.stringify(existingDocuments));
+      selectedFiles.forEach((file) => {
+        payload.append('documents', file);
+      });
+
+      const response = await axios.put('/api/school/verification', payload, {
+        headers: {
+          ...getHeaders(),
+          'Content-Type': 'multipart/form-data',
+        },
+      });
       setMessage(response.data?.message || 'Verification profile submitted.');
       await fetchData();
     } catch (err) {
@@ -154,7 +159,7 @@ export default function SchoolCompliancePanel() {
           <div>
             <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Compliance Center</p>
             <h2 className="mt-1 text-2xl font-black text-slate-900">School Verification</h2>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">Submit your school&apos;s legal identity and banking details for review. EduPulse handles screening after submission, so this form stays focused on the business information only.</p>
+            <p className="mt-2 max-w-2xl text-sm text-slate-600">Submit your school&apos;s legal identity, founder details, and certificate documents for review. EduPulse handles screening after submission, so onboarding stays focused on business verification only.</p>
           </div>
           <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${statusTone}`}>
             {verification?.is_verified ? 'Verified' : (verification?.status || 'Not submitted')}
@@ -176,15 +181,48 @@ export default function SchoolCompliancePanel() {
             <Field label="Registration Number" name="registration_number" value={form.registration_number} onChange={handleChange} placeholder="Registrar-General number" />
             <Field label="Tax ID" name="tax_id" value={form.tax_id} onChange={handleChange} placeholder="TIN or equivalent" />
             <Field label="License Number" name="license_number" value={form.license_number} onChange={handleChange} placeholder="Education license, if applicable" />
-            <Field label="Bank Account Name" name="bank_account_name" value={form.bank_account_name} onChange={handleChange} placeholder="Must match school legal name" />
-            <Field label="Bank Account Number" name="bank_account_number" value={form.bank_account_number} onChange={handleChange} placeholder="For verification only" />
-            <Field label="Bank Name" name="bank_name" value={form.bank_name} onChange={handleChange} placeholder="Bank of account" />
             <Field label="Proprietor / Owner Name" name="owner_name" value={form.owner_name} onChange={handleChange} placeholder="Full legal name of proprietor or owner" />
             <Field label="Owner Phone Number" name="owner_phone" value={form.owner_phone} onChange={handleChange} placeholder="Primary contact number" />
             <Field label="Owner Email Address" name="owner_email" value={form.owner_email} onChange={handleChange} placeholder="Primary compliance contact email" className="lg:col-span-2" />
             <div className="lg:col-span-2">
-              <TextAreaField label="Supporting Document Links" name="document_links" value={form.document_links} onChange={handleChange} rows={4} placeholder="Paste one document link per line (optional)" />
-              <p className="mt-2 text-xs text-slate-500">Examples: certificate of registration, tax certificate, education license, or bank confirmation letter.</p>
+              <label className="block">
+                <span className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-slate-400">Business Certificate Upload</span>
+                <input
+                  key={fileInputKey}
+                  type="file"
+                  multiple
+                  required={existingDocuments.length === 0}
+                  accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                  onChange={handleFileChange}
+                  className="w-full text-sm text-slate-700 file:mr-4 file:rounded-full file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-bold file:text-white hover:file:bg-slate-800"
+                />
+              </label>
+              <p className="mt-2 text-xs text-slate-500">Upload at least one JPG, PNG, or PDF file for the registration certificate, tax certificate, or education license.</p>
+              {selectedFiles.length > 0 && (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  {selectedFiles.map((file) => (
+                    <div key={`${file.name}-${file.size}`}>{file.name}</div>
+                  ))}
+                </div>
+              )}
+              {existingDocuments.length > 0 && (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Uploaded Documents</p>
+                  <div className="mt-2 space-y-2 text-sm text-slate-700">
+                    {existingDocuments.map((entry, index) => {
+                      const label = entry?.original_filename || entry?.name || entry?.url || `Document ${index + 1}`;
+                      const href = entry?.download_path || entry?.url || '';
+                      return href ? (
+                        <a key={`${label}-${index}`} href={href} target="_blank" rel="noreferrer" className="block font-semibold text-slate-900 underline-offset-2 hover:underline">
+                          {label}
+                        </a>
+                      ) : (
+                        <div key={`${label}-${index}`}>{label}</div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="lg:col-span-2 flex flex-wrap items-center gap-3 pt-2">
               <button
@@ -248,18 +286,6 @@ function Field({ label, className = '', ...props }) {
     <label className={`block ${className}`}>
       <span className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-slate-400">{label}</span>
       <input
-        {...props}
-        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-      />
-    </label>
-  );
-}
-
-function TextAreaField({ label, className = '', ...props }) {
-  return (
-    <label className={`block ${className}`}>
-      <span className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-slate-400">{label}</span>
-      <textarea
         {...props}
         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
       />

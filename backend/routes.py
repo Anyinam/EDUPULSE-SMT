@@ -388,15 +388,11 @@ def _auto_verify_school_verification(school, verification):
     school_name = _normalize_verification_text(school.name)
     registration_number = sanitize_string(verification.registration_number or "")
     tax_id = sanitize_string(verification.tax_id or "")
-    bank_account_name = _normalize_verification_text(verification.bank_account_name or "")
     owner_information = verification.owner_information if isinstance(verification.owner_information, dict) else {}
     screening_results = verification.screening_results if isinstance(verification.screening_results, dict) else {}
 
     if not registration_number or not tax_id:
         return False, "missing_regulatory_identifiers"
-
-    if not bank_account_name or bank_account_name != legal_name:
-        return False, "bank_name_mismatch"
 
     if legal_name != school_name and school_name not in legal_name and legal_name not in school_name:
         return False, "legal_name_mismatch"
@@ -2104,6 +2100,78 @@ def _store_student_document(school_id, uploaded, file_bytes):
     }
 
 
+def _allowed_school_verification_document(filename, content_type):
+    lowered_name = (filename or "").strip().lower()
+    lowered_type = (content_type or "").strip().lower()
+    allowed_extensions = (".jpg", ".jpeg", ".png", ".pdf")
+    allowed_types = {"image/jpeg", "image/jpg", "image/png", "application/pdf"}
+    return lowered_name.endswith(allowed_extensions) or lowered_type in allowed_types
+
+
+def _store_school_verification_document(school_id, uploaded, file_bytes):
+    original_filename = secure_filename(uploaded.filename or "") or f"school_verification_document_{secrets.token_hex(4)}"
+    document_id = f"school_verification_doc_{secrets.token_hex(6)}"
+    stored_filename = f"{document_id}_{original_filename}"
+    target_path = os.path.join(_get_school_verification_document_storage_root(school_id=school_id), stored_filename)
+    with open(target_path, "wb") as stored_file:
+        stored_file.write(file_bytes or b"")
+
+    return {
+        "document_id": document_id,
+        "stored_filename": stored_filename,
+        "original_filename": original_filename,
+        "size_bytes": os.path.getsize(target_path),
+    }
+
+
+def _build_school_verification_document_entry(raw_entry):
+    if isinstance(raw_entry, str):
+        url = sanitize_string(raw_entry or "") or None
+        if not url:
+            return None
+        return {
+            "url": url,
+            "name": url,
+            "download_available": False,
+        }
+
+    if not isinstance(raw_entry, dict):
+        return None
+
+    entry = dict(raw_entry)
+    document_id = sanitize_string(entry.get("document_id") or entry.get("id") or "") or None
+    stored_filename = sanitize_string(entry.get("stored_filename") or "") or None
+    original_filename = sanitize_string(entry.get("original_filename") or entry.get("filename") or "") or None
+    url = sanitize_string(entry.get("url") or entry.get("link") or "") or None
+
+    if document_id and stored_filename:
+        entry["document_id"] = document_id
+        entry["original_filename"] = original_filename or "document"
+        entry["name"] = original_filename or "document"
+        entry["download_path"] = _build_school_verification_document_download_path(document_id)
+        entry["download_available"] = True
+        return entry
+
+    if url:
+        entry["url"] = url
+        entry["name"] = original_filename or entry.get("filename") or url
+        entry["download_available"] = False
+        return entry
+
+    return None
+
+
+def _build_platform_school_verification_document_entry(school_id, raw_entry):
+    entry = _build_school_verification_document_entry(raw_entry)
+    if not entry:
+        return None
+
+    if entry.get("document_id"):
+        entry["download_path"] = f"/api/platform/compliance/schools/{quote(str(school_id))}/documents/{quote(entry['document_id'])}/download"
+
+    return entry
+
+
 def _get_student_document_manifest(student):
     custom_attributes = json.loads(json.dumps(student.custom_attributes or {}))
     manifest = custom_attributes.get("document_manifest") or []
@@ -2509,6 +2577,10 @@ def _get_student_document_storage_root(school_id=None):
     return _get_school_storage_root("STUDENT_DOCUMENT_STORAGE_DIR", "student-documents", school_id=school_id)
 
 
+def _get_school_verification_document_storage_root(school_id=None):
+    return _get_school_storage_root("SCHOOL_VERIFICATION_DOCUMENT_STORAGE_DIR", "school-verification-documents", school_id=school_id)
+
+
 def _resolve_existing_school_file(storage_root, stored_filename):
     if not stored_filename:
         return None
@@ -2532,6 +2604,10 @@ def _build_parent_admission_document_download_path(application_id, document_id):
 
 def _build_student_document_download_path(student_id, document_id):
     return f"/api/students/{quote(str(student_id))}/documents/{quote(document_id)}/download"
+
+
+def _build_school_verification_document_download_path(document_id):
+    return f"/api/school/verification/documents/{quote(document_id)}/download"
 
 
 def _build_exam_rows_snapshot_path(batch_id):
@@ -4296,6 +4372,44 @@ def _get_platform_user_from_jwt():
         return None
 
 
+def _get_super_admin_user_from_jwt():
+    """Extract a legacy super-admin user from JWT token."""
+    try:
+        identity = get_jwt_identity()
+        if identity is None:
+            return None
+        if isinstance(identity, str):
+            if identity.startswith("platform:"):
+                return None
+            if not identity.strip().isdigit():
+                return None
+            user_id = int(identity)
+        elif isinstance(identity, int):
+            user_id = identity
+        else:
+            return None
+
+        user = User.query.get(user_id)
+        if not user or user.role != "super_admin":
+            return None
+        return user
+    except Exception:
+        return None
+
+
+def _get_provider_console_operator():
+    """Allow provider-only endpoints to be used by platform users or legacy super admins."""
+    platform_user = _get_platform_user_from_jwt()
+    if platform_user:
+        return {"kind": "platform", "platform_user": platform_user, "user": None, "actor_id": None}
+
+    super_admin_user = _get_super_admin_user_from_jwt()
+    if super_admin_user:
+        return {"kind": "super_admin", "platform_user": None, "user": super_admin_user, "actor_id": super_admin_user.id}
+
+    return None
+
+
 @api.route("/platform/bootstrap-status", methods=["GET"])
 def get_platform_bootstrap_status():
     """Report whether the platform owner console still needs its first admin user."""
@@ -4528,8 +4642,8 @@ def get_registration_email_trace():
 @api.route("/platform/compliance/schools", methods=["GET"])
 @jwt_required()
 def platform_list_school_verification_cases():
-    platform_user = _get_platform_user_from_jwt()
-    if not platform_user:
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 401
 
     status_filter = sanitize_string(request.args.get("status") or "").lower()
@@ -4566,6 +4680,17 @@ def platform_list_school_verification_cases():
                     "risk_tier": verification.risk_tier,
                     "legal_name": verification.legal_name,
                     "registration_number": verification.registration_number,
+                    "tax_id": verification.tax_id,
+                    "owner_information": verification.owner_information or {},
+                    "documents": [
+                        item
+                        for item in (
+                            _build_platform_school_verification_document_entry(school.id, entry)
+                            for entry in (verification.documents or [])
+                        )
+                        if item
+                    ],
+                    "review_notes": verification.review_notes,
                     "submitted_at": _to_iso_utc(verification.submitted_at),
                     "reviewed_at": _to_iso_utc(verification.reviewed_at),
                     "expires_at": _to_iso_utc(verification.expires_at),
@@ -4576,11 +4701,51 @@ def platform_list_school_verification_cases():
     )
 
 
+@api.route("/platform/compliance/schools/<string:school_id>/documents/<string:document_id>/download", methods=["GET"])
+@jwt_required()
+def platform_download_school_verification_document(school_id, document_id):
+    operator = _get_provider_console_operator()
+    if not operator:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    verification = (
+        SchoolVerification.query.filter_by(school_id=school_id)
+        .order_by(SchoolVerification.id.desc())
+        .first()
+    )
+    if not verification:
+        return jsonify({"message": "No verification profile found for school"}), 404
+
+    matching_document = next(
+        (
+            item
+            for item in (verification.documents or [])
+            if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
+        ),
+        None,
+    )
+    if not matching_document:
+        return jsonify({"message": "Document not found"}), 404
+
+    resolved_path = _resolve_existing_school_file(
+        _get_school_verification_document_storage_root(school_id=school_id),
+        matching_document.get("stored_filename"),
+    )
+    if not resolved_path:
+        return jsonify({"message": "Document file is no longer available"}), 404
+
+    return send_file(
+        resolved_path,
+        as_attachment=False,
+        download_name=matching_document.get("original_filename") or matching_document.get("filename") or "verification-document",
+    )
+
+
 @api.route("/platform/compliance/schools/<string:school_id>/decision", methods=["POST"])
 @jwt_required()
 def platform_review_school_verification_case(school_id):
-    platform_user = _get_platform_user_from_jwt()
-    if not platform_user:
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 401
 
     payload = request.get_json(silent=True) or {}
@@ -4604,7 +4769,7 @@ def platform_review_school_verification_case(school_id):
     verification.status = new_status
     verification.risk_tier = risk_tier
     verification.review_notes = sanitize_string(payload.get("review_notes") or "")
-    verification.reviewed_by_platform_user_id = platform_user.id
+    verification.reviewed_by_platform_user_id = operator["platform_user"].id if operator["platform_user"] else None
     verification.reviewed_at = get_utc_now()
 
     expires_in_days = payload.get("expires_in_days")
@@ -9419,7 +9584,14 @@ def get_school_verification_status():
                 "bank_name": verification.bank_name,
                 "owner_information": verification.owner_information or {},
                 "screening_results": verification.screening_results or {},
-                "documents": verification.documents or [],
+                "documents": [
+                    item
+                    for item in (
+                        _build_school_verification_document_entry(entry)
+                        for entry in (verification.documents or [])
+                    )
+                    if item
+                ],
                 "review_notes": verification.review_notes,
                 "submitted_at": _to_iso_utc(verification.submitted_at),
                 "reviewed_at": _to_iso_utc(verification.reviewed_at),
@@ -9429,13 +9601,61 @@ def get_school_verification_status():
     )
 
 
+@api.route("/school/verification/documents/<string:document_id>/download", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def download_school_verification_document(document_id):
+    verification = _get_latest_school_verification(g.school_id)
+    if not verification:
+        return jsonify({"message": "No verification profile found for school"}), 404
+
+    matching_document = next(
+        (
+            item
+            for item in (verification.documents or [])
+            if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
+        ),
+        None,
+    )
+    if not matching_document:
+        return jsonify({"message": "Document not found"}), 404
+
+    resolved_path = _resolve_existing_school_file(
+        _get_school_verification_document_storage_root(),
+        matching_document.get("stored_filename"),
+    )
+    if not resolved_path:
+        return jsonify({"message": "Document file is no longer available"}), 404
+
+    return send_file(
+        resolved_path,
+        as_attachment=False,
+        download_name=matching_document.get("original_filename") or matching_document.get("filename") or "verification-document",
+    )
+
+
 @api.route("/school/verification", methods=["PUT"])
 @multi_tenant_guard
 @role_required("proprietor")
 @jwt_required()
 def submit_school_verification():
     payload = request.get_json(silent=True) or {}
+    if request.form:
+        payload = request.form
+
     user_id = int(get_jwt_identity())
+
+    def _parse_json_field(value, default):
+        if isinstance(value, (dict, list)):
+            return value
+        if value in (None, ""):
+            return default
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return default
+        return parsed if isinstance(parsed, type(default)) else default
 
     legal_name = sanitize_string(payload.get("legal_name") or "")
     registration_number = sanitize_string(payload.get("registration_number") or "")
@@ -9446,12 +9666,38 @@ def submit_school_verification():
 
     if not legal_name or not registration_number or not tax_id:
         return jsonify({"message": "legal_name, registration_number, and tax_id are required"}), 400
-    if not bank_account_name or not bank_account_number:
-        return jsonify({"message": "bank_account_name and bank_account_number are required"}), 400
 
-    owner_information = payload.get("owner_information") if isinstance(payload.get("owner_information"), dict) else {}
-    screening_results = payload.get("screening_results") if isinstance(payload.get("screening_results"), dict) else {}
-    documents = payload.get("documents") if isinstance(payload.get("documents"), list) else []
+    owner_information = _parse_json_field(payload.get("owner_information"), {})
+    screening_results = _parse_json_field(payload.get("screening_results"), {})
+    documents = _parse_json_field(payload.get("documents"), [])
+    existing_documents = _parse_json_field(payload.get("existing_documents"), [])
+
+    if isinstance(existing_documents, list):
+        documents = existing_documents + documents
+
+    uploaded_files = [item for item in request.files.getlist("documents") if item and item.filename]
+    if not documents and not uploaded_files:
+        return jsonify({"message": "At least one JPG, PNG, or PDF verification document is required."}), 400
+
+    for uploaded in uploaded_files:
+        if not _allowed_school_verification_document(uploaded.filename, uploaded.mimetype):
+            return jsonify({"message": "Only JPG, JPEG, PNG, and PDF documents are allowed."}), 400
+
+        file_bytes = uploaded.read()
+        if not file_bytes:
+            continue
+
+        entry = _extract_parent_admission_document_details(
+            uploaded.filename,
+            uploaded.mimetype,
+            file_bytes,
+            category_override="registration_certificate",
+        )
+        entry.update(_store_school_verification_document(g.school_id, uploaded, file_bytes))
+        entry["source"] = "school_verification"
+        entry["uploaded_at"] = get_utc_now().isoformat()
+        entry["uploaded_by_user_id"] = user_id
+        documents.append(entry)
 
     verification = SchoolVerification(
         school_id=g.school_id,
@@ -18877,9 +19123,8 @@ def report_bug():
 @jwt_required()
 def get_all_tickets():
     """Super Admin: View tickets from ALL schools."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     tickets = SupportTicket.query.order_by(SupportTicket.created_at.desc()).all()
@@ -18903,9 +19148,8 @@ def get_all_tickets():
 @jwt_required()
 def reply_ticket(ticket_id):
     """Super Admin: Reply to a ticket."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     data = request.json
@@ -18915,7 +19159,7 @@ def reply_ticket(ticket_id):
     ticket.status = data.get("status", "Resolved")  # Allow 'In Progress' or 'Resolved'
     db.session.commit()
 
-    log_action(user.id, ticket.school_id, "ADMIN_TICKET_REPLY", f"Super admin replied to ticket #{ticket.id}")
+    log_action(operator["actor_id"], ticket.school_id, "ADMIN_TICKET_REPLY", f"Provider console replied to ticket #{ticket.id}")
 
     # SEND EMAIL NOTIFICATION TO USER
     user = User.query.get(ticket.user_id)
@@ -18966,9 +19210,8 @@ EduPulse Support Team
 @jwt_required()
 def get_system_health():
     """Super Admin: Monitor system status."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     # Check Database Health & Latency
@@ -18996,9 +19239,8 @@ def get_system_health():
 @jwt_required()
 def admin_broadcast():
     """Super Admin: Broadcast system-wide alert."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     data = request.json
@@ -19017,7 +19259,7 @@ def admin_broadcast():
     db.session.add(alert)
     db.session.commit()
 
-    log_action(user.id, None, "ADMIN_BROADCAST", f"Broadcast sent: {data.get('message')[:80]}")
+    log_action(operator["actor_id"], None, "ADMIN_BROADCAST", f"Broadcast sent: {data.get('message')[:80]}")
     return jsonify({"message": "System alert broadcasted."})
 
 
@@ -19025,9 +19267,8 @@ def admin_broadcast():
 @jwt_required()
 def get_all_schools():
     """Super Admin: List all tenants."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     schools = School.query.all()
@@ -19049,9 +19290,8 @@ def get_all_schools():
 @jwt_required()
 def toggle_school_status(school_id):
     """Super Admin: Enable/Disable a school."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     school = School.query.get_or_404(school_id)
@@ -19059,7 +19299,7 @@ def toggle_school_status(school_id):
     db.session.commit()
     status = "activated" if school.is_active else "suspended"
 
-    log_action(user.id, school.id, "ADMIN_SCHOOL_STATUS", f"School {school.id} {status} by super-admin")
+    log_action(operator["actor_id"], school.id, "ADMIN_SCHOOL_STATUS", f"School {school.id} {status} by provider console")
     return jsonify({"message": f"School {school.name} has been {status}."})
 
 
@@ -19067,9 +19307,8 @@ def toggle_school_status(school_id):
 @jwt_required()
 def update_school_modules(school_id):
     """Super Admin: Toggle feature flags for a school."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     school = School.query.get_or_404(school_id)
@@ -19077,7 +19316,7 @@ def update_school_modules(school_id):
         school.settings.enabled_modules = request.json.get("modules")
         db.session.commit()
 
-        log_action(user.id, school.id, "ADMIN_MODULE_UPDATE", f"Modules updated for school {school.id}: {school.settings.enabled_modules}")
+        log_action(operator["actor_id"], school.id, "ADMIN_MODULE_UPDATE", f"Modules updated for school {school.id}: {school.settings.enabled_modules}")
     return jsonify({"message": "Modules updated."})
 
 
@@ -19085,9 +19324,8 @@ def update_school_modules(school_id):
 @jwt_required()
 def get_global_analytics():
     """Super Admin: View aggregated platform stats."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     total_revenue = (
@@ -19099,7 +19337,7 @@ def get_global_analytics():
     total_schools = School.query.count()
     total_students = Student.query.count()
 
-    log_action(user.id, None, "ADMIN_GLOBAL_ANALYTICS", "Super admin viewed global analytics")
+    log_action(operator["actor_id"], None, "ADMIN_GLOBAL_ANALYTICS", "Provider console viewed global analytics")
 
     return jsonify(
         {
@@ -19114,9 +19352,8 @@ def get_global_analytics():
 @jwt_required()
 def impersonate_proprietor(school_id):
     """Super Admin: Log in as a specific school proprietor."""
-    user_id = get_jwt_identity()
-    admin_user = User.query.get(user_id)
-    if admin_user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     target_school = School.query.get_or_404(school_id)
@@ -19127,7 +19364,7 @@ def impersonate_proprietor(school_id):
 
     access_token = create_access_token(identity=str(target_user.id))
 
-    log_action(admin_user.id, target_school.id, "ADMIN_IMPERSONATE", f"Impersonated proprietor {target_user.username} for school {school_id}")
+    log_action(operator["actor_id"], target_school.id, "ADMIN_IMPERSONATE", f"Impersonated proprietor {target_user.username} for school {school_id}")
 
     return jsonify(
         {"token": access_token, "school_id": target_school.id, "role": target_user.role}
@@ -19138,9 +19375,8 @@ def impersonate_proprietor(school_id):
 @jwt_required()
 def grant_school_trial(school_id):
     """Super Admin: Grant a 30-day trial plan to a school."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     data = request.json or {}
@@ -19157,7 +19393,7 @@ def grant_school_trial(school_id):
     school.subscription_status = "Trial"
     db.session.commit()
 
-    log_action(user.id, school.id, "ADMIN_TRIAL_GRANT", f"Granted 30-day {trial_plan} trial to school {school.id}")
+    log_action(operator["actor_id"], school.id, "ADMIN_TRIAL_GRANT", f"Granted 30-day {trial_plan} trial to school {school.id}")
 
     return jsonify(
         {
@@ -19176,9 +19412,8 @@ def grant_school_trial(school_id):
 @jwt_required()
 def download_backup():
     """Super Admin: Download SQL Dump."""
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if user.role != "super_admin":
+    operator = _get_provider_console_operator()
+    if not operator:
         return jsonify({"message": "Unauthorized"}), 403
 
     output = StringIO()
@@ -19217,7 +19452,7 @@ def download_backup():
     )
     response.headers["Content-type"] = "text/plain"
 
-    log_action(user.id, None, "ADMIN_BACKUP_DOWNLOAD", "Super admin downloaded database backup")
+    log_action(operator["actor_id"], None, "ADMIN_BACKUP_DOWNLOAD", "Provider console downloaded database backup")
 
     return response
 

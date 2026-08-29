@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import SuperAdminDashboard from './SuperAdminDashboard';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -42,7 +43,7 @@ function SectionCard({ title, description, children }) {
 export default function PlatformConsole() {
   const [token, setToken] = useState(localStorage.getItem('platform_token'));
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('public_content');
+  const [activeTab, setActiveTab] = useState('operations');
   const [needsBootstrap, setNeedsBootstrap] = useState(false);
   const [bootstrapChecked, setBootstrapChecked] = useState(false);
 
@@ -70,6 +71,7 @@ export default function PlatformConsole() {
   const [emailTraceLoading, setEmailTraceLoading] = useState(false);
   const [emailTraceError, setEmailTraceError] = useState('');
   const [emailTraceSchoolFilter, setEmailTraceSchoolFilter] = useState('');
+  const [verificationCases, setVerificationCases] = useState([]);
 
   const getPlatformHeaders = () => ({
     headers: { Authorization: `Bearer ${token}` },
@@ -100,6 +102,12 @@ export default function PlatformConsole() {
 
   useEffect(() => {
     if (!token || !currentUser) {
+      return;
+    }
+
+    fetchVerificationCases();
+
+    if (activeTab === 'operations') {
       return;
     }
 
@@ -367,12 +375,25 @@ export default function PlatformConsole() {
     }
   };
 
+  const fetchVerificationCases = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/platform/compliance/schools?status=all`, getPlatformHeaders());
+      setVerificationCases(Array.isArray(response.data?.cases) ? response.data.cases : []);
+    } catch (error) {
+      setVerificationCases([]);
+    }
+  };
+
+  const pendingVerificationCount = verificationCases.filter(
+    (item) => ['pending', 'review_required'].includes(String(item?.status || '').toLowerCase())
+  ).length;
+
   if (!token || !currentUser) {
     return (
       <div className="min-h-screen bg-linear-to-br from-blue-900 to-indigo-800 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Platform Console</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">EduPulse Operations Console</h1>
             <p className="text-gray-600">Admin Access Only</p>
           </div>
 
@@ -380,7 +401,7 @@ export default function PlatformConsole() {
             <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-bold text-amber-900">Initial Setup Required</p>
               <p className="mt-1 text-xs text-amber-800">
-                This Docker environment does not have a platform admin user yet. Create the first one with your `PLATFORM_OWNER_KEY`.
+                This Docker environment does not have an operations admin user yet. Create the first one with your `PLATFORM_OWNER_KEY`.
               </p>
 
               <form onSubmit={handleBootstrap} className="mt-4 space-y-3">
@@ -397,7 +418,7 @@ export default function PlatformConsole() {
                   value={bootstrapForm.username}
                   onChange={(event) => setBootstrapForm({ ...bootstrapForm, username: event.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="First platform username"
+                  placeholder="First operations username"
                   required
                 />
                 <input
@@ -425,7 +446,7 @@ export default function PlatformConsole() {
                   disabled={bootstrapLoading}
                   className="w-full bg-amber-600 text-white py-2 px-4 rounded-md hover:bg-amber-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
                 >
-                  {bootstrapLoading ? 'Creating Platform Admin...' : 'Create First Platform Admin'}
+                  {bootstrapLoading ? 'Creating Operations Admin...' : 'Create First Operations Admin'}
                 </button>
               </form>
             </div>
@@ -479,7 +500,7 @@ export default function PlatformConsole() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Platform Owner Console</h1>
+              <h1 className="text-2xl font-bold text-gray-900">EduPulse Operations Console</h1>
               <p className="text-sm text-gray-600">Logged in as: {currentUser.username}</p>
             </div>
             <button onClick={handleLogout} className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors">Logout</button>
@@ -491,6 +512,7 @@ export default function PlatformConsole() {
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex flex-wrap gap-8">
             {[
+              ['operations', 'Operations'],
               ['public_content', 'Tenant Content'],
               ['users', 'User Management'],
               ['email_trace', 'Registration Email Trace'],
@@ -500,7 +522,14 @@ export default function PlatformConsole() {
                 onClick={() => setActiveTab(value)}
                 className={`${activeTab === value ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
               >
-                {label}
+                <span className="inline-flex items-center gap-2">
+                  <span>{label}</span>
+                  {value === 'operations' && pendingVerificationCount > 0 ? (
+                    <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-black text-rose-700">
+                      {pendingVerificationCount}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             ))}
           </nav>
@@ -508,6 +537,8 @@ export default function PlatformConsole() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {activeTab === 'operations' ? <SuperAdminDashboard tokenStorageKey="platform_token" embedded /> : null}
+
         {activeTab === 'public_content' ? (
           <div className="space-y-6">
             <SectionCard
@@ -630,7 +661,7 @@ export default function PlatformConsole() {
 
         {activeTab === 'users' ? (
           <div className="space-y-6">
-            <SectionCard title="Add New Admin User" description="Authenticated platform admins can create and remove other platform admin users here.">
+            <SectionCard title="Add New Admin User" description="Authenticated operations admins can create and remove other internal admin users here.">
               {addUserError ? <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{addUserError}</div> : null}
 
               <form onSubmit={handleAddUser} className="space-y-4">

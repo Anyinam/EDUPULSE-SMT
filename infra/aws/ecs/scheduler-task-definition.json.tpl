@@ -29,7 +29,6 @@
         {"name": "MAIL_DEFAULT_SENDER", "value": "${MAIL_DEFAULT_SENDER}"},
         {"name": "WHATSAPP_PHONE_NUMBER_ID", "value": "${WHATSAPP_PHONE_NUMBER_ID}"},
         {"name": "WHATSAPP_BUSINESS_ACCOUNT_ID", "value": "${WHATSAPP_BUSINESS_ACCOUNT_ID}"},
-        {"name": "PLATFORM_OWNER_KEY", "value": "${PLATFORM_OWNER_KEY}"},
         {"name": "GUNICORN_WORKERS", "value": "1"}
       ],
       "secrets": [
@@ -39,6 +38,7 @@
         {"name": "DATA_ENCRYPTION_KEY", "valueFrom": "${DATA_ENCRYPTION_KEY_SECRET_ARN}"},
         {"name": "LEDGER_SECRET_KEY", "valueFrom": "${LEDGER_SECRET_KEY_SECRET_ARN}"},
         {"name": "BANK_WEBHOOK_SECRET", "valueFrom": "${BANK_WEBHOOK_SECRET_ARN}"},
+        {"name": "PLATFORM_OWNER_KEY", "valueFrom": "${PLATFORM_OWNER_KEY_SECRET_ARN}"},
         {"name": "MAIL_PASSWORD", "valueFrom": "${MAIL_PASSWORD_SECRET_ARN}"},
         {"name": "PAYSTACK_SECRET_KEY", "valueFrom": "${PAYSTACK_SECRET_KEY_SECRET_ARN}"},
         {"name": "PAYSTACK_PUBLIC_KEY", "valueFrom": "${PAYSTACK_PUBLIC_KEY_SECRET_ARN}"},

@@ -111,7 +111,36 @@ export default function PlatformComplianceQueue() {
                   <p className="mt-1 text-xs text-slate-400">{item.school_id} • {item.status} • risk {item.risk_tier}</p>
                   <p className="mt-2 text-xs text-slate-300">Legal name: {item.legal_name || 'N/A'}</p>
                   <p className="text-xs text-slate-300">Registration: {item.registration_number || 'N/A'}</p>
+                  <p className="text-xs text-slate-300">TIN: {item.tax_id || 'N/A'}</p>
+                  <p className="text-xs text-slate-300">Owner: {item.owner_information?.full_name || item.owner_information?.name || 'N/A'}</p>
                   <p className="text-xs text-slate-300">Submitted: {item.submitted_at ? new Date(item.submitted_at).toLocaleString() : 'N/A'}</p>
+                  {Array.isArray(item.documents) && item.documents.length > 0 && (
+                    <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-800/60 p-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Documents</p>
+                      <div className="mt-2 space-y-2">
+                        {item.documents.map((document, index) => {
+                          const label = document?.original_filename || document?.name || document?.url || `Document ${index + 1}`;
+                          const href = document?.download_path || document?.url || '';
+                          return href ? (
+                            <a
+                              key={`${item.verification_id}-${label}-${index}`}
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block text-xs font-semibold text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline"
+                            >
+                              {label}
+                            </a>
+                          ) : (
+                            <div key={`${item.verification_id}-${label}-${index}`} className="text-xs text-slate-300">
+                              {label}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {item.review_notes && <p className="mt-2 text-xs text-amber-300">Review note: {item.review_notes}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button

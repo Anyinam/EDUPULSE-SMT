@@ -299,7 +299,7 @@ jobs:
           echo "MAIL_DEFAULT_SENDER=${{ vars.MAIL_DEFAULT_SENDER }}" >> "$GITHUB_ENV"
           echo "WHATSAPP_PHONE_NUMBER_ID=${{ vars.WHATSAPP_PHONE_NUMBER_ID || '' }}" >> "$GITHUB_ENV"
           echo "WHATSAPP_BUSINESS_ACCOUNT_ID=${{ vars.WHATSAPP_BUSINESS_ACCOUNT_ID || '' }}" >> "$GITHUB_ENV"
-          echo "PLATFORM_OWNER_KEY=${{ vars.PLATFORM_OWNER_KEY || '' }}" >> "$GITHUB_ENV"
+          echo "PLATFORM_OWNER_KEY_SECRET_ARN=${{ vars.PLATFORM_OWNER_KEY_SECRET_ARN || '' }}" >> "$GITHUB_ENV"
           echo "GUNICORN_WORKERS=${{ vars.GUNICORN_WORKERS || '4' }}" >> "$GITHUB_ENV"
           echo "DATABASE_URL_SECRET_ARN=${{ vars.DATABASE_URL_SECRET_ARN }}" >> "$GITHUB_ENV"
           echo "SECRET_KEY_SECRET_ARN=${{ vars.SECRET_KEY_SECRET_ARN }}" >> "$GITHUB_ENV"

@@ -62,7 +62,7 @@ export default function App() {
             <Route path="proprietor/admissions" element={<AdmissionsPanel />} />
             <Route path="headmaster" element={<HeadmasterDashboard />} />
             <Route path="headmaster/admissions" element={<AdmissionsPanel />} />
-            <Route path="super-admin" element={<SuperAdminDashboard />} />
+            <Route path="super-admin" element={<Navigate to="/platform-console" replace />} />
             <Route path="kitchen" element={<KitchenDashboard />} />
             <Route path="finance" element={<FinanceDashboard />} />
             <Route path="homeroom" element={<HomeroomDashboard />} />

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import PlatformComplianceQueue from '../components/PlatformComplianceQueue';
 
-export default function SuperAdminDashboard() {
+export default function SuperAdminDashboard({ tokenStorageKey = 'token', embedded = false }) {
   const [tickets, setTickets] = useState([]);
   const [reply, setReply] = useState("");
   const [selectedTicket, setSelectedTicket] = useState(null);
@@ -10,11 +10,12 @@ export default function SuperAdminDashboard() {
   const [broadcastMsg, setBroadcastMsg] = useState("");
   const [schools, setSchools] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [verificationCases, setVerificationCases] = useState([]);
   const [editingModules, setEditingModules] = useState(null);
   const [moduleForm, setModuleForm] = useState({});
 
   const getAuthHeaders = () => ({
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    headers: { 'Authorization': `Bearer ${localStorage.getItem(tokenStorageKey)}` }
   });
 
   useEffect(() => {
@@ -22,6 +23,7 @@ export default function SuperAdminDashboard() {
     fetchHealth();
     fetchAnalytics();
     fetchSchools();
+    fetchVerificationCases();
     const interval = setInterval(fetchHealth, 30000); // Poll every 30s
     return () => clearInterval(interval);
   }, []);
@@ -59,6 +61,15 @@ export default function SuperAdminDashboard() {
       setSchools(res.data);
     } catch (err) {
       console.error("Failed to fetch schools");
+    }
+  };
+
+  const fetchVerificationCases = async () => {
+    try {
+      const res = await axios.get('/api/platform/compliance/schools?status=all', getAuthHeaders());
+      setVerificationCases(Array.isArray(res.data?.cases) ? res.data.cases : []);
+    } catch (err) {
+      console.error('Failed to fetch verification queue summary');
     }
   };
 
@@ -144,12 +155,26 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  const verificationReviewCount = verificationCases.filter(
+    (item) => ['pending', 'review_required'].includes(String(item?.status || '').toLowerCase())
+  ).length;
+  const verifiedCount = verificationCases.filter(
+    (item) => String(item?.status || '').toLowerCase() === 'verified'
+  ).length;
+  const jumpToVerificationQueue = () => {
+    document.getElementById('school-verification-queue')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const wrapperClassName = embedded
+    ? 'rounded-3xl bg-slate-900 p-8 text-white font-sans shadow-lg'
+    : 'p-8 bg-slate-900 min-h-screen text-white font-sans';
+
   return (
-    <div className="p-8 bg-slate-900 min-h-screen text-white font-sans">
-      <header className="mb-8 border-b border-slate-700 pb-4 flex justify-between items-end">
+    <div className={wrapperClassName}>
+      <header className="mb-8 border-b border-slate-700 pb-4 flex justify-between items-end gap-4">
         <div>
-          <h1 className="text-3xl font-black">🚀 EduPulse Command Center</h1>
-          <p className="text-slate-400">Software Administration & Support</p>
+          <h1 className="text-3xl font-black">{embedded ? 'Operations Console' : '🚀 EduPulse Command Center'}</h1>
+          <p className="text-slate-400">{embedded ? 'Tenant operations, support, compliance, and platform monitoring.' : 'Software Administration & Support'}</p>
         </div>
         <button onClick={handleBackup} className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2">
           💾 Download DB Backup
@@ -197,6 +222,33 @@ export default function SuperAdminDashboard() {
         </div>
       )}
 
+      <div className="mb-8 rounded-2xl border border-amber-600/50 bg-linear-to-r from-amber-950/70 via-slate-900 to-slate-900 p-6 shadow-lg">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-300">Verification Review</p>
+            <h2 className="mt-1 text-2xl font-black text-white">School submissions waiting in the super admin queue</h2>
+            <p className="mt-2 max-w-2xl text-sm text-slate-300">Open the compliance queue to inspect uploaded certificates and manually approve or reject school verification submissions.</p>
+          </div>
+          <button onClick={jumpToVerificationQueue} className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-black text-slate-950 hover:bg-amber-400 transition-colors">
+            Open Verification Queue
+          </button>
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-amber-500/40 bg-slate-950/40 p-4">
+            <p className="text-xs font-bold uppercase text-amber-200">Needs Review</p>
+            <p className="mt-2 text-3xl font-black text-white">{verificationReviewCount}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+            <p className="text-xs font-bold uppercase text-slate-400">Verified</p>
+            <p className="mt-2 text-3xl font-black text-white">{verifiedCount}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+            <p className="text-xs font-bold uppercase text-slate-400">Total Cases</p>
+            <p className="mt-2 text-3xl font-black text-white">{verificationCases.length}</p>
+          </div>
+        </div>
+      </div>
+
       {/* Tenant Overview */}
       <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg mb-8">
         <h3 className="font-bold text-slate-300 mb-4">🏢 Tenant Overview</h3>
@@ -240,7 +292,7 @@ export default function SuperAdminDashboard() {
         </div>
       </div>
 
-      <div className="mb-8">
+      <div id="school-verification-queue" className="mb-8 scroll-mt-8">
         <PlatformComplianceQueue />
       </div>
 
