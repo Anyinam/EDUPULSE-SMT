@@ -62,8 +62,9 @@ while retry_count < max_retries:
         retry_count += 1
         if retry_count >= max_retries:
             print(f"❌ Failed to connect to PostgreSQL after {max_retries} attempts")
+            print(f"  Last error: {e}")
             sys.exit(1)
-        print(f"  PostgreSQL is unavailable (attempt {retry_count}/{max_retries}) - sleeping...")
+        print(f"  PostgreSQL is unavailable (attempt {retry_count}/{max_retries}) - {e} - sleeping...")
         time.sleep(2)
 WAIT_SCRIPT
 
