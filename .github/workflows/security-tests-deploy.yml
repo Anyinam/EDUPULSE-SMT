@@ -281,8 +281,15 @@ jobs:
           backend_repo="$(printf '%s' '${{ vars.ECR_BACKEND_REPOSITORY }}' | tr -d '\r\n')"
           frontend_repo="$(printf '%s' '${{ vars.ECR_FRONTEND_REPOSITORY }}' | tr -d '\r\n')"
 
+          if [[ -z "$backend_repo" || -z "$frontend_repo" ]]; then
+            echo "ECR_BACKEND_REPOSITORY and ECR_FRONTEND_REPOSITORY must both be set in GitHub Actions variables." >&2
+            exit 1
+          fi
+
           echo "backend_image=${{ steps.ecr-login.outputs.registry }}/${backend_repo}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
           echo "frontend_image=${{ steps.ecr-login.outputs.registry }}/${frontend_repo}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "backend_latest=${{ steps.ecr-login.outputs.registry }}/${backend_repo}:latest" >> "$GITHUB_OUTPUT"
+          echo "frontend_latest=${{ steps.ecr-login.outputs.registry }}/${frontend_repo}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Set deployment config env
         run: |
@@ -340,7 +347,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.image-uris.outputs.backend_image }}
-            ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_BACKEND_REPOSITORY }}:latest
+            ${{ steps.image-uris.outputs.backend_latest }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -351,7 +358,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.image-uris.outputs.frontend_image }}
-            ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:latest
+            ${{ steps.image-uris.outputs.frontend_latest }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
