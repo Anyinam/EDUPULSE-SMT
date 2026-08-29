@@ -31,6 +31,7 @@ host = os.getenv('DB_HOST') or os.getenv('DATABASE_HOST', 'db')
 port = int(os.getenv('DB_PORT') or os.getenv('DATABASE_PORT', '5432'))
 user = os.getenv('POSTGRES_USER', 'edupulse_user')
 password = os.getenv('POSTGRES_PASSWORD', 'try123')
+database = os.getenv('DB_NAME') or os.getenv('POSTGRES_DB', 'edupulse_db')
 
 if database_url:
     parsed = urlparse(database_url)
@@ -43,6 +44,9 @@ if database_url:
         user = parsed.username
     if parsed.password is not None:
         password = parsed.password
+    parsed_database = (parsed.path or '').lstrip('/')
+    if parsed_database:
+        database = parsed_database
     sslmode = (query.get('sslmode') or [''])[0].strip()
 else:
     sslmode = ''
@@ -57,7 +61,7 @@ while retry_count < max_retries:
             port=port,
             user=user,
             password=password,
-            database='postgres'  # Connect to system database
+            database=database,
         )
         if sslmode:
             connect_kwargs['sslmode'] = sslmode
