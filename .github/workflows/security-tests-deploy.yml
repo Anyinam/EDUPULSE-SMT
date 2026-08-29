@@ -278,8 +278,11 @@ jobs:
       - name: Set deployment image URIs
         id: image-uris
         run: |
-          echo "backend_image=${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          echo "frontend_image=${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          backend_repo="$(printf '%s' '${{ vars.ECR_BACKEND_REPOSITORY }}' | tr -d '\r\n')"
+          frontend_repo="$(printf '%s' '${{ vars.ECR_FRONTEND_REPOSITORY }}' | tr -d '\r\n')"
+
+          echo "backend_image=${{ steps.ecr-login.outputs.registry }}/${backend_repo}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=${{ steps.ecr-login.outputs.registry }}/${frontend_repo}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Set deployment config env
         run: |
