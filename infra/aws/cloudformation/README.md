@@ -8,7 +8,7 @@ This directory contains the infrastructure template that provisions the shared A
 - Two ECR repositories: backend and frontend
 - CloudWatch log groups for app, frontend, scheduler, and migration tasks
 - Internet-facing Application Load Balancer
-- ACM certificate for `app` and `api` subdomains, or support for an existing certificate ARN
+- ACM certificate for the root domain plus `app` and `api` subdomains, or support for an existing certificate ARN
 - Route53 alias records for the app and API domains
 - ECS app service with both `edupulse-frontend` and `edupulse-backend` load-balanced containers
 - ECS scheduler service without public exposure

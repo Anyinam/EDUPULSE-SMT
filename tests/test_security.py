@@ -738,6 +738,24 @@ class TestErrorHandling:
 class TestCSRFProtection:
     """Tests for CSRF protection."""
 
+    @staticmethod
+    def _register_payload(school_code="CSRF001", username="csrf-admin"):
+        return {
+            "schoolName": "CSRF Test School",
+            "schoolCode": school_code,
+            "username": username,
+            "email": f"{school_code.lower()}@example.com",
+            "password": "ValidPass123",
+            "selectedPlan": "Free",
+            "termsAccepted": True,
+            "termsVersion": "2026-03-07",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
+        }
+
     def test_post_requires_origin_header(self, client, auth_headers, test_students):
         """Test that POST requests validate Origin header."""
         headers = auth_headers.copy()
@@ -759,3 +777,41 @@ class TestCSRFProtection:
 
         # May succeed in test environment, but header should be validated
         assert response.status_code in [200, 201, 400, 403]
+
+    def test_post_allows_configured_frontend_origin(
+        self, client, monkeypatch
+    ):
+        """Configured production frontend origins should pass CSRF checks."""
+        monkeypatch.setenv("FRONTEND_ORIGIN", "https://app.edupulsesmt.com")
+        headers = {
+            "Origin": "https://app.edupulsesmt.com",
+            "Content-Type": "application/json",
+        }
+
+        response = client.post(
+            "/api/register",
+            data=json.dumps(self._register_payload()),
+            content_type="application/json",
+            headers=headers,
+        )
+
+        assert response.status_code != 403
+
+    def test_post_rejects_unconfigured_origin(
+        self, client, monkeypatch
+    ):
+        """Unknown origins should still be rejected by CSRF checks."""
+        monkeypatch.setenv("FRONTEND_ORIGIN", "https://app.edupulsesmt.com")
+        headers = {
+            "Origin": "https://evil.example",
+            "Content-Type": "application/json",
+        }
+
+        response = client.post(
+            "/api/register",
+            data=json.dumps(self._register_payload(school_code="CSRF002", username="csrf-evil")),
+            content_type="application/json",
+            headers=headers,
+        )
+
+        assert response.status_code == 403

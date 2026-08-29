@@ -1,7 +1,9 @@
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from functools import wraps
+from urllib.parse import urlparse
 
 from flask import current_app, g, jsonify, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
@@ -18,6 +20,19 @@ from backend.subscription_features import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_CSRF_ORIGINS = {
+    "http://localhost",
+    "https://localhost",
+    "http://127.0.0.1",
+    "https://127.0.0.1",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "https://edupulse.edu",
+    "http://edupulse.edu",
+}
 
 # Subscription enforcement windows
 GRACE_PERIOD_DAYS = 7
@@ -78,6 +93,35 @@ def is_suspended_readonly_path(path, method):
     if path in SUSPENDED_READONLY_PATHS:
         return True
     return any(pattern.match(path or "") for pattern in SUSPENDED_READONLY_PATH_PATTERNS)
+
+
+def _normalize_origin(value):
+    candidate = (value or "").strip().rstrip("/")
+    if not candidate:
+        return ""
+
+    parsed = urlparse(candidate)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _allowed_csrf_origins():
+    allowed = set(DEFAULT_CSRF_ORIGINS)
+
+    configured_origins = (os.getenv("CORS_ALLOWED_ORIGINS") or "").strip()
+    if configured_origins:
+        for origin in configured_origins.split(","):
+            normalized = _normalize_origin(origin)
+            if normalized:
+                allowed.add(normalized)
+
+    frontend_origin = _normalize_origin(os.getenv("FRONTEND_ORIGIN"))
+    if frontend_origin:
+        allowed.add(frontend_origin)
+
+    return allowed
 
 
 def get_billing_status_info(school, now=None):
@@ -494,42 +538,13 @@ def csrf_protect(f):
         origin = request.headers.get("Origin", "")
         referer = request.headers.get("Referer", "")
 
-        # List of allowed origins (support both domains and localhost with ports)
-        allowed_origins = [
-            "localhost",
-            "127.0.0.1",
-            "edupulse.edu",
-            "localhost:3000",  # React frontend port
-            "localhost:5173",  # Vite dev server alternate port
-            "127.0.0.1:3000",
-            "127.0.0.1:5173",
-        ]
-
-        # Check if origin/referer comes from an allowed source
-        is_same_origin = False
-
-        if origin:
-            # Origin header check (e.g., "http://localhost:3000")
-            is_same_origin = any(
-                origin.endswith(
-                    allowed
-                )  # "http://localhost:3000".endswith("localhost:3000") ✓
-                or origin.endswith(
-                    allowed
-                )  # "http://localhost".endswith("localhost") ✓
-                or f"//{allowed}" in origin
-                for allowed in allowed_origins
-            )
-
-        if referer and not is_same_origin:
-            # Referer header check (e.g., "http://localhost:3000/login")
-            is_same_origin = any(
-                f"//{allowed}"
-                in referer  # "http://localhost:3000/login" contains "//localhost:3000" ✓
-                or referer.endswith(allowed)
-                or f"{allowed}/" in referer
-                for allowed in allowed_origins
-            )
+        allowed_origins = _allowed_csrf_origins()
+        normalized_origin = _normalize_origin(origin)
+        normalized_referer = _normalize_origin(referer)
+        is_same_origin = (
+            normalized_origin in allowed_origins
+            or normalized_referer in allowed_origins
+        )
 
         # If cross-origin request detected from non-allowed origin
         if (origin or referer) and not is_same_origin:

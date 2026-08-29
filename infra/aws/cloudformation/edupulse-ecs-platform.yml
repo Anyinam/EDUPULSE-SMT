@@ -242,11 +242,14 @@ Resources:
     Type: AWS::CertificateManager::Certificate
     Condition: CreateCertificate
     Properties:
-      DomainName: !Sub ${AppSubdomain}.${RootDomainName}
+      DomainName: !Ref RootDomainName
       SubjectAlternativeNames:
+        - !Sub ${AppSubdomain}.${RootDomainName}
         - !Sub ${ApiSubdomain}.${RootDomainName}
       ValidationMethod: DNS
       DomainValidationOptions:
+        - DomainName: !Ref RootDomainName
+          HostedZoneId: !Ref HostedZoneId
         - DomainName: !Sub ${AppSubdomain}.${RootDomainName}
           HostedZoneId: !Ref HostedZoneId
         - DomainName: !Sub ${ApiSubdomain}.${RootDomainName}

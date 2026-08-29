@@ -22,7 +22,7 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 ## GitHub Variables
 
 - `AWS_REGION`: AWS region, for example `us-east-1`.
-- `PRODUCTION_URL`: external app URL, for example `https://app.edupulse.com.gh`.
+- `PRODUCTION_URL`: external app URL. Use the hostname backed by your live ACM certificate, for example `https://edupulse.com.gh` or `https://app.edupulse.com.gh`.
 
 ### ECR
 
