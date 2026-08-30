@@ -15,6 +15,7 @@ apscheduler
 holidays
 alembic
 reportlab
+boto3
 pdfplumber
 numpy
 Pillow

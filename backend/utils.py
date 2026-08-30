@@ -3,6 +3,7 @@ import mimetypes
 import os
 from threading import Thread
 from datetime import datetime, timezone
+from email.message import EmailMessage
 
 from flask import current_app
 
@@ -18,9 +19,69 @@ def _is_production_env():
     return os.getenv("FLASK_ENV", "development").lower() == "production"
 
 
+def _email_provider():
+    return (os.getenv("EMAIL_PROVIDER") or "smtp").strip().lower()
+
+
+def _send_email_via_ses(to_email, subject, body, attachments=None):
+    import boto3
+
+    region_name = (os.getenv("SES_REGION") or os.getenv("AWS_REGION") or "us-east-1").strip()
+    sender = (
+        (os.getenv("MAIL_DEFAULT_SENDER") or "").strip()
+        or (os.getenv("MAIL_USERNAME") or "").strip()
+    )
+    if not sender:
+        raise RuntimeError("MAIL_DEFAULT_SENDER or MAIL_USERNAME must be configured for SES delivery")
+
+    client = boto3.client("ses", region_name=region_name)
+
+    if attachments:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg["To"] = to_email
+        msg.set_content(body)
+
+        for file_path in attachments:
+            if not os.path.exists(file_path):
+                logger.warning(f"Attachment not found: {file_path}")
+                continue
+            filename = os.path.basename(file_path)
+            mime_type, _ = mimetypes.guess_type(filename)
+            maintype, subtype = (mime_type or "application/octet-stream").split("/", 1)
+            with open(file_path, "rb") as file_handle:
+                msg.add_attachment(
+                    file_handle.read(),
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=filename,
+                )
+
+        client.send_raw_email(
+            Source=sender,
+            Destinations=[to_email],
+            RawMessage={"Data": msg.as_bytes()},
+        )
+        return True
+
+    client.send_email(
+        Source=sender,
+        Destination={"ToAddresses": [to_email]},
+        Message={
+            "Subject": {"Data": subject, "Charset": "UTF-8"},
+            "Body": {"Text": {"Data": body, "Charset": "UTF-8"}},
+        },
+    )
+    return True
+
+
 def send_email_notification(to_email, subject, body, attachments=None):
     """Send actual email notification to staff via Flask-Mail."""
     try:
+        if _email_provider() == "ses":
+            return _send_email_via_ses(to_email, subject, body, attachments=attachments)
+
         from flask_mail import Message
         from backend.api.api import mail
 

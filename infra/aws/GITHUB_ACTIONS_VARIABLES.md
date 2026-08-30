@@ -52,6 +52,9 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 
 - `FRONTEND_ORIGIN`: main frontend origin, for example `https://app.edupulse.com.gh`.
 - `CORS_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API.
+- `EMAIL_PROVIDER`: `smtp` or `ses`. Use `ses` for AWS-native transactional email delivery.
+- `SES_REGION`: SES region for transactional email, typically `us-east-1`.
+- `MFA_REQUIRED`: set to `true` to force email-based login verification for all users in production, or `false` to disable the global MFA requirement while SMTP is unavailable.
 - `GUNICORN_WORKERS`: Gunicorn worker count, default `4`.
 
 ### Email and optional integrations
