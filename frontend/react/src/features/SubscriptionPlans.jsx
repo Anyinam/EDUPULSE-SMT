@@ -24,15 +24,12 @@ const SubscriptionPlans = () => {
         // Fetch current subscription (if logged in)
         let currentPlan = null;
         try {
-          const schoolId = localStorage.getItem('school_id');
-          const subResponse = await axios.get('/api/school/subscription', {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem('token')}`,
-              'X-School-ID': schoolId
-            }
-          });
-          currentPlan = subResponse.data;
-          setStudentCount(currentPlan.current_enrollment || 100);
+          const headers = getSubscriptionHeaders();
+          if (headers) {
+            const subResponse = await axios.get('/api/school/subscription', { headers });
+            currentPlan = subResponse.data;
+            setStudentCount(currentPlan.current_enrollment || 100);
+          }
         } catch (err) {
           // User not logged in or no access - that's okay for public plans view
           console.log('No subscription data available');
@@ -49,6 +46,39 @@ const SubscriptionPlans = () => {
 
     fetchData();
   }, []);
+
+  const redirectToLogin = (message = 'Your session expired. Please log in again to manage your subscription.') => {
+    alert(message);
+    window.location.href = '/login';
+  };
+
+  const getSubscriptionHeaders = () => {
+    const token = localStorage.getItem('token');
+    const schoolId = localStorage.getItem('school_id');
+
+    if (!token || !schoolId) {
+      return null;
+    }
+
+    return {
+      Authorization: `Bearer ${token}`,
+      'X-School-ID': schoolId,
+    };
+  };
+
+  const handleSubscriptionError = (error, fallbackMessage) => {
+    if (error?.response?.status === 401) {
+      redirectToLogin();
+      return;
+    }
+
+    if (error?.response?.status === 403) {
+      alert(error.response?.data?.message || 'Only the proprietor account can change subscription plans.');
+      return;
+    }
+
+    alert(error?.response?.data?.message || fallbackMessage);
+  };
 
   const plans = (plansData || []).map((plan) => ({
     rawName: plan.name,
@@ -106,12 +136,11 @@ const SubscriptionPlans = () => {
 
   const handleSubscribe = async (planName) => {
     try {
-      const token = localStorage.getItem('token');
-      const schoolId = localStorage.getItem('school_id');
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'X-School-ID': schoolId,
-      };
+      const headers = getSubscriptionHeaders();
+      if (!headers) {
+        redirectToLogin();
+        return;
+      }
 
       const basePlan = currentSubscription?.base_plan || currentSubscription?.plan || 'Free Tier';
       const currentRank = PLAN_ORDER[basePlan] ?? 0;
@@ -146,7 +175,7 @@ const SubscriptionPlans = () => {
       window.location.reload();
     } catch (error) {
       console.error('Subscription error:', error);
-      alert(error.response?.data?.message || 'Failed to process subscription. Please try again or contact support.');
+      handleSubscriptionError(error, 'Failed to process subscription. Please try again or contact support.');
     }
   };
 
@@ -221,7 +250,11 @@ const SubscriptionPlans = () => {
 
         {/* Plans Grid */}
         <div className="grid md:grid-cols-3 gap-8 mb-12">
-          {plans.map((plan) => (
+          {plans.map((plan) => {
+            const displayBaseFee = billingPeriod === 'term' ? plan.baseFee : plan.baseFee * 3;
+            const displayPerStudentPrice = billingPeriod === 'term' ? plan.price : plan.price * 3;
+
+            return (
             <div
               key={plan.name}
               className={`relative bg-white rounded-2xl shadow-lg overflow-hidden border-2 ${
@@ -264,6 +297,9 @@ const SubscriptionPlans = () => {
                       </div>
                       <div className="text-sm text-gray-600 space-y-0.5">
                         <div>per {billingPeriod === 'annual' ? 'year (3 terms)' : 'term'} ({studentCount} students)</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Base: ₵{displayBaseFee.toLocaleString()} + {plan.includedStudents} included; overage: ₵{displayPerStudentPrice.toLocaleString()}/student/{billingPeriod === 'annual' ? 'year' : 'term'}
+                        </div>
                         {billingPeriod === 'term' && plan.baseFee !== undefined && (
                           <div className="text-xs text-gray-500 mt-1">
                             <div>Base: ₵{plan.baseFee} + {plan.includedStudents} included</div>
@@ -348,7 +384,8 @@ const SubscriptionPlans = () => {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* FAQ / Info Section */}

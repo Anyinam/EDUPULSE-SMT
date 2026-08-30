@@ -25,10 +25,12 @@ export default function SubscriptionManager() {
       setLoading(true);
       setLoadError('');
       try {
-        const headers = { 
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'X-School-ID': localStorage.getItem('school_id') 
-        };
+        const headers = getSubscriptionHeaders();
+        if (!headers) {
+          setLoadError('Your session expired. Please log in again.');
+          setLoading(false);
+          return;
+        }
         const [res, plansRes] = await Promise.all([
           axios.get('/api/school/subscription', { headers }),
           axios.get('/api/subscription/plans'),
@@ -48,6 +50,39 @@ export default function SubscriptionManager() {
     };
     fetchSub();
   }, []);
+
+  const redirectToLogin = (message = 'Your session expired. Please log in again to manage your subscription.') => {
+    alert(message);
+    window.location.href = '/login';
+  };
+
+  const getSubscriptionHeaders = () => {
+    const token = localStorage.getItem('token');
+    const schoolId = localStorage.getItem('school_id');
+
+    if (!token || !schoolId) {
+      return null;
+    }
+
+    return {
+      'Authorization': `Bearer ${token}`,
+      'X-School-ID': schoolId,
+    };
+  };
+
+  const handleSubscriptionError = (err, fallbackMessage) => {
+    if (err?.response?.status === 401) {
+      redirectToLogin();
+      return;
+    }
+
+    if (err?.response?.status === 403) {
+      alert(err.response?.data?.message || 'Only the proprietor account can change subscription plans.');
+      return;
+    }
+
+    alert(err?.response?.data?.message || fallbackMessage);
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -118,11 +153,12 @@ export default function SubscriptionManager() {
     if (isDowngrade) {
       const confirmLabel = plan === 'Free Tier' ? 'Downgrade to Free Tier' : `Switch to ${plan}`;
       if (!window.confirm(`${confirmLabel}? Your paid features will be reduced immediately.`)) return;
+      const headers = getSubscriptionHeaders();
+      if (!headers) {
+        redirectToLogin();
+        return;
+      }
       try {
-        const headers = { 
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'X-School-ID': localStorage.getItem('school_id') 
-        };
         await axios.post('/api/school/subscription/upgrade', { plan }, { headers });
         
         // Refresh subscription data from backend
@@ -141,7 +177,7 @@ export default function SubscriptionManager() {
         alert(`Plan changed to ${plan} successfully.`);
         window.location.reload();  // Full reload to update all components
       } catch (err) {
-        alert(err.response?.data?.message || 'Plan change failed.');
+        handleSubscriptionError(err, 'Plan change failed.');
       }
       return;
     }
@@ -158,12 +194,13 @@ export default function SubscriptionManager() {
     const confirmMsg = `Upgrade to ${plan}?${proratedMsg}\n\nCost: GH₵ ${finalCost.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} for ${billingPeriod === 'term' ? '1 term' : '3 terms (annual)'}\nBased on ${currentStudents} students`;
     if (!window.confirm(confirmMsg)) return;
 
-    try {
-      const headers = { 
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id') 
-      };
+    const headers = getSubscriptionHeaders();
+    if (!headers) {
+      redirectToLogin();
+      return;
+    }
 
+    try {
       // Initialize payment with Paystack
       const res = await axios.post('/api/paystack/initialize', {
         plan_name: plan,
@@ -180,7 +217,7 @@ export default function SubscriptionManager() {
       }
     } catch (err) {
       console.error('Payment initialization error:', err);
-      alert(err.response?.data?.message || 'Failed to initialize payment. Please try again.');
+      handleSubscriptionError(err, 'Failed to initialize payment. Please try again.');
     }
   };
 
@@ -371,6 +408,8 @@ export default function SubscriptionManager() {
             const isDowngrade = targetRank < currentRank;
             const shouldShowProration = !isCurrentPlan && isUpgrade && prorateInfo && plan.name !== 'Free Tier';
             const actionAmount = shouldShowProration ? displayCost * prorateInfo.prorateRatio : displayCost;
+            const displayBaseFee = billingPeriod === 'term' ? plan.baseFee : plan.baseFee * 3;
+            const displayPerStudentPrice = billingPeriod === 'term' ? plan.price : plan.price * 3;
             
             return (
               <div
@@ -407,7 +446,7 @@ export default function SubscriptionManager() {
                         GH₵ {displayCost.toLocaleString()}
                       </div>
                       <div className="text-sm text-slate-600">
-                        Base GH₵ {plan.baseFee} covers {plan.included} students; overage is GH₵ {plan.price}/student/{billingPeriod === 'term' ? 'term' : 'term billed across 3 terms'}
+                        Base GH₵ {displayBaseFee.toLocaleString()} covers {plan.included} students; overage is GH₵ {displayPerStudentPrice.toLocaleString()}/student/{billingPeriod === 'term' ? 'term' : 'year (3 terms)'}
                       </div>
                       {plan.baseFee !== undefined && billingPeriod === 'term' && (
                         <div className="text-xs text-slate-500 mt-2 space-y-0.5">
