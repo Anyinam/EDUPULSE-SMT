@@ -8,7 +8,7 @@ from reportlab.pdfgen import canvas
 
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import AcademicTerm, Payment, PlatformSetting, PlatformUser, School, SchoolSettings, Student, StudentGrade, TeacherAssignment, User, db
+from backend.api.models import AcademicTerm, Payment, PlatformSetting, PlatformUser, School, SchoolSettings, SchoolVerification, Student, StudentGrade, TeacherAssignment, User, db
 from backend.api.models import ReportCard
 from backend.utils import generate_descriptive_analysis
 
@@ -152,6 +152,45 @@ def test_platform_user_management_uses_platform_jwt(client, app):
 
     self_delete_response = client.delete(f"/api/platform/users/{platform_user.id}", headers=headers)
     assert self_delete_response.status_code == 400
+
+
+def test_platform_compliance_queue_hides_placeholder_cases(client, app):
+    platform_user = PlatformUser(username="compliance-admin", email="compliance-admin@example.com")
+    platform_user.set_password("secret123")
+    db.session.add(platform_user)
+
+    placeholder_school = School(id="PEND1", name="Placeholder School")
+    submitted_school = School(id="REAL1", name="Submitted School")
+    db.session.add_all([placeholder_school, submitted_school])
+    db.session.flush()
+
+    placeholder_case = SchoolVerification(
+        school_id=placeholder_school.id,
+        status="pending",
+        risk_tier="medium",
+        legal_name="Placeholder School",
+        organization_id=placeholder_school.id,
+    )
+    submitted_case = SchoolVerification(
+        school_id=submitted_school.id,
+        status="pending",
+        risk_tier="medium",
+        legal_name="Submitted School",
+        organization_id=submitted_school.id,
+        documents=[{"document_id": "doc-1", "original_filename": "certificate.pdf"}],
+        submitted_by_user_id=1,
+    )
+    db.session.add_all([placeholder_case, submitted_case])
+    db.session.commit()
+
+    headers = _platform_headers(app, platform_user.id)
+    response = client.get("/api/platform/compliance/schools?status=all", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    school_ids = {item["school_id"] for item in payload["cases"]}
+    assert "REAL1" in school_ids
+    assert "PEND1" not in school_ids
 
 
 def test_platform_bootstrap_creates_first_admin_with_owner_key(client, monkeypatch):

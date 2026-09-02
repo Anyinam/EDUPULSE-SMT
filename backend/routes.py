@@ -4669,7 +4669,12 @@ def platform_list_school_verification_cases():
     if risk_filter:
         query = query.filter(func.lower(SchoolVerification.risk_tier) == risk_filter)
 
-    rows = query.order_by(SchoolVerification.submitted_at.desc()).limit(limit).all()
+    rows = query.order_by(SchoolVerification.submitted_at.desc()).all()
+    rows = [
+        (verification, school)
+        for verification, school in rows
+        if verification.submitted_by_user_id is not None or bool(verification.documents)
+    ][:limit]
     return jsonify(
         {
             "cases": [
