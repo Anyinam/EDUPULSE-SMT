@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-function getHeaders() {
+function getHeaders(tokenStorageKey) {
   return {
     headers: {
-      Authorization: `Bearer ${localStorage.getItem('token')}`,
+      Authorization: `Bearer ${localStorage.getItem(tokenStorageKey)}`,
     },
   };
 }
 
-export default function PlatformComplianceQueue() {
+export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_token' }) {
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -21,7 +21,7 @@ export default function PlatformComplianceQueue() {
       setLoading(true);
       const res = await axios.get(
         `/api/platform/compliance/schools?status=${encodeURIComponent(selectedStatus)}`,
-        getHeaders(),
+        getHeaders(tokenStorageKey),
       );
       setCases(Array.isArray(res.data?.cases) ? res.data.cases : []);
       setError('');
@@ -52,7 +52,7 @@ export default function PlatformComplianceQueue() {
           review_notes: reviewNotes,
           expires_in_days: Number.isFinite(expiresInDays) ? expiresInDays : 365,
         },
-        getHeaders(),
+        getHeaders(tokenStorageKey),
       );
       setMessage(`Decision saved for ${schoolId}.`);
       await fetchCases();

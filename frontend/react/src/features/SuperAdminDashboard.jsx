@@ -293,7 +293,7 @@ export default function SuperAdminDashboard({ tokenStorageKey = 'token', embedde
       </div>
 
       <div id="school-verification-queue" className="mb-8 scroll-mt-8">
-        <PlatformComplianceQueue />
+        <PlatformComplianceQueue tokenStorageKey={tokenStorageKey} />
       </div>
 
       {/* Broadcast Widget */}
