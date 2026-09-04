@@ -69,8 +69,8 @@ def preprocess_image_pil(img):
         img = ImageOps.invert(img)
         img = img.resize((int(img.width * 1.2), int(img.height * 1.2)))
         img = img.filter(ImageFilter.MedianFilter(size=3))
-    except Exception:
-        pass
+    except (ImportError, AttributeError, OSError, ValueError):
+        return img
     return img
 
 
@@ -226,7 +226,7 @@ def parse_ocr_text(text):
                             if 0 <= val <= 100:
                                 mark = val
                                 break
-                        except Exception:
+                        except (TypeError, ValueError):
                             continue
                 parsed["subjects"].append(
                     {"subject": canon, "mark": mark, "raw_line": ln}

@@ -32,7 +32,9 @@ export default function Layout() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
+  const [dismissedSystemAlert, setDismissedSystemAlert] = useState('');
   const [expandedMenus, setExpandedMenus] = useState({}); // Track expanded menu sections
+  const currentSystemAlert = notifications.find((notification) => notification.isSystem);
 
   // Developer-only access check
   const isDeveloper = (
@@ -74,10 +76,8 @@ export default function Layout() {
         if (res.data.latest_notice) {
             newNotifs.push(res.data.latest_notice);
         }
-        if (newNotifs.length > 0) {
-            setNotifications(newNotifs);
-            setHasUnread(true);
-        }
+        setNotifications(newNotifs);
+        setHasUnread(newNotifs.length > 0);
       } catch (err) {
         console.error("Failed to fetch notifications");
       }
@@ -87,6 +87,18 @@ export default function Layout() {
     const interval = setInterval(fetchNotifications, 60000); // Poll every minute
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!currentSystemAlert) {
+      setDismissedSystemAlert('');
+      return;
+    }
+
+    const currentAlertMessage = currentSystemAlert.message || '';
+    if (currentAlertMessage !== dismissedSystemAlert) {
+      return;
+    }
+  }, [currentSystemAlert, dismissedSystemAlert]);
 
   // Keyboard shortcut for dev mode toggle (Ctrl+Shift+D)
   useEffect(() => {
@@ -258,6 +270,23 @@ export default function Layout() {
         </header>
 
         <div className="flex-1 overflow-y-auto">
+          {currentSystemAlert && dismissedSystemAlert !== (currentSystemAlert.message || '') && (
+            <div className="border-b border-amber-200 bg-amber-50 px-8 py-4">
+              <div className="flex items-start justify-between gap-4 rounded-2xl border border-amber-300 bg-white/70 px-4 py-3 shadow-sm">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-700">System Alert</p>
+                  <p className="mt-1 text-sm font-medium text-slate-800">{currentSystemAlert.message}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDismissedSystemAlert(currentSystemAlert.message || '')}
+                  className="shrink-0 rounded-lg border border-amber-300 px-3 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
             <Outlet />
         </div>
       </main>

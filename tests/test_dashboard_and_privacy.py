@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from io import BytesIO
 from types import SimpleNamespace
@@ -216,6 +217,48 @@ def test_platform_bootstrap_creates_first_admin_with_owner_key(client, monkeypat
     status_response_after = client.get("/api/platform/bootstrap-status")
     assert status_response_after.status_code == 200
     assert status_response_after.get_json()["needs_bootstrap"] is False
+
+
+def test_platform_can_download_school_verification_document_from_legacy_storage_root(client, app, tmp_path):
+    platform_user = PlatformUser(username="platform-reviewer", email="reviewer@example.com")
+    platform_user.set_password("secret123")
+
+    school = School(id="DLG1", name="Download Test School")
+    stored_filename = "school_verification_doc_test_certificate.pdf"
+    verification = SchoolVerification(
+        school_id=school.id,
+        status="pending",
+        risk_tier="medium",
+        legal_name="Download Test School",
+        organization_id=school.id,
+        documents=[
+            {
+                "document_id": "doc-download-1",
+                "stored_filename": stored_filename,
+                "original_filename": "certificate.pdf",
+            }
+        ],
+        submitted_by_user_id=1,
+    )
+
+    db.session.add_all([platform_user, school, verification])
+    db.session.commit()
+
+    legacy_root = tmp_path / "school-verification-documents"
+    legacy_root.mkdir(parents=True, exist_ok=True)
+    expected_bytes = b"legacy verification document"
+    with open(legacy_root / stored_filename, "wb") as handle:
+        handle.write(expected_bytes)
+
+    app.config["SCHOOL_VERIFICATION_DOCUMENT_STORAGE_DIR"] = str(legacy_root)
+
+    response = client.get(
+        f"/api/platform/compliance/schools/{school.id}/documents/doc-download-1/download",
+        headers=_platform_headers(app, platform_user.id),
+    )
+
+    assert response.status_code == 200
+    assert response.data == expected_bytes
 
 
 def test_platform_chief_examiner_library_import_accepts_multiple_report_files(client, app, monkeypatch):

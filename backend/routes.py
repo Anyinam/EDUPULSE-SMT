@@ -2586,9 +2586,25 @@ def _resolve_existing_school_file(storage_root, stored_filename):
     if not stored_filename:
         return None
     candidate_path = os.path.join(storage_root, stored_filename)
-    if not os.path.isfile(candidate_path):
+    if os.path.isfile(candidate_path):
+        return candidate_path
+
+    base_dir = os.path.dirname(storage_root.rstrip(os.sep))
+    legacy_candidate = os.path.join(base_dir, stored_filename)
+    if os.path.isfile(legacy_candidate):
+        return legacy_candidate
+
+    try:
+        for entry in os.scandir(base_dir):
+            if not entry.is_dir():
+                continue
+            nested_candidate = os.path.join(entry.path, stored_filename)
+            if os.path.isfile(nested_candidate):
+                return nested_candidate
+    except OSError:
         return None
-    return candidate_path
+
+    return None
 
 
 def _build_legacy_evidence_download_path(artifact_id):
@@ -10419,8 +10435,8 @@ def get_live_feed():
                     try:
                         due_date = datetime.fromisoformat(due_str).date()
                         return datetime.combine(due_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-                    except Exception:
-                        pass
+                    except (TypeError, ValueError):
+                        due_date = None
                 created_at = entry.created_at
                 if created_at is None:
                     return now + timedelta(days=30)

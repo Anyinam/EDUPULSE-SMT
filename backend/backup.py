@@ -9,11 +9,11 @@ from flask_mail import Message
 def backup_database():
     with app.app_context():
         filename = f"backup_{datetime.now().strftime('%Y%m%d')}.sql"
-        # Command to dump PostgreSQL from inside Docker
-        dump_cmd = f"pg_dump -U postgres edupulse_db > {filename}"
+        dump_cmd = ["pg_dump", "-U", "postgres", "edupulse_db"]
 
         try:
-            subprocess.run(dump_cmd, shell=True, check=True)
+            with open(filename, "wb") as dump_file:
+                subprocess.run(dump_cmd, stdout=dump_file, check=True)
 
             # Email the backup to yourself
             msg = Message(
@@ -27,7 +27,7 @@ def backup_database():
             mail.send(msg)
             os.remove(filename)  # Clean up local file
             print("✅ Weekly backup sent successfully!")
-        except Exception as e:
+        except (OSError, subprocess.CalledProcessError) as e:
             print(f"❌ Backup failed: {e}")
 
 

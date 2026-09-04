@@ -15,6 +15,8 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [decisionDraft, setDecisionDraft] = useState(null);
+  const [savingDecision, setSavingDecision] = useState(false);
 
   const openProtectedDocument = async (documentItem) => {
     if (!documentItem?.download_path) {
@@ -72,26 +74,58 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStatus]);
 
-  const decide = async (schoolId, status) => {
-    const reviewNotes = window.prompt(`Review notes for ${schoolId} (${status})`) || '';
-    const riskTier = window.prompt('Risk tier: low, medium, high', 'medium') || 'medium';
-    const expiresInDays = status === 'verified' ? Number(window.prompt('Verification expiry days', '365') || '365') : undefined;
+  const openDecisionModal = (schoolId, status) => {
+    setDecisionDraft({
+      schoolId,
+      status,
+      reviewNotes: '',
+      riskTier: 'medium',
+      expiresInDays: '365',
+    });
+    setMessage('');
+    setError('');
+  };
+
+  const closeDecisionModal = () => {
+    if (savingDecision) {
+      return;
+    }
+    setDecisionDraft(null);
+  };
+
+  const submitDecision = async () => {
+    if (!decisionDraft) {
+      return;
+    }
+
+    const expiresInDays = decisionDraft.status === 'verified'
+      ? Number(decisionDraft.expiresInDays)
+      : undefined;
+
+    if (decisionDraft.status === 'verified' && (!Number.isFinite(expiresInDays) || expiresInDays <= 0)) {
+      setError('Verification expiry days must be a positive number.');
+      return;
+    }
 
     try {
+      setSavingDecision(true);
       await axios.post(
-        `/api/platform/compliance/schools/${schoolId}/decision`,
+        `/api/platform/compliance/schools/${decisionDraft.schoolId}/decision`,
         {
-          status,
-          risk_tier: riskTier,
-          review_notes: reviewNotes,
+          status: decisionDraft.status,
+          risk_tier: decisionDraft.riskTier,
+          review_notes: decisionDraft.reviewNotes,
           expires_in_days: Number.isFinite(expiresInDays) ? expiresInDays : 365,
         },
         getHeaders(tokenStorageKey),
       );
-      setMessage(`Decision saved for ${schoolId}.`);
+      setMessage(`Decision saved for ${decisionDraft.schoolId}.`);
+      setDecisionDraft(null);
       await fetchCases();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to save decision.');
+      setError(err.response?.data?.message || 'Failed to save decision.');
+    } finally {
+      setSavingDecision(false);
     }
   };
 
@@ -178,28 +212,28 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => decide(item.school_id, 'verified')}
+                    onClick={() => openDecisionModal(item.school_id, 'verified')}
                     className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500"
                   >
                     Verify
                   </button>
                   <button
                     type="button"
-                    onClick={() => decide(item.school_id, 'review_required')}
+                    onClick={() => openDecisionModal(item.school_id, 'review_required')}
                     className="rounded-xl bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-500"
                   >
                     Review
                   </button>
                   <button
                     type="button"
-                    onClick={() => decide(item.school_id, 'rejected')}
+                    onClick={() => openDecisionModal(item.school_id, 'rejected')}
                     className="rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-500"
                   >
                     Reject
                   </button>
                   <button
                     type="button"
-                    onClick={() => decide(item.school_id, 'suspended')}
+                    onClick={() => openDecisionModal(item.school_id, 'suspended')}
                     className="rounded-xl bg-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-600"
                   >
                     Suspend
@@ -215,6 +249,96 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
         <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-900 p-4 text-sm">
           {message && <p className="font-semibold text-emerald-300">{message}</p>}
           {error && <p className="font-semibold text-red-300">{error}</p>}
+        </div>
+      )}
+
+      {decisionDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4">
+          <div className="w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Compliance Decision</p>
+                <h3 className="mt-1 text-xl font-black text-white">
+                  {decisionDraft.status === 'verified' ? 'Verify school' : 'Update verification status'}
+                </h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  School {decisionDraft.schoolId} will be marked as {decisionDraft.status.replace('_', ' ')}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeDecisionModal}
+                disabled={savingDecision}
+                className="rounded-xl border border-slate-600 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                  Risk Tier
+                </label>
+                <select
+                  value={decisionDraft.riskTier}
+                  onChange={(event) => setDecisionDraft((current) => ({ ...current, riskTier: event.target.value }))}
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+
+              {decisionDraft.status === 'verified' && (
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                    Verification Expiry Days
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={decisionDraft.expiresInDays}
+                    onChange={(event) => setDecisionDraft((current) => ({ ...current, expiresInDays: event.target.value }))}
+                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                  Review Notes
+                </label>
+                <textarea
+                  rows="4"
+                  value={decisionDraft.reviewNotes}
+                  onChange={(event) => setDecisionDraft((current) => ({ ...current, reviewNotes: event.target.value }))}
+                  placeholder="Add any notes for the school or audit trail."
+                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeDecisionModal}
+                disabled={savingDecision}
+                className="rounded-xl border border-slate-600 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitDecision}
+                disabled={savingDecision}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingDecision ? 'Saving...' : 'Save Decision'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
