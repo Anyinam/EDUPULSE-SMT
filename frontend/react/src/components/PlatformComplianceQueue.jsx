@@ -16,6 +16,40 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
   const [error, setError] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
 
+  const openProtectedDocument = async (documentItem) => {
+    if (!documentItem?.download_path) {
+      setError('This document is not available to open.');
+      return;
+    }
+
+    try {
+      const res = await axios.get(documentItem.download_path, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem(tokenStorageKey)}`,
+        },
+        responseType: 'blob',
+      });
+      const contentType = res.headers['content-type'] || documentItem.content_type || 'application/octet-stream';
+      const blob = new Blob([res.data], { type: contentType });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const opened = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+
+      if (!opened) {
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', documentItem.original_filename || documentItem.filename || 'verification-document');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to open verification document.');
+    }
+  };
+
   const fetchCases = async () => {
     try {
       setLoading(true);
@@ -122,15 +156,14 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
                           const label = document?.original_filename || document?.name || document?.url || `Document ${index + 1}`;
                           const href = document?.download_path || document?.url || '';
                           return href ? (
-                            <a
+                            <button
+                              type="button"
                               key={`${item.verification_id}-${label}-${index}`}
-                              href={href}
-                              target="_blank"
-                              rel="noreferrer"
+                              onClick={() => openProtectedDocument(document)}
                               className="block text-xs font-semibold text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline"
                             >
                               {label}
-                            </a>
+                            </button>
                           ) : (
                             <div key={`${item.verification_id}-${label}-${index}`} className="text-xs text-slate-300">
                               {label}

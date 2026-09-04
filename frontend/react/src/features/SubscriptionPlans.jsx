@@ -411,7 +411,7 @@ const SubscriptionPlans = () => {
               <strong className="text-gray-900">Payment:</strong> Pay via Paystack (card, bank, USSD). Automatic subscription billing at term start.
             </div>
             <div>
-              <strong className="text-gray-900">Subscription convenience fee:</strong> Not applied (0 GHS).
+              <strong className="text-gray-900">Subscription total:</strong> You pay the invoiced amount without an added checkout surcharge.
             </div>
           </div>
         </div>

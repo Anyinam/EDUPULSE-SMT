@@ -125,7 +125,6 @@ class SchoolSettings(db.Model):
     uniform_fee = db.Column(db.Float, default=0.0)  # Uniform cost per student
     transport_fee = db.Column(db.Float, default=0.0)  # Transport/transport allowance
     terminal_report_fee = db.Column(db.Float, default=0.0)  # Per-term report printing fee
-    phone_payment_convenience_fee_percent = db.Column(db.Float, default=1.5)
     admission_fee_enabled = db.Column(db.Boolean, default=False)
     admission_fee_amount = db.Column(db.Float, default=0.0)
     approval_pdf_enabled = db.Column(db.Boolean, default=False)

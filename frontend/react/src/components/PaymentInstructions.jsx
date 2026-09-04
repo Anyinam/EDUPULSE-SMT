@@ -175,16 +175,12 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
 
               <div className="grid min-w-60 gap-2 rounded-3xl bg-slate-50 p-4 text-sm text-slate-700">
                 <div className="flex items-center justify-between gap-4">
-                  <span>Digital payment total</span>
-                  <strong>{formatMoney(item.total_amount)}</strong>
+                  <span>Amount to pay</span>
+                  <strong>{formatMoney(item.cash_amount ?? item.base_amount ?? item.total_amount)}</strong>
                 </div>
                 <div className="flex items-center justify-between gap-4">
-                  <span>School office cash</span>
-                  <strong>{formatMoney(item.cash_amount)}</strong>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span>Convenience fee</span>
-                  <strong>{formatMoney(item.convenience_fee_amount)}</strong>
+                  <span>School office amount</span>
+                  <strong>{formatMoney(item.cash_amount ?? item.base_amount ?? item.total_amount)}</strong>
                 </div>
               </div>
             </div>
@@ -216,7 +212,7 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Collection Model</p>
                 <p className="mt-2 text-lg font-semibold text-slate-900">{item.preferred_payment_model || 'reference_first'}</p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Phone payments include the convenience fee; school office cash stays at the base amount.
+                  Use the same structured reference across the school's approved payment channels.
                 </p>
               </div>
             </div>

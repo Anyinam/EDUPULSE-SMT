@@ -269,7 +269,6 @@ export default function SettingsPanel() {
     feeding_monthly_fee: 0,
     transport_fee: 0,
     terminal_report_fee: 0,
-    phone_payment_convenience_fee_percent: 1.5,
     admission_fee_enabled: false,
     admission_fee_amount: 0,
     other_fees: {}
@@ -460,7 +459,6 @@ export default function SettingsPanel() {
           feeding_monthly_fee: res.data.feeding_monthly_fee || 0,
           transport_fee: res.data.transport_fee || 0,
           terminal_report_fee: res.data.terminal_report_fee || 0,
-          phone_payment_convenience_fee_percent: res.data.phone_payment_convenience_fee_percent ?? 1.5,
           admission_fee_enabled: Boolean(res.data.admission_fee_enabled),
           admission_fee_amount: res.data.admission_fee_amount || 0,
           other_fees: res.data.other_fees || {}
@@ -1248,7 +1246,6 @@ export default function SettingsPanel() {
         feeding_monthly_fee: fees.feeding_monthly_fee,
         transport_fee: fees.transport_fee,
         terminal_report_fee: fees.terminal_report_fee,
-        phone_payment_convenience_fee_percent: fees.phone_payment_convenience_fee_percent,
         admission_fee_enabled: fees.admission_fee_enabled,
         admission_fee_amount: fees.admission_fee_amount,
         other_fees: fees.other_fees
@@ -1701,24 +1698,6 @@ export default function SettingsPanel() {
                   min="0"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Phone Payment Convenience Fee (%)</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={fees.phone_payment_convenience_fee_percent}
-                  onChange={(e) => setFees((prev) => ({ ...prev, phone_payment_convenience_fee_percent: parseFloat(e.target.value) || 0 }))}
-                  className="flex-1 p-3 border rounded-lg bg-slate-50"
-                  placeholder="1.50"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                />
-                <span className="text-slate-600 font-semibold">%</span>
-              </div>
-              <p className="mt-2 text-xs text-slate-500">Applied only to phone or digital payments. Cash paid at the school office stays at the base school fee.</p>
             </div>
 
             <div className="md:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">

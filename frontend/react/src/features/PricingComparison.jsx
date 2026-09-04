@@ -267,9 +267,9 @@ export default function PricingComparison() {
             </div>
 
             <div>
-              <h4 className="font-bold text-slate-900 mb-3">🎁 No Convenience Fee</h4>
+              <h4 className="font-bold text-slate-900 mb-3">🧾 Transparent Billing</h4>
               <p className="text-sm mb-3">
-                Subscription charges have zero convenience fee. You pay exactly what's on your invoice—no hidden costs.
+                Subscription charges stay aligned with the invoice amount, with no extra charge layered on top at checkout.
               </p>
             </div>
 

@@ -30,7 +30,7 @@ Current implementation:
 - school-managed admissions and bulk student onboarding
 - parent-facing admissions application and status tracking
 - school-side admissions review workflows
-- parent payment instructions with stable payment identity, structured reference parsing, and configurable phone-payment convenience fees
+- parent payment instructions with stable payment identity and structured reference parsing
 - report-card parsing and academic trend intelligence
 - academic guidance and exam intelligence workflows
 - Student Rescue Agent for intervention workflows

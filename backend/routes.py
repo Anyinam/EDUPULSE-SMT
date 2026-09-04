@@ -3699,7 +3699,6 @@ def _build_student_payment_instruction_payload(student, school_id):
     from backend.utils import generate_all_payment_codes
 
     settings = SchoolSettings.query.filter_by(school_id=school_id).first()
-    convenience_fee_percent = _get_phone_payment_convenience_fee_percent(settings)
     other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
     admission_fee = _get_school_admission_fee_config(settings)
     feeding_plan_fees = _get_feeding_plan_fees(settings)
@@ -3744,21 +3743,16 @@ def _build_student_payment_instruction_payload(student, school_id):
             if fee_type == "Feeding" and student.scholarship_covers_feeding:
                 base_amount = 0.0
 
-        convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
-        total_amount = base_amount + convenience_fee_amount
-
         codes_list.append({
             "fee_type": display_name,
             "code": code,
             "reference_code": code,
             "payment_identity_base": student.student_code,
             "payment_category": {"fee_type": fee_type},
-            "base_amount": base_amount,
+            "base_amount": round(base_amount, 2),
             "cash_amount": round(base_amount, 2),
-            "convenience_fee_percent": convenience_fee_percent,
-            "convenience_fee_amount": round(convenience_fee_amount, 2),
-            "total_amount": round(total_amount, 2),
-            "amount": round(total_amount, 2),
+            "total_amount": round(base_amount, 2),
+            "amount": round(base_amount, 2),
             "virtual_bank_account": None,
             "virtual_bank_name": None,
             "momo_shortcode": None,
@@ -3772,7 +3766,7 @@ def _build_student_payment_instruction_payload(student, school_id):
             "instructions": (
                 f"Use the stable learner payment identity {student.student_code} with reference {code}. "
                 + "Phone payments should use the structured reference through bank app, card, USSD, or the school's approved digital channel. "
-                + f"Cash at the school office remains GH₵ {base_amount:.2f} without the convenience fee."
+                + f"The amount to pay for this fee is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
             ),
         })
 
@@ -3788,8 +3782,6 @@ def _build_student_payment_instruction_payload(student, school_id):
                 continue
 
             base_amount = 0.0 if student.is_on_scholarship and student.scholarship_covers_feeding else configured_amount
-            convenience_fee_amount = base_amount * (convenience_fee_percent / 100)
-            total_amount = base_amount + convenience_fee_amount
             reference_code = f"{student.student_code}-FEED-{frequency_code}"
 
             codes_list.append({
@@ -3798,12 +3790,10 @@ def _build_student_payment_instruction_payload(student, school_id):
                 "reference_code": reference_code,
                 "payment_identity_base": student.student_code,
                 "payment_category": {"fee_type": "Feeding", "frequency": frequency_label},
-                "base_amount": base_amount,
+                "base_amount": round(base_amount, 2),
                 "cash_amount": round(base_amount, 2),
-                "convenience_fee_percent": convenience_fee_percent,
-                "convenience_fee_amount": round(convenience_fee_amount, 2),
-                "total_amount": round(total_amount, 2),
-                "amount": round(total_amount, 2),
+                "total_amount": round(base_amount, 2),
+                "amount": round(base_amount, 2),
                 "virtual_bank_account": None,
                 "virtual_bank_name": None,
                 "momo_shortcode": None,
@@ -3814,7 +3804,7 @@ def _build_student_payment_instruction_payload(student, school_id):
                 "instructions": (
                     f"Use reference {reference_code} for the {frequency_label.lower()} feeding plan. "
                     + "Phone payments should use the structured reference through bank app, card, USSD, or the school's approved digital channel. "
-                    + f"Cash at the school office remains GH₵ {base_amount:.2f} without the convenience fee."
+                    + f"The amount to pay for this plan is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
                 ),
             })
 
@@ -3837,7 +3827,7 @@ def _build_student_payment_instruction_payload(student, school_id):
         },
         "admission_fee": admission_fee,
         "payment_codes": codes_list,
-        "note": "Preferred model: use the learner's stable payment identity and structured reference. Digital channels may include a convenience fee, while cash at the school office remains the base amount.",
+        "note": "Preferred model: use the learner's stable payment identity and structured reference across the school's approved payment channels.",
     }
 
 
@@ -7262,8 +7252,6 @@ def get_student_payments(student_id):
         student = Student.query.filter_by(
             id=student_id, school_id=g.school_id
         ).first_or_404()
-        settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-        convenience_fee_percent = _get_phone_payment_convenience_fee_percent(settings)
         payments = (
             Payment.query.filter_by(student_id=student_id, school_id=g.school_id)
             .order_by(Payment.date_paid.desc())
@@ -7273,18 +7261,12 @@ def get_student_payments(student_id):
         payment_list = []
         for payment in payments:
             gross_amount = float(payment.amount or 0)
-            base_amount = round(
-                gross_amount / (1 + (convenience_fee_percent / 100)), 2
-            ) if gross_amount > 0 else 0.0
-            convenience_fee_amount = round(gross_amount - base_amount, 2)
 
             payment_list.append(
                 {
                     "id": payment.id,
                     "amount": payment.amount,
-                    "base_amount": base_amount,
-                    "convenience_fee_percent": convenience_fee_percent,
-                    "convenience_fee_amount": convenience_fee_amount,
+                    "base_amount": gross_amount,
                     "total_amount": gross_amount,
                     "payment_type": payment.payment_type,
                     "method": payment.method,
@@ -8832,8 +8814,6 @@ def send_payment_reminders_whatsapp_bulk():
     ).count()
     daily_limit = school.settings.whatsapp_daily_limit or 50
 
-    convenience_fee_percent = _get_phone_payment_convenience_fee_percent(school.settings)
-
     fees_config = {
         "tuition_fee": school.settings.tuition_fee if school.settings else 0.0,
         "feeding_fee": school.settings.feeding_fee if school.settings else 0.0,
@@ -8969,8 +8949,7 @@ def send_payment_reminders_whatsapp_bulk():
             for fee_type, amount in fee_items:
                 ref_code = payment_codes.get(fee_type)
 
-                phone_total = amount * (1 + (convenience_fee_percent / 100))
-                line = f"{fee_type}: GH₵ {amount:.2f} cash or GH₵ {phone_total:.2f} by phone/digital payment"
+                line = f"{fee_type}: GH₵ {amount:.2f}"
 
                 c.drawString(inch, y_position, line[:110])
                 y_position -= 0.25 * inch
@@ -8983,8 +8962,8 @@ def send_payment_reminders_whatsapp_bulk():
             c.setFont("Helvetica", 9)
             footer_instructions = [
                 "Use the same structured reference in bank narration, card checkout notes, or USSD where possible.",
-                f"Phone and digital payment totals include a {convenience_fee_percent:.2f}% convenience fee.",
-                "Cash paid at the school office stays at the base school-fee amount.",
+                "Use the school's approved payment channel and the matching reference for each fee.",
+                "Cash paid at the school office should use the same fee reference.",
                 f"For support, contact {school.name}.",
             ]
             for instruction in footer_instructions:
@@ -9008,9 +8987,8 @@ def send_payment_reminders_whatsapp_bulk():
             route_lines = []
             for fee_type, amount in fee_items:
                 ref_code = payment_codes.get(fee_type)
-                phone_total = amount * (1 + (convenience_fee_percent / 100))
                 route_lines.append(
-                    f"- {fee_type}: Ref {ref_code or '-'} | Cash GH₵ {amount:.2f} | Phone/Digital GH₵ {phone_total:.2f}"
+                    f"- {fee_type}: Ref {ref_code or '-'} | Amount GH₵ {amount:.2f}"
                 )
 
             reminder_text = (
@@ -9019,8 +8997,8 @@ def send_payment_reminders_whatsapp_bulk():
                 f"Total Outstanding: GH₵ {total_owed:.2f}\n\n"
                 f"Use the matching fee reference:\n"
                 + "\n".join(route_lines[:6])
-                + f"\n\nPhone and digital totals already include the {convenience_fee_percent:.2f}% convenience fee."
-                + "\nCash paid at the school office stays at the base fee amount."
+                + "\n\nUse the same reference in the payment narration where possible."
+                + "\nThe school office can also record the payment against that same reference."
             )
             try:
                 send_text_message(student.parent_phone, reminder_text[:1500])
@@ -9658,6 +9636,25 @@ def submit_school_verification():
         payload = request.form
 
     user_id = int(get_jwt_identity())
+    existing_snapshot = _get_school_verification_snapshot(g.school_id)
+    existing_status = existing_snapshot.get("status")
+    if existing_status in {"pending", "review_required", "verified", "suspended"}:
+        lock_messages = {
+            "pending": "A school verification submission is already pending review. Wait for the compliance decision before submitting again.",
+            "review_required": "This school verification is already under manual review. Update requests should go through platform support instead of submitting another case.",
+            "verified": "This school is already verified. A new submission is only needed if the current verification expires or support asks for refreshed documents.",
+            "suspended": "This school verification is currently suspended. Contact platform support before attempting another submission.",
+        }
+        return (
+            jsonify(
+                {
+                    "error": "school_verification_already_submitted",
+                    "message": lock_messages.get(existing_status, "A school verification submission already exists for this school."),
+                    "verification": existing_snapshot,
+                }
+            ),
+            409,
+        )
 
     def _parse_json_field(value, default):
         if isinstance(value, (dict, list)):
@@ -16118,23 +16115,6 @@ def _get_school_country_code(school_id):
     return (settings.country_code if settings and settings.country_code else "GH").upper()
 
 
-DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT = 1.5
-
-
-def _get_phone_payment_convenience_fee_percent(settings):
-    raw_value = getattr(settings, "phone_payment_convenience_fee_percent", None) if settings else None
-    try:
-        value = float(raw_value)
-    except (TypeError, ValueError):
-        value = DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT
-
-    if value < 0:
-        return 0.0
-    if value > 100:
-        return 100.0
-    return round(value, 2)
-
-
 def _mask_bank_account_value(account_number):
     try:
         value = str(account_number or "").strip()
@@ -17104,14 +17084,6 @@ def update_school_fees():
         settings.terminal_report_fee = (
             float(data["terminal_report_fee"]) if data["terminal_report_fee"] else 0.0
         )
-    if "phone_payment_convenience_fee_percent" in data:
-        try:
-            convenience_fee_percent = float(data["phone_payment_convenience_fee_percent"] or 0.0)
-        except (TypeError, ValueError):
-            return jsonify({"message": "Invalid phone_payment_convenience_fee_percent value."}), 400
-        if convenience_fee_percent < 0 or convenience_fee_percent > 100:
-            return jsonify({"message": "phone_payment_convenience_fee_percent must be between 0 and 100."}), 400
-        settings.phone_payment_convenience_fee_percent = round(convenience_fee_percent, 2)
     if "admission_fee_enabled" in data:
         settings.admission_fee_enabled = bool(data.get("admission_fee_enabled"))
     if "admission_fee_amount" in data:
@@ -17152,7 +17124,6 @@ def get_school_fees():
                 "uniform_fee": 0.0,
                 "transport_fee": 0.0,
                 "terminal_report_fee": 0.0,
-                "phone_payment_convenience_fee_percent": DEFAULT_PAYMENT_CONVENIENCE_FEE_PERCENT,
                 "admission_fee_enabled": False,
                 "admission_fee_amount": 0.0,
                 "other_fees": {},
@@ -17171,7 +17142,6 @@ def get_school_fees():
             "uniform_fee": 0.0,
             "transport_fee": settings.transport_fee or 0.0,
             "terminal_report_fee": settings.terminal_report_fee or 0.0,
-            "phone_payment_convenience_fee_percent": _get_phone_payment_convenience_fee_percent(settings),
             "admission_fee_enabled": bool(settings.admission_fee_enabled),
             "admission_fee_amount": settings.admission_fee_amount or 0.0,
             "other_fees": settings.other_fees or {},

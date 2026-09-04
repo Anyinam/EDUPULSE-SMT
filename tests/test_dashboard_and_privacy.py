@@ -2032,7 +2032,7 @@ def test_subject_teacher_diagnostics_flow_into_homeroom_report_builder(client, a
         db.session.commit()
 
 
-def test_payment_codes_include_convenience_fee_breakdown_and_cash_alternative(client, app, test_school, test_proprietor, test_students):
+def test_payment_codes_return_reference_first_amounts_without_convenience_fee(client, app, test_school, test_proprietor, test_students):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     if not settings:
         settings = SchoolSettings(school_id=test_school.id)
@@ -2053,11 +2053,10 @@ def test_payment_codes_include_convenience_fee_breakdown_and_cash_alternative(cl
     tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition + Terminal Report")
     assert tuition_code["base_amount"] == 100.0
     assert tuition_code["cash_amount"] == 100.0
-    assert tuition_code["convenience_fee_percent"] == 1.5
-    assert tuition_code["convenience_fee_amount"] == 1.5
-    assert tuition_code["total_amount"] == 101.5
-    assert "cash at the school office" in tuition_code["instructions"].lower()
-    assert "convenience fee" in payload["note"].lower()
+    assert tuition_code["total_amount"] == 100.0
+    assert tuition_code["amount"] == 100.0
+    assert "amount to pay for this fee is gh₵ 100.00" in tuition_code["instructions"].lower()
+    assert "structured reference" in payload["note"].lower()
 
 
 def test_class_performance_returns_cohort_migration_comparison(client, app, test_school, test_proprietor):

@@ -34,7 +34,7 @@ Current implemented capabilities relevant to this roadmap:
 - parent admission update emails and correction resubmission flow
 - parent-safe payment instructions using stable learner payment identity plus structured references
 - parent payment instructions and payment reference parsing
-- configurable phone-payment convenience fees with structured-reference payment flows
+- structured-reference payment flows across approved parent payment channels
 - finance reconciliation and payment tracking
 - Student Rescue Agent for intervention workflows
 - audited operational workflows across finance and leadership actions
@@ -130,7 +130,7 @@ Implementation status:
 
 Current implementation supports:
 - structured reference parsing as the default payment categorization model
-- configurable phone-payment convenience fees at the school-settings level
+- structured references as the active parent-payment coordination model
 - manual fallback where digital channels are unavailable
 
 Legacy route-account or DVA records may still exist, but new route setup is retired and should not be treated as the active operational model.

@@ -30,8 +30,33 @@ export default function SchoolCompliancePanel() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const submissionLocked = ['pending', 'review_required', 'verified', 'suspended'].includes(verification?.status);
 
-  const fetchData = async () => {
+  const lockConfig = {
+    pending: {
+      title: 'Submission pending review',
+      detail: 'Your documents have already been sent. Wait for the compliance review decision before trying again.',
+      buttonLabel: 'Review Pending',
+    },
+    review_required: {
+      title: 'Manual review in progress',
+      detail: 'This case is already with the platform compliance team. If they need changes, they will send review notes instead of requiring a duplicate submission.',
+      buttonLabel: 'Under Review',
+    },
+    verified: {
+      title: 'School already verified',
+      detail: 'No new submission is needed right now. Submit again only if the current verification expires or support asks for refreshed documents.',
+      buttonLabel: 'Already Verified',
+    },
+    suspended: {
+      title: 'Verification suspended',
+      detail: 'This verification case is suspended. Contact platform support before attempting another submission.',
+      buttonLabel: 'Suspended',
+    },
+  };
+  const activeLock = lockConfig[verification?.status] || null;
+
+  const fetchData = async ({ preserveMessage = false, nextMessage = '' } = {}) => {
     try {
       setLoading(true);
       const [verificationRes, flagsRes] = await Promise.all([
@@ -60,7 +85,11 @@ export default function SchoolCompliancePanel() {
       setSelectedFiles([]);
       setFileInputKey((current) => current + 1);
       setError('');
-      setMessage('');
+      if (preserveMessage) {
+        setMessage(nextMessage);
+      } else {
+        setMessage('');
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load compliance data.');
     } finally {
@@ -88,11 +117,49 @@ export default function SchoolCompliancePanel() {
     setSelectedFiles(files);
   };
 
+  const openProtectedDocument = async (documentItem) => {
+    if (!documentItem?.download_path) {
+      setError('This document is not available to open.');
+      return;
+    }
+
+    try {
+      const res = await axios.get(documentItem.download_path, {
+        headers: getHeaders(),
+        responseType: 'blob',
+      });
+      const contentType = res.headers['content-type'] || documentItem.content_type || 'application/octet-stream';
+      const blob = new Blob([res.data], { type: contentType });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const opened = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+
+      if (!opened) {
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', documentItem.original_filename || documentItem.filename || 'verification-document');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to open verification document.');
+    }
+  };
+
   const submitVerification = async (event) => {
     event.preventDefault();
     setSaving(true);
     setError('');
     setMessage('');
+
+    if (submissionLocked) {
+      setError(activeLock?.detail || 'This school already has a submitted verification record. Wait for review before sending another one.');
+      setSaving(false);
+      return;
+    }
 
     if (selectedFiles.length === 0 && existingDocuments.length === 0) {
       setError('Upload at least one JPG, PNG, or PDF verification document.');
@@ -123,8 +190,9 @@ export default function SchoolCompliancePanel() {
           'Content-Type': 'multipart/form-data',
         },
       });
-      setMessage(response.data?.message || 'Verification profile submitted.');
-      await fetchData();
+      const successMessage = response.data?.message || 'Verification profile submitted.';
+      setMessage(successMessage);
+      await fetchData({ preserveMessage: true, nextMessage: successMessage });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to submit verification.');
     } finally {
@@ -172,6 +240,12 @@ export default function SchoolCompliancePanel() {
           </div>
         )}
 
+        {submissionLocked && (
+          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <span className="font-bold">{activeLock?.title || 'Submission locked'}:</span> {activeLock?.detail || 'This school already has a verification case in progress.'}
+          </div>
+        )}
+
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Loading compliance data...</p>
         ) : (
@@ -213,9 +287,14 @@ export default function SchoolCompliancePanel() {
                       const label = entry?.original_filename || entry?.name || entry?.url || `Document ${index + 1}`;
                       const href = entry?.download_path || entry?.url || '';
                       return href ? (
-                        <a key={`${label}-${index}`} href={href} target="_blank" rel="noreferrer" className="block font-semibold text-slate-900 underline-offset-2 hover:underline">
+                        <button
+                          type="button"
+                          key={`${label}-${index}`}
+                          onClick={() => openProtectedDocument(entry)}
+                          className="block font-semibold text-slate-900 underline-offset-2 hover:underline"
+                        >
                           {label}
-                        </a>
+                        </button>
                       ) : (
                         <div key={`${label}-${index}`}>{label}</div>
                       );
@@ -227,10 +306,10 @@ export default function SchoolCompliancePanel() {
             <div className="lg:col-span-2 flex flex-wrap items-center gap-3 pt-2">
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || submissionLocked}
                 className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {saving ? 'Submitting...' : 'Submit for Review'}
+                {saving ? 'Submitting...' : submissionLocked ? (activeLock?.buttonLabel || 'Already Submitted') : 'Submit for Review'}
               </button>
               {message && <p className="text-sm font-semibold text-emerald-700">{message}</p>}
               {error && <p className="text-sm font-semibold text-red-600">{error}</p>}

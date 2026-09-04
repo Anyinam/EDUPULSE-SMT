@@ -851,7 +851,7 @@ class TestSchoolVerificationEndpoints:
         """Provider outages should not auto-approve even when the local heuristic is clean."""
         from flask_jwt_extended import create_access_token
 
-        from backend.api.models import SchoolVerification, User
+        from backend.api.models import SchoolVerification, User, db
 
         monkeypatch.delenv("KYB_LOCAL_AUTO_APPROVAL_ENABLED", raising=False)
         monkeypatch.delenv("EDUPULSE_KYB_LOCAL_AUTO_APPROVAL_ENABLED", raising=False)
@@ -868,6 +868,8 @@ class TestSchoolVerificationEndpoints:
         )
 
         with app.app_context():
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.commit()
             proprietor = User.query.filter_by(username="proprietor1").first()
             token = create_access_token(identity=str(proprietor.id))
 
@@ -911,7 +913,7 @@ class TestSchoolVerificationEndpoints:
         """An explicit env opt-in can still allow local auto-approval during provider outages."""
         from flask_jwt_extended import create_access_token
 
-        from backend.api.models import SchoolVerification, User
+        from backend.api.models import SchoolVerification, User, db
 
         monkeypatch.setenv("KYB_LOCAL_AUTO_APPROVAL_ENABLED", "true")
         mocker.patch(
@@ -927,6 +929,8 @@ class TestSchoolVerificationEndpoints:
         )
 
         with app.app_context():
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.commit()
             proprietor = User.query.filter_by(username="proprietor1").first()
             token = create_access_token(identity=str(proprietor.id))
 
@@ -965,6 +969,71 @@ class TestSchoolVerificationEndpoints:
             assert latest is not None
             assert latest.status == "verified"
             assert latest.review_notes == "provider=provider_request_failed; local_heuristic=auto_verified"
+
+    def test_duplicate_school_verification_submission_is_blocked_while_case_is_active(self, client, app, mocker):
+        """A school should not be able to submit another verification while the latest case is still active."""
+        from flask_jwt_extended import create_access_token
+
+        from backend.api.models import SchoolVerification, User, db
+
+        mocker.patch(
+            "backend.routes.verify_school_profile",
+            return_value={
+                "provider": "identitypass",
+                "outcome": "review_required",
+                "verified": False,
+                "risk_tier": "medium",
+                "reason": "provider_review_required",
+                "raw": {},
+            },
+        )
+
+        with app.app_context():
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.commit()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        payload = {
+            "legal_name": "Test School",
+            "registration_number": "REG-12345",
+            "tax_id": "TIN-67890",
+            "bank_account_name": "Test School",
+            "bank_account_number": "0123456789",
+            "bank_name": "Test Bank",
+            "documents": [
+                {
+                    "document_id": "reg-cert-1",
+                    "original_filename": "certificate.pdf",
+                    "filename": "certificate.pdf",
+                    "content_type": "application/pdf",
+                    "category": "registration_certificate",
+                }
+            ],
+            "owner_information": {"owner_name": "Jane Owner"},
+        }
+
+        first_response = client.put(
+            "/api/school/verification",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert first_response.status_code == 200
+
+        second_response = client.put(
+            "/api/school/verification",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert second_response.status_code == 409
+        data = json.loads(second_response.data)
+        assert data["error"] == "school_verification_already_submitted"
+        assert data["verification"]["status"] == "review_required"
+
+        with app.app_context():
+            assert SchoolVerification.query.filter_by(school_id="TEST-001").count() == 1
 
 
 class TestAdmissionsEndpoints:

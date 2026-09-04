@@ -104,9 +104,7 @@ export default function StudentPaymentTracker() {
     const schoolAddress = branding.school_address || branding.address || '';
     const themeColor = branding.theme_color || '#3b82f6';
 
-    const totalPhonePaymentAmount = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.total_amount || code.amount || 0), 0);
     const totalCashAmount = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.base_amount || code.cash_amount || 0), 0);
-    const totalConvenienceFees = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.convenience_fee_amount || 0), 0);
 
     const printWindow = window.open('', '', 'width=900,height=1200');
     const html = `
@@ -350,9 +348,7 @@ export default function StudentPaymentTracker() {
                   <th>Fee Type</th>
                   <th>Preferred Reference</th>
                   <th>Payment Channel</th>
-                  <th class="amount-column">School Fee</th>
-                  <th class="amount-column">Convenience Fee</th>
-                  <th class="amount-column">Phone or Digital Total</th>
+                  <th class="amount-column">Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -362,8 +358,6 @@ export default function StudentPaymentTracker() {
                     <td><span class="code-column">${code.reference_code || code.code}</span></td>
                     <td><span style="color:#475569;">Use bank narration, card, USSD, or present this reference at the school office</span></td>
                     <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
-                    <td class="amount-column">GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)}</td>
-                    <td class="amount-column">GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -372,7 +366,7 @@ export default function StudentPaymentTracker() {
 
           <!-- Important Notice -->
           <div class="important">
-            <strong>⚠️ Important:</strong> EduPulse now treats the structured reference as the main payment instruction. Parents should keep the learner identity and fee reference in the payment narration. Phone and digital payment totals already include the convenience fee. Cash at the school office remains the no-convenience-fee fallback.
+            <strong>⚠️ Important:</strong> EduPulse now treats the structured reference as the main payment instruction. Parents should keep the learner identity and fee reference in the payment narration and use the same reference across approved payment channels.
           </div>
 
           <!-- Payment Methods Section -->
@@ -385,14 +379,11 @@ export default function StudentPaymentTracker() {
                   <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
                   <p><strong>Use With:</strong> Bank transfer narration, card payment, USSD / shortcode narration, or school-office payment entry.</p>
                   <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> That same reference should be used in payment narration or presented at the school office.</p>
-                  <p><strong>School Fee:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
-                  <p><strong>Convenience Fee:</strong> GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)} (${Number(code.convenience_fee_percent || 0).toFixed(2)}%)</p>
-                  <p><strong>Total by Phone or Digital Payment:</strong> GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}</p>
-                  <p><strong>Cash at School Office:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
+                  <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                   <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
-                  <p style="margin-top: 8px;"><strong>Phone Payment Flow:</strong></p>
+                  <p style="margin-top: 8px;"><strong>Payment Flow:</strong></p>
                   <p style="margin-left: 12px;">1) Open the approved bank app, card checkout, or USSD payment flow.</p>
-                  <p style="margin-left: 12px;">2) Enter the total amount shown for phone or digital payment.</p>
+                  <p style="margin-left: 12px;">2) Enter the amount shown for this fee.</p>
                   <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration where possible, then confirm payment.</p>
                 </div>
               </div>
@@ -404,14 +395,14 @@ export default function StudentPaymentTracker() {
           <div class="section">
             <div class="section-title">📊 Amount Summary</div>
             <div class="instructions">
-              <div class="instructions-title">Reference-First Totals vs Cash Office Totals:</div>
+              <div class="instructions-title">Reference-First Amounts:</div>
               <div class="instruction-text">
                 ${paymentCodes.payment_codes.map(code => 
-                  `• <strong>${code.fee_type}:</strong> Use reference <strong>${code.reference_code || code.code}</strong>. School fee is GH₵ ${Number(code.base_amount || 0).toFixed(2)}. Phone or digital payment adds a convenience fee of GH₵ ${Number(code.convenience_fee_amount || 0).toFixed(2)} for a total of GH₵ ${Number(code.total_amount || code.amount || 0).toFixed(2)}. Cash at office stays GH₵ ${Number(code.base_amount || 0).toFixed(2)}.`
+                  `• <strong>${code.fee_type}:</strong> Use reference <strong>${code.reference_code || code.code}</strong> and pay GH₵ ${Number(code.base_amount || 0).toFixed(2)} through the school's approved channel or at the school office.`
                 ).join('<br>')}
               </div>
               <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
-                Total by phone or digital payment: GH₵ ${totalPhonePaymentAmount.toFixed(2)} • Total convenience fees: GH₵ ${totalConvenienceFees.toFixed(2)} • Total by cash at school office: GH₵ ${totalCashAmount.toFixed(2)}
+                Total amount due across these references: GH₵ ${totalCashAmount.toFixed(2)}
               </div>
             </div>
           </div>
@@ -458,7 +449,6 @@ export default function StudentPaymentTracker() {
     const receiptNumber = `RCPT-${payment.id}`;
     const paidAmount = Number(payment.amount || 0);
     const baseAmount = Number(payment.base_amount || paidAmount);
-    const convenienceFee = Number(payment.convenience_fee_amount || 0);
     const isConfirmed = payment.status === 'Verified' || payment.status === 'Confirmed';
 
     const printWindow = window.open('', '', 'width=900,height=1100');
@@ -620,9 +610,8 @@ export default function StudentPaymentTracker() {
           </div>
 
           <div class="summary">
-            <div class="summary-row"><span>Base Amount</span><strong>GH₵ ${baseAmount.toFixed(2)}</strong></div>
-            <div class="summary-row"><span>Convenience Fee</span><strong>GH₵ ${convenienceFee.toFixed(2)}</strong></div>
-            <div class="summary-row total"><span>Total Paid</span><strong>GH₵ ${paidAmount.toFixed(2)}</strong></div>
+            <div class="summary-row"><span>Amount Paid</span><strong>GH₵ ${baseAmount.toFixed(2)}</strong></div>
+            <div class="summary-row total"><span>Total Recorded</span><strong>GH₵ ${paidAmount.toFixed(2)}</strong></div>
           </div>
 
           <div class="summary">
@@ -844,10 +833,10 @@ export default function StudentPaymentTracker() {
                         onClick={() => {
                           const codesText = paymentCodes.payment_codes
                             .map(c => {
-                              return `${c.fee_type}: Preferred reference ${c.reference_code || c.code} | School fee GH₵ ${Number(c.base_amount || 0).toFixed(2)} + convenience fee GH₵ ${Number(c.convenience_fee_amount || 0).toFixed(2)} = GH₵ ${Number(c.total_amount || c.amount || 0).toFixed(2)} by phone or digital payment | Cash at school office GH₵ ${Number(c.base_amount || 0).toFixed(2)}`;
+                              return `${c.fee_type}: Preferred reference ${c.reference_code || c.code} | Amount GH₵ ${Number(c.base_amount || 0).toFixed(2)}`;
                             })
                             .join('\n');
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the structured reference as the main instruction for each fee type. Phone and digital payment amounts already include the convenience fee. If a parent wants to avoid the convenience fee, they can pay the school fee amount by cash at the school office.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the structured reference as the main instruction for each fee type and keep that same reference in the payment narration where possible.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -871,12 +860,8 @@ export default function StudentPaymentTracker() {
                       >
                         <div className="flex-1">
                           <p className="font-semibold text-slate-800">{code.fee_type}</p>
-                          <p className="text-xs text-slate-600">Amount: GH₵ {code.amount.toFixed(2)}</p>
-                          <p className="text-xs text-slate-600">School Fee: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
-                          <p className="text-xs text-slate-600">Convenience Fee: GH₵ {Number(code.convenience_fee_amount || 0).toFixed(2)} ({Number(code.convenience_fee_percent || 0).toFixed(2)}%)</p>
-                          <p className="text-xs font-semibold text-slate-700">Phone or Digital Total: GH₵ {Number(code.total_amount || code.amount || 0).toFixed(2)}</p>
+                          <p className="text-xs text-slate-600">Amount: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
-                          <p className="text-xs text-slate-600">Cash at School Office: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs text-slate-700">Use the reference with the school&apos;s approved payment channel or present it at the school office.</p>
 
                           <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
@@ -899,7 +884,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Example instruction: "Use reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong> for this fee. The school fee is GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong>. Phone or digital payment adds a convenience fee of GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.convenience_fee_amount || 0).toFixed(2)}</strong> for a total of GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.total_amount || paymentCodes.payment_codes[0]?.amount || 0).toFixed(2)}</strong>. If you want to avoid the convenience fee, pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong> by cash at the school office."
+                    💬 Example instruction: "Use reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong> for this fee and pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong>. Keep the same reference in the payment narration where possible."
                   </p>
                 </div>
               )}

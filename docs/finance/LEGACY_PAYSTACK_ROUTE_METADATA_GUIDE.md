@@ -9,7 +9,7 @@ As of the current EduPulse SMT payment model:
 - new Paystack fee-route or dedicated-virtual-account setup is retired;
 - the relevant proprietor route-management endpoints have been removed from the active API;
 - the supported parent-payment flow is now a stable learner or family payment identity plus structured references; and
-- schools can configure a phone-payment convenience fee percentage in school fee settings.
+- parents should use the school's approved payment channel with the matching structured reference.
 
 ## What Is Still True
 
@@ -24,8 +24,8 @@ Use the following active pattern instead:
 1. Configure the school's approved bank details and fee settings.
 2. Issue structured references per learner and fee purpose.
 3. Let parents pay through approved bank, card, USSD, or other supported phone-payment channels using that reference.
-4. Apply the configured phone-payment convenience fee where relevant.
-5. Preserve cash-at-school-office as the base-amount fallback where the school uses it.
+4. Preserve the same amount and reference across supported payment channels.
+5. Preserve cash-at-school-office as an available fallback where the school uses it.
 
 ## Migration Note
 

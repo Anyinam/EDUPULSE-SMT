@@ -96,7 +96,7 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - Lower Premium add-on pricing for future workers can still reflect the fact that Premium already bundles adjacent analytics and governance value.
 
 ### Current vs Planned Boundaries
-- Current: school-managed admissions, public parent admission application, document upload, AI completeness checks, online-vs-school-visit admission routing, family-facing payment/status pages, stable payment identity plus structured reference parsing, configurable phone-payment convenience fees, staff-controlled approval workflows, Student Rescue Agent, and audited finance operations.
+- Current: school-managed admissions, public parent admission application, document upload, AI completeness checks, online-vs-school-visit admission routing, family-facing payment/status pages, stable payment identity plus structured reference parsing, staff-controlled approval workflows, Student Rescue Agent, and audited finance operations.
 - Current admissions decisioning includes status-page feedback, email updates, correction resubmission, and optional approval-only PDF delivery when a school enables it.
 - Next build: AI Bursar exception queues, richer parent balance/status visibility, and more automated admissions extraction/scoring.
 - Future only: fully autonomous admission approval, multilingual voice bots, predictive dropout automation, and pure outcome-based billing for AI employees.
