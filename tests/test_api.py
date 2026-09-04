@@ -810,6 +810,8 @@ class TestSchoolVerificationEndpoints:
         mocker.patch("backend.kyb_verification.requests.post", return_value=FakeResponse())
 
         with app.app_context():
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.commit()
             proprietor = User.query.filter_by(username="proprietor1").first()
             token = create_access_token(identity=str(proprietor.id))
 
