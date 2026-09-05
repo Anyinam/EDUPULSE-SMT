@@ -70,6 +70,8 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
   const identity = payload.payment_identity || {};
   const paymentCodes = payload.payment_codes || [];
   const admissionFee = payload.admission_fee || {};
+  const schoolPaymentAccount = payload.school_payment_account || {};
+  const hasBankDetails = Boolean(schoolPaymentAccount.bank_name && schoolPaymentAccount.bank_account);
   const totalDigitalAmount = paymentCodes.reduce((sum, item) => sum + Number(item.total_amount || 0), 0);
   const totalCashAmount = paymentCodes.reduce((sum, item) => sum + Number(item.cash_amount || 0), 0);
   const rails = {
@@ -132,6 +134,19 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
                 <li>3. Keep the learner code {identity.stable_payment_identity || payload.student_code} in the payment narration.</li>
               </ol>
             </div>
+
+            {hasBankDetails ? (
+              <div className="rounded-[1.75rem] border border-cyan-100 bg-cyan-50 p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">School Bank Account</p>
+                <div className="mt-3 space-y-2 text-sm text-slate-700">
+                  <p><strong>Bank:</strong> {schoolPaymentAccount.bank_name}</p>
+                  <p><strong>Account Number:</strong> {schoolPaymentAccount.bank_account}</p>
+                  {schoolPaymentAccount.bank_account_name ? <p><strong>Account Name:</strong> {schoolPaymentAccount.bank_account_name}</p> : null}
+                  {schoolPaymentAccount.bank_branch ? <p><strong>Branch:</strong> {schoolPaymentAccount.bank_branch}</p> : null}
+                  <p className="pt-1 text-xs text-cyan-800">Use the payment reference below in the bank transfer narration.</p>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-[1.75rem] border border-slate-200 bg-slate-950 p-5 text-slate-100">

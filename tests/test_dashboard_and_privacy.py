@@ -261,6 +261,67 @@ def test_platform_can_download_school_verification_document_from_legacy_storage_
     assert response.data == expected_bytes
 
 
+def test_attendance_summary_reports_pending_until_attendance_is_marked(client, app, test_school, test_proprietor, test_students):
+    response = client.get(
+        "/api/headmaster/attendance-summary",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["attendance_taken_today"] is False
+    assert payload["present_students"] == 0
+    assert payload["absent_students"] is None
+    assert payload["attendance_percentage"] is None
+    assert payload["status_message"] == "Attendance has not been submitted for today yet."
+
+
+def test_marking_attendance_updates_daily_summary_state(client, app, test_school, test_proprietor, test_students):
+    mark_response = client.post(
+        "/api/homeroom/attendance/batch",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+        data=json.dumps(
+            {
+                "attendance_records": [
+                    {"student_id": test_students[0].id, "status": True},
+                    {"student_id": test_students[1].id, "status": True},
+                ]
+            }
+        ),
+    )
+
+    assert mark_response.status_code == 200
+
+    response = client.get(
+        "/api/headmaster/attendance-summary",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["attendance_taken_today"] is True
+    assert payload["present_students"] == 2
+    assert payload["absent_students"] == 3
+    assert payload["attendance_percentage"] == 40.0
+
+
+def test_ai_insights_avoid_misleading_new_school_alerts_before_attendance_or_payment_baseline(client, app, test_school, test_proprietor, test_students):
+    response = client.get(
+        "/api/proprietor/ai-insights",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    insight_titles = {item["title"] for item in payload["insights"]}
+    alert_titles = {item["title"] for item in payload["alerts"]}
+
+    assert "Attendance Pending" in insight_titles
+    assert "Excellent Attendance" not in insight_titles
+    assert "Feeding Fees Pending" not in insight_titles
+    assert "Revenue Decline" not in alert_titles
+
+
 def test_platform_chief_examiner_library_import_accepts_multiple_report_files(client, app, monkeypatch):
     platform_user = PlatformUser(username="platform-batch", email="platform-batch@example.com")
     platform_user.set_password("secret123")
@@ -2086,6 +2147,10 @@ def test_payment_codes_return_reference_first_amounts_without_convenience_fee(cl
     settings.feeding_fee = 0.0
     settings.transport_fee = 0.0
     settings.other_fees = {}
+    test_school.bank_name = "Fidelity Bank Ghana"
+    test_school.bank_account = "1234567890"
+    test_school.bank_account_name = "EduPulse School Account"
+    test_school.bank_branch = "Kumasi Main"
     db.session.commit()
 
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
@@ -2098,6 +2163,10 @@ def test_payment_codes_return_reference_first_amounts_without_convenience_fee(cl
     assert tuition_code["cash_amount"] == 100.0
     assert tuition_code["total_amount"] == 100.0
     assert tuition_code["amount"] == 100.0
+    assert payload["school_payment_account"]["bank_name"] == "Fidelity Bank Ghana"
+    assert payload["school_payment_account"]["bank_account"] == "1234567890"
+    assert payload["school_payment_account"]["bank_account_name"] == "EduPulse School Account"
+    assert payload["school_payment_account"]["bank_branch"] == "Kumasi Main"
     assert "amount to pay for this fee is gh₵ 100.00" in tuition_code["instructions"].lower()
     assert "structured reference" in payload["note"].lower()
 

@@ -3714,6 +3714,7 @@ def _admit_student_from_payload(school_id, data, actor_id):
 def _build_student_payment_instruction_payload(student, school_id):
     from backend.utils import generate_all_payment_codes
 
+    school = School.query.get(school_id)
     settings = SchoolSettings.query.filter_by(school_id=school_id).first()
     other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
     admission_fee = _get_school_admission_fee_config(settings)
@@ -3842,6 +3843,12 @@ def _build_student_payment_instruction_payload(student, school_id):
             "recommended_examples": [item["reference_code"] for item in codes_list[:3]],
         },
         "admission_fee": admission_fee,
+        "school_payment_account": {
+            "bank_name": school.bank_name if school else None,
+            "bank_account": school.bank_account if school else None,
+            "bank_account_name": school.bank_account_name if school else None,
+            "bank_branch": school.bank_branch if school else None,
+        },
         "payment_codes": codes_list,
         "note": "Preferred model: use the learner's stable payment identity and structured reference across the school's approved payment channels.",
     }
@@ -7305,6 +7312,29 @@ def get_student_payments(student_id):
         )
 
 
+def _get_or_create_school_settings_record(school_id):
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=school_id)
+        db.session.add(settings)
+        db.session.flush()
+    return settings
+
+
+def _mark_attendance_activity(school_id):
+    settings = _get_or_create_school_settings_record(school_id)
+    settings.attendance_last_marked_at = get_utc_now()
+    return settings
+
+
+def _attendance_marked_today(school_id):
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    marked_at = getattr(settings, "attendance_last_marked_at", None) if settings else None
+    if not marked_at:
+        return False
+    return marked_at.date() == get_utc_now().date()
+
+
 @api.route("/homeroom/attendance", methods=["POST"])
 @multi_tenant_guard
 @role_required("teacher", "headmaster", "proprietor")
@@ -7319,6 +7349,7 @@ def update_attendance():
         id=student_id, school_id=g.school_id
     ).first_or_404()
     student.is_present = status
+    _mark_attendance_activity(g.school_id)
     db.session.commit()
 
     return jsonify({"message": f"Attendance for {student.name} updated."})
@@ -7357,6 +7388,9 @@ def update_attendance_batch():
             student.is_present = status
             updated_count += 1
 
+    if updated_count > 0:
+        _mark_attendance_activity(g.school_id)
+
     db.session.commit()
 
     return jsonify(
@@ -7393,6 +7427,9 @@ def update_attendance_bulk():
         if student:
             student.is_present = status
             updated_count += 1
+
+    if updated_count > 0:
+        _mark_attendance_activity(g.school_id)
 
     db.session.commit()
 
@@ -11235,16 +11272,16 @@ def get_ai_insights():
                 Payment.date_paid < week_ago,
             )
             .scalar()
-            or 1
-        )  # Avoid division by zero
+            or 0
+        )
 
         revenue_change = (
             ((revenue_this_week - revenue_last_week) / revenue_last_week) * 100
             if revenue_last_week > 0
-            else 0
+            else None
         )
 
-        if revenue_change > 10:
+        if revenue_change is not None and revenue_change > 10:
             insights.append(
                 {
                     "type": "success",
@@ -11253,7 +11290,7 @@ def get_ai_insights():
                     "icon": "📈",
                 }
             )
-        elif revenue_change < -10:
+        elif revenue_change is not None and revenue_change < -10:
             alerts.append(
                 {
                     "type": "warning",
@@ -11265,14 +11302,25 @@ def get_ai_insights():
 
         # 2. Attendance Monitoring
         total_students = Student.query.filter_by(school_id=g.school_id).count()
-        present_today = Student.query.filter_by(
-            school_id=g.school_id, is_present=True
-        ).count()
-        attendance_rate = (
-            (present_today / total_students * 100) if total_students > 0 else 0
-        )
+        attendance_taken_today = _attendance_marked_today(g.school_id)
+        present_today = 0
+        attendance_rate = None
+        if total_students > 0 and attendance_taken_today:
+            present_today = Student.query.filter_by(
+                school_id=g.school_id, is_present=True
+            ).count()
+            attendance_rate = (present_today / total_students * 100)
 
-        if attendance_rate < 75:
+        if total_students > 0 and not attendance_taken_today:
+            insights.append(
+                {
+                    "type": "info",
+                    "title": "Attendance Pending",
+                    "message": "Attendance has not been submitted for today yet.",
+                    "icon": "🗓️",
+                }
+            )
+        elif attendance_rate is not None and attendance_rate < 75:
             alerts.append(
                 {
                     "type": "danger",
@@ -11281,7 +11329,7 @@ def get_ai_insights():
                     "icon": "🚨",
                 }
             )
-        elif attendance_rate >= 95:
+        elif attendance_rate is not None and attendance_rate >= 95:
             insights.append(
                 {
                     "type": "success",
@@ -11314,9 +11362,11 @@ def get_ai_insights():
             )
 
         # 4. At-Risk Students (Feeding not paid but present)
-        at_risk_students = Student.query.filter_by(
-            school_id=g.school_id, is_present=True, feeding_paid=False
-        ).count()
+        at_risk_students = 0
+        if attendance_taken_today:
+            at_risk_students = Student.query.filter_by(
+                school_id=g.school_id, is_present=True, feeding_paid=False
+            ).count()
 
         if at_risk_students > 5:
             alerts.append(
@@ -13752,25 +13802,34 @@ def get_my_lesson_notes():
 def get_attendance_summary():
     """Headmaster view of daily attendance."""
     total_students = Student.query.filter_by(school_id=g.school_id).count()
-    present_students = Student.query.filter_by(
-        school_id=g.school_id, is_present=True
-    ).count()
+    attendance_taken_today = _attendance_marked_today(g.school_id)
+    present_students = 0
+    if attendance_taken_today:
+        present_students = Student.query.filter_by(
+            school_id=g.school_id, is_present=True
+        ).count()
 
     class_breakdown = []
     for grade in VALID_GRADES:
         total_in_class = Student.query.filter_by(
             school_id=g.school_id, current_class=grade
         ).count()
-        present_in_class = Student.query.filter_by(
-            school_id=g.school_id, current_class=grade, is_present=True
-        ).count()
+        present_in_class = 0
+        if attendance_taken_today:
+            present_in_class = Student.query.filter_by(
+                school_id=g.school_id, current_class=grade, is_present=True
+            ).count()
         if total_in_class > 0:
             class_breakdown.append(
                 {
                     "class_name": grade,
                     "total": total_in_class,
                     "present": present_in_class,
-                    "percentage": round((present_in_class / total_in_class) * 100, 1),
+                    "percentage": (
+                        round((present_in_class / total_in_class) * 100, 1)
+                        if attendance_taken_today
+                        else None
+                    ),
                 }
             )
 
@@ -13778,11 +13837,19 @@ def get_attendance_summary():
         {
             "total_students": total_students,
             "present_students": present_students,
-            "absent_students": total_students - present_students,
+            "absent_students": (
+                total_students - present_students if attendance_taken_today else None
+            ),
             "attendance_percentage": (
                 round((present_students / total_students) * 100, 1)
-                if total_students > 0
-                else 0
+                if attendance_taken_today and total_students > 0
+                else None
+            ),
+            "attendance_taken_today": attendance_taken_today,
+            "status_message": (
+                None
+                if attendance_taken_today
+                else "Attendance has not been submitted for today yet."
             ),
             "breakdown": class_breakdown,
         }

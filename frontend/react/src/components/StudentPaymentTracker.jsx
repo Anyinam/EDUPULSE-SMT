@@ -103,6 +103,12 @@ export default function StudentPaymentTracker() {
     const schoolPhone = branding.school_phone || branding.phone || '';
     const schoolAddress = branding.school_address || branding.address || '';
     const themeColor = branding.theme_color || '#3b82f6';
+    const schoolPaymentAccount = paymentCodes.school_payment_account || {};
+    const bankName = schoolPaymentAccount.bank_name || '';
+    const bankAccount = schoolPaymentAccount.bank_account || '';
+    const bankAccountName = schoolPaymentAccount.bank_account_name || '';
+    const bankBranch = schoolPaymentAccount.bank_branch || '';
+    const hasBankDetails = Boolean(bankName && bankAccount);
 
     const totalCashAmount = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.base_amount || code.cash_amount || 0), 0);
 
@@ -339,6 +345,20 @@ export default function StudentPaymentTracker() {
             ${paymentCodes.parent_phone ? `<p><span class="info-label">Parent/Guardian:</span> ${paymentCodes.parent_name || ''} (${paymentCodes.parent_phone})</p>` : ''}
           </div>
 
+          ${hasBankDetails ? `
+          <div class="section">
+            <div class="section-title">🏦 School Bank Account</div>
+            <div class="payment-method">
+              <div class="payment-method-content">
+                <p><strong>Bank Name:</strong> ${bankName}</p>
+                <p><strong>Account Number:</strong> ${bankAccount}</p>
+                ${bankAccountName ? `<p><strong>Account Name:</strong> ${bankAccountName}</p>` : ''}
+                ${bankBranch ? `<p><strong>Branch:</strong> ${bankBranch}</p>` : ''}
+                <p style="margin-top: 8px;"><strong>Important:</strong> Keep the learner reference in the payment narration when sending to this bank account.</p>
+              </div>
+            </div>
+          </div>` : ''}
+
           <!-- Payment Routes Section -->
           <div class="section">
             <div class="section-title">💳 Structured References By Fee Type</div>
@@ -378,6 +398,7 @@ export default function StudentPaymentTracker() {
                 <div class="payment-method-content">
                   <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
                   <p><strong>Use With:</strong> Bank transfer narration, card payment, USSD / shortcode narration, or school-office payment entry.</p>
+                  ${hasBankDetails ? `<p><strong>School Bank Account:</strong> ${bankName} • ${bankAccount}${bankAccountName ? ` • ${bankAccountName}` : ''}</p>` : ''}
                   <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> That same reference should be used in payment narration or presented at the school office.</p>
                   <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                   <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
@@ -836,7 +857,11 @@ export default function StudentPaymentTracker() {
                               return `${c.fee_type}: Preferred reference ${c.reference_code || c.code} | Amount GH₵ ${Number(c.base_amount || 0).toFixed(2)}`;
                             })
                             .join('\n');
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nUse the structured reference as the main instruction for each fee type and keep that same reference in the payment narration where possible.`;
+                          const schoolPaymentAccount = paymentCodes.school_payment_account || {};
+                          const bankLines = schoolPaymentAccount.bank_name && schoolPaymentAccount.bank_account
+                            ? `School Bank Account:\n- Bank: ${schoolPaymentAccount.bank_name}\n- Account Number: ${schoolPaymentAccount.bank_account}${schoolPaymentAccount.bank_account_name ? `\n- Account Name: ${schoolPaymentAccount.bank_account_name}` : ''}${schoolPaymentAccount.bank_branch ? `\n- Branch: ${schoolPaymentAccount.bank_branch}` : ''}\n\n`
+                            : '';
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nUse the structured reference as the main instruction for each fee type and keep that same reference in the payment narration where possible.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -853,6 +878,20 @@ export default function StudentPaymentTracker() {
                     </div>
                   </div>
                   <div className="space-y-2">
+                    {paymentCodes.school_payment_account?.bank_name && paymentCodes.school_payment_account?.bank_account && (
+                      <div className="rounded-lg border border-amber-200 bg-white p-3 text-sm text-slate-700">
+                        <p className="font-semibold text-slate-800">School Bank Account</p>
+                        <p className="mt-1 text-xs text-slate-600">Bank: {paymentCodes.school_payment_account.bank_name}</p>
+                        <p className="text-xs text-slate-600">Account Number: {paymentCodes.school_payment_account.bank_account}</p>
+                        {paymentCodes.school_payment_account.bank_account_name && (
+                          <p className="text-xs text-slate-600">Account Name: {paymentCodes.school_payment_account.bank_account_name}</p>
+                        )}
+                        {paymentCodes.school_payment_account.bank_branch && (
+                          <p className="text-xs text-slate-600">Branch: {paymentCodes.school_payment_account.bank_branch}</p>
+                        )}
+                        <p className="mt-2 text-xs text-amber-800">Keep the learner reference in the transfer narration when paying into this account.</p>
+                      </div>
+                    )}
                     {paymentCodes.payment_codes.map((code, idx) => (
                       <div
                         key={idx}

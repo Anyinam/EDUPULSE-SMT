@@ -39,6 +39,8 @@ export default function HeadmasterDashboard() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [selectedStudentForPromotion, setSelectedStudentForPromotion] = useState(null);
+  const attendancePending = attendanceStats?.attendance_taken_today === false;
+
   const handleTabChange = (tab) => {
     const nextParams = new URLSearchParams(searchParams);
     if (tab === 'dashboard') {
@@ -271,15 +273,16 @@ export default function HeadmasterDashboard() {
           </div>
           <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-green-500">
             <p className="text-gray-500 text-xs font-bold uppercase">Present Today</p>
-            <p className="text-3xl font-black text-green-600">{attendanceStats.present_students}</p>
+            <p className="text-3xl font-black text-green-600">{attendancePending ? 'Pending' : attendanceStats.present_students}</p>
           </div>
           <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-red-500">
-            <p className="text-gray-500 text-xs font-bold uppercase">Absent</p>
-            <p className="text-3xl font-black text-red-600">{attendanceStats.absent_students}</p>
+            <p className="text-gray-500 text-xs font-bold uppercase">Absent Today</p>
+            <p className="text-3xl font-black text-red-600">{attendancePending ? 'Pending' : attendanceStats.absent_students}</p>
           </div>
           <div className="bg-blue-900 text-white p-6 rounded-2xl shadow-lg">
-            <p className="text-blue-200 text-xs font-bold uppercase">Attendance Rate</p>
-            <p className="text-4xl font-black">{attendanceStats.attendance_percentage}%</p>
+            <p className="text-blue-200 text-xs font-bold uppercase">Attendance Status</p>
+            <p className="text-4xl font-black">{attendancePending ? 'Pending' : `${attendanceStats.attendance_percentage}%`}</p>
+            <p className="mt-2 text-xs text-blue-200">{attendancePending ? (attendanceStats.status_message || 'Attendance has not been submitted yet.') : "Today's submitted attendance"}</p>
           </div>
         </div>
       )}

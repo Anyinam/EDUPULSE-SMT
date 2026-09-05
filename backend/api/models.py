@@ -139,6 +139,7 @@ class SchoolSettings(db.Model):
     # WhatsApp Cost Control
     whatsapp_daily_limit = db.Column(db.Integer, default=50)  # Max messages per day per school
     whatsapp_notifications_enabled = db.Column(db.Boolean, default=True)  # Master toggle for all WhatsApp sends
+    attendance_last_marked_at = db.Column(db.DateTime)
 
 
 class SchoolHoliday(db.Model):
