@@ -166,8 +166,11 @@ export default function StaffManagement() {
       return;
     }
     try {
-      await axios.post('/api/staff/add', formData, getAuthHeaders());
-      alert("Staff member added successfully!");
+      const res = await axios.post('/api/staff/add', formData, getAuthHeaders());
+      const emailError = res.data?.email_sent === false && res.data?.email_error
+        ? `\n\nEmail delivery error: ${res.data.email_error}`
+        : '';
+      alert((res.data?.message || 'Staff member added successfully!') + emailError);
       setFormData({ 
         username: '', 
         email: '', 
@@ -205,7 +208,10 @@ export default function StaffManagement() {
     try {
       setResendingInviteId(staff.id);
       const res = await axios.post(`/api/staff/${staff.id}/resend-invite`, {}, getAuthHeaders());
-      alert(res.data?.message || 'Staff invite resent successfully.');
+      const emailError = res.data?.email_sent === false && res.data?.email_error
+        ? `\n\nEmail delivery error: ${res.data.email_error}`
+        : '';
+      alert((res.data?.message || 'Staff invite resent successfully.') + emailError);
       fetchStaff();
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to resend staff invite.');
