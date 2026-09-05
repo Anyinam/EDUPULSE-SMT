@@ -14785,27 +14785,30 @@ def get_transactions():
         if collection_restriction:
             return collection_restriction
 
-        from sqlalchemy.orm import joinedload
-
         payments = (
-            db.session.query(Payment, Student.name)
-            .join(Student)
+            db.session.query(Payment, Student)
+            .join(Student, Payment.student_id == Student.id)
             .filter(Payment.school_id == g.school_id)
-            .order_by(Payment.date_paid.desc())
+            .order_by(Payment.date_paid.desc(), Payment.created_at.desc(), Payment.id.desc())
             .all()
         )
         return jsonify(
             [
                 {
-                    "id": p.Payment.id,
-                    "student_name": p.name,
-                    "amount": p.Payment.amount,
-                    "type": p.Payment.payment_type,
-                    "method": p.Payment.method,
-                    "status": p.Payment.status,
-                    "date": p.Payment.date_paid.strftime("%Y-%m-%d %H:%M"),
+                    "id": payment.id,
+                    "student_name": student.name,
+                    "student_code": student.student_code,
+                    "amount": payment.amount,
+                    "type": payment.payment_type,
+                    "method": payment.method,
+                    "status": payment.status,
+                    "reference_id": payment.reference_id,
+                    "payment_category": payment.payment_category or {},
+                    "date": (payment.date_paid or payment.created_at).strftime("%Y-%m-%d %H:%M") if (payment.date_paid or payment.created_at) else None,
+                    "created_at": _to_iso_utc(payment.created_at),
+                    "verified_at": _to_iso_utc(payment.verified_at),
                 }
-                for p in payments
+                for payment, student in payments
             ]
         )
     except Exception as e:

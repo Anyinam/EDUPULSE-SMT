@@ -9,6 +9,33 @@ function getHeaders(tokenStorageKey) {
   };
 }
 
+async function extractBlobErrorMessage(err, fallbackMessage) {
+  const responseData = err?.response?.data;
+  if (!responseData) {
+    return fallbackMessage;
+  }
+
+  if (typeof responseData?.text === 'function') {
+    try {
+      const rawText = await responseData.text();
+      if (!rawText) {
+        return fallbackMessage;
+      }
+
+      try {
+        const parsed = JSON.parse(rawText);
+        return parsed?.message || rawText || fallbackMessage;
+      } catch {
+        return rawText || fallbackMessage;
+      }
+    } catch {
+      return fallbackMessage;
+    }
+  }
+
+  return responseData?.message || fallbackMessage;
+}
+
 export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_token' }) {
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -48,7 +75,7 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
       window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
       setError('');
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to open verification document.');
+      setError(await extractBlobErrorMessage(err, 'Failed to open verification document.'));
     }
   };
 

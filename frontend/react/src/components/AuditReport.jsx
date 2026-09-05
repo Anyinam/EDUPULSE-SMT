@@ -3,13 +3,12 @@ import axios from 'axios';
 
 export default function AuditReport() {
   const [summary, setSummary] = useState(null);
+  const [transactions, setTransactions] = useState([]);
   const [ledger, setLedger] = useState([]);
-  const [events, setEvents] = useState([]);
   const [verification, setVerification] = useState(null);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [period, setPeriod] = useState('current_term');
-  const [eventFilter, setEventFilter] = useState('ALL');
   const [page, setPage] = useState(0);
   const pageSize = 50;
 
@@ -46,15 +45,13 @@ export default function AuditReport() {
     }
   };
 
-  const fetchEvents = async () => {
+  const fetchTransactions = async () => {
     try {
-      const offset = page * pageSize;
-      const actionQuery = eventFilter !== 'ALL' ? `&action=${encodeURIComponent(eventFilter)}` : '';
-      const res = await axios.get(`/api/finance/audit/events?limit=${pageSize}&offset=${offset}${actionQuery}`, getAuthHeaders());
-      setEvents(res.data.events || []);
+      const res = await axios.get('/api/finance/transactions', getAuthHeaders());
+      setTransactions(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error('Failed to fetch audit events:', err);
-      setEvents([]);
+      console.error('Failed to fetch transactions:', err);
+      setTransactions([]);
     }
   };
 
@@ -70,43 +67,11 @@ export default function AuditReport() {
     }
   };
 
-  const exportEventsCsv = async () => {
-    try {
-      const actionQuery = eventFilter !== 'ALL' ? `?action=${encodeURIComponent(eventFilter)}` : '';
-      const response = await axios.get(
-        `/api/finance/audit/events/export${actionQuery}`,
-        {
-          ...getAuthHeaders(),
-          responseType: 'blob'
-        }
-      );
-
-      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-
-      const headerName = response.headers['content-disposition'];
-      const fallbackName = `audit_events_${eventFilter.toLowerCase()}_${new Date().toISOString().slice(0,10)}.csv`;
-      const fileNameMatch = headerName && headerName.match(/filename=([^;]+)/i);
-      const fileName = fileNameMatch ? fileNameMatch[1].replace(/"/g, '') : fallbackName;
-
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to export audit events CSV:', err);
-      alert('Failed to export CSV. Please try again.');
-    }
-  };
-
   useEffect(() => {
     fetchSummary();
     fetchLedger();
-    fetchEvents();
-  }, [period, page, eventFilter]);
+    fetchTransactions();
+  }, [period, page]);
 
   if (loading && !summary) {
     return <div className="p-8">Loading audit report...</div>;
@@ -179,73 +144,68 @@ export default function AuditReport() {
         )}
       </div>
 
-      {/* Compliance Event Shortcuts */}
-      <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-        <div className="flex flex-wrap items-center gap-2 justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-bold text-slate-700 mr-2">Compliance Event Filter:</span>
-          <button
-            onClick={() => {
-              setEventFilter('ALL');
-              setPage(0);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
-          >
-            All Events
-          </button>
-          <button
-            onClick={() => {
-              setEventFilter('PAYMENT_CODES_GENERATED');
-              setPage(0);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'PAYMENT_CODES_GENERATED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
-          >
-            Payment Instructions Access
-          </button>
-          <button
-            onClick={() => {
-              setEventFilter('REGISTRATION_POLICY_ACCEPTED');
-              setPage(0);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'REGISTRATION_POLICY_ACCEPTED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
-          >
-            Policy Acceptance
-          </button>
-          <button
-            onClick={() => {
-              setEventFilter('SETTINGS_VIEWED');
-              setPage(0);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'SETTINGS_VIEWED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
-          >
-            Settings Access
-          </button>
-          <button
-            onClick={() => {
-              setEventFilter('BANK_DETAILS_UPDATED');
-              setPage(0);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${eventFilter === 'BANK_DETAILS_UPDATED' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
-          >
-            Bank Details Updates
-          </button>
-          </div>
-          <button
-            onClick={exportEventsCsv}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
-            title="Export currently filtered compliance events to CSV"
-          >
-            Export CSV
-          </button>
+      {/* Recorded Payment History */}
+      <div className="bg-slate-50 border rounded-xl overflow-hidden mb-4">
+        <div className="bg-slate-100 px-4 py-3 border-b">
+          <h2 className="text-lg font-bold text-slate-800">Recorded Payment History</h2>
+          <p className="mt-1 text-xs text-slate-500">This list shows recorded payment rows, including payments that are still pending approval. The immutable ledger below only includes confirmed entries that were hashed into the audit chain.</p>
+        </div>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-200 text-slate-700 text-xs uppercase">
+              <tr>
+                <th className="p-3 text-left">Date & Time</th>
+                <th className="p-3 text-left">Student</th>
+                <th className="p-3 text-right">Amount</th>
+                <th className="p-3 text-left">Type</th>
+                <th className="p-3 text-left">Method</th>
+                <th className="p-3 text-left">Reference</th>
+                <th className="p-3 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {loading && transactions.length === 0 && (
+                <tr><td className="p-3 text-center" colSpan="7">Loading transactions...</td></tr>
+              )}
+              {!loading && transactions.length === 0 && (
+                <tr><td className="p-3 text-center" colSpan="7">No recorded payments were found. If a real transfer does not appear here, the system does not currently have a stored payment row for it.</td></tr>
+              )}
+              {transactions.map((entry, idx) => (
+                <tr key={entry.id} className={`bg-white hover:bg-slate-50 ${idx % 2 === 0 ? 'bg-slate-25' : ''}`}>
+                  <td className="p-3 font-mono text-xs">{entry.date || 'N/A'}</td>
+                  <td className="p-3">
+                    <div className="font-semibold">{entry.student_name}</div>
+                    <div className="text-xs text-slate-500">{entry.student_code || 'N/A'}</div>
+                  </td>
+                  <td className="p-3 text-right font-bold">GH₵ {Number(entry.amount || 0).toFixed(2)}</td>
+                  <td className="p-3 capitalize">
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-bold">
+                      {entry.type}
+                    </span>
+                  </td>
+                  <td className="p-3 capitalize text-sm">{entry.method || 'N/A'}</td>
+                  <td className="p-3 font-mono text-xs text-slate-600">
+                    {entry.reference_id || entry.payment_category?.reference_code || 'N/A'}
+                  </td>
+                  <td className="p-3 text-center">
+                    <span className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ${entry.status === 'Confirmed' ? 'bg-green-100 text-green-700' : entry.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {entry.status || 'Pending'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Transaction Audit Trail */}
+      {/* Immutable Confirmed Ledger */}
       <div className="bg-slate-50 border rounded-xl overflow-hidden mb-4">
         <div className="bg-slate-100 px-4 py-3 border-b">
-          <h2 className="text-lg font-bold text-slate-800">Transaction Audit Trail</h2>
+          <h2 className="text-lg font-bold text-slate-800">Immutable Confirmed Ledger</h2>
+          <p className="mt-1 text-xs text-slate-500">Only confirmed payments appear here because this table is backed by the tamper-evident ledger chain.</p>
         </div>
-        
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-200 text-slate-700 text-xs uppercase">
@@ -261,10 +221,10 @@ export default function AuditReport() {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {loading && ledger.length === 0 && (
-                <tr><td className="p-3 text-center" colSpan="7">Loading transactions...</td></tr>
+                <tr><td className="p-3 text-center" colSpan="7">Loading ledger entries...</td></tr>
               )}
               {!loading && ledger.length === 0 && (
-                <tr><td className="p-3 text-center" colSpan="7">No transactions found.</td></tr>
+                <tr><td className="p-3 text-center" colSpan="7">No confirmed ledger entries found.</td></tr>
               )}
               {ledger.map((entry, idx) => (
                 <tr key={entry.id} className={`bg-white hover:bg-slate-50 ${idx % 2 === 0 ? 'bg-slate-25' : ''}`}>
@@ -289,44 +249,6 @@ export default function AuditReport() {
                     ) : (
                       <span className="text-xl" title="Hash chain broken">🔴</span>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Compliance Events */}
-      <div className="bg-slate-50 border rounded-xl overflow-hidden mb-4">
-        <div className="bg-slate-100 px-4 py-3 border-b">
-          <h2 className="text-lg font-bold text-slate-800">Compliance Audit Events</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-200 text-slate-700 text-xs uppercase">
-              <tr>
-                <th className="p-3 text-left">Date & Time</th>
-                <th className="p-3 text-left">Action</th>
-                <th className="p-3 text-left">Actor</th>
-                <th className="p-3 text-left">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {events.length === 0 && (
-                <tr><td className="p-3 text-center" colSpan="4">No audit events found for selected filter.</td></tr>
-              )}
-              {events.map((event, idx) => (
-                <tr key={event.id || idx} className={`bg-white hover:bg-slate-50 ${idx % 2 === 0 ? 'bg-slate-25' : ''}`}>
-                  <td className="p-3 font-mono text-xs">{event.timestamp || 'N/A'}</td>
-                  <td className="p-3">
-                    <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-bold">
-                      {event.action}
-                    </span>
-                  </td>
-                  <td className="p-3 text-slate-700">{event.actor || 'System'}</td>
-                  <td className="p-3 text-xs text-slate-600 max-w-xl truncate" title={event.details || ''}>
-                    {event.details || '-'}
                   </td>
                 </tr>
               ))}
