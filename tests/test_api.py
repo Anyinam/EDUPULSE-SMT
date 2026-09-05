@@ -305,6 +305,52 @@ class TestAuthenticationEndpoints:
         async_email_mock.assert_called_once()
         paystack_mock.assert_called_once()
 
+
+class TestPaymentReferenceResolution:
+    def _login_as(self, client, username, password="PropPass123"):
+        response = client.post(
+            "/api/login",
+            json={
+                "schoolCode": "TEST-001",
+                "username": username,
+                "password": password,
+            },
+            headers={"X-School-ID": "TEST-001"},
+        )
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        return payload["token"]
+
+    def test_receive_payment_accepts_plain_student_code_reference(self, client, app):
+        token = self._login_as(client, "proprietor1")
+
+        response = client.post(
+            "/api/finance/receive-payment",
+            json={
+                "reference_code": "S001",
+                "reference_id": "BANK-S001-001",
+                "amount": 150,
+                "method": "Bank",
+                "type": "Tuition",
+            },
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-School-ID": "TEST-001",
+            },
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["payment_type"] == "Tuition"
+
+        with app.app_context():
+            from backend.api.models import Payment
+
+            payment = Payment.query.filter_by(reference_id="BANK-S001-001").first()
+            assert payment is not None
+            assert payment.student.student_code == "S001"
+            assert payment.payment_category.get("reference_code") == "S001"
+
     def test_register_welcome_email_uses_frontend_origin_when_frontend_url_missing(self, client, mocker, monkeypatch):
         """Registration emails should use the deployed frontend origin when FRONTEND_URL is unset."""
         monkeypatch.delenv("FRONTEND_URL", raising=False)

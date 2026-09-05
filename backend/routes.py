@@ -8322,6 +8322,14 @@ def _resolve_payment_from_reference(reference_code, school_id_hint=None):
                 parsed.get("category") or {},
             )
 
+    # 3) Plain learner code fallback (e.g. DADD0004)
+    query = Student.query.filter_by(student_code=reference)
+    if school_id_hint:
+        query = query.filter_by(school_id=school_id_hint)
+    student = query.first()
+    if student:
+        return student, "Tuition", {}
+
     return None, None, None
 
 
