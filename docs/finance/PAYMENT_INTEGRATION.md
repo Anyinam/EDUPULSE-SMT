@@ -6,7 +6,12 @@ Your revenue model is **SaaS subscription-based**. Schools (tenants) subscribe t
 
 Important scope note:
 - This document covers EduPulse's own school subscription billing.
-- Parent and guardian fee collection is a separate operational payment layer documented in `docs/finance/LEGACY_PAYSTACK_ROUTE_METADATA_GUIDE.md`, `docs/finance/PAYMENT_REFERENCE_FORMAT.md`, and `docs/strategy/B2B2C_AI_EMPLOYEE_ROADMAP.md`.
+- Parent and guardian fee collection is a separate operational payment layer documented in `docs/finance/PAYMENT_CATEGORIZATION.md`, `docs/finance/PAYMENT_REFERENCE_FORMAT.md`, `docs/finance/BANK_TRANSFER_INTEGRATION.md`, and `docs/strategy/B2B2C_AI_EMPLOYEE_ROADMAP.md`.
+
+Current parent-fee scope note:
+- EduPulse uses structured references for fee categorization.
+- Reliable automatic transfer tracking is handled through on-demand Paystack dedicated virtual accounts created per learner fee reference.
+- Those tracked transfer accounts split settlement so the school receives the base fee amount through its Paystack subaccount while EduPulse retains the convenience-fee remainder in the main Paystack settlement account.
 
 ### Current Onboarding Payment Behavior
 - Free plan: registration completes immediately and user proceeds to login.

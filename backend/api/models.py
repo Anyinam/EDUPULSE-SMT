@@ -570,6 +570,67 @@ class Payment(db.Model):
     created_by = db.relationship("User", foreign_keys=[created_by_user_id])
 
 
+class PaymentCollectionIntent(db.Model):
+    __tablename__ = "payment_collection_intents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    school_id = db.Column(db.String(20), db.ForeignKey("schools.id"), nullable=False, index=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("students.id"), index=True)
+    parent_admission_application_id = db.Column(db.Integer, db.ForeignKey("parent_admission_applications.id"), index=True)
+
+    provider = db.Column(db.String(30), nullable=False, default="paystack")
+    collection_channel = db.Column(db.String(40), nullable=False, default="dedicated_virtual_account")
+    intent_status = db.Column(db.String(20), nullable=False, default="pending")
+
+    reference_code = db.Column(db.String(80), nullable=False, index=True)
+    payment_type = db.Column(db.String(40), nullable=False)
+    payment_category = db.Column(db.JSON, default={})
+
+    base_amount = db.Column(db.Float, nullable=False)
+    convenience_fee_amount = db.Column(db.Float, nullable=False, default=0.0)
+    estimated_provider_fee_amount = db.Column(db.Float, nullable=False, default=0.0)
+    platform_fee_amount = db.Column(db.Float, nullable=False, default=0.0)
+    total_amount = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String(10), default="GH₵")
+
+    provider_customer_code = db.Column(db.String(80), index=True)
+    provider_dedicated_account_id = db.Column(db.String(80), index=True)
+    provider_bank_slug = db.Column(db.String(80))
+    provider_bank_name = db.Column(db.String(120))
+    provider_account_name = db.Column(db.String(120))
+    provider_account_number = db.Column(db.String(40), unique=True)
+    provider_subaccount_code = db.Column(db.String(50))
+    provider_reference = db.Column(db.String(80))
+    provider_last_event = db.Column(db.String(80))
+
+    payer_name = db.Column(db.String(120))
+    payer_bank_name = db.Column(db.String(120))
+    expires_at = db.Column(db.DateTime)
+    paid_at = db.Column(db.DateTime)
+    deactivated_at = db.Column(db.DateTime)
+    meta = db.Column("metadata", db.JSON, default={})
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    student = db.relationship(
+        "Student",
+        backref=backref("payment_collection_intents", cascade="all, delete-orphan", lazy=True),
+    )
+    school = db.relationship(
+        "School",
+        backref=backref("payment_collection_intents", cascade="all, delete-orphan", lazy=True),
+    )
+    parent_admission_application = db.relationship(
+        "ParentAdmissionApplication",
+        backref=backref("payment_collection_intents", cascade="all, delete-orphan", lazy=True),
+    )
+
+    __table_args__ = (
+        db.CheckConstraint("base_amount >= 0", name="ck_payment_collection_intent_base_amount"),
+        db.CheckConstraint("total_amount >= 0", name="ck_payment_collection_intent_total_amount"),
+    )
+
+
 class SchoolVerification(db.Model):
     __tablename__ = "school_verifications"
 

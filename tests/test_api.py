@@ -96,38 +96,54 @@ def client(app):
 class TestAuthenticationEndpoints:
     """Test authentication endpoints."""
 
-    def test_login_valid_credentials(self, client, app):
-        """Test login with valid credentials."""
+    def _login_and_resolve_auth_payload(self, client, monkeypatch, **credentials):
+        import backend.routes as routes
+
+        monkeypatch.setattr(routes.secrets, "randbelow", lambda _: 123456)
+
         response = client.post(
             "/api/login",
-            json={
-                "schoolCode": "TEST-001",
-                "username": "teacher1",
-                "password": "TeacherPass123",
-            },
-            headers={"X-School-ID": "TEST-001"},
+            json=credentials,
+            headers={"X-School-ID": credentials.get("schoolCode")},
         )
 
-        assert response.status_code == 200
-        data = json.loads(response.data)
+        assert response.status_code in (200, 202)
+        payload = json.loads(response.data)
+        if response.status_code == 202:
+            assert payload["message"] == "2fa_required"
+            verify = client.post(
+                "/api/2fa/verify",
+                json={"token": payload["token"], "code": "123456"},
+            )
+            assert verify.status_code == 200
+            payload = json.loads(verify.data)
+
+        return payload
+
+    def test_login_valid_credentials(self, client, app, mock_email, monkeypatch):
+        """Test login with valid credentials."""
+        data = self._login_and_resolve_auth_payload(
+            client,
+            monkeypatch,
+            schoolCode="TEST-001",
+            username="teacher1",
+            password="TeacherPass123",
+        )
+
         assert "token" in data
         assert data["role"] == "teacher"
         assert data["school_id"] == "TEST-001"
 
-    def test_login_accepts_registered_email(self, client):
+    def test_login_accepts_registered_email(self, client, mock_email, monkeypatch):
         """Users should be able to log in with their saved email address."""
-        response = client.post(
-            "/api/login",
-            json={
-                "schoolCode": "TEST-001",
-                "username": "teacher@test.edu",
-                "password": "TeacherPass123",
-            },
-            headers={"X-School-ID": "TEST-001"},
+        data = self._login_and_resolve_auth_payload(
+            client,
+            monkeypatch,
+            schoolCode="TEST-001",
+            username="teacher@test.edu",
+            password="TeacherPass123",
         )
 
-        assert response.status_code == 200
-        data = json.loads(response.data)
         assert "token" in data
         assert data["role"] == "teacher"
         assert data["school_id"] == "TEST-001"
@@ -307,7 +323,11 @@ class TestAuthenticationEndpoints:
 
 
 class TestPaymentReferenceResolution:
-    def _login_as(self, client, username, password="PropPass123"):
+    def _login_as(self, client, monkeypatch, username, password="PropPass123"):
+        import backend.routes as routes
+
+        monkeypatch.setattr(routes.secrets, "randbelow", lambda _: 123456)
+
         response = client.post(
             "/api/login",
             json={
@@ -317,12 +337,20 @@ class TestPaymentReferenceResolution:
             },
             headers={"X-School-ID": "TEST-001"},
         )
-        assert response.status_code == 200
+        assert response.status_code in (200, 202)
         payload = json.loads(response.data)
+        if response.status_code == 202:
+            assert payload["message"] == "2fa_required"
+            verify = client.post(
+                "/api/2fa/verify",
+                json={"token": payload["token"], "code": "123456"},
+            )
+            assert verify.status_code == 200
+            payload = json.loads(verify.data)
         return payload["token"]
 
-    def test_receive_payment_accepts_plain_student_code_reference(self, client, app):
-        token = self._login_as(client, "proprietor1")
+    def test_receive_payment_accepts_plain_student_code_reference(self, client, app, mock_email, monkeypatch):
+        token = self._login_as(client, monkeypatch, "proprietor1")
 
         response = client.post(
             "/api/finance/receive-payment",
@@ -351,13 +379,13 @@ class TestPaymentReferenceResolution:
             assert payment.student.student_code == "S001"
             assert payment.payment_category.get("reference_code") == "S001"
 
-    def test_import_parent_payment_notice_tracks_payment_by_reference_code(self, client, app):
-        token = self._login_as(client, "proprietor1")
+    def test_import_parent_payment_notice_tracks_payment_by_reference_code(self, client, app, mock_email, monkeypatch):
+        token = self._login_as(client, monkeypatch, "proprietor1")
 
         response = client.post(
             "/api/finance/import-parent-payment",
             json={
-                "message_text": "DANIEL ANYINAM ASARE,2161120011674,DADD0004",
+                "message_text": "DANIEL ANYINAM ASARE,2161120011674,S001",
                 "amount": 150,
                 "method": "MoMo",
                 "payment_type": "Tuition",
@@ -372,7 +400,7 @@ class TestPaymentReferenceResolution:
         data = json.loads(response.data)
         assert data["student_code"] == "S001"
         assert data["reference_id"] == "2161120011674"
-        assert data["reference_code"] == "DADD0004"
+        assert data["reference_code"] == "S001"
 
         with app.app_context():
             from backend.api.models import Payment
@@ -380,7 +408,7 @@ class TestPaymentReferenceResolution:
             payment = Payment.query.filter_by(reference_id="2161120011674").first()
             assert payment is not None
             assert payment.status == "Confirmed"
-            assert payment.payment_category.get("reference_code") == "DADD0004"
+            assert payment.payment_category.get("reference_code") == "S001"
             assert payment.payment_category.get("import_mode") == "parent_notice"
 
     def test_register_welcome_email_uses_frontend_origin_when_frontend_url_missing(self, client, mocker, monkeypatch):

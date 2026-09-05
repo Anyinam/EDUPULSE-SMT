@@ -48,6 +48,7 @@ from backend.api.models import (
     ParentAdmissionApplication,
     PlatformSetting,
     PlatformUser,
+    PaymentCollectionIntent,
     QuestionPool,
     ReportCard,
     ReportCardStatus,
@@ -2348,6 +2349,7 @@ PARENT_ADMISSION_REVIEW_META_PREFIX = "[EDUPULSE_PARENT_ADMISSION_META]"
 DATA_COMPLIANCE_WORKFLOW_KEY = "data_compliance_workflow"
 EXAM_INTELLIGENCE_WORKFLOW_KEY = "exam_intelligence"
 PAYMENT_PROVIDER_SETTINGS_KEY = "payment_provider_settings"
+PAYMENT_COLLECTION_PRICING_KEY = "payment_collection_pricing"
 TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY = "teacher_class_level_exam_summaries_enabled"
 PARENT_ADMISSION_CONSENT_VERSION = "2026-04-29"
 
@@ -2381,6 +2383,16 @@ DEFAULT_PAYMENT_PROVIDER_SETTINGS = {
     "paystack_subaccount_code": "",
     "paystack_bank_code": "",
     "paystack_resolved_account_name": "",
+}
+
+PAYMENT_COLLECTION_SPLIT_CACHE_KEY = "payment_collection_split_cache"
+
+DEFAULT_PAYMENT_COLLECTION_PRICING = {
+    "charge_parent_convenience_fee": True,
+    "estimated_provider_fee_rate_pct": float(os.getenv("EDUPULSE_PAYSTACK_TRANSFER_FEE_RATE_PCT") or 0.0),
+    "estimated_provider_fee_flat": float(os.getenv("EDUPULSE_PAYSTACK_TRANSFER_FEE_FLAT") or 0.0),
+    "platform_fee_flat": float(os.getenv("EDUPULSE_PLATFORM_TRANSFER_FEE_FLAT") or 0.0),
+    "platform_fee_label": sanitize_string(os.getenv("EDUPULSE_PLATFORM_TRANSFER_FEE_LABEL") or "Convenience Fee") or "Convenience Fee",
 }
 
 DEFAULT_PARENT_ADMISSION_WORKFLOW = {
@@ -2429,6 +2441,26 @@ def _normalize_payment_provider_settings(raw_config):
         "paystack_subaccount_code": sanitize_string(config.get("paystack_subaccount_code") or "") or "",
         "paystack_bank_code": sanitize_string(config.get("paystack_bank_code") or "") or "",
         "paystack_resolved_account_name": sanitize_string(config.get("paystack_resolved_account_name") or "") or "",
+    }
+
+
+def _normalize_payment_collection_pricing(raw_config):
+    config = _clone_json_document(raw_config)
+    if not isinstance(config, dict):
+        config = {}
+
+    def _float_value(key):
+        try:
+            return round(float(config.get(key, DEFAULT_PAYMENT_COLLECTION_PRICING[key]) or 0.0), 2)
+        except (TypeError, ValueError):
+            return round(float(DEFAULT_PAYMENT_COLLECTION_PRICING[key] or 0.0), 2)
+
+    return {
+        "charge_parent_convenience_fee": bool(config.get("charge_parent_convenience_fee", DEFAULT_PAYMENT_COLLECTION_PRICING["charge_parent_convenience_fee"])),
+        "estimated_provider_fee_rate_pct": _float_value("estimated_provider_fee_rate_pct"),
+        "estimated_provider_fee_flat": _float_value("estimated_provider_fee_flat"),
+        "platform_fee_flat": _float_value("platform_fee_flat"),
+        "platform_fee_label": sanitize_string(config.get("platform_fee_label") or DEFAULT_PAYMENT_COLLECTION_PRICING["platform_fee_label"]) or DEFAULT_PAYMENT_COLLECTION_PRICING["platform_fee_label"],
     }
 
 
@@ -3264,6 +3296,29 @@ def _set_payment_provider_settings(settings, workflow_config):
     )
 
 
+def _get_payment_collection_pricing():
+    setting = PlatformSetting.query.filter_by(setting_key=PAYMENT_COLLECTION_PRICING_KEY).first()
+    raw_config = setting.setting_value if setting and isinstance(setting.setting_value, dict) else DEFAULT_PAYMENT_COLLECTION_PRICING
+    return _normalize_payment_collection_pricing(raw_config)
+
+
+def _get_payment_collection_split_cache():
+    setting = PlatformSetting.query.filter_by(setting_key=PAYMENT_COLLECTION_SPLIT_CACHE_KEY).first()
+    raw_cache = setting.setting_value if setting and isinstance(setting.setting_value, dict) else {}
+    return _clone_json_document(raw_cache) if isinstance(raw_cache, dict) else {}
+
+
+def _set_payment_collection_split_cache(cache_payload):
+    safe_payload = _clone_json_document(cache_payload) if isinstance(cache_payload, dict) else {}
+    setting = PlatformSetting.query.filter_by(setting_key=PAYMENT_COLLECTION_SPLIT_CACHE_KEY).first()
+    if setting:
+        setting.setting_value = safe_payload
+    else:
+        setting = PlatformSetting(setting_key=PAYMENT_COLLECTION_SPLIT_CACHE_KEY, setting_value=safe_payload)
+        db.session.add(setting)
+    db.session.flush()
+
+
 def _set_data_compliance_workflow_config(settings, workflow_config):
     config = _clone_json_document(settings.report_template_config)
     global_settings = config.get(GLOBAL_REPORT_SETTINGS_KEY) or {}
@@ -3881,6 +3936,7 @@ def _build_student_payment_instruction_payload(student, school_id):
             "subaccount_code": None,
             "has_virtual_route": False,
             "preferred_payment_model": "reference_first",
+            "virtual_route": None,
             "is_scholarship_fee": bool(
                 (fee_type == "Tuition" and student.scholarship_covers_tuition)
                 or (fee_type == "Feeding" and student.scholarship_covers_feeding)
@@ -3922,6 +3978,7 @@ def _build_student_payment_instruction_payload(student, school_id):
                 "subaccount_code": None,
                 "has_virtual_route": False,
                 "preferred_payment_model": "reference_first",
+                "virtual_route": None,
                 "is_scholarship_fee": bool(student.is_on_scholarship and student.scholarship_covers_feeding),
                 "instructions": (
                     f"Use reference {reference_code} for the {frequency_label.lower()} feeding plan. "
@@ -3929,6 +3986,15 @@ def _build_student_payment_instruction_payload(student, school_id):
                     + f"The amount to pay for this plan is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
                 ),
             })
+
+    _attach_virtual_routes_to_payment_codes(student, codes_list)
+    provider_settings = _get_payment_provider_settings(settings)
+    country_supports_dvas = bool(
+        (settings.country_code if settings and settings.country_code else "GH") in PAYSTACK_DVA_SUPPORTED_COUNTRIES
+    )
+    supports_fee_route_dvas = bool(
+        country_supports_dvas and sanitize_string(provider_settings.get("paystack_subaccount_code") or "")
+    )
 
     return {
         "student_id": student.id,
@@ -3943,11 +4009,19 @@ def _build_student_payment_instruction_payload(student, school_id):
             "student_code": student.student_code,
             "stable_payment_identity": student.student_code,
             "supports_structured_references": True,
-            "supports_fee_route_dvas": False,
+            "supports_fee_route_dvas": supports_fee_route_dvas,
+            "dva_country_supported": country_supports_dvas,
+            "tracked_transfer_ready": supports_fee_route_dvas,
+            "tracked_transfer_readiness_note": None if supports_fee_route_dvas else (
+                "Save verified school bank details in Settings so EduPulse can create the school Paystack settlement subaccount first."
+                if country_supports_dvas
+                else "Tracked transfer accounts are not available for this school country yet."
+            ),
             "supported_rails": ["bank_app", "ussd_or_shortcode", "school_office_manual"],
             "recommended_examples": [item["reference_code"] for item in codes_list[:3]],
         },
         "admission_fee": admission_fee,
+        "payment_collection_pricing": _get_payment_collection_pricing(),
         "school_payment_account": {
             "bank_name": school.bank_name if school else None,
             "bank_account": school.bank_account if school else None,
@@ -7328,6 +7402,78 @@ def get_student_payment_codes(student_id):
     return jsonify(payload)
 
 
+@api.route("/students/<int:student_id>/payment-codes/<string:reference_code>/virtual-account", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+def create_student_payment_virtual_account(student_id, reference_code):
+    student = Student.query.filter_by(id=student_id, school_id=g.school_id).first_or_404()
+    school = School.query.get(g.school_id)
+    verification_restriction = _payment_records_verification_block_response(school)
+    if verification_restriction:
+        return verification_restriction
+    restriction = _payment_collection_block_response(school)
+    if restriction:
+        return restriction
+
+    payload = _build_student_payment_instruction_payload(student, g.school_id)
+    selected_code = next(
+        (
+            code
+            for code in (payload.get("payment_codes") or [])
+            if (sanitize_string(code.get("reference_code") or code.get("code") or "") or "")
+            == (sanitize_string(reference_code) or "")
+        ),
+        None,
+    )
+    if not selected_code:
+        return jsonify({"message": "Payment reference not found for this student."}), 404
+
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+    intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, selected_code)
+    if error:
+        db.session.rollback()
+        return jsonify({"message": error}), 400
+
+    route_payload = _build_payment_collection_intent_payload(intent)
+    updated_code = {**selected_code}
+    updated_code["virtual_route"] = route_payload
+    updated_code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
+    updated_code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
+    updated_code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
+    updated_code["has_virtual_route"] = bool(route_payload)
+    updated_code["preferred_payment_model"] = "virtual_account_ready" if route_payload else updated_code.get("preferred_payment_model")
+
+    actor_id = get_jwt_identity()
+    try:
+        actor_id = int(actor_id) if actor_id is not None else None
+    except (TypeError, ValueError):
+        actor_id = None
+
+    log_action(
+        actor_id,
+        g.school_id,
+        "PAYMENT_TRANSFER_ROUTE_GENERATED",
+        json.dumps(
+            {
+                "student_id": student.id,
+                "reference_code": updated_code.get("reference_code"),
+                "payment_type": updated_code.get("payment_category", {}).get("fee_type") or updated_code.get("fee_type"),
+                "intent_id": intent.id,
+                "virtual_account": route_payload.get("account_number") if route_payload else None,
+            }
+        ),
+    )
+    db.session.commit()
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Tracked transfer account generated successfully.",
+            "payment_code": updated_code,
+            "virtual_route": route_payload,
+        }
+    ), 200
+
+
 @api.route("/students", methods=["GET"])
 @multi_tenant_guard
 @role_required("proprietor", "finance", "headmaster", "teacher", "homeroom")
@@ -9002,6 +9148,12 @@ def paystack_webhook():
 
     try:
         metadata = payload.get("metadata") or {}
+        authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
+        if (authorization.get("channel") or payload.get("channel") or "").lower() == "dedicated_nuban":
+            virtual_account_result = _record_paystack_virtual_account_payment(payload, event=event)
+            if virtual_account_result:
+                body, status_code = virtual_account_result
+                return jsonify(body), status_code
         if metadata.get("transaction_type") == "parent_admission_fee" or metadata.get("parent_admission_application_id"):
             body, status_code = _record_paystack_parent_admission_payment(payload, event=event)
             return jsonify(body), status_code
@@ -9054,6 +9206,9 @@ PAYSTACK_BANK_DIRECTORY = {
     "NG": {"country": "nigeria", "currency": "NGN"},
     "ZA": {"country": "south africa", "currency": "ZAR"},
 }
+PAYSTACK_DVA_SUPPORTED_COUNTRIES = {"GH", "NG"}
+PAYSTACK_DVA_DEFAULT_PROVIDER_PREFERENCE = ("titan-paystack",)
+PAYSTACK_DVA_INTENT_TTL_DAYS = 7
 
 
 def _normalize_bank_lookup_key(value):
@@ -9216,6 +9371,492 @@ def _provision_school_paystack_subaccount(school, settings, provider_settings):
         "bank_code": bank_match["bank_code"],
         "resolved_account_name": resolved_account_name,
     }, None
+
+
+def _build_intent_customer_email(base_email, school_id, reference_code):
+    email = sanitize_string(base_email or "") or ""
+    safe_ref = re.sub(r"[^a-z0-9]+", "-", (reference_code or "").lower()).strip("-") or "payment"
+    safe_school = re.sub(r"[^a-z0-9]+", "-", (school_id or "").lower()).strip("-") or "school"
+    if "@" in email:
+        local_part, domain = email.split("@", 1)
+        local_part = local_part or "parent"
+        domain = domain or "example.com"
+        return f"{local_part}+edupulse-{safe_school}-{safe_ref}@{domain}"
+    return f"edupulse-{safe_school}-{safe_ref}@parents.edupulse.invalid"
+
+
+def _split_person_name(full_name, fallback_last_name="Customer"):
+    parts = [part for part in (sanitize_string(full_name or "") or "").split() if part]
+    if not parts:
+        return "EduPulse", fallback_last_name
+    if len(parts) == 1:
+        return parts[0], fallback_last_name
+    return parts[0], " ".join(parts[1:])
+
+
+def _calculate_payment_collection_breakdown(base_amount, pricing=None):
+    pricing = pricing or _get_payment_collection_pricing()
+    base_amount = round(float(base_amount or 0.0), 2)
+    estimated_provider_fee_amount = round(
+        (base_amount * (float(pricing.get("estimated_provider_fee_rate_pct") or 0.0) / 100.0))
+        + float(pricing.get("estimated_provider_fee_flat") or 0.0),
+        2,
+    )
+    platform_fee_amount = round(float(pricing.get("platform_fee_flat") or 0.0), 2)
+    convenience_fee_amount = round(
+        (estimated_provider_fee_amount + platform_fee_amount)
+        if pricing.get("charge_parent_convenience_fee", True)
+        else 0.0,
+        2,
+    )
+    return {
+        "base_amount": base_amount,
+        "estimated_provider_fee_amount": estimated_provider_fee_amount,
+        "platform_fee_amount": platform_fee_amount,
+        "convenience_fee_amount": convenience_fee_amount,
+        "total_amount": round(base_amount + convenience_fee_amount, 2),
+        "pricing": pricing,
+    }
+
+
+def _resolve_payment_collection_currency_code(settings):
+    country_code = (settings.country_code if settings and settings.country_code else "GH").upper()
+    if country_code == "NG":
+        return "NGN"
+    return "GHS"
+
+
+def _get_or_create_paystack_transfer_split(school, provider_settings, base_amount, total_amount, settings=None):
+    school_subaccount_code = sanitize_string(provider_settings.get("paystack_subaccount_code") or "") or ""
+    if not school_subaccount_code:
+        return None, "School settlement is not ready yet. Save verified bank details first so EduPulse can create the school's Paystack subaccount."
+
+    base_amount_minor = int(round(float(base_amount or 0.0) * 100))
+    total_amount_minor = int(round(float(total_amount or 0.0) * 100))
+    if base_amount_minor <= 0:
+        return None, "A positive school fee amount is required before a transfer account can be created."
+    if total_amount_minor < base_amount_minor:
+        return None, "The payable total cannot be smaller than the school fee amount."
+
+    currency_code = _resolve_payment_collection_currency_code(settings)
+    cache_key = f"{school.id}:{currency_code}:{school_subaccount_code}:{base_amount_minor}"
+    cache = _get_payment_collection_split_cache()
+    cached_split = cache.get(cache_key) if isinstance(cache, dict) else None
+    cached_split_code = sanitize_string((cached_split or {}).get("split_code") or "") or ""
+    if cached_split_code:
+        return {
+            "split_code": cached_split_code,
+            "split_id": sanitize_string((cached_split or {}).get("split_id") or "") or None,
+            "currency": currency_code,
+            "school_settlement_amount_minor": base_amount_minor,
+            "platform_settlement_amount_minor": max(0, total_amount_minor - base_amount_minor),
+            "school_settlement_amount": round(base_amount_minor / 100.0, 2),
+            "platform_settlement_amount": round(max(0, total_amount_minor - base_amount_minor) / 100.0, 2),
+            "settlement_mode": "paystack_flat_split",
+            "fee_bearer": "account",
+        }, None
+
+    split_payload = {
+        "name": f"EduPulse Transfer Split {school.id} {base_amount_minor}",
+        "type": "flat",
+        "currency": currency_code,
+        "bearer_type": "account",
+        "subaccounts": [
+            {
+                "subaccount": school_subaccount_code,
+                "share": base_amount_minor,
+            }
+        ],
+    }
+    result, error = _call_paystack_api("/split", method="POST", data=split_payload)
+    if error:
+        return None, f"Unable to configure Paystack settlement split for this transfer account: {error}"
+    if not isinstance(result, dict):
+        return None, "Paystack split creation returned an unexpected response."
+
+    split_code = sanitize_string(result.get("split_code") or "") or ""
+    if not split_code:
+        return None, "Paystack did not return a split code for the transfer settlement."
+
+    next_cache = cache if isinstance(cache, dict) else {}
+    next_cache[cache_key] = {
+        "split_code": split_code,
+        "split_id": sanitize_string(result.get("id") or "") or None,
+        "school_id": school.id,
+        "currency": currency_code,
+        "school_subaccount_code": school_subaccount_code,
+        "school_settlement_amount_minor": base_amount_minor,
+        "settlement_mode": "paystack_flat_split",
+        "fee_bearer": "account",
+    }
+    _set_payment_collection_split_cache(next_cache)
+
+    return {
+        "split_code": split_code,
+        "split_id": sanitize_string(result.get("id") or "") or None,
+        "currency": currency_code,
+        "school_settlement_amount_minor": base_amount_minor,
+        "platform_settlement_amount_minor": max(0, total_amount_minor - base_amount_minor),
+        "school_settlement_amount": round(base_amount_minor / 100.0, 2),
+        "platform_settlement_amount": round(max(0, total_amount_minor - base_amount_minor) / 100.0, 2),
+        "settlement_mode": "paystack_flat_split",
+        "fee_bearer": "account",
+    }, None
+
+
+def _build_payment_collection_intent_payload(intent):
+    if not intent:
+        return None
+    split_config = intent.meta.get("split_config") if isinstance(intent.meta, dict) else {}
+    return {
+        "id": intent.id,
+        "provider": intent.provider,
+        "channel": intent.collection_channel,
+        "status": intent.intent_status,
+        "reference_code": intent.reference_code,
+        "payment_type": intent.payment_type,
+        "base_amount": round(float(intent.base_amount or 0.0), 2),
+        "convenience_fee_amount": round(float(intent.convenience_fee_amount or 0.0), 2),
+        "estimated_provider_fee_amount": round(float(intent.estimated_provider_fee_amount or 0.0), 2),
+        "platform_fee_amount": round(float(intent.platform_fee_amount or 0.0), 2),
+        "total_amount": round(float(intent.total_amount or 0.0), 2),
+        "currency": intent.currency or "GH₵",
+        "bank_name": intent.provider_bank_name,
+        "bank_slug": intent.provider_bank_slug,
+        "account_name": intent.provider_account_name,
+        "account_number": intent.provider_account_number,
+        "subaccount_code": intent.provider_subaccount_code,
+        "split_code": sanitize_string(split_config.get("split_code") or "") or None,
+        "settlement_mode": sanitize_string(split_config.get("settlement_mode") or "reference_first") or "reference_first",
+        "school_settlement_amount": round(float(split_config.get("school_settlement_amount") or intent.base_amount or 0.0), 2),
+        "platform_settlement_amount": round(float(split_config.get("platform_settlement_amount") or 0.0), 2),
+        "provider_customer_code": intent.provider_customer_code,
+        "expires_at": intent.expires_at.isoformat() if intent.expires_at else None,
+        "paid_at": intent.paid_at.isoformat() if intent.paid_at else None,
+    }
+
+
+def _get_student_payment_collection_intents(student):
+    if not student:
+        return {}
+
+    now = datetime.now(timezone.utc)
+    intents = (
+        PaymentCollectionIntent.query.filter_by(
+            school_id=student.school_id,
+            student_id=student.id,
+            provider="paystack",
+            collection_channel="dedicated_virtual_account",
+        )
+        .order_by(PaymentCollectionIntent.id.desc())
+        .all()
+    )
+
+    latest_by_reference = {}
+    for intent in intents:
+        if intent.reference_code in latest_by_reference:
+            continue
+        if intent.intent_status == "deactivated":
+            continue
+        if intent.expires_at and intent.expires_at < now and intent.intent_status == "assigned" and not intent.paid_at:
+            intent.intent_status = "expired"
+            continue
+        latest_by_reference[intent.reference_code] = intent
+    return latest_by_reference
+
+
+def _attach_virtual_routes_to_payment_codes(student, codes_list):
+    latest_by_reference = _get_student_payment_collection_intents(student)
+    for code in codes_list:
+        intent = latest_by_reference.get(code.get("reference_code"))
+        route_payload = _build_payment_collection_intent_payload(intent)
+        code["virtual_route"] = route_payload
+        code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
+        code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
+        code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
+        code["has_virtual_route"] = bool(route_payload and route_payload.get("status") in {"assigned", "paid"})
+        code["preferred_payment_model"] = "virtual_account_ready" if code["has_virtual_route"] else "reference_first"
+
+
+def _get_paystack_dva_provider(country_code):
+    normalized_country = (sanitize_string(country_code or "GH") or "GH").upper()
+    if normalized_country not in PAYSTACK_DVA_SUPPORTED_COUNTRIES:
+        return None, "Dedicated virtual accounts are currently available only for supported Paystack countries like Ghana and Nigeria."
+
+    providers, error = _call_paystack_api("/dedicated_account/available_providers", method="GET")
+    if error:
+        return None, f"Unable to load Paystack dedicated-account providers: {error}"
+    if not isinstance(providers, list) or not providers:
+        return None, "Paystack did not return any dedicated-account providers for this integration."
+
+    indexed = {sanitize_string(item.get("provider_slug") or "") or "": item for item in providers}
+    for preferred_slug in PAYSTACK_DVA_DEFAULT_PROVIDER_PREFERENCE:
+        if preferred_slug in indexed:
+            return indexed[preferred_slug], None
+
+    first_provider = next((item for item in providers if sanitize_string(item.get("provider_slug") or "")), None)
+    if not first_provider:
+        return None, "Paystack returned provider entries without usable provider slugs."
+    return first_provider, None
+
+
+def _create_paystack_collection_customer(email, full_name, phone, metadata=None):
+    first_name, last_name = _split_person_name(full_name)
+    payload = {
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+    }
+    if phone:
+        payload["phone"] = phone
+    if metadata:
+        payload["metadata"] = metadata
+
+    result, error = _call_paystack_api("/customer", method="POST", data=payload)
+    if error:
+        return None, f"Unable to create the Paystack customer for this payment route: {error}"
+    if not isinstance(result, dict):
+        return None, "Paystack customer creation returned an unexpected response."
+    customer_code = sanitize_string(result.get("customer_code") or result.get("code") or "") or ""
+    if not customer_code:
+        return None, "Paystack customer creation did not return a customer code."
+    return {
+        "customer_code": customer_code,
+        "first_name": first_name,
+        "last_name": last_name,
+    }, None
+
+
+def _create_paystack_dedicated_virtual_account(customer_code, provider_slug, provider_settings, split_code=None, phone=None, first_name="", last_name=""):
+    payload = {
+        "customer": customer_code,
+        "preferred_bank": provider_slug,
+    }
+    if split_code:
+        payload["split_code"] = split_code
+    elif provider_settings.get("paystack_subaccount_code"):
+        payload["subaccount"] = provider_settings["paystack_subaccount_code"]
+    if phone:
+        payload["phone"] = phone
+    if first_name:
+        payload["first_name"] = first_name
+    if last_name:
+        payload["last_name"] = last_name
+
+    result, error = _call_paystack_api("/dedicated_account", method="POST", data=payload)
+    if error:
+        return None, f"Unable to create the Paystack transfer account: {error}"
+    if not isinstance(result, dict):
+        return None, "Paystack dedicated-account creation returned an unexpected response."
+    account_number = sanitize_string(result.get("account_number") or "") or ""
+    if not account_number:
+        return None, "Paystack did not return an account number for the dedicated account."
+    return result, None
+
+
+def _create_or_reuse_student_virtual_account_intent(student, school, settings, payment_code):
+    now = datetime.now(timezone.utc)
+    reference_code = sanitize_string(payment_code.get("reference_code") or payment_code.get("code") or "") or ""
+    if not reference_code:
+        return None, "A payment reference is required before a transfer route can be created."
+
+    existing = (
+        PaymentCollectionIntent.query.filter_by(
+            school_id=student.school_id,
+            student_id=student.id,
+            reference_code=reference_code,
+            provider="paystack",
+            collection_channel="dedicated_virtual_account",
+        )
+        .order_by(PaymentCollectionIntent.id.desc())
+        .first()
+    )
+    if existing and existing.intent_status == "assigned" and (not existing.expires_at or existing.expires_at >= now):
+        return existing, None
+    if existing and existing.intent_status == "paid":
+        return existing, None
+    if existing and existing.intent_status == "assigned" and existing.expires_at and existing.expires_at < now:
+        existing.intent_status = "expired"
+
+    base_amount = round(float(payment_code.get("base_amount") or payment_code.get("amount") or 0.0), 2)
+    if base_amount <= 0:
+        return None, "This fee route does not currently require payment."
+
+    pricing_breakdown = _calculate_payment_collection_breakdown(base_amount)
+    provider_settings = _get_payment_provider_settings(settings)
+    split_config, error = _get_or_create_paystack_transfer_split(
+        school,
+        provider_settings,
+        pricing_breakdown["base_amount"],
+        pricing_breakdown["total_amount"],
+        settings=settings,
+    )
+    if error:
+        return None, error
+
+    provider, error = _get_paystack_dva_provider(settings.country_code if settings else "GH")
+    if error:
+        return None, error
+
+    reference_email = _build_intent_customer_email(student.parent_email or school.school_email, student.school_id, reference_code)
+    customer_name = student.parent_name or student.guardian_name or student.name
+    customer_result, error = _create_paystack_collection_customer(
+        reference_email,
+        customer_name,
+        student.parent_phone or school.school_phone,
+        metadata={
+            "school_id": student.school_id,
+            "student_id": student.id,
+            "reference_code": reference_code,
+            "payment_type": payment_code.get("payment_category", {}).get("fee_type") or payment_code.get("fee_type"),
+        },
+    )
+    if error:
+        return None, error
+
+    dedicated_account, error = _create_paystack_dedicated_virtual_account(
+        customer_result["customer_code"],
+        sanitize_string(provider.get("provider_slug") or "") or "",
+        provider_settings,
+        split_code=split_config.get("split_code") if split_config else None,
+        phone=student.parent_phone or school.school_phone,
+        first_name=customer_result["first_name"],
+        last_name=customer_result["last_name"],
+    )
+    if error:
+        return None, error
+
+    bank_payload = dedicated_account.get("bank") if isinstance(dedicated_account.get("bank"), dict) else {}
+    intent = PaymentCollectionIntent(
+        school_id=student.school_id,
+        student_id=student.id,
+        provider="paystack",
+        collection_channel="dedicated_virtual_account",
+        intent_status="assigned",
+        reference_code=reference_code,
+        payment_type=sanitize_string(payment_code.get("payment_category", {}).get("fee_type") or payment_code.get("fee_type") or "Tuition") or "Tuition",
+        payment_category=payment_code.get("payment_category") if isinstance(payment_code.get("payment_category"), dict) else {},
+        base_amount=pricing_breakdown["base_amount"],
+        convenience_fee_amount=pricing_breakdown["convenience_fee_amount"],
+        estimated_provider_fee_amount=pricing_breakdown["estimated_provider_fee_amount"],
+        platform_fee_amount=pricing_breakdown["platform_fee_amount"],
+        total_amount=pricing_breakdown["total_amount"],
+        currency=settings.currency if settings and settings.currency else "GH₵",
+        provider_customer_code=customer_result["customer_code"],
+        provider_dedicated_account_id=str(dedicated_account.get("id") or "") or None,
+        provider_bank_slug=sanitize_string(bank_payload.get("slug") or provider.get("provider_slug") or "") or None,
+        provider_bank_name=sanitize_string(bank_payload.get("name") or provider.get("bank_name") or "") or None,
+        provider_account_name=sanitize_string(dedicated_account.get("account_name") or "") or None,
+        provider_account_number=sanitize_string(dedicated_account.get("account_number") or "") or None,
+        provider_subaccount_code=provider_settings.get("paystack_subaccount_code") or None,
+        expires_at=now + timedelta(days=PAYSTACK_DVA_INTENT_TTL_DAYS),
+        meta={
+            "provider": provider,
+            "pricing": pricing_breakdown["pricing"],
+            "split_config": split_config,
+            "raw_account": dedicated_account,
+        },
+    )
+    db.session.add(intent)
+    db.session.flush()
+    return intent, None
+
+
+def _extract_paystack_virtual_account_identifiers(payload):
+    authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
+    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    dedicated_account = payload.get("dedicated_account") if isinstance(payload.get("dedicated_account"), dict) else {}
+    if not dedicated_account and isinstance(customer.get("dedicated_account"), dict):
+        dedicated_account = customer.get("dedicated_account")
+
+    account_number_candidates = [
+        sanitize_string(dedicated_account.get("account_number") or "") or None,
+        sanitize_string(payload.get("receiver_account_number") or "") or None,
+        sanitize_string(payload.get("account_number") or "") or None,
+        sanitize_string(authorization.get("receiver_account_number") or "") or None,
+        sanitize_string(authorization.get("receiver_bank_account_number") or "") or None,
+    ]
+    customer_code = sanitize_string(customer.get("customer_code") or payload.get("customer_code") or "") or None
+    dedicated_account_id = sanitize_string(dedicated_account.get("id") or payload.get("dedicated_account_id") or "") or None
+
+    return {
+        "account_number": next((value for value in account_number_candidates if value), None),
+        "customer_code": customer_code,
+        "dedicated_account_id": dedicated_account_id,
+    }
+
+
+def _record_paystack_virtual_account_payment(payload, event="charge.success"):
+    identifiers = _extract_paystack_virtual_account_identifiers(payload)
+    query = PaymentCollectionIntent.query.filter_by(provider="paystack", collection_channel="dedicated_virtual_account")
+    intent = None
+
+    if identifiers.get("account_number"):
+        intent = query.filter_by(provider_account_number=identifiers["account_number"]).order_by(PaymentCollectionIntent.id.desc()).first()
+    if not intent and identifiers.get("dedicated_account_id"):
+        intent = query.filter_by(provider_dedicated_account_id=identifiers["dedicated_account_id"]).order_by(PaymentCollectionIntent.id.desc()).first()
+    if not intent and identifiers.get("customer_code"):
+        intent = query.filter_by(provider_customer_code=identifiers["customer_code"]).order_by(PaymentCollectionIntent.id.desc()).first()
+
+    if not intent:
+        return None
+
+    split_config = intent.meta.get("split_config") if isinstance(intent.meta, dict) else {}
+
+    tx_ref = sanitize_string(payload.get("reference") or str(payload.get("id") or ""))
+    if intent.provider_reference and intent.provider_reference == tx_ref and intent.intent_status == "paid":
+        return {"status": "duplicate", "reference": tx_ref, "intent_id": intent.id}, 200
+
+    adjusted_payload = {
+        **payload,
+        "amount": int(round(float(intent.base_amount or 0.0) * 100)),
+        "metadata": {
+            "school_id": intent.school_id,
+            "student_id": intent.student_id,
+            "payment_type": intent.payment_type,
+            "payment_category": {
+                **(intent.payment_category or {}),
+                "reference_code": intent.reference_code,
+                "collection_channel": intent.collection_channel,
+                "payment_collection_intent_id": intent.id,
+                "transfer_total_amount": round(float(intent.total_amount or 0.0), 2),
+                "convenience_fee_amount": round(float(intent.convenience_fee_amount or 0.0), 2),
+                "platform_fee_amount": round(float(intent.platform_fee_amount or 0.0), 2),
+                "estimated_provider_fee_amount": round(float(intent.estimated_provider_fee_amount or 0.0), 2),
+                "settlement_mode": sanitize_string(split_config.get("settlement_mode") or "reference_first") or "reference_first",
+                "split_code": sanitize_string(split_config.get("split_code") or "") or None,
+                "school_settlement_amount": round(float(split_config.get("school_settlement_amount") or intent.base_amount or 0.0), 2),
+                "platform_settlement_amount": round(float(split_config.get("platform_settlement_amount") or 0.0), 2),
+            },
+            "reference_code": intent.reference_code,
+        },
+    }
+
+    body, status_code = _record_paystack_finance_payment(adjusted_payload, event=event, school_id_scope=intent.school_id)
+    if status_code >= 400:
+        return body, status_code
+
+    authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
+    intent.intent_status = "paid" if body.get("status") in {"recorded", "duplicate", "blocked"} else intent.intent_status
+    intent.provider_reference = tx_ref or intent.provider_reference
+    intent.provider_last_event = event
+    intent.paid_at = datetime.now(timezone.utc)
+    intent.payer_name = sanitize_string(authorization.get("sender_name") or intent.payer_name or "") or intent.payer_name
+    intent.payer_bank_name = sanitize_string(authorization.get("sender_bank") or intent.payer_bank_name or "") or intent.payer_bank_name
+    intent.meta = {
+        **(intent.meta or {}),
+        "last_charge_success_payload": {
+            "reference": tx_ref,
+            "authorization": authorization,
+            "customer": payload.get("customer") if isinstance(payload.get("customer"), dict) else {},
+        },
+    }
+    db.session.commit()
+    return {
+        **body,
+        "intent_id": intent.id,
+        "transfer_total_amount": round(float(intent.total_amount or 0.0), 2),
+    }, status_code
 
 
 def _record_paystack_parent_admission_payment(payload, event="charge.success"):

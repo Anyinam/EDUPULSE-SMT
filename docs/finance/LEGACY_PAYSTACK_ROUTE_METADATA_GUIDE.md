@@ -6,10 +6,9 @@ This guide is retained for historical reference only.
 
 As of the current EduPulse SMT payment model:
 
-- new Paystack fee-route or dedicated-virtual-account setup is retired;
-- the relevant proprietor route-management endpoints have been removed from the active API;
-- the supported parent-payment flow is now a stable learner or family payment identity plus structured references; and
-- parents should use the school's approved payment channel with the matching structured reference.
+- the old proprietor-managed fee-route setup is retired;
+- historical route-management payloads can still exist in older audit trails; and
+- the active tracked-transfer setup is now the intent-based Paystack dedicated virtual account flow created from the student payment tracker.
 
 ## What Is Still True
 
@@ -17,19 +16,26 @@ As of the current EduPulse SMT payment model:
 - Historical route metadata may still matter when interpreting older payments or migration-era records.
 - Settlement to the school's approved bank destination remains part of the payment trail.
 
+## What Is No Longer Current
+
+- school users do not manually manage old fee-route records
+- documentation that says dedicated virtual accounts are retired is outdated
+- generic reference-only transfers to an ordinary school account should not be described as guaranteed auto-tracked unless the provider actually returns a usable webhook
+
 ## Current Recommended Payment Model
 
 Use the following active pattern instead:
 
 1. Configure the school's approved bank details and fee settings.
-2. Issue structured references per learner and fee purpose.
-3. Let parents pay through approved bank, card, USSD, or other supported phone-payment channels using that reference.
-4. Preserve the same amount and reference across supported payment channels.
-5. Preserve cash-at-school-office as an available fallback where the school uses it.
+2. Let EduPulse create the school's Paystack subaccount from those verified bank details.
+3. Issue structured references per learner and fee purpose.
+4. For reliable auto-tracked transfers, generate a tracked transfer account per learner fee reference.
+5. Let parents pay the displayed total into that tracked account.
+6. Preserve cash-at-school-office and manual confirmation as fallback paths.
 
 ## Migration Note
 
-If you are reviewing older documentation, screenshots, or payload examples that mention retired proprietor route-management endpoints, fee-route DVAs, or dedicated virtual accounts by payment type, treat those as legacy behavior, not the current supported setup path.
+If you are reviewing older documentation, screenshots, or payload examples that mention retired proprietor route-management endpoints, treat those as legacy behavior. The current DVA path is still active, but it is created on demand from the student payment tracker and stored as a `PaymentCollectionIntent`.
 
 ## Related Current References
 
@@ -40,5 +46,5 @@ If you are reviewing older documentation, screenshots, or payload examples that 
 
 ---
 
-**Last Updated:** June 14, 2026  
-**Version:** 2.2 (Legacy Reference Only)
+**Last Updated:** September 5, 2026  
+**Version:** 2.3 (Legacy Reference Clarified)

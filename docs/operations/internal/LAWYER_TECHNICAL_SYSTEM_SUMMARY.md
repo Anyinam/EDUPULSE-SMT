@@ -172,20 +172,20 @@ For school operations, the current system uses stable learner payment identity p
 4. The system classifies the payment using the structured reference and school payment rules
 5. Reconciliation logic can later recover successful transactions that were not fully written locally
 
-This is commercially important because it lets the platform automate payment classification and audit recovery without depending on new fee-route or split setup.
+This is commercially important because it lets the platform automate payment classification and audit recovery while also supporting tracked transfer collection through on-demand Paystack dedicated virtual accounts when higher reliability is required.
 
 ## 2. What “Paystack Split” Means In This System
 
-In EduPulse SMT, the Paystack “split” idea is now mostly a historical label for older routing-and-settlement context rather than an active product setup.
+In EduPulse SMT, Paystack split is no longer only historical metadata. It is also part of the active tracked-transfer settlement flow for student-fee collection.
 
 The relevant implementation concepts are:
 
-1. EduPulse now uses a stable learner payment identity plus structured references as the active categorization model
-2. Legacy route records may still exist and store route labels, provider markers, destination details, or other older routing identifiers
-3. Historical webhook payloads can still contain route-related context that is preserved in ledger metadata for audit interpretation
-4. Settlement or reconciliation metadata can still appear in older ledger metadata
+1. EduPulse uses a stable learner payment identity plus structured references as the active categorization model
+2. Tracked transfer accounts can be created on demand through Paystack dedicated virtual accounts
+3. Active tracked-transfer settlement uses Paystack split so the school subaccount receives the base fee amount and EduPulse retains the convenience-fee remainder in its main settlement account
+4. Legacy route records may still exist and store older routing identifiers for audit interpretation
 
-This means the software preserves historical route metadata where it already exists, but current payment classification is centered on structured references and school-controlled payment-category rules.
+This means the software preserves historical route metadata where it already exists, while current payment classification remains reference-driven and current reliable transfer collection uses intent-backed DVA routing.
 
 ## 3. Legacy Paystack Fee Route Account Logic
 
@@ -199,7 +199,7 @@ The platform can still contain legacy route records with fields such as:
 6. Mobile-money provider information
 7. Percentage charge metadata
 
-These records document a previously supported school-by-school payment-routing layer. As of the current product model, new fee-route virtual-account setup is retired and the reference-first flow is the supported behavior.
+These records document a previously supported school-by-school proprietor-managed payment-routing layer. That older route-management model is retired, but the current product still actively supports on-demand virtual-account setup through `PaymentCollectionIntent` for tracked learner-fee transfers.
 
 ## 4. Paystack Checkout Initialization
 

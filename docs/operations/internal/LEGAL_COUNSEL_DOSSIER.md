@@ -199,7 +199,7 @@ In EduPulse SMT, the Paystack “split” idea survives mainly as historical rou
 3. Historical payment initialization and webhook payloads may still carry route identifiers that remain relevant for audit interpretation
 4. Related settlement or reconciliation metadata may therefore still appear in older ledger records
 
-This means the software is not merely collecting one undifferentiated payment stream, but its currently supported categorization model is structured-reference based rather than active fee-route or split setup.
+This means the software is not merely collecting one undifferentiated payment stream. Its current model uses structured references for categorization and, where reliable transfer automation is needed, active Paystack dedicated virtual accounts with split-settlement metadata tied to stored collection intents.
 
 ### Webhook Security And Idempotency
 

@@ -131,9 +131,10 @@ Implementation status:
 Current implementation supports:
 - structured reference parsing as the default payment categorization model
 - structured references as the active parent-payment coordination model
+- on-demand Paystack dedicated virtual accounts for reliably tracked transfer payments
 - manual fallback where digital channels are unavailable
 
-Legacy route-account or DVA records may still exist, but new route setup is retired and should not be treated as the active operational model.
+Legacy proprietor-managed route-account records may still exist, but that older route-management model is retired. The active automatic transfer path is now the intent-based Paystack dedicated virtual account flow created on demand per learner fee reference.
 
 ### Recommended Medium-Term Target
 

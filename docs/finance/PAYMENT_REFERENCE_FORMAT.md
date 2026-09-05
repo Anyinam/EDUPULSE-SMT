@@ -1,223 +1,106 @@
-# 💰 Payment Reference Format Guide
+# Payment Reference Format Guide
 
-## Reference Parsing: How Parents Pay ✅
+## Purpose
 
-This is now the recommended default parent payment instruction across EduPulse SMT.
+Structured references are still the core identifier for student-fee categorization in EduPulse SMT, even when the school uses a Paystack tracked transfer account.
 
-Recommended product stance:
-- structured references should remain the default parent instruction across bank app, shortcode / USSD, and manual fallback flows
-- EduPulse should favor a stable student or family payment identity plus reference parsing rather than multiplying payment destinations unnecessarily
-- legacy Paystack route metadata may still appear in historical audit data, but new fee-route setup is retired
+The reference answers two questions:
+- which learner is this payment for?
+- what fee purpose is being paid?
 
-Instead of any configuration, **parents simply enter a formatted reference** when making MoMo or Bank transfers.
+## Active Reference Pattern
 
-Your system **automatically parses** this reference to extract:
-- Student Identifier (usually the student's code in EduPulse)
-- Payment Type (Tuition, Feeding, Uniform, Transport)
-- Payment Category (Term, Frequency, Item, etc.)
+Pattern:
 
----
+`STUDENT_CODE-CATEGORY-[OPTIONAL_DETAIL]`
 
-## Reference Format
+Examples:
+- `S001-T1` for tuition term 1
+- `S001-T2` for tuition term 2
+- `S001-T3` for tuition term 3
+- `S001-FEED-DAY` for daily feeding
+- `S001-FEED-WEK` for weekly feeding
+- `S001-FEED-MON` for monthly feeding
+- `S001-UNIF` for uniform
+- `S001-TRANS-DAY` for daily transport
+- `S001-TRANS-MON` for monthly transport
 
-**Pattern: `STUDENT_CODE-CATEGORY-[OPTIONAL_DETAIL]`**
+## Current Parent Payment Experience
 
-### Tuition References
-```
-S001-T1    → Student S001, Term 1 Tuition
-S001-T2    → Student S001, Term 2 Tuition
-S001-T3    → Student S001, Term 3 Tuition
-```
+The school can share any of these references in 3 ways:
 
-### Feeding References
-```
-S001-FEED-DAY   → Student S001, Daily Feeding
-S001-FEED-WEK   → Student S001, Weekly Feeding
-S001-FEED-MON   → Student S001, Monthly Feeding
-```
+1. Manual school-office payment instruction
+2. Tracked digital payment link
+3. Tracked transfer account generated from EduPulse
 
-The first segment is the learner's stable school identifier. The last segment tells EduPulse whether the feeding payment is for the daily, weekly, or monthly plan.
+When the school generates a tracked transfer account, the dedicated virtual account is bound to one reference. Parents do not need to understand Paystack. They only see a bank account to transfer to and the exact amount to pay.
 
-### Uniform References
-```
-S001-UNIF      → Student S001, Uniform Purchase
-```
+## What The Reference Still Controls
 
-### Transport References
-```
-S001-TRANS-DAY → Student S001, Daily Transport
-S001-TRANS-MON → Student S001, Monthly Transport
-```
+EduPulse uses the reference to derive:
+- learner identity
+- payment type
+- fee category metadata such as `term` or `frequency`
 
----
+Examples:
 
-## Real-World Example
-
-### Parent Makes a Transfer
-
-**Scenario:** Kofi's parent pays GH₵500 for Term 1 tuition
-
-**Parent's Steps (Using Any Bank App):**
-```
-FROM:        My Account (John's Account)
-TO:          0501234567 (School's MoMo Account)
-AMOUNT:      500 GH₵
-REFERENCE:   S001-T1    ← This is KEY!
-MESSAGE:     Kofi's Term 1 Tuition
-[Send]
-```
-
-### Bank/MoMo Sends Webhook
-
-Bank provider sends to your system:
-```json
-{
-  "status": "success",
-  "reference": "S001-T1",
-  "amount": 500,
-  "transaction_id": "BANK-GCB-2026-abc123"
-}
-```
-
-### Your System Auto-Processes
-
-```python
-# Step 1: Parse reference
-reference = "S001-T1"
-parsed = parse_payment_reference(reference)
-# Result: {
-#   "student_code": "S001",
-#   "payment_type": "Tuition",
-#   "category": {"term": "Term 1"}
-# }
-
-# Step 2: Find student
-student = Student.query.filter_by(student_code="S001").first()
-
-# Step 3: Create payment
-payment = Payment(
-    student_id=student.id,
-    payment_type="Tuition",
-    method="Bank_Auto",
-    amount=500,
-    payment_category={"term": "Term 1"},
-    status="Confirmed"
-)
-
-# Step 4: Update balance
-student.total_tuition_owed -= 500
-
-# Step 5: Log it
-log_action(..., action="BANK_TRANSFER_AUTO", ...)
-```
-
-### Result in System
-
-Database shows:
-```
-Payment {
-  student_id: 1 (Kofi),
-  payment_type: "Tuition",
-  amount: 500.00,
-  payment_category: {"term": "Term 1"},
-  method: "Bank_Auto",
-  status: "Confirmed"
-}
-```
-
----
-
-## Category Code Reference
-
-### Tuition (Handled by Terms)
-| Code | Maps To |
+| Reference | Meaning |
 |------|---------|
-| T1 | `{"term": "Term 1"}` |
-| T2 | `{"term": "Term 2"}` |
-| T3 | `{"term": "Term 3"}` |
+| `S001-T1` | `Tuition` with `{"term": "Term 1"}` |
+| `S001-FEED-MON` | `Feeding` with `{"frequency": "Monthly"}` |
+| `S001-UNIF` | `Uniform` |
+| `S001-TRANS-MON` | `Transport` with `{"frequency": "Monthly"}` |
 
-### Feeding (Handled by Frequency)
-| Code | Maps To |
-|------|---------|
-| FEED-DAY | `{"frequency": "Daily"}` |
-| FEED-WEK | `{"frequency": "Weekly"}` |
-| FEED-MON | `{"frequency": "Monthly"}` |
+## Important Distinction
 
-### Other
-| Code | Maps To |
-|------|---------|
-| UNIF | `{"item": "School Uniform"}` |
-| TRANS-MON | `{"frequency": "Monthly"}` (for transport) |
-| TRANS-DAY | `{"frequency": "Daily"}` (for transport) |
+Reference alone does not guarantee automatic tracking if money is sent to the school’s ordinary bank account and the provider does not return the reference reliably.
 
----
+For reliable automatic tracking, the school should generate the tracked transfer account for that reference. EduPulse then stores a `PaymentCollectionIntent` that maps:
+- student
+- reference
+- Paystack customer
+- dedicated account number
+- settlement split
 
-## Testing the Webhooks
+## Convenience Fee With References
 
-### Test Term 1 Tuition (Bank Transfer)
+The reference does not change the fee math. It only identifies the route.
 
-```bash
-curl -X POST http://localhost:5000/api/finance/webhook/bank \
-  -H "Content-Type: application/json" \
-  -H "X-Bank-Signature: <hmac_sha256_of_raw_body>" \
-  -d '{
-    "status": "success",
-    "reference": "S001-T1",
-    "amount": 500,
-    "transaction_id": "BANK-2026-001"
-  }'
-```
+For a tracked transfer account, EduPulse can show:
+- base fee amount
+- convenience fee amount
+- total transfer amount
 
-Response:
-```json
-{
-  "status": "recorded",
-  "student_id": 1,
-  "payment_type": "Tuition",
-  "category": {"term": "Term 1"}
-}
-```
+Example:
+- reference: `S001-T1`
+- base fee: `GH₵100`
+- convenience fee: `GH₵6`
+- parent transfer amount: `GH₵106`
 
-### Test Monthly Feeding (MoMo)
+The payment record will still categorize the fee under `S001-T1`, but only `GH₵100` is applied to the learner balance.
 
-```bash
-curl -X POST http://localhost:5000/api/finance/webhook/momo \
-  -H "Content-Type: application/json" \
-  -d '{
-    "status": "success",
-    "reference": "S002-FEED-MON",
-    "amount": 100,
-    "transaction_id": "MOMO-2026-002"
-  }'
-```
+## Parent Instructions
 
-Response:
-```json
-{
-  "status": "recorded",
-  "student_id": 2,
-  "payment_type": "Feeding",
-  "category": {"frequency": "Monthly"}
-}
-```
+Recommended wording:
 
-### Test Daily Feeding (MoMo)
+1. If a tracked transfer account has been generated, pay the exact total into that account.
+2. If the school shares only a normal bank or MoMo destination, include the reference exactly as shown.
+3. Keep the same reference when showing proof at the school office.
 
-```bash
-curl -X POST http://localhost:5000/api/finance/webhook/momo \
-  -H "Content-Type: application/json" \
-  -d '{
-    "status": "success",
-    "reference": "S001-FEED-DAY",
-    "amount": 5,
-    "transaction_id": "MOMO-2026-003"
-  }'
-```
+## Error Rules
 
-Response:
-```json
-{
-  "status": "recorded",
+| Reference | Outcome | Why |
+|-----------|---------|-----|
+| `S001-T1` | Valid | Learner and fee purpose are clear |
+| `S001-FEED-MON` | Valid | Learner and feeding frequency are clear |
+| `S001` | Limited fallback | Learner may be found, but fee purpose is less precise |
+| `S001-XYZ` | Weak | Unknown fee suffix, likely requires manual interpretation |
+
+## Related References
+
+- `docs/finance/PAYMENT_CATEGORIZATION.md`
+- `docs/finance/BANK_TRANSFER_INTEGRATION.md`
+- `backend/utils.py`
   "student_id": 1,
   "payment_type": "Feeding",
   "category": {"frequency": "Daily"}

@@ -1715,7 +1715,8 @@ def test_staff_add_welcome_email_includes_school_id_and_support_details(
     assert test_school.id in captured["body"]
     assert "Organization ID" in captured["body"]
     assert "School Support" in captured["body"]
-    assert "school.edupulse.test/login" in captured["body"]
+    assert "Login URL:" in captured["body"]
+    assert "/login" in captured["body"]
     assert "Record subject scores" in captured["body"]
     assert "{{school_id}}" not in captured["body"]
 

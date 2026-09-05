@@ -11,6 +11,8 @@ export default function StudentPaymentTracker() {
   const [paymentCodesError, setPaymentCodesError] = useState(null);
   const [linkLoadingCode, setLinkLoadingCode] = useState('');
   const [generatedLinks, setGeneratedLinks] = useState({});
+  const [transferRouteLoadingCode, setTransferRouteLoadingCode] = useState('');
+  const [generatedVirtualRoutes, setGeneratedVirtualRoutes] = useState({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState('all');
@@ -134,6 +136,53 @@ export default function StudentPaymentTracker() {
       alert(err.response?.data?.error || err.response?.data?.message || 'Unable to generate tracked payment link.');
     } finally {
       setLinkLoadingCode('');
+    }
+  };
+
+  const generateTrackedTransferRoute = async (paymentCode) => {
+    if (!selectedStudent || !paymentCode?.reference_code) {
+      return;
+    }
+
+    try {
+      setTransferRouteLoadingCode(paymentCode.reference_code);
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+      const res = await axios.post(
+        `/api/students/${selectedStudent.id}/payment-codes/${encodeURIComponent(paymentCode.reference_code)}/virtual-account`,
+        {},
+        { headers }
+      );
+
+      const route = res.data?.virtual_route;
+      if (!route?.account_number) {
+        alert(res.data?.message || 'Unable to generate a tracked transfer account.');
+        return;
+      }
+
+      setGeneratedVirtualRoutes((current) => ({
+        ...current,
+        [paymentCode.reference_code]: route,
+      }));
+      setPaymentCodes((current) => {
+        if (!current?.payment_codes) {
+          return current;
+        }
+        return {
+          ...current,
+          payment_codes: current.payment_codes.map((code) => (
+            (code.reference_code || code.code) === paymentCode.reference_code
+              ? (res.data?.payment_code || code)
+              : code
+          )),
+        };
+      });
+    } catch (err) {
+      alert(err.response?.data?.message || 'Unable to generate a tracked transfer account.');
+    } finally {
+      setTransferRouteLoadingCode('');
     }
   };
 
@@ -986,7 +1035,17 @@ export default function StudentPaymentTracker() {
                         <p className="mt-2 text-xs text-amber-800">Keep the learner reference in the transfer narration when paying into this account.</p>
                       </div>
                     )}
+                    {paymentCodes.payment_identity?.tracked_transfer_readiness_note ? (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                        <p className="font-semibold text-slate-800">Tracked transfer account setup</p>
+                        <p className="mt-1">{paymentCodes.payment_identity.tracked_transfer_readiness_note}</p>
+                      </div>
+                    ) : null}
                     {paymentCodes.payment_codes.map((code, idx) => (
+                      (() => {
+                        const referenceKey = code.reference_code || code.code;
+                        const virtualRoute = generatedVirtualRoutes[referenceKey] || code.virtual_route;
+                        return (
                       <div
                         key={idx}
                         className="flex items-center justify-between p-3 bg-white rounded border border-amber-200 text-sm"
@@ -995,11 +1054,24 @@ export default function StudentPaymentTracker() {
                           <p className="font-semibold text-slate-800">{code.fee_type}</p>
                           <p className="text-xs text-slate-600">Amount: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
-                          <p className="text-xs text-slate-700">Use the reference for school-office collection, or generate the tracked digital payment link below for automatic recording.</p>
+                          <p className="text-xs text-slate-700">Use the reference for school-office collection, generate a tracked transfer account for bank-app or USSD transfer, or use the tracked digital payment link below.</p>
 
                           <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
-                          {generatedLinks[code.reference_code || code.code] ? (
-                            <p className="mt-2 break-all text-xs text-emerald-700">Tracked link ready: {generatedLinks[code.reference_code || code.code]}</p>
+                          {generatedLinks[referenceKey] ? (
+                            <p className="mt-2 break-all text-xs text-emerald-700">Tracked link ready: {generatedLinks[referenceKey]}</p>
+                          ) : null}
+                          {virtualRoute ? (
+                            <div className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 p-2 text-xs text-cyan-900">
+                              <p className="font-semibold">Tracked transfer account ready</p>
+                              <p className="mt-1">Bank: {virtualRoute.bank_name || 'Paystack transfer account'}</p>
+                              <p>Account number: {virtualRoute.account_number}</p>
+                              {virtualRoute.account_name ? <p>Account name: {virtualRoute.account_name}</p> : null}
+                              <p className="mt-1">Base fee: GH₵ {Number(virtualRoute.base_amount || 0).toFixed(2)}</p>
+                              {Number(virtualRoute.convenience_fee_amount || 0) > 0 ? (
+                                <p>Convenience fee: GH₵ {Number(virtualRoute.convenience_fee_amount || 0).toFixed(2)}</p>
+                              ) : null}
+                              <p className="font-semibold">Transfer total: GH₵ {Number(virtualRoute.total_amount || 0).toFixed(2)}</p>
+                            </div>
                           ) : null}
                         </div>
                         <div className="flex items-center gap-2">
@@ -1015,17 +1087,26 @@ export default function StudentPaymentTracker() {
                           >
                             📋 Copy
                           </button>
+                          {paymentCodes.payment_identity?.supports_fee_route_dvas ? (
+                            <button
+                              onClick={() => generateTrackedTransferRoute(code)}
+                              disabled={transferRouteLoadingCode === referenceKey}
+                              className="px-2 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors text-xs font-bold disabled:bg-cyan-300"
+                            >
+                              {transferRouteLoadingCode === referenceKey ? 'Creating...' : 'Tracked Transfer'}
+                            </button>
+                          ) : null}
                           <button
                             onClick={() => generateTrackedPaymentLink(code)}
-                            disabled={linkLoadingCode === (code.reference_code || code.code)}
+                            disabled={linkLoadingCode === referenceKey}
                             className="px-2 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors text-xs font-bold disabled:bg-emerald-300"
                           >
-                            {linkLoadingCode === (code.reference_code || code.code) ? 'Generating...' : 'Tracked Link'}
+                            {linkLoadingCode === referenceKey ? 'Generating...' : 'Tracked Link'}
                           </button>
-                          {generatedLinks[code.reference_code || code.code] ? (
+                          {generatedLinks[referenceKey] ? (
                             <button
                               onClick={() => {
-                                navigator.clipboard.writeText(generatedLinks[code.reference_code || code.code]);
+                                navigator.clipboard.writeText(generatedLinks[referenceKey]);
                                 alert('Tracked payment link copied!');
                               }}
                               className="px-2 py-2 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors text-xs font-bold"
@@ -1035,10 +1116,12 @@ export default function StudentPaymentTracker() {
                           ) : null}
                         </div>
                       </div>
+                        );
+                      })()
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Preferred instruction: "Use the tracked payment link generated from EduPulse for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>. If the school accepts manual office payment, present the same reference there." 
+                    💬 Preferred instruction: "Use the tracked transfer account or tracked payment link generated from EduPulse for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>. If the school accepts manual office payment, present the same reference there." 
                   </p>
                 </div>
               )}

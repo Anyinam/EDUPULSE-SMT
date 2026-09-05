@@ -1,243 +1,140 @@
-# 💰 Granular Payment Categorization Guide
+# Payment Categorization Guide
 
-## No Configuration Needed With Providers ✅
+## Current Product Logic
 
-**You DO NOT need to configure anything with MoMo or Bank providers.** All categorization happens on your end!
+EduPulse SMT now uses a hybrid payment model:
 
-Payment providers (MoMo, Bank) don't care about your internal business logic. They just send:
-- Amount
-- Reference (stable learner identity plus payment purpose)
-- Transaction ID
-- Status
+1. Structured references remain the default identity for student fees.
+2. Paystack dedicated virtual accounts are used when the school wants automatic transfer tracking.
+3. Manual office entry still exists for cash or externally confirmed payments.
+4. Public parent admission payments use a separate Paystack checkout flow.
 
-**You handle the categorization** to track:
-- **Tuition**: Term 1, Term 2, Term 3
-- **Feeding**: Daily, Weekly, Monthly
-- **Uniforms**: Specific item + quantity
-- **Transport**: Route + frequency
+Categorization is still handled inside EduPulse. The difference is that automatic transfer tracking now has a first-class provider route instead of relying only on ordinary bank narration.
 
-Recommended stance:
-- use one stable learner or family payment identity as the default parent instruction
-- encode payment purpose in the structured reference
-- treat legacy Paystack route metadata as historical compatibility data, not an active setup requirement
+## The 4 Active Payment Paths
 
----
+### 1. Manual recorded payment
 
-## How It Works
+Route: `POST /api/finance/receive-payment`
 
-### 1️⃣ **Tuition Tracking by Term**
+Use this when staff are recording a confirmed school-office payment or an offline transfer that was verified outside the automated rails.
 
-When a parent pays for Term 1 tuition:
+What EduPulse stores:
+- `student_id`
+- `amount`
+- `payment_type`
+- `payment_category`
+- `reference_code` when available
+- external transaction reference if supplied
 
-```bash
-# Bank sends this
-curl -X POST http://localhost:5000/api/finance/webhook/bank \
-  -H "Content-Type: application/json" \
-  -H "X-Bank-Signature: <hmac_sha256_of_raw_body>" \
-  -d '{
-    "status": "success",
-    "reference": "S001-TUITION-T1",
-    "amount": 500.00,
-    "transaction_id": "BANK-GCB-2026-001",
-    "description": "Tuition - Term 1",
-    "category": {"term": "Term 1"}
-  }'
-```
+### 2. Imported parent payment notice
 
-**System Records:**
-```json
-{
-  "student_id": 1,
-  "payment_type": "Tuition",
-  "method": "Bank_Auto",
-  "amount": 500.00,
-  "payment_category": {"term": "Term 1"},  // 👈 Tracked!
-  "status": "Confirmed"
-}
-```
+Route: `POST /api/finance/import-parent-payment`
 
-**Benefits:**
-- Query all Term 1 payments: `Payment.query.filter_by(payment_type='Tuition').all()` then filter by category
-- Report: "Term 1 Revenue: GH₵5,000"
-- Balance: Track remaining tuition per term
+Use this when a school pastes a provider notice or SMS-like payment alert and EduPulse extracts the learner reference and external transaction id.
 
----
+### 3. Ordinary bank webhook tracking
 
-### 2️⃣ **Feeding by Frequency**
+Route: `POST /api/finance/webhook/bank`
 
-Daily or Monthly feeding payments:
+This still works when a bank or aggregator can send a signed webhook containing the structured learner reference. It is not the main guaranteed auto-tracking rail for general parent transfers unless the provider reliably sends that reference back.
 
-```bash
-# Parent pays for monthly feeding on MoMo
-curl -X POST http://localhost:5000/api/finance/receive-payment \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "student_id": 2,
-    "amount": 100.0,
-    "type": "Feeding",
-    "method": "MoMo",
-    "payment_category": {"frequency": "Monthly"}  # 👈 Specify frequency
-  }'
-```
+### 4. Tracked transfer account via Paystack DVA
 
-**System Records:**
-```json
-{
-  "student_id": 2,
-  "payment_type": "Feeding",
-  "method": "MoMo",
-  "amount": 100.00,
-  "payment_category": {"frequency": "Monthly"},  // 👈 Tracked!
-  "status": "Confirmed"
-}
-```
+Route: `POST /api/students/<student_id>/payment-codes/<reference_code>/virtual-account`
 
-**Query Examples:**
-```python
-# Get all daily feeding payments
-daily_payments = db.session.query(Payment).filter(
-    Payment.payment_type == 'Feeding',
-    Payment.payment_category['frequency'].astext == 'Daily'
-).all()
+This is now the main automatic transfer-tracking path for student fees.
 
-# Get monthly revenue
-monthly_feeding = db.session.query(db.func.sum(Payment.amount)).filter(
-    Payment.payment_type == 'Feeding',
-    Payment.payment_category['frequency'].astext == 'Monthly'
-).scalar()
-```
+EduPulse creates or reuses a `PaymentCollectionIntent` for that exact learner fee reference, provisions a Paystack dedicated virtual account, and waits for a `charge.success` webhook with `authorization.channel=dedicated_nuban`.
 
----
+When the webhook lands:
+- EduPulse matches the transfer back to the stored intent
+- only the school fee portion is posted against the student balance
+- convenience-fee metadata is preserved on the payment record
 
-### 3️⃣ **Uniform Tracking by Item**
+## Fee Categorization Still Uses References
 
-Which uniforms purchased and quantity:
+Even with tracked transfer accounts, the fee purpose is still identified by EduPulse’s reference scheme.
 
-```bash
-# Uniform payment with item details
-curl -X POST http://localhost:5000/api/finance/receive-payment \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "student_id": 1,
-    "amount": 300.0,
-    "type": "Uniform",
-    "method": "Cash",
-    "payment_category": {
-      "item": "School Uniform - Size Large",
-      "quantity": 2
-    }
-  }'
-```
+Examples:
+- `S001-T1` for tuition term 1
+- `S001-FEED-MON` for monthly feeding
+- `S001-UNIF` for uniform
+- `S001-TRANS-MON` for monthly transport
 
-**System Records:**
-```json
-{
-  "student_id": 1,
-  "payment_type": "Uniform",
-  "amount": 300.00,
-  "payment_category": {
-    "item": "School Uniform - Size Large",
-    "quantity": 2
-  },
-  "status": "Confirmed"
-}
-```
+The dedicated virtual account is created per payment reference. That means the route knows both:
+- who the learner is
+- what the payment is for
 
-**Business Use:**
-- "How many students bought Large uniforms?" → Count via payment_category
-- "Total uniform revenue this term?" → Sum all Uniform payment_type
-- Inventory sync: Link purchases to inventory levels
+## Convenience Fee Logic
 
----
+For tracked transfer accounts, EduPulse calculates:
+- `base_amount`: the real school fee
+- `estimated_provider_fee_amount`: estimated Paystack transfer-processing cost
+- `platform_fee_amount`: EduPulse platform fee
+- `convenience_fee_amount`: the total extra amount charged to the parent
+- `total_amount`: what the parent must transfer
 
-### 4️⃣ **Transport by Route**
+Example:
+- tuition: `GH₵100`
+- estimated provider fee: `GH₵3`
+- EduPulse platform fee: `GH₵3`
+- parent transfer total: `GH₵106`
 
-Track transport fees by route:
+When payment records are written, only `GH₵100` reduces the learner’s debt. The extra `GH₵6` remains in payment metadata for settlement and audit.
 
-```bash
-curl -X POST http://localhost:5000/api/finance/receive-payment \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "student_id": 3,
-    "amount": 150.0,
-    "type": "Transport",
-    "method": "Bank",
-    "payment_category": {
-      "route": "Ashongman - Accra",
-      "frequency": "Monthly"
-    }
-  }'
-```
+## Settlement Logic
 
----
+Tracked transfer accounts now use Paystack split settlement on the dedicated virtual account:
 
-## Auto-Detection (Zero Manual Work)
+- the school’s Paystack subaccount receives the fixed school fee amount
+- the remainder settles into EduPulse’s main Paystack settlement account
+- Paystack charges are borne by the main account in the current setup
 
-If the bank description says "Tuition - Term 1", the system auto-detects:
+That means the school receives the base fee amount while EduPulse retains the convenience-fee remainder, from which Paystack also deducts its own charge.
 
-```python
-# Bank sends: {"description": "Tuition - Term 1"}
-# System auto-extracts: {"term": "Term 1"}
-```
+## School Setup Requirement
 
-**Auto-Detection Examples:**
-| Description | Auto-Category |
-|-------------|----------|
-| "Tuition - Term 1" | `{"term": "Term 1"}` |
-| "Tuition - Term 2" | `{"term": "Term 2"}` |
-| "Feeding - Monthly" | `{"frequency": "Monthly"}` |
-| "School Uniform Payment" | `{"item": "School Uniform"}` |
-| "Transport - Route 5" | `{"route": "Route 5"}` |
+Tracked transfer accounts are only available after the school saves verified bank details and EduPulse successfully creates the school’s Paystack subaccount.
 
-No extra configuration needed! Bank just mentions the details in description.
+Without that subaccount:
+- the tracked transfer button should not be offered as a ready rail
+- EduPulse returns a readiness error if the route is forced from the API
 
----
+## Main Data Structures
 
-## Database Schema
+`Payment.payment_category` can include:
+- learner fee descriptors like `term`, `frequency`, `route`, or `item`
+- `reference_code`
+- `collection_channel`
+- `payment_collection_intent_id`
+- `transfer_total_amount`
+- `convenience_fee_amount`
+- `platform_fee_amount`
+- `estimated_provider_fee_amount`
+- `settlement_mode`
+- `split_code`
 
-The `payment_category` field:
+`PaymentCollectionIntent` stores the provider route itself:
+- dedicated account number
+- customer code
+- school subaccount code
+- split code
+- base amount
+- convenience fee
+- total amount
+- expiry and payment status
 
-```python
-# JSON field in Payment model
-payment_category = db.Column(db.JSON, default={})
+## Operational Rule
 
-# Examples of valid data:
-{
-  "term": "Term 1"                                    # Tuition
-}
-{
-  "frequency": "Monthly"                              # Feeding
-}
-{
-  "item": "School Uniform - Size Large",              # Uniform
-  "quantity": 2
-}
-{
-  "route": "Ashongman",                               # Transport
-  "frequency": "Monthly"
-}
-```
+If you need reliable automatic tracking for transfer-style parent payments, use the tracked transfer account. If parents send money to the ordinary school bank account without a provider-backed tracked route, automatic identification depends on whatever webhook or notice the bank actually returns.
 
-## Frontend Integration
+## Related References
 
-When entering payment manually, show dropdowns:
-
-```jsx
-// Tuition payment
-<select name="term">
-  <option value="Term 1">Term 1</option>
-  <option value="Term 2">Term 2</option>
-  <option value="Term 3">Term 3</option>
-</select>
-
-// Feeding payment
-<select name="frequency">
-  <option value="Daily">Daily</option>
-  <option value="Weekly">Weekly</option>
-  <option value="Monthly">Monthly</option>
+- `docs/finance/PAYMENT_REFERENCE_FORMAT.md`
+- `docs/finance/BANK_TRANSFER_INTEGRATION.md`
+- `docs/finance/PAYMENT_INTEGRATION.md`
+- `backend/routes.py`
 </select>
 
 // Uniform payment
