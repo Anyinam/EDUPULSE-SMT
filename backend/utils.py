@@ -23,7 +23,7 @@ def _email_provider():
     return (os.getenv("EMAIL_PROVIDER") or "smtp").strip().lower()
 
 
-def _send_email_via_ses(to_email, subject, body, attachments=None):
+def _send_email_via_ses(to_email, subject, body, attachments=None, html_body=None):
     import boto3
 
     region_name = (os.getenv("SES_REGION") or os.getenv("AWS_REGION") or "us-east-1").strip()
@@ -42,6 +42,8 @@ def _send_email_via_ses(to_email, subject, body, attachments=None):
         msg["From"] = sender
         msg["To"] = to_email
         msg.set_content(body)
+        if html_body:
+            msg.add_alternative(html_body, subtype="html")
 
         for file_path in attachments:
             if not os.path.exists(file_path):
@@ -70,22 +72,37 @@ def _send_email_via_ses(to_email, subject, body, attachments=None):
         Destination={"ToAddresses": [to_email]},
         Message={
             "Subject": {"Data": subject, "Charset": "UTF-8"},
-            "Body": {"Text": {"Data": body, "Charset": "UTF-8"}},
+            "Body": {
+                "Text": {"Data": body, "Charset": "UTF-8"},
+                **(
+                    {"Html": {"Data": html_body, "Charset": "UTF-8"}}
+                    if html_body
+                    else {}
+                ),
+            },
         },
     )
     return True
 
 
-def send_email_notification(to_email, subject, body, attachments=None):
+def send_email_notification(to_email, subject, body, attachments=None, html_body=None):
     """Send actual email notification to staff via Flask-Mail."""
     try:
         if _email_provider() == "ses":
-            return _send_email_via_ses(to_email, subject, body, attachments=attachments)
+            return _send_email_via_ses(
+                to_email,
+                subject,
+                body,
+                attachments=attachments,
+                html_body=html_body,
+            )
 
         from flask_mail import Message
         from backend.api.api import mail
 
         msg = Message(subject=subject, recipients=[to_email], body=body)
+        if html_body:
+            msg.html = html_body
 
         if attachments:
             for file_path in attachments:
@@ -119,20 +136,38 @@ def send_email_notification(to_email, subject, body, attachments=None):
         return False
 
 
-def send_email_notification_async(to_email, subject, body, attachments=None):
+def send_email_notification_async(to_email, subject, body, attachments=None, html_body=None):
     """Dispatch email work off the request path when an app context is available."""
     try:
         app = current_app._get_current_object()
     except RuntimeError:
-        return send_email_notification(to_email, subject, body, attachments=attachments)
+        return send_email_notification(
+            to_email,
+            subject,
+            body,
+            attachments=attachments,
+            html_body=html_body,
+        )
 
     if app.config.get("TESTING"):
-        return send_email_notification(to_email, subject, body, attachments=attachments)
+        return send_email_notification(
+            to_email,
+            subject,
+            body,
+            attachments=attachments,
+            html_body=html_body,
+        )
 
     def _deliver():
         with app.app_context():
             try:
-                send_email_notification(to_email, subject, body, attachments=attachments)
+                send_email_notification(
+                    to_email,
+                    subject,
+                    body,
+                    attachments=attachments,
+                    html_body=html_body,
+                )
             except Exception:
                 logger.exception("Async email delivery failed for %s", to_email)
 

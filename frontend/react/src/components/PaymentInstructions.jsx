@@ -71,7 +71,12 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
   const paymentCodes = payload.payment_codes || [];
   const admissionFee = payload.admission_fee || {};
   const schoolPaymentAccount = payload.school_payment_account || {};
-  const hasBankDetails = Boolean(schoolPaymentAccount.bank_name && schoolPaymentAccount.bank_account);
+  const hasBankDetails = Boolean(
+    schoolPaymentAccount.bank_name
+    || schoolPaymentAccount.bank_account
+    || schoolPaymentAccount.bank_account_name
+    || schoolPaymentAccount.bank_branch
+  );
   const totalDigitalAmount = paymentCodes.reduce((sum, item) => sum + Number(item.total_amount || 0), 0);
   const totalCashAmount = paymentCodes.reduce((sum, item) => sum + Number(item.cash_amount || 0), 0);
   const rails = {
@@ -130,7 +135,7 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">How To Pay</p>
               <ol className="mt-3 space-y-2 text-sm text-slate-700">
                 <li>1. Choose the fee below and copy the exact reference shown.</li>
-                <li>2. Pay with bank app, shortcode, or the school office fallback channel.</li>
+                <li>2. Pay with bank transfer, bank app, USSD, or the school office fallback channel.</li>
                 <li>3. Keep the learner code {identity.stable_payment_identity || payload.student_code} in the payment narration.</li>
               </ol>
             </div>
@@ -139,8 +144,8 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
               <div className="rounded-[1.75rem] border border-cyan-100 bg-cyan-50 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">School Bank Account</p>
                 <div className="mt-3 space-y-2 text-sm text-slate-700">
-                  <p><strong>Bank:</strong> {schoolPaymentAccount.bank_name}</p>
-                  <p><strong>Account Number:</strong> {schoolPaymentAccount.bank_account}</p>
+                  {schoolPaymentAccount.bank_name ? <p><strong>Bank:</strong> {schoolPaymentAccount.bank_name}</p> : null}
+                  {schoolPaymentAccount.bank_account ? <p><strong>Account Number:</strong> {schoolPaymentAccount.bank_account}</p> : null}
                   {schoolPaymentAccount.bank_account_name ? <p><strong>Account Name:</strong> {schoolPaymentAccount.bank_account_name}</p> : null}
                   {schoolPaymentAccount.bank_branch ? <p><strong>Branch:</strong> {schoolPaymentAccount.bank_branch}</p> : null}
                   <p className="pt-1 text-xs text-cyan-800">Use the payment reference below in the bank transfer narration.</p>
@@ -220,7 +225,7 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
               <div className="rounded-3xl border border-slate-200 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Digital Channel</p>
                 <p className="mt-2 text-lg font-semibold text-slate-900">Phone Payment</p>
-                <p className="mt-1 text-sm text-slate-500">Bank app, card, USSD, or the school's approved phone channel.</p>
+                <p className="mt-1 text-sm text-slate-500">Bank transfer, bank app, USSD, or the school's approved phone channel.</p>
               </div>
 
               <div className="rounded-3xl border border-slate-200 p-4">

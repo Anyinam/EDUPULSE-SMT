@@ -155,4 +155,72 @@ describe('StudentPaymentTracker', () => {
 
     expect(screen.getByText(/verification sits above subscription access for payment operations/i)).toBeInTheDocument();
   });
+
+  it('filters the student list by class before selection', async () => {
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              name: 'Ama Mensah',
+              student_code: 'S001',
+              current_class: 'JHS 1',
+              parent_name: 'Kojo Mensah',
+              parent_phone: '0240000000',
+            },
+            {
+              id: 2,
+              name: 'Yaw Owusu',
+              student_code: 'S002',
+              current_class: 'JHS 2',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/school/fees') {
+        return Promise.resolve({
+          data: {
+            tuition_fee: 120,
+            terminal_report_fee: 10,
+            feeding_fee: 0,
+            uniform_fee: 0,
+            transport_fee: 0,
+          },
+        });
+      }
+
+      if (url === '/api/students/1/payments' || url === '/api/students/2/payments') {
+        return Promise.resolve({ data: [] });
+      }
+
+      if (url === '/api/students/1/payment-codes' || url === '/api/students/2/payment-codes') {
+        return Promise.resolve({
+          data: {
+            student_name: 'Ama Mensah',
+            student_code: 'S001',
+            payment_codes: [],
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    render(<StudentPaymentTracker />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
+      expect(screen.getByText('Yaw Owusu')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByDisplayValue('All Classes'), {
+      target: { value: 'JHS 2' },
+    });
+
+    expect(screen.queryByText('Ama Mensah')).not.toBeInTheDocument();
+    expect(screen.getByText('Yaw Owusu')).toBeInTheDocument();
+    expect(screen.getByText(/1 student found in JHS 2/i)).toBeInTheDocument();
+  });
 });

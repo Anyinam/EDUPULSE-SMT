@@ -5,7 +5,7 @@ Tests authentication, grade entry, and payment functionality.
 
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -1262,6 +1262,54 @@ class TestAdmissionsEndpoints:
         assert response.status_code == 200
         payload = json.loads(response.data)
         assert any("Invalid class_assigned" in err for err in payload.get("errors", []))
+
+    def test_bulk_admit_allows_growth_during_active_premium_trial(self, client, app):
+        """Active premium trials should not hit paid-seat billing blocks during bulk admissions."""
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import School, Student, User, db
+
+            school = School.query.get("TEST-001")
+            school.subscription_plan = "Free Tier"
+            school.trial_plan = "Premium"
+            school.trial_end_date = datetime.now(timezone.utc) + timedelta(days=5)
+            school.is_trial_active = True
+
+            existing = Student.query.filter_by(school_id="TEST-001", status="Active").count()
+            for index in range(existing + 1, 52):
+                db.session.add(
+                    Student(
+                        school_id="TEST-001",
+                        first_name=f"Trial{index}",
+                        surname="Student",
+                        name=f"Trial Student {index}",
+                        student_code=f"TR{index:03d}",
+                        current_class="JHS 1",
+                        status="Active",
+                    )
+                )
+            db.session.commit()
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        csv_content = (
+            "First Name,Surname,Class Assigned,Gender,Guardian Name,Parent Email\n"
+            "Ada,Lovelace,JHS 1,Female,Charles Babbage,ada.parent@example.com\n"
+        )
+        data = {"file": (io.BytesIO(csv_content.encode("utf-8")), "students.csv")}
+        response = client.post(
+            "/api/admissions/bulk-upload",
+            data=data,
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        assert "Successfully admitted 1 students." == payload.get("message")
+        assert not payload.get("errors")
 
     def test_receive_payment_missing_student(self, client, app):
         """Test payment for non-existent student."""

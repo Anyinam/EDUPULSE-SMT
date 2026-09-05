@@ -1274,6 +1274,12 @@ def _get_billing_growth_block(school, projected_active_students=None, assume_no_
         return None
 
     effective_plan = get_effective_plan(school)
+    trial_end = getattr(school, "trial_end_date", None)
+    if trial_end and getattr(trial_end, "tzinfo", None) is None:
+        trial_end = trial_end.replace(tzinfo=timezone.utc)
+    if getattr(school, "trial_plan", None) and trial_end and get_utc_now() < trial_end:
+        return None
+
     active_students = _count_active_students_for_billing(school.id)
     projected = active_students if projected_active_students is None else max(0, int(projected_active_students))
 
@@ -1646,6 +1652,13 @@ def calculate_prorated_admission_charge(school, num_new_students, effective_plan
         'charge_reason': '',
         'invoice_sent': False,
     }
+
+    trial_end = getattr(school, 'trial_end_date', None)
+    if trial_end and getattr(trial_end, 'tzinfo', None) is None:
+        trial_end = trial_end.replace(tzinfo=timezone.utc)
+    if getattr(school, 'trial_plan', None) and trial_end and get_utc_now() < trial_end:
+        result['charge_reason'] = 'Active premium trial - no charge'
+        return result
     
     # Free Tier and paid plans with no active term: no charge
     if effective_plan == 'Free Tier':
@@ -3782,7 +3795,7 @@ def _build_student_payment_instruction_payload(student, school_id):
             ),
             "instructions": (
                 f"Use the stable learner payment identity {student.student_code} with reference {code}. "
-                + "Phone payments should use the structured reference through bank app, card, USSD, or the school's approved digital channel. "
+                + "Phone payments should use the structured reference through bank transfer, bank app, USSD, or the school's approved digital channel. "
                 + f"The amount to pay for this fee is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
             ),
         })
@@ -3820,7 +3833,7 @@ def _build_student_payment_instruction_payload(student, school_id):
                 "is_scholarship_fee": bool(student.is_on_scholarship and student.scholarship_covers_feeding),
                 "instructions": (
                     f"Use reference {reference_code} for the {frequency_label.lower()} feeding plan. "
-                    + "Phone payments should use the structured reference through bank app, card, USSD, or the school's approved digital channel. "
+                    + "Phone payments should use the structured reference through bank transfer, bank app, USSD, or the school's approved digital channel. "
                     + f"The amount to pay for this plan is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
                 ),
             })
@@ -4727,22 +4740,27 @@ def platform_download_school_verification_document(school_id, document_id):
     if not operator:
         return jsonify({"message": "Unauthorized"}), 401
 
-    verification = (
+    verifications = (
         SchoolVerification.query.filter_by(school_id=school_id)
         .order_by(SchoolVerification.id.desc())
-        .first()
+        .all()
     )
-    if not verification:
+    if not verifications:
         return jsonify({"message": "No verification profile found for school"}), 404
 
-    matching_document = next(
-        (
-            item
-            for item in (verification.documents or [])
-            if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
-        ),
-        None,
-    )
+    matching_document = None
+    for verification in verifications:
+        matching_document = next(
+            (
+                item
+                for item in (verification.documents or [])
+                if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
+            ),
+            None,
+        )
+        if matching_document:
+            break
+
     if not matching_document:
         return jsonify({"message": "Document not found"}), 404
 

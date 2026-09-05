@@ -261,6 +261,57 @@ def test_platform_can_download_school_verification_document_from_legacy_storage_
     assert response.data == expected_bytes
 
 
+def test_platform_can_download_document_from_older_verification_record(client, app, tmp_path):
+    platform_user = PlatformUser(username="platform-reviewer-2", email="reviewer-2@example.com")
+    platform_user.set_password("secret123")
+
+    school = School(id="DLG2", name="Older Verification Download School")
+    stored_filename = "older_verification_certificate.pdf"
+    older_verification = SchoolVerification(
+        school_id=school.id,
+        status="pending",
+        risk_tier="medium",
+        legal_name="Older Verification Download School",
+        organization_id=school.id,
+        documents=[
+            {
+                "document_id": "doc-older-1",
+                "stored_filename": stored_filename,
+                "original_filename": "certificate.pdf",
+            }
+        ],
+        submitted_by_user_id=1,
+    )
+    newer_verification = SchoolVerification(
+        school_id=school.id,
+        status="verified",
+        risk_tier="low",
+        legal_name="Older Verification Download School",
+        organization_id=school.id,
+        documents=[],
+        submitted_by_user_id=1,
+    )
+
+    db.session.add_all([platform_user, school, older_verification, newer_verification])
+    db.session.commit()
+
+    legacy_root = tmp_path / "school-verification-documents"
+    legacy_root.mkdir(parents=True, exist_ok=True)
+    expected_bytes = b"older verification document"
+    with open(legacy_root / stored_filename, "wb") as handle:
+        handle.write(expected_bytes)
+
+    app.config["SCHOOL_VERIFICATION_DOCUMENT_STORAGE_DIR"] = str(legacy_root)
+
+    response = client.get(
+        f"/api/platform/compliance/schools/{school.id}/documents/doc-older-1/download",
+        headers=_platform_headers(app, platform_user.id),
+    )
+
+    assert response.status_code == 200
+    assert response.data == expected_bytes
+
+
 def test_attendance_summary_reports_pending_until_attendance_is_marked(client, app, test_school, test_proprietor, test_students):
     response = client.get(
         "/api/headmaster/attendance-summary",

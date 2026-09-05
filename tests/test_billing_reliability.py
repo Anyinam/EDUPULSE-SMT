@@ -1417,6 +1417,52 @@ def test_prorated_admission_charge_uses_actual_term_length(client, app, db, test
         assert meta.get("days_in_term") == 121
 
 
+def test_prorated_admission_charge_skips_active_premium_trial(client, app, db, test_school, test_proprietor):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm, LedgerEntry, Student
+    from backend.routes import calculate_prorated_admission_charge
+
+    with app.app_context():
+        today = date.today()
+        test_school.subscription_plan = "Free Tier"
+        test_school.trial_plan = "Premium"
+        test_school.trial_end_date = datetime.now(timezone.utc) + timedelta(days=5)
+        test_school.is_trial_active = True
+
+        term = AcademicTerm(
+            school_id=test_school.id,
+            name="Term 1",
+            academic_year="2025/2026",
+            start_date=today - timedelta(days=45),
+            end_date=today + timedelta(days=75),
+            is_active=True,
+            created_by=test_proprietor.id,
+        )
+        db.session.add(term)
+
+        existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
+        to_add = max(0, 35 - existing)
+        for idx in range(to_add):
+            db.session.add(
+                Student(
+                    school_id=test_school.id,
+                    first_name=f"TrialExtra{idx}",
+                    surname="Test",
+                    name=f"Trial Extra {idx}",
+                    student_code=f"TX{idx:04d}",
+                    current_class="JHS 1",
+                    status="Active",
+                )
+            )
+        db.session.commit()
+
+        result = calculate_prorated_admission_charge(test_school, 1, "Premium")
+        assert result["prorated_charge"] == 0.0
+        assert result["charge_reason"] == "Active premium trial - no charge"
+        assert LedgerEntry.query.filter_by(school_id=test_school.id, tx_type="subscription_prorated").count() == 0
+
+
 def test_prorated_admission_charge_reuses_same_term_vacated_seat(client, app, db, test_school, test_proprietor):
     from datetime import date
 

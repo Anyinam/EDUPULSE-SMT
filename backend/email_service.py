@@ -3,15 +3,44 @@ Email Service for EduPulse
 Handles usage reports, billing alerts, and trial notifications
 """
 
+import os
+
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from backend.api.models import db, School, Student, Payment, User
 from backend.subscription_state import get_trial_days_remaining, normalize_utc_datetime
 from backend.subscription_features import PRICING
-import os
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import smtplib
+from backend.utils import send_email_notification
+
+
+def _html_to_plain_text(html_body):
+    plain_text = html_body.replace('<br>', '\n').replace('<br/>', '\n').replace('<br />', '\n')
+    plain_text = plain_text.replace('</p>', '\n\n').replace('</li>', '\n')
+    plain_text = plain_text.replace('<li>', '- ')
+
+    in_tag = False
+    output = []
+    for char in plain_text:
+        if char == '<':
+            in_tag = True
+            continue
+        if char == '>':
+            in_tag = False
+            continue
+        if not in_tag:
+            output.append(char)
+
+    return '\n'.join(line.rstrip() for line in ''.join(output).splitlines() if line.strip())
+
+
+def _deliver_html_email(to_email, subject, html_body):
+    plain_text = _html_to_plain_text(html_body)
+    return send_email_notification(
+        to_email,
+        subject,
+        plain_text,
+        html_body=html_body,
+    )
 
 
 def get_school_usage_stats(school_id, month=None, year=None):
@@ -363,42 +392,9 @@ def send_usage_report_email(school_id, month=None, year=None):
     if not stats or not stats.get('proprietor_email'):
         return False
     
-    # Render HTML email
     html_body = render_usage_report_html(stats)
-    
-    # Create email message
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"📊 {stats['school_name']}: Your {stats['report_month']} Usage Report"
-    msg['From'] = os.getenv('SMTP_FROM_EMAIL', 'reports@edupulse.com')
-    msg['To'] = stats['proprietor_email']
-    
-    # Attach HTML body
-    html_part = MIMEText(html_body, 'html')
-    msg.attach(html_part)
-    
-    # Send email (configure SMTP settings in production)
-    try:
-        smtp_host = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-        smtp_port = int(os.getenv('SMTP_PORT', 587))
-        smtp_user = os.getenv('SMTP_USER')
-        smtp_password = os.getenv('SMTP_PASSWORD')
-        
-        if not smtp_user or not smtp_password:
-            print(f"⚠️  SMTP credentials not configured. Email would be sent to: {stats['proprietor_email']}")
-            print(f"   Subject: {msg['Subject']}")
-            return True  # Return True in dev/test mode
-        
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        
-        print(f"✅ Usage report sent to {stats['proprietor_email']}")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to send usage report: {str(e)}")
-        return False
+    subject = f"📊 {stats['school_name']}: Your {stats['report_month']} Usage Report"
+    return _deliver_html_email(stats['proprietor_email'], subject, html_body)
 
 
 def send_capacity_alert_email(school_id):
@@ -450,33 +446,7 @@ def send_capacity_alert_email(school_id):
     </html>
     """
     
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = os.getenv('SMTP_FROM_EMAIL', 'alerts@edupulse.com')
-    msg['To'] = proprietor.email
-    msg.attach(MIMEText(html_body, 'html'))
-    
-    try:
-        smtp_host = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-        smtp_port = int(os.getenv('SMTP_PORT', 587))
-        smtp_user = os.getenv('SMTP_USER')
-        smtp_password = os.getenv('SMTP_PASSWORD')
-        
-        if not smtp_user or not smtp_password:
-            print(f"⚠️  Would send capacity alert to: {proprietor.email}")
-            return True
-        
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        
-        print(f"✅ Capacity alert sent to {proprietor.email}")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to send capacity alert: {str(e)}")
-        return False
+    return _deliver_html_email(proprietor.email, subject, html_body)
 
 
 def send_trial_expiry_reminder(school_id, days_until_expiry):
@@ -530,33 +500,7 @@ def send_trial_expiry_reminder(school_id, days_until_expiry):
     </html>
     """
     
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = os.getenv('SMTP_FROM_EMAIL', 'trials@edupulse.com')
-    msg['To'] = proprietor.email
-    msg.attach(MIMEText(html_body, 'html'))
-    
-    try:
-        smtp_host = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-        smtp_port = int(os.getenv('SMTP_PORT', 587))
-        smtp_user = os.getenv('SMTP_USER')
-        smtp_password = os.getenv('SMTP_PASSWORD')
-        
-        if not smtp_user or not smtp_password:
-            print(f"⚠️  Would send trial reminder to: {proprietor.email}")
-            return True
-        
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        
-        print(f"✅ Trial expiry reminder sent to {proprietor.email}")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to send trial reminder: {str(e)}")
-        return False
+    return _deliver_html_email(proprietor.email, subject, html_body)
 
 
 # Scheduled job functions (to be called by Celery/cron)

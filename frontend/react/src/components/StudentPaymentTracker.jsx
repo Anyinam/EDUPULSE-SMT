@@ -11,6 +11,7 @@ export default function StudentPaymentTracker() {
   const [paymentCodesError, setPaymentCodesError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedClass, setSelectedClass] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // all, paid, pending, overdue
   const { branding } = useBranding();
 
@@ -108,7 +109,7 @@ export default function StudentPaymentTracker() {
     const bankAccount = schoolPaymentAccount.bank_account || '';
     const bankAccountName = schoolPaymentAccount.bank_account_name || '';
     const bankBranch = schoolPaymentAccount.bank_branch || '';
-    const hasBankDetails = Boolean(bankName && bankAccount);
+    const hasBankDetails = Boolean(bankName || bankAccount || bankAccountName || bankBranch);
 
     const totalCashAmount = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.base_amount || code.cash_amount || 0), 0);
 
@@ -376,7 +377,7 @@ export default function StudentPaymentTracker() {
                   <tr>
                     <td><strong>${code.fee_type}</strong></td>
                     <td><span class="code-column">${code.reference_code || code.code}</span></td>
-                    <td><span style="color:#475569;">Use bank narration, card, USSD, or present this reference at the school office</span></td>
+                    <td><span style="color:#475569;">Use bank transfer narration, bank app, USSD, or present this reference at the school office</span></td>
                     <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
                   </tr>
                 `).join('')}
@@ -397,13 +398,13 @@ export default function StudentPaymentTracker() {
                 <div class="payment-method-title">${code.fee_type}</div>
                 <div class="payment-method-content">
                   <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
-                  <p><strong>Use With:</strong> Bank transfer narration, card payment, USSD / shortcode narration, or school-office payment entry.</p>
-                  ${hasBankDetails ? `<p><strong>School Bank Account:</strong> ${bankName} • ${bankAccount}${bankAccountName ? ` • ${bankAccountName}` : ''}</p>` : ''}
+                  <p><strong>Use With:</strong> Bank transfer narration, bank app, USSD / shortcode narration, or school-office payment entry.</p>
+                  ${hasBankDetails ? `<p><strong>School Bank Account:</strong> ${[bankName, bankAccount, bankAccountName].filter(Boolean).join(' • ')}${bankBranch ? ` • ${bankBranch}` : ''}</p>` : ''}
                   <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> That same reference should be used in payment narration or presented at the school office.</p>
                   <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                   <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
                   <p style="margin-top: 8px;"><strong>Payment Flow:</strong></p>
-                  <p style="margin-left: 12px;">1) Open the approved bank app, card checkout, or USSD payment flow.</p>
+                  <p style="margin-left: 12px;">1) Open the approved bank app, bank transfer, or USSD payment flow.</p>
                   <p style="margin-left: 12px;">2) Enter the amount shown for this fee.</p>
                   <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration where possible, then confirm payment.</p>
                 </div>
@@ -690,25 +691,36 @@ export default function StudentPaymentTracker() {
     };
   };
 
+  const classOptions = Array.from(
+    new Set(
+      students
+        .map((student) => (student.current_class || '').trim())
+        .filter(Boolean)
+    )
+  ).sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }));
+
   const filteredStudents = students.filter(student => {
     const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (student.student_code && student.student_code.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    if (filterStatus === 'all') return matchesSearch;
-    
-    if (matchesSearch && selectedStudent?.id === student.id) {
-      // Check payment status
-      const feeTypes = ['Tuition', 'Feeding', 'Uniform', 'Transport'];
-      const paymentStatus = feeTypes.map(type => calculatePaymentSummary(student, type));
-      
-      if (filterStatus === 'paid') {
-        return paymentStatus.some(p => p.isPaid);
-      } else if (filterStatus === 'pending') {
-        return paymentStatus.some(p => p.isPending);
-      }
+    const studentClass = (student.current_class || '').trim();
+    const matchesClass = selectedClass === 'all' || studentClass === selectedClass;
+
+    if (!matchesSearch || !matchesClass) {
+      return false;
     }
     
-    return matchesSearch;
+    if (filterStatus === 'all') return true;
+    
+    const feeTypes = ['Tuition', 'Feeding', 'Uniform', 'Transport'];
+    const paymentStatus = feeTypes.map(type => calculatePaymentSummary(student, type));
+
+    if (filterStatus === 'paid') {
+      return paymentStatus.some(p => p.isPaid);
+    } else if (filterStatus === 'pending') {
+      return paymentStatus.some(p => p.isPending);
+    }
+    
+    return true;
   });
 
   const feeTypes = ['Tuition', 'Feeding', 'Uniform', 'Transport'];
@@ -743,6 +755,18 @@ export default function StudentPaymentTracker() {
         </div>
         <div>
           <select
+            value={selectedClass}
+            onChange={(e) => setSelectedClass(e.target.value)}
+            className="w-full p-3 border rounded-lg bg-slate-50"
+          >
+            <option value="all">All Classes</option>
+            {classOptions.map((className) => (
+              <option key={className} value={className}>{className}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             className="w-full p-3 border rounded-lg bg-slate-50"
@@ -760,9 +784,17 @@ export default function StudentPaymentTracker() {
         <div className="lg:col-span-1 border rounded-lg bg-slate-50 max-h-96 overflow-y-auto">
           <div className="p-4 border-b sticky top-0 bg-slate-50">
             <p className="text-sm font-bold text-slate-700">Select Student</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {filteredStudents.length} student{filteredStudents.length === 1 ? '' : 's'} found
+              {selectedClass !== 'all' ? ` in ${selectedClass}` : ''}
+            </p>
           </div>
           <div>
-            {filteredStudents.slice(0, 50).map((student) => (
+            {filteredStudents.length === 0 ? (
+              <div className="p-4 text-sm text-slate-500">
+                No students match this search or class filter.
+              </div>
+            ) : filteredStudents.slice(0, 100).map((student) => (
               <button
                 key={student.id}
                 onClick={() => handleSelectStudent(student)}
@@ -773,9 +805,14 @@ export default function StudentPaymentTracker() {
                 }`}
               >
                 <p className="font-semibold text-slate-800">{student.name}</p>
-                <p className="text-xs text-slate-600">{student.student_code || student.current_class || 'No class'}</p>
+                <p className="text-xs text-slate-600">{student.student_code || 'No ID'} • {student.current_class || 'No class'}</p>
               </button>
             ))}
+            {filteredStudents.length > 100 && (
+              <div className="p-4 text-xs text-slate-500 border-t">
+                Showing first 100 students. Narrow by class or type part of the student name or ID.
+              </div>
+            )}
           </div>
         </div>
 
@@ -807,6 +844,21 @@ export default function StudentPaymentTracker() {
                   )}
                 </div>
               </div>
+
+              {paymentCodes?.school_payment_account && (
+                (paymentCodes.school_payment_account.bank_name || paymentCodes.school_payment_account.bank_account || paymentCodes.school_payment_account.bank_account_name || paymentCodes.school_payment_account.bank_branch) ? (
+                  <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-slate-900 shadow-sm">
+                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-700">School Bank Account</p>
+                    <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                      {paymentCodes.school_payment_account.bank_name ? <p><strong>Bank:</strong> {paymentCodes.school_payment_account.bank_name}</p> : null}
+                      {paymentCodes.school_payment_account.bank_account ? <p><strong>Account Number:</strong> {paymentCodes.school_payment_account.bank_account}</p> : null}
+                      {paymentCodes.school_payment_account.bank_account_name ? <p><strong>Account Name:</strong> {paymentCodes.school_payment_account.bank_account_name}</p> : null}
+                      {paymentCodes.school_payment_account.bank_branch ? <p><strong>Branch:</strong> {paymentCodes.school_payment_account.bank_branch}</p> : null}
+                    </div>
+                    <p className="mt-2 text-xs text-cyan-800">Use the selected student reference in the transfer narration.</p>
+                  </div>
+                ) : null
+              )}
 
               {/* Payment Routes Section */}
               {paymentCodesError ? (
@@ -858,8 +910,8 @@ export default function StudentPaymentTracker() {
                             })
                             .join('\n');
                           const schoolPaymentAccount = paymentCodes.school_payment_account || {};
-                          const bankLines = schoolPaymentAccount.bank_name && schoolPaymentAccount.bank_account
-                            ? `School Bank Account:\n- Bank: ${schoolPaymentAccount.bank_name}\n- Account Number: ${schoolPaymentAccount.bank_account}${schoolPaymentAccount.bank_account_name ? `\n- Account Name: ${schoolPaymentAccount.bank_account_name}` : ''}${schoolPaymentAccount.bank_branch ? `\n- Branch: ${schoolPaymentAccount.bank_branch}` : ''}\n\n`
+                          const bankLines = (schoolPaymentAccount.bank_name || schoolPaymentAccount.bank_account || schoolPaymentAccount.bank_account_name || schoolPaymentAccount.bank_branch)
+                            ? `School Bank Account:\n${schoolPaymentAccount.bank_name ? `- Bank: ${schoolPaymentAccount.bank_name}\n` : ''}${schoolPaymentAccount.bank_account ? `- Account Number: ${schoolPaymentAccount.bank_account}\n` : ''}${schoolPaymentAccount.bank_account_name ? `- Account Name: ${schoolPaymentAccount.bank_account_name}\n` : ''}${schoolPaymentAccount.bank_branch ? `- Branch: ${schoolPaymentAccount.bank_branch}\n` : ''}\n`
                             : '';
                           const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nUse the structured reference as the main instruction for each fee type and keep that same reference in the payment narration where possible.`;
                           navigator.clipboard.writeText(instructions);
@@ -878,11 +930,11 @@ export default function StudentPaymentTracker() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    {paymentCodes.school_payment_account?.bank_name && paymentCodes.school_payment_account?.bank_account && (
+                    {(paymentCodes.school_payment_account?.bank_name || paymentCodes.school_payment_account?.bank_account || paymentCodes.school_payment_account?.bank_account_name || paymentCodes.school_payment_account?.bank_branch) && (
                       <div className="rounded-lg border border-amber-200 bg-white p-3 text-sm text-slate-700">
                         <p className="font-semibold text-slate-800">School Bank Account</p>
-                        <p className="mt-1 text-xs text-slate-600">Bank: {paymentCodes.school_payment_account.bank_name}</p>
-                        <p className="text-xs text-slate-600">Account Number: {paymentCodes.school_payment_account.bank_account}</p>
+                        {paymentCodes.school_payment_account.bank_name && <p className="mt-1 text-xs text-slate-600">Bank: {paymentCodes.school_payment_account.bank_name}</p>}
+                        {paymentCodes.school_payment_account.bank_account && <p className="text-xs text-slate-600">Account Number: {paymentCodes.school_payment_account.bank_account}</p>}
                         {paymentCodes.school_payment_account.bank_account_name && (
                           <p className="text-xs text-slate-600">Account Name: {paymentCodes.school_payment_account.bank_account_name}</p>
                         )}
