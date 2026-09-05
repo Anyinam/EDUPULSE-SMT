@@ -76,10 +76,13 @@ export default function ParentAdmissionsPortal() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [consentAccepted, setConsentAccepted] = useState(false);
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState('');
 
   const statusPath = useMemo(() => result?.status_path || '', [result]);
   const schoolName = schoolProfile?.school_name || schoolId;
   const schoolColor = schoolProfile?.theme_color || '#0f766e';
+  const admissionFee = schoolProfile?.admission_fee;
 
   const getDocumentKey = (file) => `${file.name}-${file.size}-${file.lastModified}`;
 
@@ -151,6 +154,32 @@ export default function ParentAdmissionsPortal() {
     }
   };
 
+  const handleAdmissionFeePayment = async () => {
+    if (!result?.status_token) {
+      return;
+    }
+
+    setPaymentBusy(true);
+    setPaymentMessage('');
+    try {
+      const response = await axios.post(`/api/public/schools/${schoolId}/admissions/status/${result.status_token}/initialize-payment`);
+      const authorizationUrl = response.data?.authorization_url;
+      if (!authorizationUrl) {
+        setPaymentMessage(response.data?.message || 'Unable to open payment right now.');
+        return;
+      }
+      setResult((current) => ({
+        ...current,
+        payment_summary: response.data?.payment_summary || current?.payment_summary,
+      }));
+      window.location.href = authorizationUrl;
+    } catch (requestError) {
+      setPaymentMessage(requestError.response?.data?.message || 'Unable to start admission-fee payment.');
+    } finally {
+      setPaymentBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f7fafc_0%,#ffffff_35%,#f6fbff_100%)] px-4 py-8 sm:px-6 sm:py-12">
       <div className="mx-auto max-w-6xl space-y-8">
@@ -214,12 +243,17 @@ export default function ParentAdmissionsPortal() {
                     ))}
                   </div>
                 </div>
-                {schoolProfile?.admission_fee?.enabled ? (
+                {admissionFee?.enabled ? (
                   <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
                     <p className="text-sm font-semibold text-emerald-950">Admission fee policy</p>
-                    <p className="mt-2 text-sm leading-6 text-emerald-900/80">This school currently charges {schoolProfile.admission_fee.currency} {Number(schoolProfile.admission_fee.amount || 0).toFixed(2)} after admission approval.</p>
+                    <p className="mt-2 text-sm leading-6 text-emerald-900/80">This school currently charges {admissionFee.currency} {Number(admissionFee.amount || 0).toFixed(2)}. You will see the same amount again after submission and payment will be required before the application is fully processed.</p>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                    <p className="text-sm font-semibold text-slate-950">Admission fee policy</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">This school has not set an admission fee. You can submit the application without making a payment.</p>
+                  </div>
+                )}
                 <div className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5">
                   <p className="text-sm font-semibold text-slate-950">Need to check an existing application?</p>
                   <Link to={`/apply/${schoolId}/status/check`} className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-cyan-800 transition hover:text-cyan-950">
@@ -283,16 +317,46 @@ export default function ParentAdmissionsPortal() {
                 Track Application Status
                 <ArrowRight size={16} />
               </Link>
+              {result.payment_summary?.enabled ? (
+                <button
+                  type="button"
+                  onClick={handleAdmissionFeePayment}
+                  disabled={paymentBusy || result.payment_summary?.status === 'paid'}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                >
+                  {result.payment_summary?.status === 'paid'
+                    ? `${result.payment_summary.label} Paid`
+                    : paymentBusy
+                      ? 'Opening Payment...'
+                      : `Pay ${result.payment_summary.label}`}
+                </button>
+              ) : null}
               <button
                 onClick={() => {
                   setResult(null);
                   setDocuments([]);
+                  setPaymentMessage('');
                 }}
                 className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
               >
                 Submit Another Application
               </button>
             </div>
+
+            {result.payment_summary?.enabled ? (
+              <div className="mt-6 rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Admission Fee</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  {result.payment_summary.label}: {result.payment_summary.currency} {Number(result.payment_summary.amount || 0).toFixed(2)}
+                </p>
+                <p className="mt-2 text-xs font-semibold text-emerald-800">
+                  {result.payment_summary.status === 'paid'
+                    ? 'Payment recorded successfully.'
+                    : 'Secure digital payment is available immediately after submission. EduPulse will track the provider callback automatically.'}
+                </p>
+                {paymentMessage ? <p className="mt-3 text-sm font-semibold text-rose-700">{paymentMessage}</p> : null}
+              </div>
+            ) : null}
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="rounded-4xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_-45px_rgba(15,23,42,0.18)] sm:p-8">
@@ -336,6 +400,24 @@ export default function ParentAdmissionsPortal() {
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Application Form</p>
                   <h2 className="mt-2 text-3xl font-black text-slate-950">Learner and guardian details</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-600">Fields marked here help the school decide the appropriate review path and follow-up action.</p>
+                </div>
+
+                <div className={admissionFee?.enabled ? 'rounded-3xl border border-emerald-200 bg-emerald-50 p-5' : 'rounded-3xl border border-slate-200 bg-slate-50 p-5'}>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Admission Fee</p>
+                  {admissionFee?.enabled ? (
+                    <>
+                      <p className="mt-2 text-lg font-black text-slate-950">
+                        {admissionFee.currency} {Number(admissionFee.amount || 0).toFixed(2)}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-slate-700">
+                        This fee is set by the school. After you submit this form, EduPulse will open the tracked payment step for the same amount.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                      No admission fee has been set for this school, so this application can be submitted without payment.
+                    </p>
+                  )}
                 </div>
 
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
@@ -498,7 +580,7 @@ export default function ParentAdmissionsPortal() {
 
                 <div className="flex flex-wrap gap-3 pt-2">
                   <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-2xl bg-cyan-600 px-6 py-3 text-sm font-bold text-white transition hover:bg-cyan-700 disabled:opacity-60">
-                    {submitting ? 'Submitting...' : 'Submit Application'}
+                    {submitting ? 'Submitting...' : admissionFee?.enabled ? 'Submit Application and Continue to Payment' : 'Submit Application'}
                     <ArrowRight size={16} />
                   </button>
                   <Link to={`/apply/${schoolId}/status/check`} className="rounded-2xl border border-slate-300 px-6 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">

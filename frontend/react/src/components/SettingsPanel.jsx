@@ -243,6 +243,9 @@ export default function SettingsPanel() {
     bank_account: '',
     bank_account_name: '',
     bank_branch: '',
+    paystack_subaccount_code: '',
+    paystack_bank_code: '',
+    paystack_resolved_account_name: '',
     country_code: 'GH',
     anniversary_date: '',
     next_term_reopen_date: '',
@@ -302,6 +305,28 @@ export default function SettingsPanel() {
     bank_account_name: '',
     bank_branch: ''
   });
+
+  const bankDetailsReadyForProvisioning = Boolean(
+    settings.bank_name && settings.bank_account && settings.bank_account_name
+  );
+
+  const paystackProvisioningState = settings.paystack_subaccount_code
+    ? {
+        tone: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+        label: 'Connected',
+        message: 'EduPulse has already created the Paystack settlement subaccount for this school.',
+      }
+    : bankDetailsReadyForProvisioning
+      ? {
+          tone: 'border-amber-200 bg-amber-50 text-amber-900',
+          label: 'Ready On Save',
+          message: 'Save these bank details and EduPulse will create or refresh the Paystack settlement subaccount automatically.',
+        }
+      : {
+          tone: 'border-slate-200 bg-slate-50 text-slate-700',
+          label: 'Bank Details Needed',
+          message: 'Enter the bank name, account number, and account holder name so EduPulse can create the Paystack settlement subaccount.',
+        };
 
   // Color palette options for easy tenant selection
   const colorPalette = [
@@ -398,6 +423,9 @@ export default function SettingsPanel() {
           bank_account: data.bank_account || '',
           bank_account_name: data.bank_account_name || '',
           bank_branch: data.bank_branch || '',
+          paystack_subaccount_code: data.paystack_subaccount_code || '',
+          paystack_bank_code: data.paystack_bank_code || '',
+          paystack_resolved_account_name: data.paystack_resolved_account_name || '',
           country_code: data.country_code || prev.country_code,
           anniversary_date: data.anniversary_date || prev.anniversary_date,
           next_term_reopen_date: data.next_term_reopen_date || '',
@@ -1235,7 +1263,14 @@ export default function SettingsPanel() {
         settingsPayload.bank_branch = settings.bank_branch;
       }
 
-      await axios.post('/api/school/settings', settingsPayload, { headers });
+      const settingsResponse = await axios.post('/api/school/settings', settingsPayload, { headers });
+      const settingsData = settingsResponse.data || {};
+      setSettings((prev) => ({
+        ...prev,
+        paystack_subaccount_code: settingsData.paystack_subaccount_code || prev.paystack_subaccount_code,
+        paystack_bank_code: settingsData.paystack_bank_code || prev.paystack_bank_code,
+        paystack_resolved_account_name: settingsData.paystack_resolved_account_name || prev.paystack_resolved_account_name,
+      }));
       
       // Save fees separately
       await axios.post('/api/school/fees', {
@@ -1268,10 +1303,10 @@ export default function SettingsPanel() {
       };
       localStorage.setItem('branding', JSON.stringify(newBranding));
       
-      alert("Settings and fees updated! The page will reload to apply changes.");
+      alert(settingsData.message || "Settings and fees updated! The page will reload to apply changes.");
       window.location.reload();
     } catch (err) {
-      alert("Failed to update settings or fees.");
+      alert(err.response?.data?.message || "Failed to update settings or fees.");
       console.error(err);
     }
   };
@@ -1570,6 +1605,17 @@ export default function SettingsPanel() {
                     placeholder="Bank branch name"
                     disabled={!bankDetailsVisible && isMaskedBankValue(settings.bank_branch)}
                   />
+                </div>
+                <div>
+                  <label className="text-sm font-bold text-slate-700">Paystack Settlement Status</label>
+                  <div className={`mt-1 rounded border p-3 text-xs ${paystackProvisioningState.tone}`}>
+                    <p className="font-bold uppercase tracking-wide">{paystackProvisioningState.label}</p>
+                    <p className="mt-1">{paystackProvisioningState.message}</p>
+                    {settings.paystack_subaccount_code ? <p className="mt-2">Generated subaccount code: {settings.paystack_subaccount_code}</p> : null}
+                    {settings.paystack_bank_code ? <p className="mt-1">Verified Paystack bank code: {settings.paystack_bank_code}</p> : null}
+                    {settings.paystack_resolved_account_name ? <p className="mt-1">Verified account name: {settings.paystack_resolved_account_name}</p> : null}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Schools only enter their bank details here. EduPulse creates and maintains the Paystack subaccount in the background.</p>
                 </div>
               </div>
             </div>

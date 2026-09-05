@@ -1,5 +1,7 @@
 import io
 import json
+import hashlib
+import hmac
 
 import pytest
 from flask_jwt_extended import create_access_token
@@ -61,6 +63,127 @@ def test_parent_admission_application_submission_and_status_tracking(client, tes
     status_payload = status_response.get_json()
     assert status_payload["application_code"] == payload["application"]["application_code"]
     assert status_payload["status"] == "TestReady"
+
+
+def test_parent_admission_fee_payment_initializes_from_public_status_token(client, db, test_school, monkeypatch):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.admission_fee_enabled = True
+    settings.admission_fee_amount = 175.0
+    db.session.commit()
+
+    submit_response = _submit_parent_application(client, test_school.id)
+    submit_payload = submit_response.get_json()
+    captured = {}
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        captured["endpoint"] = endpoint
+        captured["method"] = method
+        captured["data"] = data
+        return {
+            "authorization_url": "https://paystack.test/checkout/admission",
+            "access_code": "ACCESS123",
+        }, None
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    response = client.post(
+        f"/api/public/schools/{test_school.id}/admissions/status/{submit_payload['status_token']}/initialize-payment"
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["authorization_url"] == "https://paystack.test/checkout/admission"
+    assert payload["payment_summary"]["status"] == "initiated"
+    assert captured["endpoint"] == "/transaction/initialize"
+    assert captured["data"]["metadata"]["transaction_type"] == "parent_admission_fee"
+    assert captured["data"]["metadata"]["application_code"] == submit_payload["application"]["application_code"]
+
+
+def test_parent_admission_fee_webhook_marks_application_paid(client, db, test_school, monkeypatch):
+    monkeypatch.setenv("PAYSTACK_SECRET_KEY", "paystack-test-secret")
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.admission_fee_enabled = True
+    settings.admission_fee_amount = 175.0
+    db.session.commit()
+
+    submit_response = _submit_parent_application(client, test_school.id)
+    submit_payload = submit_response.get_json()
+    application = ParentAdmissionApplication.query.get(submit_payload["application"]["id"])
+
+    body = {
+        "event": "charge.success",
+        "data": {
+            "id": 998877,
+            "reference": "PADM-TEST-1234",
+            "amount": 17500,
+            "paid_at": "2026-09-05T12:00:00+00:00",
+            "metadata": {
+                "transaction_type": "parent_admission_fee",
+                "school_id": test_school.id,
+                "parent_admission_application_id": application.id,
+                "application_code": application.application_code,
+                "status_token": application.status_token,
+            },
+        },
+    }
+    raw = json.dumps(body).encode("utf-8")
+    signature = hmac.new(b"paystack-test-secret", raw, hashlib.sha512).hexdigest()
+
+    response = client.post(
+        "/api/finance/webhook/paystack",
+        data=raw,
+        headers={"Content-Type": "application/json", "X-Paystack-Signature": signature},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "recorded"
+
+    status_response = client.get(
+        f"/api/public/schools/{test_school.id}/admissions/status/{application.status_token}"
+    )
+    assert status_response.status_code == 200
+    payment_summary = status_response.get_json()["payment_summary"]
+    assert payment_summary["status"] == "paid"
+    assert payment_summary["reference"] == "PADM-TEST-1234"
+
+
+def test_parent_admission_review_preserves_payment_summary(client, app, db, test_school, test_proprietor):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.admission_fee_enabled = True
+    settings.admission_fee_amount = 150.0
+    db.session.commit()
+
+    submit_response = _submit_parent_application(client, test_school.id)
+    payload = submit_response.get_json()
+    application = ParentAdmissionApplication.query.get(payload["application"]["id"])
+
+    from backend.routes import _get_school_admission_fee_config, _normalize_parent_admission_payment_summary, _set_parent_admission_payment_summary
+
+    _set_parent_admission_payment_summary(
+        application,
+        _normalize_parent_admission_payment_summary(
+            {"status": "initiated", "reference": "PADM-INIT-1111", "amount": 150.0},
+            fee_config=_get_school_admission_fee_config(settings),
+        ),
+    )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    review_response = client.post(
+        f"/api/admissions/applications/{application.id}/review",
+        headers=headers,
+        data=json.dumps({"action": "invite_test", "notes": "Proceed to online test."}),
+    )
+
+    assert review_response.status_code == 200
+    status_response = client.get(
+        f"/api/public/schools/{test_school.id}/admissions/status/{application.status_token}"
+    )
+    assert status_response.status_code == 200
+    payment_summary = status_response.get_json()["payment_summary"]
+    assert payment_summary["status"] == "initiated"
+    assert payment_summary["reference"] == "PADM-INIT-1111"
 
 
 def test_parent_admission_accepts_more_than_two_supporting_documents(client, test_school):

@@ -30,6 +30,8 @@ export default function ParentAdmissionStatus() {
   const [error, setError] = useState('');
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitMessage, setResubmitMessage] = useState('');
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState('');
   const [resubmitFiles, setResubmitFiles] = useState([]);
   const [resubmitPassportPhoto, setResubmitPassportPhoto] = useState(null);
   const [resubmitForm, setResubmitForm] = useState({
@@ -75,6 +77,33 @@ export default function ParentAdmissionStatus() {
       fetchStatus(undefined, statusToken);
     }
   }, [statusToken]);
+
+  const handleAdmissionFeePayment = async () => {
+    const token = (payload?.status_path?.split('/').at(-1) || tokenInput || '').trim();
+    if (!token) {
+      return;
+    }
+
+    setPaymentBusy(true);
+    setPaymentMessage('');
+    try {
+      const response = await axios.post(`/api/public/schools/${schoolId}/admissions/status/${token}/initialize-payment`);
+      const authorizationUrl = response.data?.authorization_url;
+      setPayload((current) => ({
+        ...current,
+        payment_summary: response.data?.payment_summary || current?.payment_summary,
+      }));
+      if (!authorizationUrl) {
+        setPaymentMessage(response.data?.message || 'Unable to open payment right now.');
+        return;
+      }
+      window.location.href = authorizationUrl;
+    } catch (requestError) {
+      setPaymentMessage(requestError.response?.data?.message || 'Unable to start admission-fee payment.');
+    } finally {
+      setPaymentBusy(false);
+    }
+  };
 
   const handleResubmitChange = (event) => {
     setResubmitForm((current) => ({ ...current, [event.target.name]: event.target.value }));
@@ -210,6 +239,42 @@ export default function ParentAdmissionStatus() {
               <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 p-5">
                 <p className="text-xs font-bold uppercase text-emerald-700">School Response</p>
                 <p className="mt-3 text-sm leading-7 text-slate-700">{payload.parent_response_message}</p>
+              </div>
+            )}
+
+            {payload.payment_summary?.enabled && (
+              <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-xs font-bold uppercase text-emerald-700">Admission Fee Payment</p>
+                <p className="mt-3 text-sm leading-7 text-slate-700">
+                  {payload.payment_summary.label}: {payload.payment_summary.currency} {Number(payload.payment_summary.amount || 0).toFixed(2)}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-emerald-900">
+                  {payload.payment_summary.status === 'paid'
+                    ? 'Payment received and tracked.'
+                    : payload.payment_summary.status === 'initiated'
+                      ? 'Payment has been started. Complete the provider prompt and return here for confirmation.'
+                      : 'Pay here to let EduPulse track the admission fee automatically.'}
+                </p>
+                {payload.payment_summary.reference ? (
+                  <p className="mt-2 text-xs text-emerald-900/80">Reference: {payload.payment_summary.reference}</p>
+                ) : null}
+                {payload.payment_summary.paid_at ? (
+                  <p className="mt-1 text-xs text-emerald-900/80">Paid at: {formatDate(payload.payment_summary.paid_at)}</p>
+                ) : null}
+                {payload.payment_summary.status !== 'paid' ? (
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleAdmissionFeePayment}
+                      disabled={paymentBusy}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      <Wallet size={16} />
+                      {paymentBusy ? 'Opening Payment...' : 'Pay Admission Fee'}
+                    </button>
+                  </div>
+                ) : null}
+                {paymentMessage ? <p className="mt-3 text-sm font-semibold text-rose-700">{paymentMessage}</p> : null}
               </div>
             )}
 

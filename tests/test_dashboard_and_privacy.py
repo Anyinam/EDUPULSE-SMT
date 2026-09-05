@@ -1634,6 +1634,61 @@ def test_bank_details_are_masked_and_password_reveal_returns_full_values(client,
     assert revealed["bank_branch"] == "Kumasi Main"
 
 
+def test_school_settings_auto_create_paystack_subaccount_from_bank_details(client, app, db, test_school, test_proprietor, monkeypatch):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    captured_calls = []
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        captured_calls.append((endpoint, method, data))
+        if endpoint == "/bank?country=ghana&currency=GHS" and method == "GET":
+            return ([{"name": "Fidelity Bank Ghana Ltd", "code": "070100"}], None)
+        if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
+            return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
+        if endpoint == "/subaccount" and method == "POST":
+            assert data["settlement_bank"] == "070100"
+            assert data["account_number"] == "1234567890"
+            return ({"subaccount_code": "SUB_test123"}, None)
+        raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    response = client.post(
+        "/api/school/settings",
+        headers=headers,
+        data=json.dumps(
+            {
+                "bank_name": "Fidelity Bank Ghana",
+                "bank_account": "1234567890",
+                "bank_account_name": "EduPulse School Account",
+                "bank_branch": "Kumasi Main",
+            }
+        ),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["paystack_subaccount_code"] == "SUB_test123"
+    assert payload["paystack_bank_code"] == "070100"
+    assert payload["paystack_resolved_account_name"] == "EDUPULSE SCHOOL ACCOUNT"
+    assert "Paystack subaccount created automatically" in payload["message"]
+
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    assert settings is not None
+
+    settings_response = client.get("/api/school/settings", headers=headers)
+    assert settings_response.status_code == 200
+    settings_payload = settings_response.get_json()
+    assert settings_payload["paystack_subaccount_code"] == "SUB_test123"
+    assert settings_payload["paystack_bank_code"] == "070100"
+    assert settings_payload["paystack_resolved_account_name"] == "EDUPULSE SCHOOL ACCOUNT"
+
+    assert [call[0] for call in captured_calls] == [
+        "/bank?country=ghana&currency=GHS",
+        "/bank/resolve?account_number=1234567890&bank_code=070100",
+        "/subaccount",
+    ]
+
+
 def test_school_settings_persist_legacy_migration_and_bece_compliance_flags(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
 

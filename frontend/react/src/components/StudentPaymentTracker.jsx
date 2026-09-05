@@ -9,6 +9,8 @@ export default function StudentPaymentTracker() {
   const [studentPayments, setStudentPayments] = useState([]);
   const [paymentCodes, setPaymentCodes] = useState(null);
   const [paymentCodesError, setPaymentCodesError] = useState(null);
+  const [linkLoadingCode, setLinkLoadingCode] = useState('');
+  const [generatedLinks, setGeneratedLinks] = useState({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState('all');
@@ -93,6 +95,45 @@ export default function StudentPaymentTracker() {
         });
       }
       setPaymentCodes(null);
+    }
+  };
+
+  const generateTrackedPaymentLink = async (paymentCode) => {
+    if (!selectedStudent || !paymentCode?.reference_code) {
+      return;
+    }
+
+    try {
+      setLinkLoadingCode(paymentCode.reference_code);
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+      const callbackUrl = `${window.location.origin}/payment-callback`;
+      const res = await axios.post('/api/finance/paystack/initialize-payment', {
+        student_id: selectedStudent.id,
+        reference_code: paymentCode.reference_code,
+        payment_type: paymentCode.payment_category?.fee_type || paymentCode.fee_type,
+        amount: Number(paymentCode.base_amount || paymentCode.amount || 0),
+        payment_category: paymentCode.payment_category || {},
+        callback_url: callbackUrl,
+      }, { headers });
+
+      const checkoutUrl = res.data?.authorization_url;
+      if (!checkoutUrl) {
+        alert(res.data?.message || 'Unable to generate tracked payment link.');
+        return;
+      }
+
+      setGeneratedLinks((current) => ({
+        ...current,
+        [paymentCode.reference_code]: checkoutUrl,
+      }));
+      window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      alert(err.response?.data?.error || err.response?.data?.message || 'Unable to generate tracked payment link.');
+    } finally {
+      setLinkLoadingCode('');
     }
   };
 
@@ -914,7 +955,7 @@ export default function StudentPaymentTracker() {
                           const bankLines = (schoolPaymentAccount.bank_name || schoolPaymentAccount.bank_account || schoolPaymentAccount.bank_account_name || schoolPaymentAccount.bank_branch)
                             ? `School Bank Account:\n${schoolPaymentAccount.bank_name ? `- Bank: ${schoolPaymentAccount.bank_name}\n` : ''}${schoolPaymentAccount.bank_account ? `- Account Number: ${schoolPaymentAccount.bank_account}\n` : ''}${schoolPaymentAccount.bank_account_name ? `- Account Name: ${schoolPaymentAccount.bank_account_name}\n` : ''}${schoolPaymentAccount.bank_branch ? `- Branch: ${schoolPaymentAccount.bank_branch}\n` : ''}\n`
                             : '';
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nUse the structured reference as the main instruction for each fee type and keep that same reference in the payment narration where possible.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nFor tracked digital payment, generate the Paystack payment link from EduPulse for the exact fee reference instead of relying on narration-only transfer confirmation.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -954,9 +995,12 @@ export default function StudentPaymentTracker() {
                           <p className="font-semibold text-slate-800">{code.fee_type}</p>
                           <p className="text-xs text-slate-600">Amount: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
-                          <p className="text-xs text-slate-700">Use the reference with the school&apos;s approved payment channel or present it at the school office.</p>
+                          <p className="text-xs text-slate-700">Use the reference for school-office collection, or generate the tracked digital payment link below for automatic recording.</p>
 
                           <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
+                          {generatedLinks[code.reference_code || code.code] ? (
+                            <p className="mt-2 break-all text-xs text-emerald-700">Tracked link ready: {generatedLinks[code.reference_code || code.code]}</p>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-2">
                           <code className="block bg-amber-100 text-amber-900 px-3 py-2 rounded font-mono font-bold text-sm">
@@ -971,12 +1015,30 @@ export default function StudentPaymentTracker() {
                           >
                             📋 Copy
                           </button>
+                          <button
+                            onClick={() => generateTrackedPaymentLink(code)}
+                            disabled={linkLoadingCode === (code.reference_code || code.code)}
+                            className="px-2 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors text-xs font-bold disabled:bg-emerald-300"
+                          >
+                            {linkLoadingCode === (code.reference_code || code.code) ? 'Generating...' : 'Tracked Link'}
+                          </button>
+                          {generatedLinks[code.reference_code || code.code] ? (
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(generatedLinks[code.reference_code || code.code]);
+                                alert('Tracked payment link copied!');
+                              }}
+                              className="px-2 py-2 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors text-xs font-bold"
+                            >
+                              Copy Link
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Example instruction: "Use reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong> for this fee and pay GH₵ <strong>{Number(paymentCodes.payment_codes[0]?.base_amount || 0).toFixed(2)}</strong>. Keep the same reference in the payment narration where possible."
+                    💬 Preferred instruction: "Use the tracked payment link generated from EduPulse for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>. If the school accepts manual office payment, present the same reference there." 
                   </p>
                 </div>
               )}

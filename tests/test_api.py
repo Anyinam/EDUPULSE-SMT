@@ -351,6 +351,38 @@ class TestPaymentReferenceResolution:
             assert payment.student.student_code == "S001"
             assert payment.payment_category.get("reference_code") == "S001"
 
+    def test_import_parent_payment_notice_tracks_payment_by_reference_code(self, client, app):
+        token = self._login_as(client, "proprietor1")
+
+        response = client.post(
+            "/api/finance/import-parent-payment",
+            json={
+                "message_text": "DANIEL ANYINAM ASARE,2161120011674,DADD0004",
+                "amount": 150,
+                "method": "MoMo",
+                "payment_type": "Tuition",
+            },
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-School-ID": "TEST-001",
+            },
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["student_code"] == "S001"
+        assert data["reference_id"] == "2161120011674"
+        assert data["reference_code"] == "DADD0004"
+
+        with app.app_context():
+            from backend.api.models import Payment
+
+            payment = Payment.query.filter_by(reference_id="2161120011674").first()
+            assert payment is not None
+            assert payment.status == "Confirmed"
+            assert payment.payment_category.get("reference_code") == "DADD0004"
+            assert payment.payment_category.get("import_mode") == "parent_notice"
+
     def test_register_welcome_email_uses_frontend_origin_when_frontend_url_missing(self, client, mocker, monkeypatch):
         """Registration emails should use the deployed frontend origin when FRONTEND_URL is unset."""
         monkeypatch.delenv("FRONTEND_URL", raising=False)
@@ -674,6 +706,47 @@ class TestPaymentEndpoints:
             payment = Payment.query.get(payment_id)
             assert payment.reference_id == "BANK-TXN-001"
             assert payment.payment_category.get("reference_code") == f"{student.student_code}-FEED-MON"
+
+    def test_initialize_paystack_payment_accepts_reference_code(self, client, app, monkeypatch):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import Student, User
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            headers = {"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"}
+
+            def fake_call_paystack_api(endpoint, method="GET", data=None):
+                assert endpoint == "/transaction/initialize"
+                assert method == "POST"
+                assert data["metadata"]["reference_code"] == f"{student.student_code}-FEED-MON"
+                assert data["metadata"]["payment_category"]["reference_code"] == f"{student.student_code}-FEED-MON"
+                return (
+                    {
+                        "authorization_url": "https://paystack.example/track-feed",
+                        "access_code": "ACCESS123",
+                    },
+                    None,
+                )
+
+            monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+            response = client.post(
+                "/api/finance/paystack/initialize-payment",
+                json={
+                    "reference_code": f"{student.student_code}-FEED-MON",
+                    "amount": 80.0,
+                },
+                headers=headers,
+            )
+
+            assert response.status_code == 200
+            payload = response.get_json()
+            assert payload["authorization_url"] == "https://paystack.example/track-feed"
+            assert payload["reference_code"] == f"{student.student_code}-FEED-MON"
+            assert payload["payment_type"] == "Feeding"
 
     def test_receive_inventory_payment_by_student_code(self, client, app):
         """Inventory payments should accept a typed student code instead of requiring a dropdown-loaded student id."""

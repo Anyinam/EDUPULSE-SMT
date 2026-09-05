@@ -2329,6 +2329,10 @@ def _build_parent_payment_path(school_id, student_code):
     return f"/pay/{school_id}/{student_code}"
 
 
+def _build_parent_admission_payment_path(school_id, status_token):
+    return f"/apply/{school_id}/status/{quote(status_token)}"
+
+
 def _build_parent_decision_pdf_path(school_id, status_token):
     return f"/api/public/schools/{school_id}/admissions/status/{quote(status_token)}/decision-pdf"
 
@@ -2343,6 +2347,7 @@ PARENT_ADMISSION_WORKFLOW_KEY = "parent_admissions_workflow"
 PARENT_ADMISSION_REVIEW_META_PREFIX = "[EDUPULSE_PARENT_ADMISSION_META]"
 DATA_COMPLIANCE_WORKFLOW_KEY = "data_compliance_workflow"
 EXAM_INTELLIGENCE_WORKFLOW_KEY = "exam_intelligence"
+PAYMENT_PROVIDER_SETTINGS_KEY = "payment_provider_settings"
 TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY = "teacher_class_level_exam_summaries_enabled"
 PARENT_ADMISSION_CONSENT_VERSION = "2026-04-29"
 
@@ -2370,6 +2375,12 @@ DEFAULT_DATA_COMPLIANCE_WORKFLOW = {
 
 DEFAULT_EXAM_INTELLIGENCE_WORKFLOW = {
     "imports": [],
+}
+
+DEFAULT_PAYMENT_PROVIDER_SETTINGS = {
+    "paystack_subaccount_code": "",
+    "paystack_bank_code": "",
+    "paystack_resolved_account_name": "",
 }
 
 DEFAULT_PARENT_ADMISSION_WORKFLOW = {
@@ -2406,6 +2417,18 @@ def _normalize_parent_admission_workflow_config(raw_config):
             "contact_person": sanitize_string(raw_visit_defaults.get("contact_person") or "") or "",
             "contact_phone": sanitize_string(raw_visit_defaults.get("contact_phone") or "") or "",
         },
+    }
+
+
+def _normalize_payment_provider_settings(raw_config):
+    config = _clone_json_document(raw_config)
+    if not isinstance(config, dict):
+        config = {}
+
+    return {
+        "paystack_subaccount_code": sanitize_string(config.get("paystack_subaccount_code") or "") or "",
+        "paystack_bank_code": sanitize_string(config.get("paystack_bank_code") or "") or "",
+        "paystack_resolved_account_name": sanitize_string(config.get("paystack_resolved_account_name") or "") or "",
     }
 
 
@@ -3228,6 +3251,19 @@ def _get_data_compliance_workflow_config(settings):
     return _normalize_data_compliance_workflow_config(global_settings.get(DATA_COMPLIANCE_WORKFLOW_KEY))
 
 
+def _get_payment_provider_settings(settings):
+    global_settings = _get_report_global_settings(settings)
+    return _normalize_payment_provider_settings(global_settings.get(PAYMENT_PROVIDER_SETTINGS_KEY))
+
+
+def _set_payment_provider_settings(settings, workflow_config):
+    _set_report_global_setting(
+        settings,
+        PAYMENT_PROVIDER_SETTINGS_KEY,
+        _normalize_payment_provider_settings(workflow_config),
+    )
+
+
 def _set_data_compliance_workflow_config(settings, workflow_config):
     config = _clone_json_document(settings.report_template_config)
     global_settings = config.get(GLOBAL_REPORT_SETTINGS_KEY) or {}
@@ -3326,6 +3362,33 @@ def _serialize_parent_admission_review_notes(reviewer_note, parent_response_mess
     return f"{PARENT_ADMISSION_REVIEW_META_PREFIX}{json.dumps(meta, sort_keys=True)}\n{note_body}".rstrip()
 
 
+def _normalize_parent_admission_payment_summary(raw_payment_summary, fee_config=None):
+    fee_config = fee_config or {"enabled": False, "amount": 0.0, "currency": "GH₵", "label": "Admission Fee"}
+    raw_payment_summary = raw_payment_summary if isinstance(raw_payment_summary, dict) else {}
+
+    amount = raw_payment_summary.get("amount")
+    try:
+        amount = round(float(amount if amount not in (None, "") else fee_config.get("amount") or 0.0), 2)
+    except (TypeError, ValueError):
+        amount = round(float(fee_config.get("amount") or 0.0), 2)
+
+    status = (sanitize_string(raw_payment_summary.get("status") or "") or "unpaid").lower()
+    if status not in {"unpaid", "initiated", "paid"}:
+        status = "unpaid"
+
+    return {
+        "enabled": bool(fee_config.get("enabled", False)),
+        "label": sanitize_string(raw_payment_summary.get("label") or fee_config.get("label") or "Admission Fee") or "Admission Fee",
+        "amount": amount,
+        "currency": sanitize_string(raw_payment_summary.get("currency") or fee_config.get("currency") or "GH₵") or "GH₵",
+        "status": "not_required" if not fee_config.get("enabled") else status,
+        "provider": sanitize_string(raw_payment_summary.get("provider") or "paystack") or "paystack",
+        "reference": sanitize_string(raw_payment_summary.get("reference") or "") or None,
+        "started_at": sanitize_string(raw_payment_summary.get("started_at") or "") or None,
+        "paid_at": sanitize_string(raw_payment_summary.get("paid_at") or "") or None,
+    }
+
+
 def _parse_parent_admission_review_notes(raw_notes):
     if not raw_notes or not isinstance(raw_notes, str):
         return {
@@ -3333,6 +3396,7 @@ def _parse_parent_admission_review_notes(raw_notes):
             "parent_response_message": None,
             "follow_up_plan": None,
             "class_assigned": None,
+            "payment_summary": None,
         }
 
     if not raw_notes.startswith(PARENT_ADMISSION_REVIEW_META_PREFIX):
@@ -3342,6 +3406,7 @@ def _parse_parent_admission_review_notes(raw_notes):
             "parent_response_message": cleaned,
             "follow_up_plan": None,
             "class_assigned": None,
+            "payment_summary": None,
         }
 
     meta_line, _, note_body = raw_notes.partition("\n")
@@ -3356,6 +3421,7 @@ def _parse_parent_admission_review_notes(raw_notes):
         "parent_response_message": sanitize_string(meta.get("parent_response_message") or "") or None,
         "follow_up_plan": meta.get("follow_up_plan") if isinstance(meta.get("follow_up_plan"), dict) else None,
         "class_assigned": sanitize_string(meta.get("class_assigned") or "") or None,
+        "payment_summary": meta.get("payment_summary") if isinstance(meta.get("payment_summary"), dict) else None,
     }
 
 
@@ -3367,7 +3433,33 @@ def _apply_parent_admission_review_details(payload):
     enriched["follow_up_plan"] = parsed["follow_up_plan"]
     if parsed["class_assigned"]:
         enriched["class_assigned"] = parsed["class_assigned"]
+    enriched["payment_summary"] = parsed["payment_summary"]
     return enriched
+
+
+def _set_parent_admission_payment_summary(application, payment_summary):
+    parsed = _parse_parent_admission_review_notes(application.reviewer_notes)
+    meta = {
+        "parent_response_message": sanitize_string(parsed.get("parent_response_message") or "") or "",
+        "follow_up_plan": parsed.get("follow_up_plan") if isinstance(parsed.get("follow_up_plan"), dict) else None,
+        "class_assigned": sanitize_string(parsed.get("class_assigned") or "") or None,
+        "payment_summary": payment_summary if isinstance(payment_summary, dict) else None,
+    }
+    reviewer_note = sanitize_string(parsed.get("reviewer_note") or "") or ""
+    application.reviewer_notes = f"{PARENT_ADMISSION_REVIEW_META_PREFIX}{json.dumps(meta, sort_keys=True)}\n{reviewer_note}".rstrip()
+
+
+def _get_parent_admission_payment_summary(application, settings):
+    fee_config = _get_school_admission_fee_config(settings)
+    parsed = _parse_parent_admission_review_notes(application.reviewer_notes)
+    return _normalize_parent_admission_payment_summary(parsed.get("payment_summary"), fee_config=fee_config)
+
+
+def _build_parent_admission_payment_payload(application, school, settings):
+    payment_summary = _get_parent_admission_payment_summary(application, settings)
+    payment_summary["payment_path"] = _build_parent_status_path(school.id, application.status_token)
+    payment_summary["can_pay_now"] = bool(payment_summary.get("enabled") and payment_summary.get("status") != "paid")
+    return payment_summary
 
 
 def _get_parent_admission_pdf_policy(settings):
@@ -8333,6 +8425,234 @@ def _resolve_payment_from_reference(reference_code, school_id_hint=None):
     return None, None, None
 
 
+def _extract_payment_notice_reference_candidates(message_text):
+    normalized = sanitize_string(message_text or "").upper()
+    if not normalized:
+        return []
+
+    candidates = []
+    seen = set()
+    for token in re.findall(r"[A-Z0-9-]{4,}", normalized):
+        cleaned = token.strip(".,:;()[]{}")
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        candidates.append(cleaned)
+    return candidates
+
+
+def _resolve_payment_from_notice_text(message_text, school_id_hint=None):
+    for candidate in _extract_payment_notice_reference_candidates(message_text):
+        student, payment_type, payment_category = _resolve_payment_from_reference(
+            candidate,
+            school_id_hint=school_id_hint,
+        )
+        if student:
+            return candidate, student, payment_type, payment_category
+
+    return None, None, None, None
+
+
+def _extract_amount_from_notice_text(message_text):
+    text = sanitize_string(message_text or "")
+    if not text:
+        return None
+
+    patterns = [
+        r"(?:GHS|GHC|GH¢|₵|GH)\s*([0-9]+(?:[.,][0-9]{1,2})?)",
+        r"(?:AMOUNT|AMT|PAID|PAYMENT)\D{0,12}([0-9]+(?:[.,][0-9]{1,2})?)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        raw_value = match.group(1).replace(",", "")
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
+
+
+def _extract_transaction_reference_from_notice_text(message_text, matched_reference=None):
+    normalized = sanitize_string(message_text or "").upper()
+    if not normalized:
+        return None
+
+    ignore_tokens = {
+        "MESSAGE",
+        "BODY",
+        "FINANCIAL",
+        "TRANSFER",
+        "PAYMENT",
+        "SUCCESSFUL",
+        "MOBILE",
+        "MONEY",
+        "OPTIONS",
+        "BACK",
+    }
+    for token in _extract_payment_notice_reference_candidates(normalized):
+        if matched_reference and token == matched_reference:
+            continue
+        if token in ignore_tokens:
+            continue
+        if not re.search(r"\d", token):
+            continue
+        if len(token) < 8:
+            continue
+        return token
+    return None
+
+
+def _apply_confirmed_payment_effects(payment, student, actor_id):
+    if payment.payment_type == "Tuition":
+        student.total_tuition_owed = max(0, student.total_tuition_owed - float(payment.amount))
+    elif payment.payment_type == "Feeding":
+        student.feeding_paid = True
+
+    add_ledger_entry(
+        school_id=payment.school_id,
+        tx_type=payment.payment_type.lower(),
+        tx_ref=payment.reference_id or f"PAY-{payment.id}",
+        amount=payment.amount,
+        currency="GH₵",
+        actor_id=actor_id,
+        student_id=student.id,
+        source=(payment.method or "import").lower(),
+        metadata={
+            "payment_id": payment.id,
+            "student_name": student.name,
+            "student_code": student.student_code,
+            "payment_category": payment.payment_category,
+            "recorded_by": "parent-payment-import",
+        },
+    )
+
+
+@api.route("/finance/import-parent-payment", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def import_parent_payment_notice():
+    """Import a parent payment notice by parsing the embedded learner reference code."""
+    school = School.query.get(g.school_id)
+    verification_restriction = _payment_records_verification_block_response(school)
+    if verification_restriction:
+        return verification_restriction
+
+    collection_restriction = _payment_collection_block_response(school)
+    if collection_restriction:
+        return collection_restriction
+
+    user_id = int(get_jwt_identity())
+    user = User.query.get(user_id)
+    data = request.get_json(silent=True) or {}
+
+    message_text = data.get("message_text") or data.get("notice_text") or ""
+    if not sanitize_string(message_text):
+        return jsonify({"message": "Paste the parent payment notice text to import."}), 400
+
+    matched_reference, student, inferred_type, inferred_category = _resolve_payment_from_notice_text(
+        message_text,
+        school_id_hint=g.school_id,
+    )
+    if not student:
+        return jsonify({"message": "No valid learner reference code was found in the pasted payment notice."}), 400
+
+    payment_type = sanitize_string(data.get("payment_type") or data.get("type") or inferred_type or "Tuition") or "Tuition"
+
+    explicit_amount = data.get("amount")
+    parsed_amount = _extract_amount_from_notice_text(message_text)
+    amount = explicit_amount if explicit_amount not in (None, "") else parsed_amount
+    try:
+        amount_value = float(amount)
+    except (TypeError, ValueError):
+        amount_value = None
+    if not amount_value or amount_value <= 0:
+        return jsonify({"message": "Payment amount could not be read from the notice. Enter the amount and import again."}), 400
+
+    explicit_reference_id = sanitize_string(data.get("reference_id") or data.get("transaction_reference") or data.get("transaction_id")) or None
+    external_reference_id = explicit_reference_id or _extract_transaction_reference_from_notice_text(
+        message_text,
+        matched_reference=matched_reference,
+    )
+    if not external_reference_id:
+        return jsonify({"message": "Transaction reference could not be read from the notice. Enter the external reference and import again."}), 400
+
+    existing = Payment.query.filter_by(reference_id=external_reference_id).first()
+    if existing:
+        return jsonify({"message": "Duplicate reference ID", "payment_id": existing.id}), 409
+
+    payment_category = inferred_category or {}
+    if matched_reference:
+        payment_category = {
+            **payment_category,
+            "reference_code": matched_reference,
+        }
+    payment_category = {
+        **payment_category,
+        "import_mode": "parent_notice",
+    }
+
+    payment_payload = {
+        "student_id": student.id,
+        "amount": amount_value,
+        "payment_type": payment_type,
+        "method": sanitize_string(data.get("method") or "MoMo") or "MoMo",
+        "reference_id": external_reference_id,
+        "payment_category": payment_category,
+    }
+
+    try:
+        PaymentSchema().load(payment_payload)
+    except Exception as exc:
+        return jsonify({"message": "Invalid imported payment data", "error": str(exc)}), 400
+
+    payment = Payment(
+        student_id=student.id,
+        school_id=g.school_id,
+        created_by_user_id=user.id if user else None,
+        amount=payment_payload["amount"],
+        payment_type=payment_payload["payment_type"],
+        method=payment_payload["method"],
+        reference_id=payment_payload["reference_id"],
+        status="Confirmed",
+        payment_category=payment_payload["payment_category"],
+        verified_at=get_utc_now(),
+        verified_by=user.id if user else None,
+    )
+    db.session.add(payment)
+    db.session.flush()
+
+    aml_flags = _evaluate_payment_aml_flags(g.school_id, payment, actor_id=user.id if user else None)
+    _apply_confirmed_payment_effects(payment, student, user.id if user else None)
+
+    log_action(
+        user_id=user.id if user else None,
+        school_id=g.school_id,
+        action="PARENT_PAYMENT_IMPORTED",
+        details=f"Imported parent payment notice for {student.name} ({payment_type}, Ref: {matched_reference or 'N/A'}, Tx: {external_reference_id})",
+    )
+    db.session.commit()
+
+    return jsonify(
+        {
+            "message": "Parent payment imported successfully.",
+            "payment_id": payment.id,
+            "student_id": student.id,
+            "student_name": student.name,
+            "student_code": student.student_code,
+            "payment_type": payment.payment_type,
+            "amount": payment.amount,
+            "reference_code": matched_reference,
+            "reference_id": payment.reference_id,
+            "aml_flags_opened": len(aml_flags),
+        }
+    )
+
+
 def _record_paystack_finance_payment(payload, event="charge.success", school_id_scope=None):
     tx_ref = sanitize_string(payload.get("reference") or str(payload.get("id") or ""))
     if not tx_ref:
@@ -8681,6 +9001,10 @@ def paystack_webhook():
         return jsonify({"status": "ignored", "event": event}), 200
 
     try:
+        metadata = payload.get("metadata") or {}
+        if metadata.get("transaction_type") == "parent_admission_fee" or metadata.get("parent_admission_application_id"):
+            body, status_code = _record_paystack_parent_admission_payment(payload, event=event)
+            return jsonify(body), status_code
         body, status_code = _record_paystack_finance_payment(payload, event=event)
         return jsonify(body), status_code
     except Exception as exc:
@@ -8725,6 +9049,243 @@ def _call_paystack_api(endpoint, method="GET", data=None):
         return None, str(e)
 
 
+PAYSTACK_BANK_DIRECTORY = {
+    "GH": {"country": "ghana", "currency": "GHS"},
+    "NG": {"country": "nigeria", "currency": "NGN"},
+    "ZA": {"country": "south africa", "currency": "ZAR"},
+}
+
+
+def _normalize_bank_lookup_key(value):
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def _find_paystack_bank_match(bank_name, banks):
+    lookup_key = _normalize_bank_lookup_key(bank_name)
+    if not lookup_key:
+        return None
+
+    exact_matches = []
+    partial_matches = []
+    for bank in banks or []:
+        candidate_name = sanitize_string(bank.get("name") or "") or ""
+        candidate_key = _normalize_bank_lookup_key(candidate_name)
+        if not candidate_key:
+            continue
+        if candidate_key == lookup_key:
+            exact_matches.append(bank)
+            continue
+        if lookup_key in candidate_key or candidate_key in lookup_key:
+            partial_matches.append(bank)
+
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        return None
+    if len(partial_matches) == 1:
+        return partial_matches[0]
+
+    best_match = None
+    best_score = 0
+    ambiguous = False
+    lookup_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", (bank_name or "").lower())
+        if token not in {"bank", "ghana", "ltd", "limited", "plc", "company"}
+    }
+    for bank in banks or []:
+        candidate_name = sanitize_string(bank.get("name") or "") or ""
+        candidate_tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]+", candidate_name.lower())
+            if token not in {"bank", "ghana", "ltd", "limited", "plc", "company"}
+        }
+        score = len(lookup_tokens & candidate_tokens)
+        if score > best_score:
+            best_match = bank
+            best_score = score
+            ambiguous = False
+        elif score and score == best_score:
+            ambiguous = True
+
+    if best_score <= 0 or ambiguous:
+        return None
+    return best_match
+
+
+def _resolve_paystack_bank(bank_name, country_code):
+    directory = PAYSTACK_BANK_DIRECTORY.get((country_code or "GH").upper())
+    if not directory:
+        return None, "Automatic Paystack subaccount creation is not available for this country yet."
+
+    banks, error = _call_paystack_api(
+        f"/bank?country={quote(directory['country'])}&currency={quote(directory['currency'])}",
+        method="GET",
+    )
+    if error:
+        return None, f"Unable to load Paystack bank directory: {error}"
+
+    match = _find_paystack_bank_match(bank_name, banks if isinstance(banks, list) else [])
+    if not match:
+        return None, "Could not match the selected bank to a Paystack-supported bank."
+
+    bank_code = sanitize_string(match.get("code") or "") or ""
+    if not bank_code:
+        return None, "Paystack returned a bank match without a bank code."
+
+    return {
+        "bank_code": bank_code,
+        "bank_name": sanitize_string(match.get("name") or bank_name) or bank_name,
+        "country": directory["country"],
+        "currency": directory["currency"],
+    }, None
+
+
+def _resolve_paystack_account_name(account_number, bank_code):
+    result, error = _call_paystack_api(
+        f"/bank/resolve?account_number={quote(str(account_number or '').strip())}&bank_code={quote(str(bank_code or '').strip())}",
+        method="GET",
+    )
+    if error:
+        return None, f"Unable to verify the bank account with Paystack: {error}"
+
+    if not isinstance(result, dict):
+        return None, "Paystack account verification returned an unexpected response."
+
+    resolved_name = sanitize_string(result.get("account_name") or "") or ""
+    if not resolved_name:
+        return None, "Paystack could not verify the bank account name."
+    return resolved_name, None
+
+
+def _provision_school_paystack_subaccount(school, settings, provider_settings):
+    bank_name = sanitize_string(getattr(school, "bank_name", "") or "") or ""
+    bank_account = re.sub(r"\s+", "", sanitize_string(getattr(school, "bank_account", "") or "") or "")
+    account_name = sanitize_string(getattr(school, "bank_account_name", "") or "") or ""
+    country_code = sanitize_string(getattr(settings, "country_code", "") or "GH") or "GH"
+
+    if not bank_name or not bank_account or not account_name:
+        return None, "Provide bank name, account number, and account name before EduPulse can create a Paystack subaccount."
+
+    bank_match, error = _resolve_paystack_bank(bank_name, country_code)
+    if error:
+        return None, error
+
+    resolved_account_name, error = _resolve_paystack_account_name(bank_account, bank_match["bank_code"])
+    if error:
+        return None, error
+
+    payload = {
+        "business_name": school.name,
+        "settlement_bank": bank_match["bank_code"],
+        "account_number": bank_account,
+        "percentage_charge": 0,
+        "description": f"EduPulse settlement account for {school.name}",
+        "primary_contact_email": school.school_email,
+        "primary_contact_name": account_name,
+        "primary_contact_phone": school.school_phone,
+    }
+
+    subaccount_code = sanitize_string(provider_settings.get("paystack_subaccount_code") or "") or ""
+    if subaccount_code:
+        result, error = _call_paystack_api(f"/subaccount/{quote(subaccount_code)}", method="PUT", data=payload)
+        action = "updated"
+    else:
+        result, error = _call_paystack_api("/subaccount", method="POST", data=payload)
+        action = "created"
+
+    if error:
+        return None, f"Paystack subaccount {action} failed: {error}"
+    if not isinstance(result, dict):
+        return None, f"Paystack subaccount {action} returned an unexpected response."
+
+    next_subaccount_code = sanitize_string(result.get("subaccount_code") or subaccount_code) or ""
+    if not next_subaccount_code:
+        return None, "Paystack did not return a subaccount code."
+
+    updated_provider_settings = {
+        **provider_settings,
+        "paystack_subaccount_code": next_subaccount_code,
+        "paystack_bank_code": bank_match["bank_code"],
+        "paystack_resolved_account_name": resolved_account_name,
+    }
+    _set_payment_provider_settings(settings, updated_provider_settings)
+    return {
+        "action": action,
+        "subaccount_code": next_subaccount_code,
+        "bank_code": bank_match["bank_code"],
+        "resolved_account_name": resolved_account_name,
+    }, None
+
+
+def _record_paystack_parent_admission_payment(payload, event="charge.success"):
+    tx_ref = sanitize_string(payload.get("reference") or str(payload.get("id") or ""))
+    if not tx_ref:
+        return {"status": "error", "message": "Missing transaction reference"}, 400
+
+    amount_minor = payload.get("amount")
+    try:
+        amount = round(float(amount_minor or 0) / 100.0, 2)
+    except Exception:
+        return {"status": "error", "message": "Invalid payment amount"}, 400
+
+    if amount <= 0:
+        return {"status": "error", "message": "Amount must be greater than zero"}, 400
+
+    metadata = payload.get("metadata") or {}
+    school_id = sanitize_string(metadata.get("school_id") or "") or None
+    application = None
+
+    application_id = metadata.get("parent_admission_application_id")
+    if application_id is not None:
+        try:
+            query = ParentAdmissionApplication.query.filter_by(id=int(application_id))
+            if school_id:
+                query = query.filter_by(school_id=school_id)
+            application = query.first()
+        except (TypeError, ValueError):
+            application = None
+
+    if not application:
+        status_token = sanitize_string(metadata.get("status_token") or "") or None
+        if status_token:
+            query = ParentAdmissionApplication.query.filter_by(status_token=status_token)
+            if school_id:
+                query = query.filter_by(school_id=school_id)
+            application = query.first()
+
+    if not application:
+        return {"status": "unmapped", "reference": tx_ref}, 200
+
+    settings = SchoolSettings.query.filter_by(school_id=application.school_id).first()
+    payment_summary = _get_parent_admission_payment_summary(application, settings)
+    if payment_summary.get("status") == "paid" and payment_summary.get("reference") == tx_ref:
+        return {"status": "duplicate", "reference": tx_ref, "application_id": application.id}, 200
+
+    paid_at = sanitize_string(payload.get("paid_at") or payload.get("created_at") or "") or datetime.now(timezone.utc).isoformat()
+    updated_summary = _normalize_parent_admission_payment_summary(
+        {
+            **payment_summary,
+            "status": "paid",
+            "reference": tx_ref,
+            "amount": amount,
+            "provider": "paystack",
+            "paid_at": paid_at,
+        },
+        fee_config=_get_school_admission_fee_config(settings),
+    )
+    _set_parent_admission_payment_summary(application, updated_summary)
+
+    log_action(
+        user_id=None,
+        school_id=application.school_id,
+        action="PARENT_ADMISSION_FEE_PAID",
+        details=f"Parent admission fee paid for {application.application_code} (ref={tx_ref}, amount=GH₵{amount:.2f})",
+    )
+    db.session.commit()
+    return {"status": "recorded", "reference": tx_ref, "application_id": application.id}, 200
+
+
 @api.route("/finance/paystack/initialize-payment", methods=["POST"])
 @multi_tenant_guard
 @jwt_required()
@@ -8745,16 +9306,50 @@ def initialize_paystack_payment():
         return restriction
     
     student_id = data.get("student_id")
+    reference_code = sanitize_string(data.get("reference_code")) or None
     payment_type = sanitize_string(data.get("payment_type", "Tuition"))
     amount = data.get("amount")
-    
-    if not student_id or not amount:
-        return jsonify({"error": "student_id and amount required"}), 400
-    
-    student = Student.query.filter_by(
-        id=student_id,
-        school_id=g.school_id
-    ).first_or_404()
+    payment_category = data.get("payment_category") if isinstance(data.get("payment_category"), dict) else {}
+
+    student = None
+    if student_id:
+        student = Student.query.filter_by(
+            id=student_id,
+            school_id=g.school_id
+        ).first_or_404()
+    elif reference_code:
+        resolved_student, resolved_type, resolved_category = _resolve_payment_from_reference(
+            reference_code,
+            school_id_hint=g.school_id,
+        )
+        if not resolved_student:
+            return jsonify({"error": f"Invalid reference code: {reference_code}"}), 400
+        student = resolved_student
+        payment_type = resolved_type or payment_type or "Tuition"
+        payment_category = {
+            **(resolved_category or {}),
+            **(payment_category or {}),
+            "reference_code": reference_code,
+        }
+    else:
+        return jsonify({"error": "student_id or reference_code required"}), 400
+
+    if amount in (None, ""):
+        return jsonify({"error": "amount required"}), 400
+
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        return jsonify({"error": "amount must be numeric"}), 400
+
+    if amount <= 0:
+        return jsonify({"error": "amount must be greater than zero"}), 400
+
+    if reference_code and "reference_code" not in payment_category:
+        payment_category = {
+            **(payment_category or {}),
+            "reference_code": reference_code,
+        }
     
     # Generate unique reference
     import uuid
@@ -8772,7 +9367,8 @@ def initialize_paystack_payment():
             "student_name": student.name,
             "school_id": g.school_id,
             "payment_type": payment_type,
-            "payment_category": data.get("payment_category", {}),
+            "reference_code": reference_code,
+            "payment_category": payment_category,
         },
         "callback_url": data.get("callback_url", "https://edupulse.com/payment-complete"),
     }
@@ -8795,9 +9391,90 @@ def initialize_paystack_payment():
             "name": student.name,
             "student_code": student.student_code,
         },
+        "reference_code": reference_code,
         "payment_type": payment_type,
         "message": f"Payment link generated for {student.name}"
     })
+
+
+@api.route("/public/schools/<school_id>/admissions/status/<status_token>/initialize-payment", methods=["POST"])
+def initialize_parent_admission_fee_payment(school_id, status_token):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    application = ParentAdmissionApplication.query.filter_by(
+        school_id=school_id,
+        status_token=status_token,
+    ).first()
+    if not application:
+        return jsonify({"message": "Application not found"}), 404
+
+    fee_config = _get_school_admission_fee_config(settings)
+    if not fee_config["enabled"]:
+        return jsonify({"message": "This school does not require an admission fee right now."}), 409
+
+    payment_summary = _get_parent_admission_payment_summary(application, settings)
+    if payment_summary.get("status") == "paid":
+        return jsonify({"message": "Admission fee has already been paid.", "payment_summary": payment_summary}), 409
+
+    amount = round(float(fee_config["amount"] or 0.0), 2)
+    if amount <= 0:
+        return jsonify({"message": "Admission fee amount is not configured."}), 409
+
+    callback_url = _build_parent_public_url(_build_parent_status_path(school_id, status_token))
+    reference = f"PADM-{application.application_code}-{secrets.token_hex(4).upper()}"
+    provider_settings = _get_payment_provider_settings(settings)
+    paystack_payload = {
+        "email": application.parent_email or f"{application.application_code.lower()}@parents.edupulse.invalid",
+        "amount": int(amount * 100),
+        "reference": reference,
+        "currency": "GHS",
+        "metadata": {
+            "transaction_type": "parent_admission_fee",
+            "school_id": school_id,
+            "parent_admission_application_id": application.id,
+            "application_code": application.application_code,
+            "status_token": application.status_token,
+            "payment_type": fee_config["label"],
+        },
+        "callback_url": callback_url,
+    }
+    if provider_settings.get("paystack_subaccount_code"):
+        paystack_payload["subaccount"] = provider_settings["paystack_subaccount_code"]
+
+    result, error = _call_paystack_api("/transaction/initialize", method="POST", data=paystack_payload)
+    if error:
+        logger.error(f"Parent admission payment initialization failed: {error}")
+        return jsonify({"message": f"Payment initialization failed: {error}"}), 500
+
+    initiated_summary = _normalize_parent_admission_payment_summary(
+        {
+            **payment_summary,
+            "status": "initiated",
+            "reference": reference,
+            "amount": amount,
+            "provider": "paystack",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        },
+        fee_config=fee_config,
+    )
+    _set_parent_admission_payment_summary(application, initiated_summary)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "status": "success",
+            "authorization_url": result.get("authorization_url"),
+            "access_code": result.get("access_code"),
+            "reference": reference,
+            "amount": amount,
+            "application_code": application.application_code,
+            "payment_summary": initiated_summary,
+            "message": f"Payment link generated for {application.application_code}",
+        }
+    ), 200
 
 
 @api.route("/proprietor/terminal-reports/whatsapp/bulk-send", methods=["POST"])
@@ -11817,6 +12494,7 @@ def submit_parent_admission_application(school_id):
         "status_token": application.status_token,
         "status_path": status_path,
         "status_url": status_url,
+        "payment_summary": _build_parent_admission_payment_payload(application, school, settings),
         "consent_recorded": True,
         "notification": {
             "email_sent": email_sent,
@@ -11856,6 +12534,9 @@ def get_parent_admission_status(school_id, status_token):
     payload = _apply_parent_admission_review_details(application.to_public_dict())
     payload["school"] = _get_public_school_profile_payload(school, settings)
     payload["status_path"] = _build_parent_status_path(school_id, application.status_token)
+    payload["payment_summary"] = _build_parent_admission_payment_payload(application, school, settings)
+    if payload["payment_summary"].get("can_pay_now"):
+        payload["payment_path"] = _build_parent_admission_payment_path(school_id, application.status_token)
     if application.admitted_student_id:
         student = Student.query.filter_by(id=application.admitted_student_id, school_id=school_id).first()
         if student:
@@ -12086,6 +12767,8 @@ def review_parent_admission_application(application_id):
     if action == "schedule_visit" and not follow_up_plan and not reviewer_notes:
         return jsonify({"message": "Provide visit details or reviewer notes before marking the school visit as required."}), 400
 
+    existing_payment_summary = _parse_parent_admission_review_notes(application.reviewer_notes).get("payment_summary")
+
     parent_response_message = _build_parent_admission_response_message(
         action,
         application,
@@ -12100,6 +12783,14 @@ def review_parent_admission_application(application_id):
         follow_up_plan=follow_up_plan,
         class_assigned=class_assigned if action == "approve" else None,
     )
+    if existing_payment_summary:
+        _set_parent_admission_payment_summary(
+            application,
+            _normalize_parent_admission_payment_summary(
+                existing_payment_summary,
+                fee_config=_get_school_admission_fee_config(settings),
+            ),
+        )
 
     response_payload = {
         "message": f"Application marked as {application.status}.",
@@ -16930,6 +17621,7 @@ def get_school_settings():
     enabled_modules = _get_enabled_modules(settings)
     workflow_config = _get_parent_admission_workflow_config(settings)
     compliance_workflow = _get_data_compliance_workflow_config(settings)
+    provider_settings = _get_payment_provider_settings(settings)
     registration_ack = compliance_workflow.get("registration_acknowledgements") or {}
     legacy_migration = compliance_workflow.get("legacy_migration") or {}
     consent_plan_confirmed = bool(registration_ack.get("legacy_and_exam_consent_plan_confirmed"))
@@ -16952,6 +17644,9 @@ def get_school_settings():
             "bank_account": masked_bank_fields["bank_account"],
             "bank_account_name": masked_bank_fields["bank_account_name"],
             "bank_branch": masked_bank_fields["bank_branch"],
+            "paystack_subaccount_code": provider_settings.get("paystack_subaccount_code", ""),
+            "paystack_bank_code": provider_settings.get("paystack_bank_code", ""),
+            "paystack_resolved_account_name": provider_settings.get("paystack_resolved_account_name", ""),
             "bank_details_masked": True,
             "country_code": settings.country_code if settings and settings.country_code else "GH",
             "anniversary_date": settings.anniversary_date.isoformat() if settings and settings.anniversary_date else None,
@@ -17062,6 +17757,7 @@ def update_school_settings():
     if not settings:
         settings = SchoolSettings(school_id=g.school_id)
         db.session.add(settings)
+    provider_settings = _get_payment_provider_settings(settings)
     if "country_code" in data:
         settings.country_code = (data["country_code"] or "GH").upper()
         changed_fields.append("country_code")
@@ -17085,6 +17781,8 @@ def update_school_settings():
         changed_fields.append("next_term_reopen_date")
     workflow_config = _get_parent_admission_workflow_config(settings)
     workflow_changed = False
+    provider_settings_changed = False
+    paystack_subaccount_result = None
     compliance_workflow = _get_data_compliance_workflow_config(settings)
     compliance_changed_fields = []
     if "admissions_visit_location_default" in data:
@@ -17121,6 +17819,12 @@ def update_school_settings():
         changed_fields.append("admissions_visit_message_template")
     if workflow_changed:
         _set_parent_admission_workflow_config(settings, workflow_config)
+    if "paystack_subaccount_code" in data:
+        provider_settings["paystack_subaccount_code"] = sanitize_string(data.get("paystack_subaccount_code") or "") or ""
+        provider_settings_changed = True
+        changed_fields.append("paystack_subaccount_code")
+    if provider_settings_changed:
+        _set_payment_provider_settings(settings, provider_settings)
     if "data_compliance_school_authority_confirmed" in data:
         confirmed = bool(data.get("data_compliance_school_authority_confirmed"))
         compliance_workflow["registration_acknowledgements"]["school_data_authority_confirmed"] = confirmed
@@ -17194,6 +17898,22 @@ def update_school_settings():
         settings.approval_pdf_required_items = sanitize_string(data.get("approval_pdf_required_items") or "") or None
         changed_fields.append("approval_pdf_required_items")
 
+    manual_subaccount_override = bool(
+        sanitize_string(data.get("paystack_subaccount_code") or "")
+    ) if "paystack_subaccount_code" in data else False
+    should_provision_subaccount = bool(bank_fields_changed) and not manual_subaccount_override
+    if should_provision_subaccount:
+        provider_settings = _get_payment_provider_settings(settings)
+        paystack_subaccount_result, provision_error = _provision_school_paystack_subaccount(school, settings, provider_settings)
+        if provision_error:
+            db.session.rollback()
+            return jsonify({"message": provision_error}), 400
+        changed_fields.extend([
+            "paystack_bank_code",
+            "paystack_resolved_account_name",
+            "paystack_subaccount_code",
+        ])
+
     log_action(
         actor_id,
         g.school_id,
@@ -17232,7 +17952,17 @@ def update_school_settings():
             ),
         )
     db.session.commit()
-    return jsonify({"message": "Settings updated."})
+    response_payload = {"message": "Settings updated."}
+    if paystack_subaccount_result:
+        response_payload.update(
+            {
+                "message": f"Settings updated. Paystack subaccount {paystack_subaccount_result['action']} automatically.",
+                "paystack_subaccount_code": paystack_subaccount_result["subaccount_code"],
+                "paystack_bank_code": paystack_subaccount_result["bank_code"],
+                "paystack_resolved_account_name": paystack_subaccount_result["resolved_account_name"],
+            }
+        )
+    return jsonify(response_payload)
 
 
 @api.route("/school/settings/legacy-consent-evidence", methods=["GET"])
