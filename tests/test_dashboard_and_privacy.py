@@ -155,6 +155,106 @@ def test_platform_user_management_uses_platform_jwt(client, app):
     assert self_delete_response.status_code == 400
 
 
+def test_platform_can_release_registration_email(client, app):
+    platform_user = PlatformUser(username="release-admin", email="release-admin@example.com")
+    platform_user.set_password("secret123")
+    school = School(id="REL-001", name="Release School")
+    proprietor = User(
+        username="release-owner",
+        school_id=school.id,
+        role="proprietor",
+        email="owner@release.edu",
+    )
+    proprietor.set_password("secret123")
+
+    db.session.add_all([platform_user, school, proprietor])
+    db.session.commit()
+
+    headers = _platform_headers(app, platform_user.id)
+    release_response = client.post(
+        "/api/platform/registration-email-release",
+        headers=headers,
+        data=json.dumps({"school_id": school.id}),
+    )
+
+    assert release_response.status_code == 200
+    payload = release_response.get_json()
+    assert payload["released"][0]["old_email"] == "owner@release.edu"
+    assert payload["released"][0]["new_email"].endswith("@edupulse.invalid")
+
+    db.session.refresh(proprietor)
+    assert proprietor.email.endswith("@edupulse.invalid")
+
+    trace_response = client.get(f"/api/platform/registration-email-trace?school_id={school.id}", headers=headers)
+    assert trace_response.status_code == 200
+    actions = [row["action"] for row in trace_response.get_json()["events"]]
+    assert "REGISTRATION_EMAIL_RELEASED" in actions
+
+
+def test_platform_release_allows_reregistration_with_original_email(client, app):
+    platform_user = PlatformUser(username="reuse-admin", email="reuse-admin@example.com")
+    platform_user.set_password("secret123")
+    school = School(id="OLD-EMAIL", name="Legacy Test School")
+    proprietor = User(
+        username="legacy-owner",
+        school_id=school.id,
+        role="proprietor",
+        email="owner@legacy.edu",
+    )
+    proprietor.set_password("secret123")
+
+    db.session.add_all([platform_user, school, proprietor])
+    db.session.commit()
+
+    blocked_response = client.post(
+        "/api/register",
+        json={
+            "schoolCode": "NEW-EMAIL2",
+            "schoolName": "Fresh School",
+            "username": "fresh-owner",
+            "email": "OWNER@LEGACY.EDU",
+            "password": "NewSchoolPass123!",
+            "termsAccepted": True,
+            "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
+        },
+    )
+    assert blocked_response.status_code == 400
+
+    headers = _platform_headers(app, platform_user.id)
+    release_response = client.post(
+        "/api/platform/registration-email-release",
+        headers=headers,
+        data=json.dumps({"emails": "owner@legacy.edu", "school_id": school.id}),
+    )
+    assert release_response.status_code == 200
+
+    success_response = client.post(
+        "/api/register",
+        json={
+            "schoolCode": "NEW-EMAIL2",
+            "schoolName": "Fresh School",
+            "username": "fresh-owner",
+            "email": "owner@legacy.edu",
+            "password": "NewSchoolPass123!",
+            "termsAccepted": True,
+            "termsVersion": "2026-02-22",
+            "policyAccepted": True,
+            "policyVersion": "2026-03-07",
+            "schoolDataAuthorityConfirmed": True,
+            "legacyAndExamConsentPlanConfirmed": True,
+            "aggregatedAnalyticsAccepted": True,
+        },
+    )
+
+    assert success_response.status_code == 200
+    assert "successfully" in success_response.get_json()["message"].lower()
+
+
 def test_platform_compliance_queue_hides_placeholder_cases(client, app):
     platform_user = PlatformUser(username="compliance-admin", email="compliance-admin@example.com")
     platform_user.set_password("secret123")

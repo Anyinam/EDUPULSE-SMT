@@ -71,6 +71,12 @@ export default function PlatformConsole() {
   const [emailTraceLoading, setEmailTraceLoading] = useState(false);
   const [emailTraceError, setEmailTraceError] = useState('');
   const [emailTraceSchoolFilter, setEmailTraceSchoolFilter] = useState('');
+  const [releaseSchoolId, setReleaseSchoolId] = useState('');
+  const [releaseEmailsInput, setReleaseEmailsInput] = useState('');
+  const [releaseEmailLoading, setReleaseEmailLoading] = useState(false);
+  const [releaseEmailError, setReleaseEmailError] = useState('');
+  const [releaseEmailSuccess, setReleaseEmailSuccess] = useState('');
+  const [releasedEmailRows, setReleasedEmailRows] = useState([]);
   const [verificationCases, setVerificationCases] = useState([]);
 
   const getPlatformHeaders = () => ({
@@ -372,6 +378,38 @@ export default function PlatformConsole() {
       setEmailTraceError(error.response?.data?.message || 'Failed to load registration email trace');
     } finally {
       setEmailTraceLoading(false);
+    }
+  };
+
+  const handleReleaseRegistrationEmails = async ({ schoolId = releaseSchoolId, emails = releaseEmailsInput } = {}) => {
+    setReleaseEmailLoading(true);
+    setReleaseEmailError('');
+    setReleaseEmailSuccess('');
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/platform/registration-email-release`,
+        {
+          school_id: schoolId,
+          emails,
+        },
+        getPlatformHeaders()
+      );
+
+      setReleasedEmailRows(Array.isArray(response.data?.released) ? response.data.released : []);
+      setReleaseEmailSuccess(response.data?.message || 'Registration email released.');
+
+      if (schoolId.trim()) {
+        setReleaseSchoolId(schoolId.trim());
+        setEmailTraceSchoolFilter(schoolId.trim());
+      }
+
+      fetchRegistrationEmailTrace();
+    } catch (error) {
+      setReleasedEmailRows([]);
+      setReleaseEmailError(error.response?.data?.message || 'Failed to release registration email.');
+    } finally {
+      setReleaseEmailLoading(false);
     }
   };
 
@@ -716,6 +754,62 @@ export default function PlatformConsole() {
 
         {activeTab === 'email_trace' ? (
           <SectionCard title="Registration Email Trace" description="Track welcome-email sends and quickly detect duplicates per school.">
+            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <h3 className="text-md font-semibold text-amber-900 mb-2">Release Test Registration Emails</h3>
+              <p className="text-sm text-amber-800 mb-4">Use this only for test or stuck accounts. The old address will be replaced with an internal alias so the original email can register again.</p>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-[220px,1fr,auto]">
+                <input
+                  type="text"
+                  value={releaseSchoolId}
+                  onChange={(event) => setReleaseSchoolId(event.target.value)}
+                  placeholder="School ID (recommended)"
+                  className="px-3 py-2 border border-amber-300 rounded-md"
+                />
+                <textarea
+                  value={releaseEmailsInput}
+                  onChange={(event) => setReleaseEmailsInput(event.target.value)}
+                  placeholder="Email or emails to release. Separate with commas, spaces, or new lines. Leave blank to release the proprietor email for the school ID."
+                  rows="3"
+                  className="px-3 py-2 border border-amber-300 rounded-md"
+                />
+                <button
+                  onClick={handleReleaseRegistrationEmails}
+                  disabled={releaseEmailLoading}
+                  className="bg-amber-600 text-white px-4 py-2 rounded-md hover:bg-amber-700 disabled:bg-gray-400 disabled:cursor-not-allowed h-fit"
+                >
+                  {releaseEmailLoading ? 'Releasing...' : 'Release Email'}
+                </button>
+              </div>
+
+              {releaseEmailError ? <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">{releaseEmailError}</div> : null}
+              {releaseEmailSuccess ? <div className="mt-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded text-sm">{releaseEmailSuccess}</div> : null}
+
+              {releasedEmailRows.length > 0 ? (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-amber-200">
+                    <thead className="bg-amber-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-amber-900 uppercase">School</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-amber-900 uppercase">User</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-amber-900 uppercase">Released</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-amber-900 uppercase">Replacement</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100 bg-white">
+                      {releasedEmailRows.map((row) => (
+                        <tr key={`${row.user_id}-${row.new_email}`}>
+                          <td className="px-4 py-2 text-sm text-gray-800 font-mono">{row.school_id}</td>
+                          <td className="px-4 py-2 text-sm text-gray-700">{row.username} ({row.role})</td>
+                          <td className="px-4 py-2 text-sm text-gray-700">{row.old_email}</td>
+                          <td className="px-4 py-2 text-xs text-gray-600 break-all">{row.new_email}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
+
             <div className="flex flex-wrap gap-3 mb-4">
               <input type="text" value={emailTraceSchoolFilter} onChange={(event) => setEmailTraceSchoolFilter(event.target.value)} placeholder="Filter by school ID (optional)" className="px-3 py-2 border border-gray-300 rounded-md min-w-80" />
               <button onClick={fetchRegistrationEmailTrace} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Refresh Trace</button>
@@ -736,6 +830,7 @@ export default function PlatformConsole() {
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">School ID</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Welcome Email Count</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Duplicate</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -748,11 +843,20 @@ export default function PlatformConsole() {
                                 {row.has_duplicates ? 'YES' : 'NO'}
                               </span>
                             </td>
+                            <td className="px-4 py-2 text-sm">
+                              <button
+                                onClick={() => handleReleaseRegistrationEmails({ schoolId: row.school_id })}
+                                disabled={releaseEmailLoading}
+                                className="text-amber-700 hover:text-amber-900 font-semibold disabled:text-gray-400 disabled:cursor-not-allowed"
+                              >
+                                Release
+                              </button>
+                            </td>
                           </tr>
                         ))}
                         {emailTraceSummary.length === 0 ? (
                           <tr>
-                            <td colSpan="3" className="px-4 py-4 text-sm text-gray-500 text-center">No registration email activity found.</td>
+                            <td colSpan="4" className="px-4 py-4 text-sm text-gray-500 text-center">No registration email activity found.</td>
                           </tr>
                         ) : null}
                       </tbody>

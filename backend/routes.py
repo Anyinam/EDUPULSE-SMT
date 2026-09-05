@@ -4622,6 +4622,7 @@ def get_registration_email_trace():
     actions = [
         "REGISTRATION_WELCOME_EMAIL_SENT",
         "REGISTRATION_POLICY_ACCEPTED",
+        "REGISTRATION_EMAIL_RELEASED",
     ]
 
     query = db.session.query(AuditLog).filter(AuditLog.action.in_(actions))
@@ -4662,6 +4663,156 @@ def get_registration_email_trace():
             ],
             "duplicate_summary": duplicate_summary,
             "total_events": len(rows),
+        }
+    )
+
+
+@api.route("/platform/registration-email-release", methods=["POST"])
+@jwt_required()
+def release_registration_email():
+    """Release stuck registration emails by moving old user records to internal aliases."""
+    platform_user = _get_platform_user_from_jwt()
+    if not platform_user:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    school_id = sanitize_string(data.get("school_id", "")).strip()
+    raw_emails = data.get("emails")
+
+    normalized_emails = []
+    if isinstance(raw_emails, str):
+        normalized_emails = [
+            _normalize_email_address(value)
+            for value in re.split(r"[\s,;]+", raw_emails)
+            if _normalize_email_address(value)
+        ]
+    elif isinstance(raw_emails, list):
+        normalized_emails = [
+            _normalize_email_address(value)
+            for value in raw_emails
+            if _normalize_email_address(value)
+        ]
+
+    normalized_emails = list(dict.fromkeys(normalized_emails))
+
+    if not school_id and not normalized_emails:
+        return jsonify({"message": "Provide at least one email or a school ID."}), 400
+
+    school = None
+    if school_id:
+        school = School.query.get(school_id)
+        if not school:
+            return jsonify({"message": "School not found."}), 404
+
+    candidate_users = User.query.all() if normalized_emails else []
+    matched_users = []
+
+    if school_id:
+        school_users = User.query.filter_by(school_id=school_id).all()
+        if normalized_emails:
+            matched_users.extend(
+                user
+                for user in school_users
+                if _normalize_email_address(user.email) in normalized_emails
+            )
+        else:
+            matched_users.extend(
+                user for user in school_users if user.role == "proprietor" and _normalize_email_address(user.email)
+            )
+    else:
+        for email in normalized_emails:
+            email_matches = [
+                user for user in candidate_users if _normalize_email_address(user.email) == email
+            ]
+            if len(email_matches) > 1:
+                return (
+                    jsonify(
+                        {
+                            "message": f"Multiple accounts use {email}. Add the school ID to release it safely.",
+                            "error": "registration_email_release_requires_school_id",
+                            "matches": [
+                                {
+                                    "user_id": user.id,
+                                    "school_id": user.school_id,
+                                    "username": user.username,
+                                    "role": user.role,
+                                }
+                                for user in email_matches
+                            ],
+                        }
+                    ),
+                    409,
+                )
+            matched_users.extend(email_matches)
+
+    deduped_users = []
+    seen_user_ids = set()
+    for user in matched_users:
+        if not user or user.id in seen_user_ids:
+            continue
+        seen_user_ids.add(user.id)
+        deduped_users.append(user)
+
+    if not deduped_users:
+        return jsonify({"message": "No matching school users found for release."}), 404
+
+    released = []
+    for user in deduped_users:
+        old_email = _normalize_email_address(user.email)
+        if not old_email:
+            continue
+        new_email = _build_released_registration_email(user, old_email)
+        user.email = new_email
+        released.append(
+            {
+                "user_id": user.id,
+                "school_id": user.school_id,
+                "username": user.username,
+                "role": user.role,
+                "old_email": old_email,
+                "new_email": new_email,
+            }
+        )
+
+    if not released:
+        return jsonify({"message": "No releasable email addresses were found."}), 404
+
+    db.session.commit()
+
+    for entry in released:
+        db.session.add(
+            AuditLog(
+                actor_id=None,
+                school_id=entry["school_id"],
+                action="REGISTRATION_EMAIL_RELEASED",
+                details=json.dumps(
+                    {
+                        "released_by": platform_user.username,
+                        "user_id": entry["user_id"],
+                        "username": entry["username"],
+                        "role": entry["role"],
+                        "old_email": entry["old_email"],
+                        "new_email": entry["new_email"],
+                    },
+                    ensure_ascii=False,
+                ),
+                timestamp=get_utc_now(),
+            )
+        )
+    db.session.commit()
+
+    target_label = school.id if school else ", ".join(normalized_emails)
+    logger.info(
+        "Platform registration email release by %s for %s: %s",
+        platform_user.username,
+        target_label,
+        ", ".join(entry["old_email"] for entry in released),
+    )
+
+    return jsonify(
+        {
+            "message": f"Released {len(released)} registration email(s).",
+            "released": released,
         }
     )
 
@@ -14124,6 +14275,15 @@ def replace_teacher_assignments(teacher_id, classes, subjects):
 
 def _normalize_email_address(email):
     return (email or "").strip().lower()
+
+
+def _build_released_registration_email(user, original_email):
+    normalized_original = _normalize_email_address(original_email)
+    local_part = normalized_original.split("@", 1)[0] if normalized_original else "released"
+    local_part = re.sub(r"[^a-z0-9]+", "-", local_part).strip("-") or "released"
+    school_part = re.sub(r"[^a-z0-9]+", "-", (user.school_id or "no-school").lower()).strip("-") or "no-school"
+    timestamp = get_utc_now().strftime("%Y%m%d%H%M%S")
+    return f"released+{school_part}-{user.id}-{local_part}-{timestamp}@edupulse.invalid"
 
 
 def _find_school_user_by_email(school_id, email, exclude_user_id=None):
