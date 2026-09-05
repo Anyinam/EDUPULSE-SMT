@@ -34,12 +34,51 @@ Parameters:
     Type: String
   AppDesiredCount:
     Type: Number
-    Default: 2
-    MinValue: 1
+    Default: 1
+    MinValue: 0
   SchedulerDesiredCount:
     Type: Number
-    Default: 1
+    Default: 0
+    MinValue: 0
+  ContainerInsightsSetting:
+    Type: String
+    Default: disabled
+    AllowedValues:
+      - enabled
+      - disabled
+    Description: Enable only when you actively need ECS container metrics; it adds CloudWatch cost.
+  LogRetentionInDays:
+    Type: Number
+    Default: 7
+    AllowedValues:
+      - 1
+      - 3
+      - 5
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+      - 120
+      - 150
+      - 180
+      - 365
+      - 400
+      - 545
+      - 731
+      - 1096
+      - 1827
+      - 2192
+      - 2557
+      - 2922
+      - 3288
+      - 3653
+    Description: Lower retention reduces CloudWatch log storage cost.
+  EcrImageRetentionCount:
+    Type: Number
+    Default: 5
     MinValue: 1
+    Description: Keep only the most recent images unless you need a deeper rollback window.
   BackendRepositoryName:
     Type: String
     Default: edupulse-backend
@@ -66,7 +105,7 @@ Resources:
       ClusterName: !Sub edupulse-${EnvironmentName}
       ClusterSettings:
         - Name: containerInsights
-          Value: enabled
+          Value: !Ref ContainerInsightsSetting
 
   BackendRepository:
     Type: AWS::ECR::Repository
@@ -76,7 +115,7 @@ Resources:
         ScanOnPush: true
       ImageTagMutability: MUTABLE
       LifecyclePolicy:
-        LifecyclePolicyText: |
+        LifecyclePolicyText: !Sub |
           {
             "rules": [
               {
@@ -85,7 +124,7 @@ Resources:
                 "selection": {
                   "tagStatus": "any",
                   "countType": "imageCountMoreThan",
-                  "countNumber": 20
+                  "countNumber": ${EcrImageRetentionCount}
                 },
                 "action": {
                   "type": "expire"
@@ -102,7 +141,7 @@ Resources:
         ScanOnPush: true
       ImageTagMutability: MUTABLE
       LifecyclePolicy:
-        LifecyclePolicyText: |
+        LifecyclePolicyText: !Sub |
           {
             "rules": [
               {
@@ -111,7 +150,7 @@ Resources:
                 "selection": {
                   "tagStatus": "any",
                   "countType": "imageCountMoreThan",
-                  "countNumber": 20
+                  "countNumber": ${EcrImageRetentionCount}
                 },
                 "action": {
                   "type": "expire"
@@ -124,25 +163,25 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /ecs/edupulse-${EnvironmentName}-backend
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionInDays
 
   FrontendLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /ecs/edupulse-${EnvironmentName}-frontend
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionInDays
 
   SchedulerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /ecs/edupulse-${EnvironmentName}-scheduler
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionInDays
 
   MigrationLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /ecs/edupulse-${EnvironmentName}-migration
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionInDays
 
   AlarmTopic:
     Type: AWS::SNS::Topic

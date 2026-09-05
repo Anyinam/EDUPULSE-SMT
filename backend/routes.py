@@ -10128,8 +10128,11 @@ def receive_payment():
     student = None
     payment_type = data.get("type") or data.get("payment_type") or "Tuition"
 
+    structured_reference_code = None
+
     if "reference_code" in data:
         reference_code = data["reference_code"].strip().upper()
+        structured_reference_code = reference_code
         student, decoded_type, decoded_category = _resolve_payment_from_reference(
             reference_code,
             school_id_hint=g.school_id,
@@ -10217,14 +10220,21 @@ def receive_payment():
                 400,
             )
 
-    reference_id = data.get("reference_code") or data.get("reference_id")
+    explicit_reference_id = sanitize_string(data.get("reference_id")) or None
+    reference_id = explicit_reference_id or structured_reference_code
+    payment_category = data.get("payment_category", {})
+    if structured_reference_code:
+        payment_category = {
+            **(payment_category or {}),
+            "reference_code": structured_reference_code,
+        }
     validation_payload = {
         "student_id": student.id,
         "amount": data.get("amount"),
         "payment_type": payment_type,
         "method": data.get("method", "Cash"),
         "reference_id": reference_id,
-        "payment_category": data.get("payment_category", {}),
+        "payment_category": payment_category,
     }
     if reference_id:
         existing = Payment.query.filter_by(reference_id=reference_id).first()

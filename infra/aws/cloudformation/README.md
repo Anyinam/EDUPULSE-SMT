@@ -4,9 +4,9 @@ This directory contains the infrastructure template that provisions the shared A
 
 ## What the stack creates
 
-- ECS cluster with Container Insights enabled
+- ECS cluster with configurable Container Insights
 - Two ECR repositories: backend and frontend
-- CloudWatch log groups for app, frontend, scheduler, and migration tasks
+- CloudWatch log groups for app, frontend, scheduler, and migration tasks with configurable retention
 - Internet-facing Application Load Balancer
 - ACM certificate for the root domain plus `app` and `api` subdomains, or support for an existing certificate ARN
 - Route53 alias records for the app and API domains
@@ -42,7 +42,24 @@ aws cloudformation deploy \
     AppTaskDefinitionArn=arn:aws:ecs:us-east-1:123456789012:task-definition/edupulse-app:1 \
     SchedulerTaskDefinitionArn=arn:aws:ecs:us-east-1:123456789012:task-definition/edupulse-scheduler:1 \
     EcsTaskExecutionRoleArn=arn:aws:iam::123456789012:role/edupulse-ecs-execution \
-    EcsTaskRoleArn=arn:aws:iam::123456789012:role/edupulse-app-task
+    EcsTaskRoleArn=arn:aws:iam::123456789012:role/edupulse-app-task \
+    AppDesiredCount=1 \
+    SchedulerDesiredCount=0 \
+    ContainerInsightsSetting=disabled \
+    LogRetentionInDays=7 \
+    EcrImageRetentionCount=5
+
+  ## Lean prelaunch guidance
+
+  If you have not launched yet, start from a lean baseline:
+
+  - `AppDesiredCount=1`
+  - `SchedulerDesiredCount=0`
+  - `ContainerInsightsSetting=disabled`
+  - `LogRetentionInDays=7`
+  - `EcrImageRetentionCount=5`
+
+  This stack still includes an always-on Application Load Balancer, which is usually the main fixed monthly charge even when traffic is near zero. If you want the absolute cheapest prelaunch posture, scale ECS services down when idle and consider not keeping the ALB stack running continuously until you need public uptime.
 ```
 
 ## After deploy

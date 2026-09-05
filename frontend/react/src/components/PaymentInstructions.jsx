@@ -93,7 +93,7 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
           <h1 className="mt-3 text-3xl font-black sm:text-4xl">{payload.student_name}</h1>
           <p className="mt-3 max-w-3xl text-sm text-emerald-50 sm:text-base">
             Use the stable learner payment identity for every digital payment. Structured references keep
-            reconciliation accurate even when you pay through different channels.
+            reconciliation accurate when the school confirms the transfer or a connected payment provider sends a callback.
           </p>
         </div>
 
@@ -137,6 +137,7 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
                 <li>1. Choose the fee below and copy the exact reference shown.</li>
                 <li>2. Pay with bank transfer, bank app, USSD, or the school office fallback channel.</li>
                 <li>3. Keep the learner code {identity.stable_payment_identity || payload.student_code} in the payment narration.</li>
+                <li>4. The payment will appear after the school reconciles the transfer or the connected provider callback is received.</li>
               </ol>
             </div>
 

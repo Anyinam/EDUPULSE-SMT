@@ -600,6 +600,35 @@ class TestPaymentEndpoints:
             data = json.loads(payment_response.data)
             assert "recorded" in data["message"]
 
+    def test_receive_payment_keeps_structured_reference_separate_from_transaction_reference(self, client, app):
+        """Manual reconciliation should store the bank or MoMo transaction ID, not overwrite it with the learner reference."""
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import Payment, Student, User
+
+            student = Student.query.filter_by(school_id="TEST-001", student_code="S001").first()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            headers = {"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"}
+
+            response = client.post(
+                "/api/finance/receive-payment",
+                json={
+                    "reference_code": f"{student.student_code}-FEED-MON",
+                    "reference_id": "BANK-TXN-001",
+                    "amount": 80.0,
+                    "method": "Bank",
+                },
+                headers=headers,
+            )
+
+            assert response.status_code == 200
+            payment_id = response.get_json()["payment_id"]
+            payment = Payment.query.get(payment_id)
+            assert payment.reference_id == "BANK-TXN-001"
+            assert payment.payment_category.get("reference_code") == f"{student.student_code}-FEED-MON"
+
     def test_receive_inventory_payment_by_student_code(self, client, app):
         """Inventory payments should accept a typed student code instead of requiring a dropdown-loaded student id."""
         with app.app_context():

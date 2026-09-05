@@ -37,16 +37,18 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 - `ECS_APP_TASK_FAMILY`: ECS task family for the app task.
 - `ECS_SCHEDULER_TASK_FAMILY`: ECS task family for the scheduler task.
 - `ECS_MIGRATION_TASK_FAMILY`: ECS task family for the migration task.
-- `ECS_APP_CPU`: app task CPU units, default `1024`.
-- `ECS_APP_MEMORY`: app task memory, default `2048`.
-- `ECS_SCHEDULER_CPU`: scheduler task CPU units, default `512`.
-- `ECS_SCHEDULER_MEMORY`: scheduler task memory, default `1024`.
-- `ECS_MIGRATION_CPU`: migration task CPU units, default `512`.
-- `ECS_MIGRATION_MEMORY`: migration task memory, default `1024`.
+- `ECS_APP_CPU`: app task CPU units. Lean prelaunch default `512`; raise only after measuring real load.
+- `ECS_APP_MEMORY`: app task memory. Lean prelaunch default `1024`; raise only after measuring real load.
+- `ECS_SCHEDULER_CPU`: scheduler task CPU units. Lean prelaunch default `256`.
+- `ECS_SCHEDULER_MEMORY`: scheduler task memory. Lean prelaunch default `512`.
+- `ECS_MIGRATION_CPU`: migration task CPU units. Lean prelaunch default `256`.
+- `ECS_MIGRATION_MEMORY`: migration task memory. Lean prelaunch default `512`.
 - `ECS_TASK_EXECUTION_ROLE_ARN`: task execution role ARN.
 - `ECS_TASK_ROLE_ARN`: task role ARN.
 - `ECS_SUBNET_IDS`: comma-separated subnet IDs for `awsvpcConfiguration`.
 - `ECS_SECURITY_GROUP_IDS`: comma-separated security group IDs for one-off migration tasks.
+- `ECS_APP_DESIRED_COUNT`: optional app service size. Use `1` for prelaunch and only raise after you see sustained demand.
+- `ECS_SCHEDULER_DESIRED_COUNT`: optional scheduler size. Use `0` when background jobs are not needed continuously.
 
 ### Domain and runtime
 
@@ -55,7 +57,7 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 - `EMAIL_PROVIDER`: `smtp` or `ses`. Use `ses` for AWS-native transactional email delivery.
 - `SES_REGION`: SES region for transactional email, typically `us-east-1`.
 - `MFA_REQUIRED`: set to `true` to force email-based login verification for all users in production, or `false` to disable the global MFA requirement while SMTP is unavailable.
-- `GUNICORN_WORKERS`: Gunicorn worker count, default `4`.
+- `GUNICORN_WORKERS`: Gunicorn worker count, lean prelaunch default `2`.
 
 ### Email and optional integrations
 
@@ -93,3 +95,22 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 3. Create AWS Secrets Manager secrets and copy their ARNs into the GitHub variables above.
 4. Set GitHub `production` environment secrets and variables.
 5. Trigger the `deploy-production` workflow on `main`.
+
+## Lean Prelaunch Baseline
+
+Use these values until you have real traffic that justifies more capacity:
+
+- `ECS_APP_CPU=512`
+- `ECS_APP_MEMORY=1024`
+- `ECS_SCHEDULER_CPU=256`
+- `ECS_SCHEDULER_MEMORY=512`
+- `ECS_MIGRATION_CPU=256`
+- `ECS_MIGRATION_MEMORY=512`
+- `GUNICORN_WORKERS=2`
+- CloudFormation `AppDesiredCount=1`
+- CloudFormation `SchedulerDesiredCount=0`
+- CloudFormation `ContainerInsightsSetting=disabled`
+- CloudFormation `LogRetentionInDays=7`
+- CloudFormation `EcrImageRetentionCount=5`
+
+If you are not actively using the scheduler, keep it at `0` so you are not paying for an always-on background task before launch.

@@ -407,6 +407,7 @@ export default function StudentPaymentTracker() {
                   <p style="margin-left: 12px;">1) Open the approved bank app, bank transfer, or USSD payment flow.</p>
                   <p style="margin-left: 12px;">2) Enter the amount shown for this fee.</p>
                   <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration where possible, then confirm payment.</p>
+                  <p style="margin-left: 12px;">4) The payment appears after the school reconciles the transfer or the connected provider callback is received.</p>
                 </div>
               </div>
             `).join('')}

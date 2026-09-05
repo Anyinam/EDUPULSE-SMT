@@ -13,6 +13,8 @@ export default function PaymentEntry({ students, onSuccess }) {
   const canUseInventoryCatalog = role === 'proprietor' || role === 'inventory_manager' || roles.includes('proprietor') || roles.includes('inventory_manager');
   const [form, setForm] = useState({
     student_id: '',
+    reference_code: '',
+    external_reference_id: '',
     amount: '',
     type: 'Tuition',
     method: 'Cash',
@@ -58,14 +60,16 @@ export default function PaymentEntry({ students, onSuccess }) {
 
   const selectedStudent = useMemo(() => {
     const id = String(form.student_id).trim();
-    if (!id) return null;
+    const referenceStudentCode = String(form.reference_code || '').trim().split('-')[0] || '';
+    const lookupValue = id || referenceStudentCode;
+    if (!lookupValue) return null;
 
     return students.find(s => (
-      String(s.id) === id ||
-      String(s.student_id) === id ||
-      isCodeMatch(id, s.student_code)
+      String(s.id) === lookupValue ||
+      String(s.student_id) === lookupValue ||
+      isCodeMatch(lookupValue, s.student_code)
     )) || null;
-  }, [form.student_id, students]);
+  }, [form.student_id, form.reference_code, students]);
 
   const headers = useMemo(() => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -139,8 +143,8 @@ export default function PaymentEntry({ students, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedStudent) {
-      alert('Student not found. Please check the student ID.');
+    if (!selectedStudent && !String(form.reference_code || '').trim()) {
+      alert('Student not found. Enter a student ID/code or use the payment instruction reference.');
       return;
     }
     try {
@@ -160,15 +164,27 @@ export default function PaymentEntry({ students, onSuccess }) {
 
       await axios.post('/api/finance/receive-payment', {
         ...form,
-        student_id: selectedStudent.id,
+        student_id: selectedStudent?.id || '',
+        reference_id: form.external_reference_id,
         amount: form.amount || (selectedInventoryItem ? selectedInventoryItem.price : ''),
         payment_category: paymentCategory
       }, { headers });
       alert("Payment Recorded Successfully!");
       if (onSuccess) onSuccess();
-      setForm({ ...form, amount: '' }); // Reset amount
+      setForm({
+        student_id: '',
+        reference_code: '',
+        external_reference_id: '',
+        amount: '',
+        type: 'Tuition',
+        method: 'Cash',
+        inventory_item_id: '',
+        inventory_quantity: 1
+      });
+      setUniformType('');
+      setUniformSize('');
     } catch (err) {
-      alert("Error recording payment.");
+      alert(err.response?.data?.message || "Error recording payment.");
     }
   };
 
@@ -179,11 +195,29 @@ export default function PaymentEntry({ students, onSuccess }) {
         <input
           type="text"
           className="w-full p-2 border rounded-lg bg-gray-50"
-          placeholder="Student ID or Code (e.g., 1 or S001)"
+          placeholder="Student ID or Code (optional if using payment reference)"
           value={form.student_id}
           onChange={e => setForm({ ...form, student_id: e.target.value })}
-          required
         />
+
+        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Payment Instruction Reconciliation</p>
+          <input
+            type="text"
+            className="w-full p-2 border rounded-lg bg-white"
+            placeholder="Learner payment reference (e.g., S001-FEED-MON)"
+            value={form.reference_code}
+            onChange={e => setForm({ ...form, reference_code: e.target.value.toUpperCase() })}
+          />
+          <input
+            type="text"
+            className="w-full p-2 border rounded-lg bg-white"
+            placeholder="Bank or MoMo transaction reference"
+            value={form.external_reference_id}
+            onChange={e => setForm({ ...form, external_reference_id: e.target.value.toUpperCase() })}
+          />
+          <p className="text-xs text-amber-800">Paste the exact learner reference shared with the parent, then keep the bank or wallet transaction ID for duplicate protection and audit tracking.</p>
+        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <input
@@ -209,7 +243,7 @@ export default function PaymentEntry({ students, onSuccess }) {
             setForm({...form, type: e.target.value, inventory_item_id: ''});
             setUniformType('');
             setUniformSize('');
-          }}>
+          }} value={form.type}>
             <option value="Tuition">Tuition</option>
             <option value="Feeding">Feeding Fee</option>
             <option value="Transport">Transport</option>
@@ -218,6 +252,10 @@ export default function PaymentEntry({ students, onSuccess }) {
             {canUseInventoryCatalog && <option value="Inventory">Inventory Item</option>}
           </select>
         </div>
+
+        {form.reference_code ? (
+          <p className="text-xs text-slate-600">When a learner reference is supplied, the backend will resolve the student and fee route from that reference and use your bank or MoMo transaction ID for idempotency.</p>
+        ) : null}
 
         {form.type === 'Uniform' && (
           <div className="grid grid-cols-2 gap-2">
