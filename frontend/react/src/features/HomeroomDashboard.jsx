@@ -6,6 +6,10 @@ import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import { useBranding } from '../hooks/useBranding';
 
 const getFeedingBadgeLabel = (student) => {
+  if (student.feeding_pending_approval && !student.feeding_paid) {
+    return 'Awaiting Approval';
+  }
+
   if (!student.feeding_paid) {
     return 'Pay Now (Unpaid)';
   }
@@ -16,6 +20,12 @@ const getFeedingBadgeLabel = (student) => {
 };
 
 const getFeedingBadgeMeta = (student) => {
+  if (student.feeding_pending_approval && !student.feeding_paid) {
+    return student.feeding_pending_amount
+      ? `Recorded GH₵${Number(student.feeding_pending_amount).toFixed(2)} and waiting for proprietor approval`
+      : 'Recorded and waiting for proprietor approval';
+  }
+
   if (!student.feeding_paid) {
     return null;
   }
@@ -33,6 +43,15 @@ const getFeedingBadgeMeta = (student) => {
   }
 
   return null;
+};
+
+const getDefaultDailyFeedingAmount = (student) => {
+  const dailyAmount = Number(student.feeding_daily_fee || 0);
+  if (dailyAmount > 0) {
+    return dailyAmount;
+  }
+
+  return Number(student.feeding_primary_fee || 0);
 };
 
 /**
@@ -109,11 +128,13 @@ export default function Homeroom() {
     setSavingAttendance(true);
     try {
       await axios.post('/api/homeroom/attendance/batch', {
-        attendance_records: changesArray
+        attendance_records: changesArray,
+        class_name: currentClass,
       }, getAuthHeaders());
       
       alert(`Successfully saved attendance for ${changesArray.length} student(s).`);
       setAttendanceChanges({});
+      await fetchStudents();
     } catch (err) {
       alert("Failed to save attendance. Please try again.");
       console.error(err);
@@ -123,21 +144,37 @@ export default function Homeroom() {
   };
 
   const handlePayFeeding = async (student) => {
-    if (!window.confirm(`Mark daily feeding fee (5.00) as PAID for ${student.name}?`)) return;
+    const defaultAmount = getDefaultDailyFeedingAmount(student);
+    const planHints = [
+      student.feeding_daily_fee ? `Daily GH₵${Number(student.feeding_daily_fee).toFixed(2)}` : null,
+      student.feeding_weekly_fee ? `Weekly GH₵${Number(student.feeding_weekly_fee).toFixed(2)}` : null,
+      student.feeding_monthly_fee ? `Monthly GH₵${Number(student.feeding_monthly_fee).toFixed(2)}` : null,
+    ].filter(Boolean);
+    const rawAmount = window.prompt(
+      `Record feeding payment for ${student.name}.${planHints.length ? `\n\nConfigured plans: ${planHints.join(' • ')}` : ''}\n\nEnter amount in GH₵. EduPulse will infer daily, weekly, or monthly coverage after approval.`,
+      defaultAmount > 0 ? defaultAmount.toFixed(2) : ''
+    );
+    if (rawAmount === null) return;
+
+    const amount = Number(rawAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert('Enter a valid feeding payment amount.');
+      return;
+    }
     
     try {
       await axios.post('/api/finance/receive-payment', {
         student_id: student.id,
-        amount: 5.0,
+        amount,
         type: 'Feeding',
         method: 'Cash',
-        payment_category: { frequency: 'Daily' }
+        payment_category: {}
       }, getAuthHeaders());
 
       await fetchStudents();
-      alert("Feeding payment recorded.");
+      alert('Feeding payment recorded. Coverage will activate automatically after proprietor approval.');
     } catch (err) {
-      alert("Failed to record payment.");
+      alert(err.response?.data?.message || 'Failed to record payment.');
     }
   };
 
@@ -170,7 +207,7 @@ export default function Homeroom() {
               <AcademicGuidancePanel title="My Homeroom Diagnostic Guidance" />
             </div>
             <div className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {isHomeroom && <PaymentEntry students={students} />}
+              {isHomeroom && <PaymentEntry students={students} onSuccess={fetchStudents} />}
             </div>
 
             {/* CLASS LIST TABLE */}
@@ -243,6 +280,13 @@ export default function Homeroom() {
                           {student.feeding_paid ? (
                             <div>
                               <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">{getFeedingBadgeLabel(student)}</span>
+                              {getFeedingBadgeMeta(student) ? (
+                                <p className="mt-2 text-xs text-slate-500">{getFeedingBadgeMeta(student)}</p>
+                              ) : null}
+                            </div>
+                          ) : student.feeding_pending_approval ? (
+                            <div>
+                              <span className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-bold">{getFeedingBadgeLabel(student)}</span>
                               {getFeedingBadgeMeta(student) ? (
                                 <p className="mt-2 text-xs text-slate-500">{getFeedingBadgeMeta(student)}</p>
                               ) : null}

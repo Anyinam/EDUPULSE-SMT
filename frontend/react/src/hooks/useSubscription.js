@@ -36,7 +36,7 @@ export const PLAN_FEATURES = {
       lesson_notes: true,
       grade_entry: true,
       report_generation: true,
-      ai_analysis: 'basic',
+      ai_analysis: false,
       ai_registrar: true,
       student_rescue_agent: false,
       webhook_payment_automation: false,
@@ -54,11 +54,11 @@ export const PLAN_FEATURES = {
       lesson_notes: true,
       grade_entry: true,
       report_generation: true,
-      ai_analysis: 'full',
-      ai_narratives: true,
+      ai_analysis: false,
+      ai_narratives: false,
       ai_registrar: true,
-      student_rescue_agent: true,
-      webhook_payment_automation: true,
+      student_rescue_agent: false,
+      webhook_payment_automation: false,
       ai_bursar_addon_available: true,
       communications_automation_addon_available: true,
       html_templates: true,
@@ -74,9 +74,10 @@ export function useSubscription() {
   useEffect(() => {
     const fetchSubscription = async () => {
       try {
+        const storedToken = localStorage.getItem('token') || localStorage.getItem('access_token');
         const headers = {
           'X-School-ID': localStorage.getItem('school_id'),
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${storedToken}`,
         };
 
         const response = await axios.get('/api/school/subscription', { headers });
@@ -95,12 +96,14 @@ export function useSubscription() {
       }
     };
 
-    if (localStorage.getItem('access_token')) {
+    if (localStorage.getItem('token') || localStorage.getItem('access_token')) {
       fetchSubscription();
     } else {
       setLoading(false);
     }
   }, []);
+
+  const hasAddon = (addonName) => Boolean(subscription?.active_addons?.[addonName]);
 
   /**
    * Check if a feature is available at any level
@@ -189,6 +192,9 @@ export function useSubscription() {
     canAccess,
     withinQuota,
     canAccessTemplate,
+    hasAddon,
+    activeAddons: subscription?.active_addons || {},
+    planDisplayName: subscription?.plan_display_name || subscription?.plan || 'Free Tier',
     isFreeTier: subscription?.plan === 'Free Tier',
     isBasic: subscription?.plan === 'Basic',
     isPremium: subscription?.plan === 'Premium',

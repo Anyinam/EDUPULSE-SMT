@@ -40,10 +40,12 @@ export default function PricingComparison() {
     features: plan.marketing_features || [],
     addonOptions: plan.addon_options || [],
     packagingSummary: plan.packaging_summary || '',
-    cta: plan.name === 'Free Tier' ? 'Get Started Free' : 'Start 30-Day Premium Trial',
+    cta: plan.name === 'Free Tier' ? 'Get Started Free' : 'Start Free Trial',
     highlighted: Boolean(plan.popular),
     badge: plan.popular ? 'MOST POPULAR' : undefined,
   }));
+
+  const schoolOsPlan = plans.find((plan) => plan.rawName === 'Basic');
 
   const colorStyles = {
     gray: {
@@ -217,8 +219,8 @@ export default function PricingComparison() {
 
                 {plan.addonOptions.length > 0 && (
                   <div className="mt-6 border-t border-slate-100 pt-4">
-                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Future Add-Ons</p>
-                    <p className="mb-2 text-xs text-slate-500">These are future optional products and are not bundled into the listed plan price.</p>
+                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Optional Add-Ons</p>
+                    <p className="mb-2 text-xs text-slate-500">These products are optional and are not bundled into the listed plan price.</p>
                     <div className="flex flex-wrap gap-2">
                       {plan.addonOptions.map((addon) => (
                         <span key={addon} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
@@ -251,8 +253,8 @@ export default function PricingComparison() {
                 You're charged at the start of each academic term (3 terms per year). The amount depends on how many active students you have.
               </p>
               <p className="text-sm">
-                <strong>Example:</strong> Basic plan with 150 students:
-                <br />₵360 (base) + (120 × ₵12) = <strong>₵1,800/term</strong>
+                <strong>Example:</strong> {schoolOsPlan?.name || 'School OS'} with 150 students:
+                <br />₵{schoolOsPlan?.baseFee || 300} (base) + (100 × ₵{schoolOsPlan?.overageRate || 7}) = <strong>₵{schoolOsPlan ? (schoolOsPlan.baseFee + (Math.max(0, 150 - schoolOsPlan.includedStudents) * schoolOsPlan.overageRate)).toLocaleString() : '1,000'}/term</strong>
               </p>
             </div>
 

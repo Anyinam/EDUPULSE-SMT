@@ -622,7 +622,7 @@ export default function SettingsPanel() {
     }
 
     if (subscriptionPlan !== 'Premium') {
-      alert('Custom HTML Templates are only available in Premium tier');
+      alert('Custom HTML Templates are only available in School OS Plus');
       return;
     }
 
@@ -2352,12 +2352,12 @@ export default function SettingsPanel() {
         </div>
       </div>
 
-      {/* Custom HTML Template Upload - Premium Only */}
+      {/* Custom HTML Template Upload - School OS Plus Only */}
       {subscriptionPlan === 'Premium' && (
         <div className="mt-10 border-t pt-8">
           <div className="flex items-center gap-2 mb-4">
             <h3 className="text-xl font-bold text-slate-800">🎨 Custom HTML Report Templates</h3>
-            <span className="text-xs bg-linear-to-r from-yellow-400 to-amber-500 text-white px-3 py-1 rounded-full font-bold">PREMIUM</span>
+            <span className="text-xs bg-linear-to-r from-yellow-400 to-amber-500 text-white px-3 py-1 rounded-full font-bold">SCHOOL OS PLUS</span>
           </div>
           <p className="text-sm text-slate-600 mb-6">
             Upload your own custom HTML templates to completely customize how terminal reports look. You can provide HTML, CSS, and background images.
@@ -2536,22 +2536,22 @@ export default function SettingsPanel() {
         </div>
       </div>
 
-      {/* Premium Upsell for Free/Basic Tiers */}
+      {/* School OS Plus Upsell for Free/Basic Tiers */}
       {subscriptionPlan !== 'Premium' && (
         <div className="mt-10 border-t pt-8">
           <div className="bg-linear-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-6">
             <div className="flex items-start gap-4">
               <div className="text-4xl">🎨</div>
               <div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Custom HTML Templates - Premium Feature</h3>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">Custom HTML Templates - School OS Plus Feature</h3>
                 <p className="text-sm text-slate-700 mb-3">
-                  Unlock the ability to upload and use your own custom HTML-based report templates with the Premium tier. Perfect for schools that want complete control over their report card design.
+                  Unlock the ability to upload and use your own custom HTML-based report templates with School OS Plus. Perfect for schools that want complete control over their report card design.
                 </p>
                 <button
-                  onClick={() => alert('Upgrade to Premium to access Custom HTML Templates!')}
+                  onClick={() => alert('Upgrade to School OS Plus to access Custom HTML Templates!')}
                   className="px-6 py-2 bg-linear-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all"
                 >
-                  🚀 Upgrade to Premium
+                  🚀 Upgrade to School OS Plus
                 </button>
               </div>
             </div>

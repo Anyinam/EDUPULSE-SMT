@@ -10,10 +10,12 @@ import ExamIntelligencePanel from '../components/ExamIntelligencePanel';
 import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import StudentsRegistry from './StudentsRegistry';
 import RescueActivityCenter from './RescueActivityCenter';
-import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+import useSubscription from '../hooks/useSubscription';
 
 export default function HeadmasterDashboard() {
-  const { isPremium: canAccessPremiumInsights } = useEffectiveSubscriptionPlan();
+  const { hasFeature } = useSubscription();
+  const canAccessRescueActivity = hasFeature('student_rescue_agent');
+  const canAccessExamIntelligence = hasFeature('exam_intelligence');
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'dashboard';
   const [notes, setNotes] = useState([]);
@@ -26,6 +28,7 @@ export default function HeadmasterDashboard() {
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [selectedStudentForPromotion, setSelectedStudentForPromotion] = useState(null);
   const attendancePending = attendanceStats?.attendance_taken_today === false;
+  const attendanceInProgress = Boolean(attendanceStats?.attendance_partial);
 
   const handleTabChange = (tab) => {
     const nextParams = new URLSearchParams(searchParams);
@@ -190,8 +193,8 @@ export default function HeadmasterDashboard() {
         </button>
         <button
           onClick={() => {
-            if (!canAccessPremiumInsights) {
-              alert('Rescue Activity is available on the Premium plan only.');
+            if (!canAccessRescueActivity) {
+              alert('Rescue Activity requires the AI Pack.');
               return;
             }
             handleTabChange('rescue-activity');
@@ -202,12 +205,12 @@ export default function HeadmasterDashboard() {
               : 'bg-white text-slate-700 hover:bg-slate-100'
           }`}
         >
-          🚨 Rescue Activity {canAccessPremiumInsights ? '' : '(Premium)'}
+          🚨 Rescue Activity {canAccessRescueActivity ? '' : '(AI Pack)'}
         </button>
         <button
           onClick={() => {
-            if (!canAccessPremiumInsights) {
-              alert('Exam Intelligence is available on the Premium plan only.');
+            if (!canAccessExamIntelligence) {
+              alert('Exam Intelligence requires the AI Pack.');
               return;
             }
             handleTabChange('exam-intelligence');
@@ -218,7 +221,7 @@ export default function HeadmasterDashboard() {
               : 'bg-white text-slate-700 hover:bg-slate-100'
           }`}
         >
-          📘 Exam Intelligence {canAccessPremiumInsights ? '' : '(Premium)'}
+          📘 Exam Intelligence {canAccessExamIntelligence ? '' : '(AI Pack)'}
         </button>
       </div>
 
@@ -259,15 +262,17 @@ export default function HeadmasterDashboard() {
           </div>
           <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-green-500">
             <p className="text-gray-500 text-xs font-bold uppercase">Present Today</p>
-            <p className="text-3xl font-black text-green-600">{attendancePending ? 'Pending' : attendanceStats.present_students}</p>
+            <p className="text-3xl font-black text-green-600">{attendancePending ? (attendanceInProgress ? attendanceStats.present_students : 'Pending') : attendanceStats.present_students}</p>
+            <p className="mt-1 text-xs text-slate-500">{attendanceInProgress ? 'Partial class submissions received' : 'Confirmed present count'}</p>
           </div>
           <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-red-500">
             <p className="text-gray-500 text-xs font-bold uppercase">Absent Today</p>
             <p className="text-3xl font-black text-red-600">{attendancePending ? 'Pending' : attendanceStats.absent_students}</p>
+            <p className="mt-1 text-xs text-slate-500">School-wide absence locks when all classes submit</p>
           </div>
           <div className="bg-blue-900 text-white p-6 rounded-2xl shadow-lg">
             <p className="text-blue-200 text-xs font-bold uppercase">Attendance Status</p>
-            <p className="text-4xl font-black">{attendancePending ? 'Pending' : `${attendanceStats.attendance_percentage}%`}</p>
+            <p className="text-4xl font-black">{attendancePending ? (attendanceInProgress ? `${attendanceStats.submitted_classes_count}/${attendanceStats.active_classes_count}` : 'Pending') : `${attendanceStats.attendance_percentage}%`}</p>
             <p className="mt-2 text-xs text-blue-200">{attendancePending ? (attendanceStats.status_message || 'Attendance has not been submitted yet.') : "Today's submitted attendance"}</p>
           </div>
         </div>

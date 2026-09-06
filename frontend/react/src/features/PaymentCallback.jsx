@@ -32,10 +32,13 @@ export default function PaymentCallback() {
 
         if (res.data.status === 'success') {
           const isCardSetup = Boolean(res.data?.data?.card && !res.data?.data?.plan_name);
+          const isAddonPurchase = res.data?.data?.transaction_type === 'addon_purchase';
           setStatus('success');
           setMessage(
             isCardSetup
               ? 'Card saved successfully for recurring pay-as-you-go billing.'
+              : isAddonPurchase
+              ? `Payment successful! ${res.data?.data?.addon_name || 'Your add-on'} is now active.`
               : 'Payment successful! Your subscription has been updated.'
           );
           setDetails(res.data.data);
@@ -113,6 +116,11 @@ export default function PaymentCallback() {
                 {details.plan_name && (
                   <p className="text-sm text-green-800">
                     <strong>Plan:</strong> {details.plan_name}
+                  </p>
+                )}
+                {details.addon_name && (
+                  <p className="text-sm text-green-800">
+                    <strong>Add-On:</strong> {details.addon_name}
                   </p>
                 )}
                 {typeof details.amount === 'number' && (

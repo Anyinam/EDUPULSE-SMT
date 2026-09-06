@@ -2,10 +2,29 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Zap, Calendar, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
-export default function TrialManager() {
+const getTrialFeatureList = (plan) => {
+  if (plan === 'Basic') {
+    return [
+      'Full attendance, feeding, and grade operations',
+      'Lesson notes, finance, inventory, and reporting workflows',
+      'Up to 200 students with school operations unlocked',
+      'Standard support during the trial period',
+    ];
+  }
+
+  return [
+    'Unlimited students and classes',
+    'AI Pack and Automation Pack features',
+    'Advanced analytics and custom templates',
+    'Priority support during the trial period',
+  ];
+};
+
+export default function TrialManager({ onTrialChange }) {
   const [trialStatus, setTrialStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [selectedTrialPlan, setSelectedTrialPlan] = useState('Premium');
 
   const fetchTrialStatus = async () => {
     try {
@@ -15,6 +34,8 @@ export default function TrialManager() {
       };
       const res = await axios.get('/api/school/subscription/trial/status', { headers });
       setTrialStatus(res.data);
+      const firstOption = res.data?.available_trial_plans?.[0]?.plan;
+      setSelectedTrialPlan(firstOption || 'Premium');
     } catch (err) {
       console.error("Failed to fetch trial status:", err);
     } finally {
@@ -23,7 +44,10 @@ export default function TrialManager() {
   };
 
   const handleActivateTrial = async () => {
-    if (!window.confirm('Activate a 30-day Premium trial?\n\nYou will gain access to:\n• Unlimited students & classes\n• AI-powered features\n• Custom templates\n• Priority support\n\nThis is a one-time offer and lasts 30 days from activation.')) {
+    const chosenPlan = selectedTrialPlan || trialStatus?.available_trial_plans?.[0]?.plan || 'Premium';
+    const chosenPlanLabel = trialStatus?.available_trial_plans?.find((plan) => plan.plan === chosenPlan)?.display_name || chosenPlan;
+    const benefitLines = getTrialFeatureList(chosenPlan).map((line) => `• ${line}`).join('\n');
+    if (!window.confirm(`Activate a 30-day ${chosenPlanLabel} trial?\n\nYou will gain access to:\n${benefitLines}\n\nThis is a one-time offer and lasts 30 days from activation.`)) {
       return;
     }
 
@@ -33,13 +57,19 @@ export default function TrialManager() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id') 
       };
-      await axios.post('/api/school/subscription/trial/activate', {}, { headers });
+      await axios.post('/api/school/subscription/trial/activate', { trial_plan: chosenPlan }, { headers });
       
       // Update localStorage
-      localStorage.setItem('subscription_plan', 'Premium');
+      localStorage.setItem('subscription_plan', chosenPlan);
       
-      alert('🎉 Premium trial activated successfully!\n\nYou now have full access to all Premium features.');
+      const activationNotice = chosenPlan === 'Premium'
+        ? 'You now have full access to School OS Plus and all trial add-on features.'
+        : 'You now have full access to School OS for the next 30 days.';
+      alert(`🎉 ${chosenPlanLabel} trial activated successfully!\n\n${activationNotice}`);
       await fetchTrialStatus();
+      if (onTrialChange) {
+        await onTrialChange();
+      }
       window.location.reload(); // Refresh to update all components
     } catch (err) {
       console.error("Failed to activate trial:", err);
@@ -50,7 +80,7 @@ export default function TrialManager() {
   };
 
   const handleEndTrial = async () => {
-    if (!window.confirm('End Premium trial early?\n\nYou will immediately lose access to Premium features and revert to your base plan.\n\nThis action cannot be undone.')) {
+    if (!window.confirm('End School OS Plus trial early?\n\nYou will immediately lose access to School OS Plus and trial add-on features, then revert to your base plan.\n\nThis action cannot be undone.')) {
       return;
     }
 
@@ -69,6 +99,9 @@ export default function TrialManager() {
       
       alert(`Trial ended. Reverted to ${res.data.base_plan || 'base'} plan.`);
       await fetchTrialStatus();
+      if (onTrialChange) {
+        await onTrialChange();
+      }
       window.location.reload();
     } catch (err) {
       console.error("Failed to end trial:", err);
@@ -105,7 +138,7 @@ export default function TrialManager() {
     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
       <div className="flex items-center gap-2 mb-4">
         <Zap className="text-purple-600" size={24} />
-        <h3 className="text-lg font-bold text-slate-800">Premium Trial Management</h3>
+        <h3 className="text-lg font-bold text-slate-800">Subscription Trial Management</h3>
       </div>
 
       {trialStatus.is_active ? (
@@ -118,7 +151,7 @@ export default function TrialManager() {
                 <span className="font-bold text-purple-900">Trial Active</span>
               </div>
               <span className="px-3 py-1 bg-purple-600 text-white text-xs font-bold rounded-full">
-                PREMIUM
+                {trialStatus.plan_display_name || trialStatus.plan || 'TRIAL'}
               </span>
             </div>
             
@@ -163,7 +196,7 @@ export default function TrialManager() {
                     <p className="font-bold text-amber-900">⏰ Trial Expiring Soon!</p>
                     <p className="text-amber-800 mt-1">
                       Your trial ends in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}. 
-                      Upgrade now to keep Premium features. Your first paid charge after trial is based on the remaining days in the current term.
+                      Upgrade now to keep School OS Plus access. Your first paid charge after trial is based on the remaining days in the current term.
                     </p>
                   </div>
                 </div>
@@ -172,28 +205,14 @@ export default function TrialManager() {
           </div>
 
           <div className="bg-slate-50 p-4 rounded-xl">
-            <p className="text-sm font-bold text-slate-800 mb-2">Premium Features You're Enjoying:</p>
+            <p className="text-sm font-bold text-slate-800 mb-2">Trial Features You're Enjoying:</p>
             <ul className="space-y-1.5 text-sm text-slate-600">
-              <li className="flex items-center gap-2">
-                <CheckCircle className="text-green-500" size={14} />
-                <span>∞ Unlimited students & classes</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="text-green-500" size={14} />
-                <span>AI-powered grade narratives</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="text-green-500" size={14} />
-                <span>Advanced analytics dashboard</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="text-green-500" size={14} />
-                <span>Custom HTML templates</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="text-green-500" size={14} />
-                <span>Priority support</span>
-              </li>
+              {getTrialFeatureList(trialStatus.plan).map((feature) => (
+                <li key={feature} className="flex items-center gap-2">
+                  <CheckCircle className="text-green-500" size={14} />
+                  <span>{feature}</span>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -213,8 +232,8 @@ export default function TrialManager() {
             <div>
               <p className="font-bold text-slate-700 mb-1">Trial Previously Used</p>
               <p className="text-sm text-slate-600">
-                You've already used your one-time Premium trial. 
-                Upgrade to a paid plan to continue enjoying Premium features.
+                You've already used your one-time subscription trial. 
+                Upgrade to a paid plan and any needed add-ons to continue enjoying those features.
               </p>
             </div>
           </div>
@@ -233,30 +252,36 @@ export default function TrialManager() {
             <div className="flex items-start gap-3">
               <Zap className="text-purple-600 shrink-0" size={24} />
               <div>
-                <p className="font-bold text-purple-900 mb-2">🎁 Activate Your Free Premium Trial!</p>
+                <p className="font-bold text-purple-900 mb-2">🎁 Activate Your Free Subscription Trial!</p>
                 <p className="text-sm text-slate-700 mb-3">
-                  Experience all Premium features for 30 days at no cost. No credit card is required to start the trial.
+                  Choose the next paid plan you want to test for 30 days at no cost. No credit card is required to start the trial.
                 </p>
                 <p className="text-xs text-slate-500 mb-3">
                   After the trial ends, your first paid subscription charge is prorated to the remaining days in the current school term.
                 </p>
+                <div className="mb-3 grid gap-3 md:grid-cols-2">
+                  {(trialStatus.available_trial_plans || []).map((plan) => (
+                    <button
+                      key={plan.plan}
+                      type="button"
+                      onClick={() => setSelectedTrialPlan(plan.plan)}
+                      className={`rounded-xl border p-3 text-left transition-all ${selectedTrialPlan === plan.plan ? 'border-purple-500 bg-white shadow-sm' : 'border-purple-200 bg-purple-50/60 hover:bg-white'}`}
+                    >
+                      <p className="font-bold text-slate-800">{plan.display_name}</p>
+                      <p className="mt-1 text-xs text-slate-600">{plan.description}</p>
+                      <p className="mt-2 text-xs font-semibold text-purple-700">
+                        {plan.includes_addons ? 'Includes trial access to AI Pack and Automation Pack' : 'Core paid-plan features only during trial'}
+                      </p>
+                    </button>
+                  ))}
+                </div>
                 <ul className="space-y-1.5 text-sm text-slate-600 mb-3">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="text-green-500 shrink-0" size={14} />
-                    <span>∞ Unlimited students & classes</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="text-green-500 shrink-0" size={14} />
-                    <span>AI-powered insights & narratives</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="text-green-500 shrink-0" size={14} />
-                    <span>Advanced analytics & reporting</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="text-green-500 shrink-0" size={14} />
-                    <span>Priority support</span>
-                  </li>
+                  {getTrialFeatureList(selectedTrialPlan).map((feature) => (
+                    <li key={feature} className="flex items-center gap-2">
+                      <CheckCircle className="text-green-500 shrink-0" size={14} />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
                 </ul>
                 <p className="text-xs text-purple-700 font-semibold">
                   ⏰ This is a one-time offer. Trial lasts 30 days from activation.
@@ -278,7 +303,7 @@ export default function TrialManager() {
             ) : (
               <>
                 <Zap className="inline-block mr-2" size={18} />
-                Activate 30-Day Premium Trial
+                Activate 30-Day {(trialStatus.available_trial_plans || []).find((plan) => plan.plan === selectedTrialPlan)?.display_name || 'Subscription'} Trial
               </>
             )}
           </button>

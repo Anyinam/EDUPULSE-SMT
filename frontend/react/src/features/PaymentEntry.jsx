@@ -16,6 +16,7 @@ export default function PaymentEntry({ students, onSuccess }) {
     amount: '',
     type: 'Tuition',
     method: 'Cash',
+    feeding_frequency: 'Auto',
     inventory_item_id: '',
     inventory_quantity: 1
   });
@@ -145,6 +146,9 @@ export default function PaymentEntry({ students, onSuccess }) {
     }
     try {
       const paymentCategory = {};
+      if (form.type === 'Feeding' && form.feeding_frequency && form.feeding_frequency !== 'Auto') {
+        paymentCategory.frequency = form.feeding_frequency;
+      }
       if (form.type === 'Inventory' || form.type === 'Uniform') {
         if (!selectedInventoryItem) {
           alert('Please select a valid inventory item.');
@@ -171,6 +175,7 @@ export default function PaymentEntry({ students, onSuccess }) {
         amount: '',
         type: 'Tuition',
         method: 'Cash',
+        feeding_frequency: 'Auto',
         inventory_item_id: '',
         inventory_quantity: 1
       });
@@ -215,7 +220,7 @@ export default function PaymentEntry({ students, onSuccess }) {
           <input type="number" placeholder="Amount (GH₵)" className="p-2 border rounded-lg" 
             value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} required={form.type !== 'Inventory' && form.type !== 'Uniform'} />
           <select className="p-2 border rounded-lg" onChange={e => {
-            setForm({...form, type: e.target.value, inventory_item_id: ''});
+            setForm({...form, type: e.target.value, inventory_item_id: '', feeding_frequency: 'Auto'});
             setUniformType('');
             setUniformSize('');
           }} value={form.type}>
@@ -227,6 +232,37 @@ export default function PaymentEntry({ students, onSuccess }) {
             {canUseInventoryCatalog && <option value="Inventory">Inventory Item</option>}
           </select>
         </div>
+
+        {form.type === 'Feeding' && (
+          <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                className="p-2 border rounded-lg bg-white"
+                value={form.feeding_frequency}
+                onChange={e => setForm({ ...form, feeding_frequency: e.target.value })}
+              >
+                <option value="Auto">Feeding Plan: Auto Detect</option>
+                <option value="Daily">Daily</option>
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+              </select>
+              <input
+                type="text"
+                className="p-2 border rounded-lg bg-gray-50"
+                value={selectedStudent ? [
+                  selectedStudent.feeding_daily_fee ? `Daily GH₵${Number(selectedStudent.feeding_daily_fee).toFixed(2)}` : null,
+                  selectedStudent.feeding_weekly_fee ? `Weekly GH₵${Number(selectedStudent.feeding_weekly_fee).toFixed(2)}` : null,
+                  selectedStudent.feeding_monthly_fee ? `Monthly GH₵${Number(selectedStudent.feeding_monthly_fee).toFixed(2)}` : null,
+                ].filter(Boolean).join(' • ') : ''}
+                placeholder="Configured feeding plans"
+                readOnly
+              />
+            </div>
+            <p className="text-xs text-emerald-800">
+              Leave this on Auto Detect and EduPulse will infer the correct feeding coverage from the approved amount.
+            </p>
+          </div>
+        )}
 
         {form.type === 'Uniform' && (
           <div className="grid grid-cols-2 gap-2">

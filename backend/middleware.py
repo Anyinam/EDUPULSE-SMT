@@ -13,10 +13,14 @@ from flask_limiter.util import get_remote_address
 from backend.api.models import School, User, db
 from backend.subscription_state import get_effective_plan
 from backend.subscription_features import (
+    ADDON_CATALOG,
+    FEATURE_ADDON_REQUIREMENTS,
     PLAN_FEATURES,
     SUBSCRIPTION_TIERS,
     get_feature_level,
+    get_plan_display_name,
     has_feature,
+    get_school_feature_level,
 )
 
 logger = logging.getLogger(__name__)
@@ -439,17 +443,24 @@ def feature_required(feature_name, min_level=True):
             school = School.query.get(g.school_id)
             effective_plan = get_effective_plan(school)
 
-            feature_level = get_feature_level(effective_plan, feature_name)
+            feature_level = get_school_feature_level(
+                school, feature_name, effective_plan=effective_plan
+            )
 
             # Check if feature is available
             if not feature_level:
+                required_plan = get_required_plan_for_feature(feature_name)
+                addon_key = FEATURE_ADDON_REQUIREMENTS.get(feature_name)
+                required_access = get_plan_display_name(required_plan)
+                if addon_key and effective_plan != "Free Tier":
+                    addon_name = (ADDON_CATALOG.get(addon_key) or {}).get("name")
+                    if addon_name:
+                        required_access = f"{required_access} + {addon_name}"
                 return (
                     jsonify(
                         {
                             "message": f"Feature '{feature_name}' not available in {effective_plan} plan",
-                            "required_plan": get_required_plan_for_feature(
-                                feature_name
-                            ),
+                            "required_plan": required_access,
                             "current_plan": effective_plan,
                         }
                     ),
@@ -489,6 +500,9 @@ def feature_required(feature_name, min_level=True):
 
 def get_required_plan_for_feature(feature_name):
     """Find minimum plan required for a feature"""
+    if feature_name in FEATURE_ADDON_REQUIREMENTS:
+        return "Basic"
+
     for plan_name in ["Free Tier", "Basic", "Premium"]:
         if has_feature(plan_name, feature_name):
             return plan_name

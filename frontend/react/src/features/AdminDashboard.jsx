@@ -6,6 +6,7 @@ export default function AdminDashboard() {
   const [adminUser, setAdminUser] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [schools, setSchools] = useState([]);
+  const [schoolSummary, setSchoolSummary] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -44,6 +45,7 @@ export default function AdminDashboard() {
       // Fetch schools list
       const schoolsRes = await axios.get('/api/admin/schools', { headers }).catch(() => ({ data: { schools: [] } }));
       setSchools(schoolsRes.data.schools || []);
+      setSchoolSummary(schoolsRes.data.summary || null);
 
       // Fetch users list
       const usersRes = await axios.get('/api/admin/users', { headers }).catch(() => ({ data: { users: [] } }));
@@ -212,12 +214,12 @@ export default function AdminDashboard() {
                 <p className="text-4xl font-black mt-2">{users.length}</p>
               </div>
               <div className="bg-linear-to-br from-purple-600 to-purple-700 text-white p-6 rounded-xl shadow-lg">
-                <p className="text-sm font-bold uppercase text-purple-200">Premium Schools</p>
-                <p className="text-4xl font-black mt-2">{schools.filter(s => s.subscription_plan === 'Premium').length}</p>
+                <p className="text-sm font-bold uppercase text-purple-200">School OS Plus</p>
+                <p className="text-4xl font-black mt-2">{schoolSummary?.school_os_plus ?? schools.filter(s => s.effective_plan === 'Premium').length}</p>
               </div>
               <div className="bg-linear-to-br from-amber-600 to-amber-700 text-white p-6 rounded-xl shadow-lg">
                 <p className="text-sm font-bold uppercase text-amber-200">Active Subscriptions</p>
-                <p className="text-4xl font-black mt-2">{schools.filter(s => s.subscription_status === 'Active').length}</p>
+                <p className="text-4xl font-black mt-2">{schoolSummary?.active_subscriptions ?? schools.filter(s => s.subscription_status === 'Active').length}</p>
               </div>
             </div>
           )}
@@ -242,19 +244,35 @@ export default function AdminDashboard() {
                             <p className="text-slate-400 text-sm">Code: {school.code}</p>
                           </div>
                           <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            school.subscription_plan === 'Premium' 
+                            school.effective_plan === 'Premium' 
                               ? 'bg-purple-900 text-purple-200'
-                              : school.subscription_plan === 'Basic'
+                              : school.effective_plan === 'Basic'
                               ? 'bg-blue-900 text-blue-200'
                               : 'bg-slate-900 text-slate-300'
                           }`}>
-                            {school.subscription_plan || 'Free Tier'}
+                            {school.effective_plan_display_name || school.plan_display_name || school.plan || 'Free'}
                           </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {school.trial?.active && (
+                            <span className="rounded-full bg-fuchsia-900 px-3 py-1 text-xs font-bold text-fuchsia-200">
+                              Trial: {school.trial.plan_display_name || school.trial.plan}
+                            </span>
+                          )}
+                          {school.purchased_addons?.ai_pack && (
+                            <span className="rounded-full bg-emerald-900 px-3 py-1 text-xs font-bold text-emerald-200">AI Pack</span>
+                          )}
+                          {school.purchased_addons?.automation_pack && (
+                            <span className="rounded-full bg-amber-900 px-3 py-1 text-xs font-bold text-amber-200">Automation Pack</span>
+                          )}
+                          {!school.purchased_addons?.ai_pack && !school.purchased_addons?.automation_pack && (
+                            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">No paid add-ons</span>
+                          )}
                         </div>
                         <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-400">
                           <p>📧 {school.email || 'No email'}</p>
                           <p>👥 {school.student_count || 0} students</p>
-                          <p>📅 {new Date(school.created_at).toLocaleDateString()}</p>
+                          <p>📅 {school.created_at ? new Date(school.created_at).toLocaleDateString() : 'Unknown'}</p>
                         </div>
                       </div>
                     ))}
@@ -305,23 +323,74 @@ export default function AdminDashboard() {
               <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-slate-700 p-4 rounded-lg">
-                    <p className="text-slate-400 text-sm font-bold">Premium Subscriptions</p>
+                    <p className="text-slate-400 text-sm font-bold">School OS Plus</p>
                     <p className="text-3xl font-black text-purple-400 mt-2">
-                      {schools.filter(s => s.subscription_plan === 'Premium').length}
+                      {schoolSummary?.school_os_plus ?? schools.filter(s => s.effective_plan === 'Premium').length}
                     </p>
                   </div>
                   <div className="bg-slate-700 p-4 rounded-lg">
-                    <p className="text-slate-400 text-sm font-bold">Basic Subscriptions</p>
+                    <p className="text-slate-400 text-sm font-bold">School OS</p>
                     <p className="text-3xl font-black text-blue-400 mt-2">
-                      {schools.filter(s => s.subscription_plan === 'Basic').length}
+                      {schoolSummary?.school_os ?? schools.filter(s => s.effective_plan === 'Basic').length}
                     </p>
                   </div>
                   <div className="bg-slate-700 p-4 rounded-lg">
-                    <p className="text-slate-400 text-sm font-bold">Free Tier</p>
+                    <p className="text-slate-400 text-sm font-bold">Free</p>
                     <p className="text-3xl font-black text-slate-400 mt-2">
-                      {schools.filter(s => !s.subscription_plan || s.subscription_plan === 'Free Tier').length}
+                      {schoolSummary?.free_tier ?? schools.filter(s => !s.effective_plan || s.effective_plan === 'Free Tier').length}
                     </p>
                   </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-slate-700 p-4 rounded-lg">
+                    <p className="text-slate-400 text-sm font-bold">AI Pack Customers</p>
+                    <p className="text-3xl font-black text-emerald-400 mt-2">
+                      {schoolSummary?.ai_pack ?? schools.filter(s => s.purchased_addons?.ai_pack).length}
+                    </p>
+                  </div>
+                  <div className="bg-slate-700 p-4 rounded-lg">
+                    <p className="text-slate-400 text-sm font-bold">Automation Pack Customers</p>
+                    <p className="text-3xl font-black text-amber-400 mt-2">
+                      {schoolSummary?.automation_pack ?? schools.filter(s => s.purchased_addons?.automation_pack).length}
+                    </p>
+                  </div>
+                  <div className="bg-slate-700 p-4 rounded-lg">
+                    <p className="text-slate-400 text-sm font-bold">Active Trials</p>
+                    <p className="text-3xl font-black text-fuchsia-400 mt-2">
+                      {schoolSummary?.trial_schools ?? schools.filter(s => s.trial?.active).length}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-6 overflow-hidden rounded-lg border border-slate-700">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-900 text-slate-300">
+                      <tr>
+                        <th className="px-4 py-3 font-bold">School</th>
+                        <th className="px-4 py-3 font-bold">Base Plan</th>
+                        <th className="px-4 py-3 font-bold">Effective Plan</th>
+                        <th className="px-4 py-3 font-bold">Paid Add-Ons</th>
+                        <th className="px-4 py-3 font-bold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700 bg-slate-800 text-slate-200">
+                      {schools.map((school) => (
+                        <tr key={school.id}>
+                          <td className="px-4 py-3">
+                            <p className="font-bold text-white">{school.name}</p>
+                            <p className="text-xs text-slate-400">{school.id}</p>
+                          </td>
+                          <td className="px-4 py-3">{school.plan_display_name || school.plan || 'Free'}</td>
+                          <td className="px-4 py-3">{school.effective_plan_display_name || school.effective_plan || school.plan || 'Free'}</td>
+                          <td className="px-4 py-3">
+                            {school.purchased_addons?.ai_pack || school.purchased_addons?.automation_pack
+                              ? [school.purchased_addons?.ai_pack ? 'AI Pack' : null, school.purchased_addons?.automation_pack ? 'Automation Pack' : null].filter(Boolean).join(' • ')
+                              : 'None'}
+                          </td>
+                          <td className="px-4 py-3">{school.subscription_status || school.status || 'Unknown'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>

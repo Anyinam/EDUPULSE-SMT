@@ -1,9 +1,11 @@
-Feature,Category,Free Tier,Basic Plan,Premium Plan
-Price,Pricing,GH₵ 0/month,"GH₵ 360/term (Base) + GH₵ 12/student/term (Overage)","GH₵ 750/term (Base) + GH₵ 22/student/term (Overage)"
+Feature,Category,Free,School OS,School OS Plus
+Price,Pricing,GH₵ 0,"GH₵ 300/term (Base) + GH₵ 7/student/term above 50","GH₵ 600/term (Base) + GH₵ 9/student/term above 100"
 Student Capacity,Quotas,50 students,200 students,Unlimited
-Annual Cost (30 students),Pricing,GH₵ 0,GH₵ 1080 (Base only),GH₵ 2250 (Base only)
-Annual Cost (100 students),Pricing,GH₵ 0,GH₵ 3600 (Base + 70 × GH₵12 × 3),GH₵ 6870 (Base + 70 × GH₵22 × 3)
-Cost Per Student/Year,Pricing,GH₵ 0,"GH₵36/student (30-student base); GH₵12/add'l","GH₵75/student (30-student base); GH₵22/add'l"
+Included Students Per Term,Pricing,50,50,100
+Annual Cost (30 students),Pricing,GH₵ 0,GH₵ 900 (Base only),GH₵ 1800 (Base only)
+Annual Cost (100 students),Pricing,GH₵ 0,GH₵ 1950 (GH₵ 650 × 3),GH₵ 1800 (Base only)
+Annual Cost (150 students),Pricing,GH₵ 0,GH₵ 3000 (GH₵ 1000 × 3),GH₵ 3150 (GH₵ 1050 × 3)
+Free Trial,Pricing,Included,"30-day selectable upgrade trial from Free","30-day selectable upgrade trial from Free or School OS"
 ,,,,
 Basic Attendance Tracking,Core Features,✓,✓,✓
 Manual Grade Entry,Core Features,✓,✓,✓
@@ -23,34 +25,34 @@ Student Support Tickets,Advanced Features,✗,✓,✓
 System Alerts,Advanced Features,✗,✓,✓
 Basic Reports & Analytics,Advanced Features,✗,✓,✓
 ,,,,
-AI Student Pulse (Risk Prediction),AI Features,✗,✗,✓
-AI-Generated Narratives,AI Features,✗,✗,✓
-Predictive Risk Scoring (0-100),AI Features,✗,✗,✓
-Academic+Financial Correlation Analysis,AI Features,✗,✗,✓
-AI Question Generation for Admissions,AI Features,✗,✗,✓
-Subject-Based Question Pools,AI Features,✗,✗,✓
-Difficulty Level Customization,AI Features,✗,✗,✓
-Candidate Screening Automation,AI Features,✗,✗,✓
-Student Rescue Agent,AI Packaging,✗,✗,Premium bundled
-AI Registrar,AI Packaging,✗,Bundled in subscription,Bundled in subscription
-AI Bursar Add-on,AI Packaging,✗,Optional add-on (GH₵240-420/term),Optional add-on (GH₵180-360/term)
-Communications Automation Add-on,AI Packaging,✗,Optional add-on + usage credits,Optional add-on + usage credits
+AI Student Pulse (Risk Prediction),AI Features,✗,AI Pack Optional,AI Pack Optional
+AI-Generated Narratives,AI Features,✗,AI Pack Optional,AI Pack Optional
+Predictive Risk Scoring (0-100),AI Features,✗,AI Pack Optional,AI Pack Optional
+Academic+Financial Correlation Analysis,AI Features,✗,AI Pack Optional,AI Pack Optional
+AI Question Generation for Admissions,AI Features,✗,AI Pack Optional,AI Pack Optional
+Subject-Based Question Pools,AI Features,✗,AI Pack Optional,AI Pack Optional
+Difficulty Level Customization,AI Features,✗,AI Pack Optional,AI Pack Optional
+Candidate Screening Automation,AI Features,✗,AI Pack Optional,AI Pack Optional
+Student Rescue Agent,AI Packaging,✗,AI Pack Required,AI Pack Required
+AI Registrar,AI Packaging,✗,Included,Included
+AI Pack,AI Packaging,✗,Optional add-on (GH₵200/term),Optional add-on (GH₵200/term)
+Automation Pack,AI Packaging,✗,Optional add-on (GH₵250/term),Optional add-on (GH₵250/term)
 ,,,,
-MoMo Webhook Automation,Payment Automation,✗,✗,✓
-Bank Transfer Webhook Automation,Payment Automation,✗,✗,✓
-Auto-Categorized Payments (Term/Frequency),Payment Automation,✗,✗,✓
-Duplicate Payment Prevention,Payment Automation,✗,✗,✓
-Real-Time Balance Updates,Payment Automation,✗,✗,✓
-Reference-Based Payment Parsing,Payment Automation,✗,✗,✓
+MoMo Webhook Automation,Payment Automation,✗,Automation Pack Optional,Automation Pack Optional
+Bank Transfer Webhook Automation,Payment Automation,✗,Automation Pack Optional,Automation Pack Optional
+Auto-Categorized Payments (Term/Frequency),Payment Automation,✗,Automation Pack Optional,Automation Pack Optional
+Duplicate Payment Prevention,Payment Automation,✗,Automation Pack Optional,Automation Pack Optional
+Real-Time Balance Updates,Payment Automation,✗,Automation Pack Optional,Automation Pack Optional
+Reference-Based Payment Parsing,Payment Automation,✗,Automation Pack Optional,Automation Pack Optional
 ,,,,
 Proprietor Dashboard,Governance Features,Basic,Basic,Advanced
-Live Transaction Feed,Governance Features,Basic,Basic,✓
-Pending Payment Tracking,Governance Features,✗,Basic,✓
-Critical Risk Intervention List,Governance Features,✗,Basic,✓
-Daily Revenue Reports,Governance Features,✗,Basic,✓
-Term Summary Exports,Governance Features,✗,Basic,✓
-Advanced Financial Analytics,Governance Features,✗,Basic,✓
-Payment Reconciliation Tools,Governance Features,✗,Basic,✓
+Live Transaction Feed,Governance Features,Basic,Basic,Advanced
+Pending Payment Tracking,Governance Features,✗,Basic,Advanced
+Critical Risk Intervention List,Governance Features,✗,Basic,AI Pack Optional
+Daily Revenue Reports,Governance Features,✗,Basic,Advanced
+Term Summary Exports,Governance Features,✗,Basic,Advanced
+Advanced Financial Analytics,Governance Features,✗,✗,Included
+Payment Reconciliation Tools,Governance Features,✗,Basic Tracking,Advanced Reconciliation
 ,,,,
 Security & Compliance,Security Features,,,
 Data Encryption at Rest,Security Features,✓,✓,✓

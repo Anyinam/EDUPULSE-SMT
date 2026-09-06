@@ -107,6 +107,8 @@ class SchoolSettings(db.Model):
             "finance": True,
             "hr": True,
             "inventory": True,
+            "automation_pack_addon": False,
+            "ai_pack_addon": False,
             "ai_registrar_addon": False,
             "ai_bursar_addon": False,
             "communications_automation_addon": False,

@@ -90,6 +90,7 @@ from backend.settings import (
     MFA_REQUIRED,
 )
 from backend.subscription_features import (
+    ADDON_CATALOG,
     FEATURE_MATRIX_DISPLAY,
     PLAN_FEATURES,
     PRICING,
@@ -98,7 +99,10 @@ from backend.subscription_features import (
     can_access_report_template,
     get_all_accessible_templates,
     get_feature_level,
+    get_addons_for_plan,
     get_plan_limit,
+    get_plan_display_name,
+    school_has_addon,
     get_term_cost_breakdown,
     has_feature,
 )
@@ -1905,7 +1909,7 @@ def send_whatsapp_test_message():
 
     effective_plan = get_effective_plan(school)
     if effective_plan != "Premium":
-        return jsonify({"message": "WhatsApp messaging is available for Premium plan only."}), 403
+        return jsonify({"message": f"WhatsApp messaging is available on the {get_plan_display_name('Premium')} plan only."}), 403
     
     if not school.settings.whatsapp_notifications_enabled:
         return jsonify({"message": "WhatsApp notifications are disabled for this school."}), 403
@@ -6293,15 +6297,6 @@ def upload_report_template():
         if not template_id:
             return jsonify({"message": "report_template_id is required in JSON"}), 400
     elif html_file:
-        school = School.query.get(g.school_id)
-        if school.subscription_plan != "Premium":
-            return (
-                jsonify(
-                    {"message": "HTML template uploads require Premium subscription."}
-                ),
-                403,
-            )
-
         try:
             html_content = html_file.read().decode("utf-8")
         except Exception as e:
@@ -7258,11 +7253,7 @@ def get_students_by_class(class_name):
                 "student_code": s.student_code,
                 "current_class": s.current_class,
                 "parent_email": s.parent_email,
-                "feeding_paid": bool(feeding_status.get("covered")),
-                "payment_method": feeding_status.get("payment_method"),
-                "feeding_coverage_until": feeding_status.get("coverage_until"),
-                "feeding_days_remaining": feeding_status.get("days_remaining"),
-                "feeding_frequency": feeding_status.get("frequency"),
+                **_serialize_feeding_status_detail(feeding_status),
                 "is_present": s.is_present,
                 "date_of_birth": s.date_of_birth.isoformat() if s.date_of_birth else None,
                 "age": s.age,
@@ -7430,11 +7421,7 @@ def get_students():
                     "parent_name": s.parent_name,
                     "parent_email": s.parent_email,
                     "parent_phone": s.parent_phone,
-                    "feeding_paid": bool(feeding_status_details.get(s.id, {}).get("covered")),
-                    "payment_method": feeding_status_details.get(s.id, {}).get("payment_method"),
-                    "feeding_coverage_until": feeding_status_details.get(s.id, {}).get("coverage_until"),
-                    "feeding_days_remaining": feeding_status_details.get(s.id, {}).get("days_remaining"),
-                    "feeding_frequency": feeding_status_details.get(s.id, {}).get("frequency"),
+                    **_serialize_feeding_status_detail(feeding_status_details.get(s.id, {})),
                     "is_present": s.is_present,
                     "date_of_birth": s.date_of_birth.isoformat() if s.date_of_birth else None,
                     "age": s.age,
@@ -7667,9 +7654,104 @@ def _get_or_create_school_settings_record(school_id):
     return settings
 
 
-def _mark_attendance_activity(school_id):
+ATTENDANCE_TRACKER_KEY = "daily_attendance_tracker"
+ATTENDANCE_TRACKER_HISTORY_LIMIT = 14
+
+
+def _attendance_day_key(target_date):
+    return (target_date or get_utc_now().date()).isoformat()
+
+
+def _get_attendance_tracker(settings):
+    config = _clone_json_document(getattr(settings, "report_template_config", {}) or {})
+    tracker = config.get(ATTENDANCE_TRACKER_KEY) or {}
+    if not isinstance(tracker, dict):
+        tracker = {}
+    tracker_days = tracker.get("days") or {}
+    if not isinstance(tracker_days, dict):
+        tracker_days = {}
+    return config, tracker, tracker_days
+
+
+def _write_attendance_tracker(settings, config, tracker, tracker_days):
+    ordered_days = sorted(tracker_days.items(), key=lambda item: item[0], reverse=True)
+    tracker["days"] = dict(ordered_days[:ATTENDANCE_TRACKER_HISTORY_LIMIT])
+    config[ATTENDANCE_TRACKER_KEY] = tracker
+    settings.report_template_config = config
+
+
+def _get_attendance_active_classes(school_id):
+    class_rows = (
+        db.session.query(Student.current_class)
+        .filter(Student.school_id == school_id, Student.current_class.isnot(None))
+        .distinct()
+        .all()
+    )
+    active_classes = {
+        (row[0] or "").strip()
+        for row in class_rows
+        if row and (row[0] or "").strip()
+    }
+    ordered = [grade for grade in VALID_GRADES if grade in active_classes]
+    remaining = sorted(active_classes.difference(ordered))
+    return ordered + remaining
+
+
+def _get_attendance_submission_snapshot(school_id, target_date=None):
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    target_date = target_date or get_utc_now().date()
+    day_key = _attendance_day_key(target_date)
+    submitted_classes = []
+
+    if settings:
+        _config, _tracker, tracker_days = _get_attendance_tracker(settings)
+        day_record = tracker_days.get(day_key) or {}
+        raw_classes = day_record.get("submitted_classes") or []
+        submitted_classes = [
+            class_name
+            for class_name in raw_classes
+            if isinstance(class_name, str) and class_name.strip()
+        ]
+
+    active_classes = _get_attendance_active_classes(school_id)
+    submitted_set = set(submitted_classes)
+    pending_classes = [class_name for class_name in active_classes if class_name not in submitted_set]
+    has_any_submission = bool(submitted_classes)
+    is_complete = bool(active_classes) and len(pending_classes) == 0
+
+    return {
+        "submitted_classes": submitted_classes,
+        "submitted_classes_count": len(submitted_classes),
+        "active_classes": active_classes,
+        "active_classes_count": len(active_classes),
+        "pending_classes": pending_classes,
+        "pending_classes_count": len(pending_classes),
+        "has_any_submission": has_any_submission,
+        "is_complete": is_complete,
+    }
+
+
+def _mark_attendance_activity(school_id, submitted_classes=None):
     settings = _get_or_create_school_settings_record(school_id)
     settings.attendance_last_marked_at = get_utc_now()
+    submitted_classes = [
+        class_name
+        for class_name in (submitted_classes or [])
+        if isinstance(class_name, str) and class_name.strip()
+    ]
+    if submitted_classes:
+        config, tracker, tracker_days = _get_attendance_tracker(settings)
+        day_key = _attendance_day_key(get_utc_now().date())
+        day_record = tracker_days.get(day_key) or {}
+        existing_classes = set(day_record.get("submitted_classes") or [])
+        existing_classes.update(submitted_classes)
+        day_record["submitted_classes"] = [
+            class_name for class_name in _get_attendance_active_classes(school_id)
+            if class_name in existing_classes
+        ] or sorted(existing_classes)
+        day_record["updated_at"] = get_utc_now().isoformat()
+        tracker_days[day_key] = day_record
+        _write_attendance_tracker(settings, config, tracker, tracker_days)
     return settings
 
 
@@ -7681,21 +7763,54 @@ def _prepare_daily_attendance_state(school_id):
         return settings, False
 
     Student.query.filter_by(school_id=school_id).update({"is_present": False})
+    config, tracker, tracker_days = _get_attendance_tracker(settings)
+    tracker_days.pop(_attendance_day_key(today), None)
+    _write_attendance_tracker(settings, config, tracker, tracker_days)
     return settings, True
 
 
+def _attendance_has_any_submission_today(school_id):
+    return _get_attendance_submission_snapshot(school_id).get("has_any_submission", False)
+
+
 def _attendance_marked_today(school_id):
-    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
-    marked_at = getattr(settings, "attendance_last_marked_at", None) if settings else None
-    if not marked_at:
-        return False
-    return marked_at.date() == get_utc_now().date()
+    return _get_attendance_submission_snapshot(school_id).get("is_complete", False)
 
 
 def _get_present_students_for_today(school_id):
-    if not _attendance_marked_today(school_id):
+    if not _attendance_has_any_submission_today(school_id):
         return []
     return Student.query.filter_by(school_id=school_id, is_present=True).all()
+
+
+def _extract_attendance_submission_classes(attendance_records, explicit_class_name=None):
+    submitted_classes = set()
+    normalized_class_name = sanitize_string(explicit_class_name or "")
+    if normalized_class_name in VALID_GRADES:
+        submitted_classes.add(normalized_class_name)
+
+    student_ids = [
+        int(record.get("student_id"))
+        for record in (attendance_records or [])
+        if str(record.get("student_id") or "").isdigit()
+    ]
+    if student_ids:
+        rows = (
+            Student.query.filter(
+                Student.school_id == g.school_id,
+                Student.id.in_(student_ids),
+            )
+            .with_entities(Student.current_class)
+            .all()
+        )
+        for row in rows:
+            class_name = (row[0] or "").strip() if row else ""
+            if class_name:
+                submitted_classes.add(class_name)
+
+    return [grade for grade in VALID_GRADES if grade in submitted_classes] + sorted(
+        submitted_classes.difference(VALID_GRADES)
+    )
 
 
 @api.route("/homeroom/attendance", methods=["POST"])
@@ -7714,7 +7829,7 @@ def update_attendance():
         id=student_id, school_id=g.school_id
     ).first_or_404()
     student.is_present = status
-    _mark_attendance_activity(g.school_id)
+    _mark_attendance_activity(g.school_id, submitted_classes=[student.current_class])
     db.session.commit()
 
     return jsonify({"message": f"Attendance for {student.name} updated."})
@@ -7743,6 +7858,10 @@ def update_attendance_batch():
     _prepare_daily_attendance_state(g.school_id)
 
     updated_count = 0
+    submitted_classes = _extract_attendance_submission_classes(
+        attendance_records,
+        explicit_class_name=data.get("class_name"),
+    )
     for record in attendance_records:
         student_id = record.get("student_id")
         status = record.get("status")
@@ -7756,7 +7875,7 @@ def update_attendance_batch():
             updated_count += 1
 
     if updated_count > 0:
-        _mark_attendance_activity(g.school_id)
+        _mark_attendance_activity(g.school_id, submitted_classes=submitted_classes)
 
     db.session.commit()
 
@@ -7783,6 +7902,10 @@ def update_attendance_bulk():
     _prepare_daily_attendance_state(g.school_id)
 
     updated_count = 0
+    submitted_classes = _extract_attendance_submission_classes(
+        attendance_records,
+        explicit_class_name=data.get("class_name"),
+    )
     for record in attendance_records:
         student_id = record.get("student_id")
         status = record.get("status")
@@ -7798,7 +7921,7 @@ def update_attendance_bulk():
             updated_count += 1
 
     if updated_count > 0:
-        _mark_attendance_activity(g.school_id)
+        _mark_attendance_activity(g.school_id, submitted_classes=submitted_classes)
 
     db.session.commit()
 
@@ -8614,7 +8737,7 @@ def _extract_transaction_reference_from_notice_text(message_text, matched_refere
     return None
 
 
-def _normalize_feeding_frequency(payment_category, feeding_plan_fees):
+def _normalize_feeding_frequency(payment_category, feeding_plan_fees, amount_paid=0.0):
     raw_frequency = sanitize_string((payment_category or {}).get("frequency") or "") or ""
     normalized_frequency = raw_frequency.lower()
     if normalized_frequency == "daily":
@@ -8623,6 +8746,18 @@ def _normalize_feeding_frequency(payment_category, feeding_plan_fees):
         return "Weekly"
     if normalized_frequency == "monthly":
         return "Monthly"
+
+    inferred_candidates = [
+        ("Monthly", float(feeding_plan_fees.get("monthly") or 0)),
+        ("Weekly", float(feeding_plan_fees.get("weekly") or 0)),
+        ("Daily", float(feeding_plan_fees.get("daily") or feeding_plan_fees.get("primary") or 0)),
+    ]
+    for frequency_name, plan_rate in inferred_candidates:
+        if plan_rate <= 0 or amount_paid <= 0:
+            continue
+        units = amount_paid / plan_rate
+        if units >= 1 and abs(units - round(units)) < 1e-9:
+            return frequency_name
 
     if float(feeding_plan_fees.get("monthly") or 0) > 0:
         return "Monthly"
@@ -8639,6 +8774,39 @@ def _resolve_feeding_plan_rate(feeding_plan_fees, frequency):
     return float(feeding_plan_fees.get("daily") or feeding_plan_fees.get("primary") or 0)
 
 
+def _is_school_instruction_day(school_id, target_date):
+    if not target_date or target_date.weekday() >= 5:
+        return False
+    is_holiday, _holiday_name = _get_holiday_status(school_id, target_date)
+    return not is_holiday
+
+
+def _get_next_instruction_day(school_id, start_date):
+    candidate = start_date
+    for _ in range(370):
+        if _is_school_instruction_day(school_id, candidate):
+            return candidate
+        candidate += timedelta(days=1)
+    return start_date
+
+
+def _add_instructional_days(school_id, start_date, day_count):
+    if day_count <= 0:
+        return None
+
+    current_day = _get_next_instruction_day(school_id, start_date)
+    covered_days = 0
+    end_date = None
+    for _ in range(730):
+        if _is_school_instruction_day(school_id, current_day):
+            covered_days += 1
+            end_date = current_day
+            if covered_days >= day_count:
+                return end_date
+        current_day += timedelta(days=1)
+    return end_date
+
+
 def _end_of_calendar_month(target_date):
     if target_date.month == 12:
         next_month_start = date(target_date.year + 1, 1, 1)
@@ -8648,9 +8816,13 @@ def _end_of_calendar_month(target_date):
 
 
 def _calculate_feeding_coverage_units(payment, feeding_plan_fees):
-    frequency = _normalize_feeding_frequency(payment.payment_category or {}, feeding_plan_fees)
-    plan_rate = _resolve_feeding_plan_rate(feeding_plan_fees, frequency)
     amount_paid = float(payment.amount or 0)
+    frequency = _normalize_feeding_frequency(
+        payment.payment_category or {},
+        feeding_plan_fees,
+        amount_paid=amount_paid,
+    )
+    plan_rate = _resolve_feeding_plan_rate(feeding_plan_fees, frequency)
 
     if amount_paid <= 0:
         return 0, frequency
@@ -8664,15 +8836,15 @@ def _calculate_feeding_coverage_units(payment, feeding_plan_fees):
     return 1, frequency
 
 
-def _calculate_feeding_coverage_end_date(start_date, purchased_units, frequency):
+def _calculate_feeding_coverage_end_date(start_date, purchased_units, frequency, school_id):
     if purchased_units <= 0:
         return None
 
     if frequency == "Daily":
-        return start_date + timedelta(days=purchased_units - 1)
+        return _add_instructional_days(school_id, start_date, purchased_units)
 
     if frequency == "Weekly":
-        return start_date + timedelta(days=(purchased_units * 7) - 1)
+        return _add_instructional_days(school_id, start_date, purchased_units * 5)
 
     end_date = _end_of_calendar_month(start_date)
     for _ in range(1, purchased_units):
@@ -8691,21 +8863,36 @@ def _get_feeding_status_details_for_students(students, school_id, as_of_date=Non
     feeding_plan_fees = _get_feeding_plan_fees(settings)
 
     payments = []
+    pending_payments = []
     if student_ids:
         payments = (
             Payment.query.filter(
                 Payment.school_id == school_id,
                 Payment.payment_type == "Feeding",
                 Payment.student_id.in_(student_ids),
-                Payment.status.in_(["Pending", "Confirmed"]),
+                Payment.status == "Confirmed",
             )
-            .order_by(Payment.date_paid.asc(), Payment.created_at.asc(), Payment.id.asc())
+            .order_by(Payment.verified_at.asc(), Payment.date_paid.asc(), Payment.created_at.asc(), Payment.id.asc())
+            .all()
+        )
+        pending_payments = (
+            Payment.query.filter(
+                Payment.school_id == school_id,
+                Payment.payment_type == "Feeding",
+                Payment.student_id.in_(student_ids),
+                Payment.status == "Pending",
+            )
+            .order_by(Payment.created_at.desc(), Payment.id.desc())
             .all()
         )
 
     payments_by_student = {}
     for payment in payments:
         payments_by_student.setdefault(payment.student_id, []).append(payment)
+
+    pending_payments_by_student = {}
+    for payment in pending_payments:
+        pending_payments_by_student.setdefault(payment.student_id, []).append(payment)
 
     details = {}
     for student in student_list:
@@ -8716,6 +8903,9 @@ def _get_feeding_status_details_for_students(students, school_id, as_of_date=Non
                 "coverage_until": None,
                 "days_remaining": None,
                 "frequency": "Scholarship",
+                "pending_approval": False,
+                "pending_amount": 0.0,
+                "plan_rates": feeding_plan_fees,
             }
             continue
 
@@ -8731,12 +8921,16 @@ def _get_feeding_status_details_for_students(students, school_id, as_of_date=Non
             if purchased_units <= 0:
                 continue
 
-            payment_date = (payment.date_paid or payment.created_at or datetime.now(timezone.utc)).date()
+            coverage_anchor = payment.verified_at or payment.date_paid or payment.created_at or datetime.now(timezone.utc)
+            payment_date = coverage_anchor.date()
             start_date = payment_date
             if rolling_coverage_end and start_date <= rolling_coverage_end:
                 start_date = rolling_coverage_end + timedelta(days=1)
 
-            end_date = _calculate_feeding_coverage_end_date(start_date, purchased_units, frequency)
+            if frequency in {"Daily", "Weekly"}:
+                start_date = _get_next_instruction_day(school_id, start_date)
+
+            end_date = _calculate_feeding_coverage_end_date(start_date, purchased_units, frequency, school_id)
             if end_date is None:
                 continue
             rolling_coverage_end = end_date
@@ -8749,15 +8943,38 @@ def _get_feeding_status_details_for_students(students, school_id, as_of_date=Non
                 active_frequency = frequency
                 break
 
+        pending_student_payments = pending_payments_by_student.get(student.id, [])
+        pending_amount = sum(float(payment.amount or 0) for payment in pending_student_payments)
+
         details[student.id] = {
             "covered": covered,
             "payment_method": payment_method,
             "coverage_until": coverage_until,
             "days_remaining": days_remaining,
             "frequency": active_frequency,
+            "pending_approval": bool(pending_student_payments),
+            "pending_amount": round(pending_amount, 2),
+            "plan_rates": feeding_plan_fees,
         }
 
     return details
+
+
+def _serialize_feeding_status_detail(feeding_status):
+    plan_rates = feeding_status.get("plan_rates") or {}
+    return {
+        "feeding_paid": bool(feeding_status.get("covered")),
+        "payment_method": feeding_status.get("payment_method"),
+        "feeding_coverage_until": feeding_status.get("coverage_until"),
+        "feeding_days_remaining": feeding_status.get("days_remaining"),
+        "feeding_frequency": feeding_status.get("frequency"),
+        "feeding_pending_approval": bool(feeding_status.get("pending_approval")),
+        "feeding_pending_amount": round(float(feeding_status.get("pending_amount") or 0), 2),
+        "feeding_daily_fee": round(float(plan_rates.get("daily") or 0), 2),
+        "feeding_weekly_fee": round(float(plan_rates.get("weekly") or 0), 2),
+        "feeding_monthly_fee": round(float(plan_rates.get("monthly") or 0), 2),
+        "feeding_primary_fee": round(float(plan_rates.get("primary") or 0), 2),
+    }
 
 
 def _apply_confirmed_payment_effects(payment, student, actor_id):
@@ -9141,19 +9358,26 @@ def _recover_paystack_transaction(transaction, school_id_scope=None):
 
         from backend.paystack_integration import process_payment_confirmation
 
-        process_payment_confirmation(
+        result = process_payment_confirmation(
             school_id,
             plan_name,
             amount_paid,
             reference=reference,
             metadata=metadata,
         )
+        recovered_title = "Subscription payment recovered"
+        recovered_details = f"Recovered missing subscription payment for {plan_name} from Paystack reconciliation."
+        event_type = "subscription_payment_recovered"
+        if result.get("transaction_type") == "addon_purchase":
+            recovered_title = "Add-on payment recovered"
+            recovered_details = f"Recovered missing add-on payment for {result.get('addon_name') or 'subscription add-on'} from Paystack reconciliation."
+            event_type = "subscription_addon_recovered"
         _append_billing_timeline_event(
             school_id,
-            event_type="subscription_payment_recovered",
+            event_type=event_type,
             status="success",
-            title="Subscription payment recovered",
-            details=f"Recovered missing subscription payment for {plan_name} from Paystack reconciliation.",
+            title=recovered_title,
+            details=recovered_details,
             amount=amount_paid,
             reference=reference,
         )
@@ -9749,7 +9973,7 @@ def send_terminal_reports_whatsapp_bulk():
 
     effective_plan = get_effective_plan(school)
     if effective_plan != "Premium":
-        return jsonify({"message": "Bulk WhatsApp terminal report sending is available for Premium plan only."}), 403
+        return jsonify({"message": f"Bulk WhatsApp terminal report sending is available on the {get_plan_display_name('Premium')} plan only."}), 403
 
     if not school.settings:
         return jsonify({"message": "School settings not found"}), 400
@@ -9936,7 +10160,7 @@ def send_payment_reminders_whatsapp_bulk():
 
     effective_plan = get_effective_plan(school)
     if effective_plan != "Premium":
-        return jsonify({"message": "Bulk WhatsApp payment reminders are available for Premium plan only."}), 403
+        return jsonify({"message": f"Bulk WhatsApp payment reminders are available on the {get_plan_display_name('Premium')} plan only."}), 403
 
     if not school.settings:
         return jsonify({"message": "School settings not found"}), 400
@@ -10683,7 +10907,7 @@ def mark_report_printed():
 @api.route("/ai/student-pulse/<int:student_id>", methods=["GET"])
 @multi_tenant_guard
 @jwt_required()
-@subscription_required("Premium")
+@feature_required("student_rescue_agent")
 def get_student_pulse(student_id):
     """Predictive Sack-Risk based on Financial & Academic data."""
     student = Student.query.filter_by(
@@ -11508,7 +11732,8 @@ def get_live_feed():
             Student.school_id == g.school_id, Student.total_tuition_owed > 0
         ).count()
         critical_list = rescue_payload["students"]
-        attendance_taken_today = _attendance_marked_today(g.school_id)
+        attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
+        attendance_taken_today = attendance_snapshot.get("is_complete", False)
         present_students = _get_present_students_for_today(g.school_id)
 
         # Fetch pending payments recorded by teachers
@@ -11634,6 +11859,9 @@ def get_live_feed():
                     "total_students": total_students,
                     "present_students": len(present_students),
                     "attendance_taken_today": attendance_taken_today,
+                    "attendance_partial": attendance_snapshot.get("has_any_submission", False) and not attendance_taken_today,
+                    "submitted_classes_count": attendance_snapshot.get("submitted_classes_count", 0),
+                    "pending_classes_count": attendance_snapshot.get("pending_classes_count", 0),
                     "unpaid_tuition": unpaid_tuition,
                     "low_stock_count": len(low_stock_items),
                 },
@@ -12411,7 +12639,8 @@ def get_ai_insights():
 
         # 2. Attendance Monitoring
         total_students = Student.query.filter_by(school_id=g.school_id).count()
-        attendance_taken_today = _attendance_marked_today(g.school_id)
+        attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
+        attendance_taken_today = attendance_snapshot.get("is_complete", False)
         present_today = 0
         attendance_rate = None
         if total_students > 0 and attendance_taken_today:
@@ -12420,7 +12649,16 @@ def get_ai_insights():
             ).count()
             attendance_rate = (present_today / total_students * 100)
 
-        if total_students > 0 and not attendance_taken_today:
+        if total_students > 0 and attendance_snapshot.get("has_any_submission") and not attendance_taken_today:
+            insights.append(
+                {
+                    "type": "info",
+                    "title": "Attendance In Progress",
+                    "message": f"Attendance submitted for {attendance_snapshot.get('submitted_classes_count', 0)} of {attendance_snapshot.get('active_classes_count', 0)} classes. Pending classes: {attendance_snapshot.get('pending_classes_count', 0)}.",
+                    "icon": "🗓️",
+                }
+            )
+        elif total_students > 0 and not attendance_taken_today:
             insights.append(
                 {
                     "type": "info",
@@ -12891,7 +13129,7 @@ def download_parent_admission_document(application_id, document_id):
 @api.route("/admissions/generate-test", methods=["POST"])
 @multi_tenant_guard
 @role_required("proprietor")
-@subscription_required("Premium")
+@feature_required("ai_analysis")
 def generate_admission_test():
     """AI Question generation for new students/staff."""
     data = request.json
@@ -14364,7 +14602,8 @@ def kitchen_dashboard():
         total_students_present = 0
         total_feeding_paid = 0
         students = Student.query.filter_by(school_id=g.school_id).all()
-        attendance_taken_today = _attendance_marked_today(g.school_id)
+        attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
+        attendance_taken_today = attendance_snapshot.get("is_complete", False)
         present_students_today = _get_present_students_for_today(g.school_id)
         present_student_ids = {student.id for student in present_students_today}
         feeding_status_details = _get_feeding_status_details_for_students(present_students_today, g.school_id)
@@ -14437,8 +14676,17 @@ def kitchen_dashboard():
                     "total_teachers": teacher_count,
                     "total_meals_needed": total_meals_needed,
                     "attendance_taken_today": attendance_taken_today,
+                    "attendance_partial": attendance_snapshot.get("has_any_submission", False) and not attendance_taken_today,
+                    "submitted_classes_count": attendance_snapshot.get("submitted_classes_count", 0),
+                    "pending_classes_count": attendance_snapshot.get("pending_classes_count", 0),
                     "status_message": (
-                        None if attendance_taken_today else "Attendance has not been submitted for today yet."
+                        None
+                        if attendance_taken_today
+                        else (
+                            f"Attendance submitted for {attendance_snapshot.get('submitted_classes_count', 0)} of {attendance_snapshot.get('active_classes_count', 0)} classes."
+                            if attendance_snapshot.get("has_any_submission")
+                            else "Attendance has not been submitted for today yet."
+                        )
                     ),
                     "is_holiday": is_holiday,
                     "holiday_name": holiday_name,
@@ -14676,7 +14924,8 @@ def get_my_lesson_notes():
 def get_attendance_summary():
     """Headmaster view of daily attendance."""
     total_students = Student.query.filter_by(school_id=g.school_id).count()
-    attendance_taken_today = _attendance_marked_today(g.school_id)
+    attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
+    attendance_taken_today = attendance_snapshot.get("is_complete", False)
     present_students_list = _get_present_students_for_today(g.school_id)
     present_students = len(present_students_list)
 
@@ -14717,10 +14966,20 @@ def get_attendance_summary():
                 else None
             ),
             "attendance_taken_today": attendance_taken_today,
+            "attendance_partial": attendance_snapshot.get("has_any_submission", False) and not attendance_taken_today,
+            "submitted_classes": attendance_snapshot.get("submitted_classes", []),
+            "submitted_classes_count": attendance_snapshot.get("submitted_classes_count", 0),
+            "pending_classes": attendance_snapshot.get("pending_classes", []),
+            "pending_classes_count": attendance_snapshot.get("pending_classes_count", 0),
+            "active_classes_count": attendance_snapshot.get("active_classes_count", 0),
             "status_message": (
                 None
                 if attendance_taken_today
-                else "Attendance has not been submitted for today yet."
+                else (
+                    f"Attendance submitted for {attendance_snapshot.get('submitted_classes_count', 0)} of {attendance_snapshot.get('active_classes_count', 0)} classes. Pending: {', '.join(attendance_snapshot.get('pending_classes', [])[:3])}{'...' if attendance_snapshot.get('pending_classes_count', 0) > 3 else ''}."
+                    if attendance_snapshot.get("has_any_submission")
+                    else "Attendance has not been submitted for today yet."
+                )
             ),
             "breakdown": class_breakdown,
         }
@@ -14884,7 +15143,16 @@ def get_canteen_count():
         .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
         .count()
     )
-    return jsonify({"total_meals": student_meals + staff_meals})
+    attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
+    return jsonify(
+        {
+            "total_meals": student_meals + staff_meals,
+            "attendance_taken_today": attendance_snapshot.get("is_complete", False),
+            "attendance_partial": attendance_snapshot.get("has_any_submission", False) and not attendance_snapshot.get("is_complete", False),
+            "submitted_classes_count": attendance_snapshot.get("submitted_classes_count", 0),
+            "pending_classes_count": attendance_snapshot.get("pending_classes_count", 0),
+        }
+    )
 
 
 @api.route("/proprietor/export-term-summary", methods=["GET"])
@@ -14943,7 +15211,7 @@ def get_proprietor_students():
                 "parent_name": s.parent_name,
                 "parent_email": s.parent_email,
                 "parent_phone": s.parent_phone,
-                "feeding_paid": bool(feeding_status_details.get(s.id, {}).get("covered")),
+                **_serialize_feeding_status_detail(feeding_status_details.get(s.id, {})),
                 "is_present": s.is_present,
                 "date_of_birth": s.date_of_birth.isoformat() if s.date_of_birth else None,
                 "age": s.age,
@@ -17731,7 +17999,7 @@ def get_all_subscription_plans():
         
         plans_data.append({
             "name": plan_name,
-            "display_name": plan_name.replace(" Tier", "").replace("Basic", "Basic"),
+            "display_name": get_plan_display_name(plan_name),
             "price_per_student_per_term": pricing_info.get("per_student_per_term", 0),
             "base_fee_per_term": pricing_info.get("base_fee_per_term", 0),
             "included_students": pricing_info.get("included_students", 0),
@@ -17744,6 +18012,7 @@ def get_all_subscription_plans():
             "report_templates": plan_info.get("report_templates", []),
             "marketing_features": plan_info.get("marketing_features", []),
             "addon_options": plan_info.get("addon_options", []),
+            "addons": get_addons_for_plan(plan_name),
             "packaging_summary": plan_info.get("packaging_summary", ""),
             "ui_color": plan_info.get("ui_color", "gray"),
             "popular": bool(plan_info.get("popular", plan_name == "Basic")),
@@ -17803,8 +18072,10 @@ def get_subscription():
     return jsonify(
         {
             "plan": effective_plan,
+            "plan_display_name": get_plan_display_name(effective_plan),
             "subscription_plan": effective_plan,  # Explicit alias for clarity
             "base_plan": school.subscription_plan or "Free Tier",
+            "base_plan_display_name": get_plan_display_name(school.subscription_plan or "Free Tier"),
             "status": billing_status.get("status", school.subscription_status),
             "billing_status": billing_status,
             "next_billing": next_billing_date or "N/A",
@@ -17850,6 +18121,15 @@ def get_subscription():
             "features": plan_info.get("features", {}),
             "features_display": plan_display,
             "report_templates": plan_info.get("report_templates", []),
+            "available_addons": get_addons_for_plan(effective_plan),
+            "active_addons": {
+                "automation_pack": school_has_addon(school, "automation_pack", effective_plan=effective_plan),
+                "ai_pack": school_has_addon(school, "ai_pack", effective_plan=effective_plan),
+            },
+            "purchased_addons": {
+                "automation_pack": bool((enabled_modules or {}).get("automation_pack_addon")),
+                "ai_pack": bool((enabled_modules or {}).get("ai_pack_addon")),
+            },
             "billing_visibility": billing_visibility,
             "term_proration": term_proration,
             "pending_plan": getattr(school, "pending_plan", None),
@@ -17874,7 +18154,9 @@ def get_effective_subscription_plan():
     return jsonify(
         {
             "plan": effective_plan,
+            "plan_display_name": get_plan_display_name(effective_plan),
             "base_plan": school.subscription_plan or "Free Tier",
+            "base_plan_display_name": get_plan_display_name(school.subscription_plan or "Free Tier"),
             "effective_plan": effective_plan,
             "trial": {
                 "active": bool(
@@ -18026,10 +18308,23 @@ def get_subscription_trial_status():
 
     trial = visibility.get("trial", {})
     has_used_trial = bool(school.trial_end_date)
+    base_plan = school.subscription_plan or "Free Tier"
+    available_trial_plans = []
+    for plan_name in ["Basic", "Premium"]:
+        if _subscription_plan_rank(plan_name) > _subscription_plan_rank(base_plan):
+            available_trial_plans.append(
+                {
+                    "plan": plan_name,
+                    "display_name": get_plan_display_name(plan_name),
+                    "description": PLAN_FEATURES.get(plan_name, {}).get("description", ""),
+                    "includes_addons": plan_name == "Premium",
+                }
+            )
 
     return jsonify({
         "is_active": bool(trial.get("is_active") or trial.get("active")),
         "plan": trial.get("plan"),
+        "plan_display_name": get_plan_display_name(trial.get("plan")) if trial.get("plan") else None,
         "start_date": trial.get("start_date"),
         "end_date": trial.get("end_date"),
         "term_name": trial.get("term_name"),
@@ -18037,6 +18332,9 @@ def get_subscription_trial_status():
         "reference_source": trial.get("reference_source"),
         "has_used_trial": has_used_trial,
         "trial_ended_at": school.trial_end_date.isoformat() if school.trial_end_date else None,
+        "base_plan": base_plan,
+        "base_plan_display_name": get_plan_display_name(base_plan),
+        "available_trial_plans": available_trial_plans,
     }), 200
 
 
@@ -18046,7 +18344,9 @@ def get_subscription_trial_status():
 @role_required("proprietor")
 def activate_subscription_trial():
     """Activate premium trial entitlement for this tenant."""
-    result = activate_premium_trial(g.school_id)
+    data = request.get_json(silent=True) or {}
+    trial_plan = sanitize_string(data.get("trial_plan") or "Premium")
+    result = activate_premium_trial(g.school_id, trial_plan=trial_plan)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result), 200
@@ -19637,18 +19937,76 @@ def get_all_schools():
         return jsonify({"message": "Unauthorized"}), 403
 
     schools = School.query.all()
-    return jsonify(
-        [
+    school_rows = []
+    summary = {
+        "total_schools": len(schools),
+        "active_subscriptions": 0,
+        "free_tier": 0,
+        "school_os": 0,
+        "school_os_plus": 0,
+        "trial_schools": 0,
+        "ai_pack": 0,
+        "automation_pack": 0,
+    }
+
+    for school in schools:
+        effective_plan = get_effective_plan(school)
+        trial_end = getattr(school, "trial_end_date", None)
+        if trial_end and getattr(trial_end, "tzinfo", None) is None:
+            trial_end = trial_end.replace(tzinfo=timezone.utc)
+
+        settings = school.settings
+        enabled_modules = dict(settings.enabled_modules or {}) if settings and isinstance(settings.enabled_modules, dict) else {}
+        purchased_addons = {
+            "automation_pack": any(bool(enabled_modules.get(module_key, False)) for module_key in ADDON_CATALOG["automation_pack"].get("module_keys", [])),
+            "ai_pack": any(bool(enabled_modules.get(module_key, False)) for module_key in ADDON_CATALOG["ai_pack"].get("module_keys", [])),
+        }
+        active_addons = {
+            addon_key: school_has_addon(school, addon_key, effective_plan=effective_plan)
+            for addon_key in ADDON_CATALOG.keys()
+        }
+        proprietor = school.users.filter_by(role="proprietor").first()
+        student_count = _count_active_students_for_billing(school.id)
+        trial_active = bool(school.trial_plan and trial_end and get_utc_now() < trial_end)
+
+        summary["active_subscriptions"] += 1 if school.subscription_status == "Active" else 0
+        summary["trial_schools"] += 1 if trial_active else 0
+        if effective_plan == "Premium":
+            summary["school_os_plus"] += 1
+        elif effective_plan == "Basic":
+            summary["school_os"] += 1
+        else:
+            summary["free_tier"] += 1
+        summary["ai_pack"] += 1 if purchased_addons["ai_pack"] else 0
+        summary["automation_pack"] += 1 if purchased_addons["automation_pack"] else 0
+
+        school_rows.append(
             {
-                "id": s.id,
-                "name": s.name,
-                "plan": s.subscription_plan,
-                "status": s.subscription_status,
-                "is_active": s.is_active,
+                "id": school.id,
+                "code": school.id,
+                "name": school.name,
+                "email": proprietor.email if proprietor else None,
+                "plan": school.subscription_plan or "Free Tier",
+                "plan_display_name": get_plan_display_name(school.subscription_plan or "Free Tier"),
+                "effective_plan": effective_plan,
+                "effective_plan_display_name": get_plan_display_name(effective_plan),
+                "status": school.subscription_status,
+                "subscription_status": school.subscription_status,
+                "is_active": school.is_active,
+                "student_count": student_count,
+                "created_at": school.created_at.isoformat() if school.created_at else None,
+                "trial": {
+                    "active": trial_active,
+                    "plan": school.trial_plan,
+                    "plan_display_name": get_plan_display_name(school.trial_plan) if school.trial_plan else None,
+                    "end_date": trial_end.isoformat() if trial_end else None,
+                },
+                "active_addons": active_addons,
+                "purchased_addons": purchased_addons,
             }
-            for s in schools
-        ]
-    )
+        )
+
+    return jsonify({"schools": school_rows, "summary": summary})
 
 
 @api.route("/admin/school/<school_id>/toggle", methods=["POST"])
@@ -19746,6 +20104,8 @@ def grant_school_trial(school_id):
 
     data = request.json or {}
     trial_plan = data.get("trial_plan", "Premium")
+    if trial_plan not in {"Basic", "Premium"}:
+        return jsonify({"message": "Trial plan must be School OS or School OS Plus."}), 400
 
     school = School.query.get_or_404(school_id)
     term_reference = get_current_term_reference(school.id)
@@ -20200,108 +20560,133 @@ def paystack_initialize_payment():
         
         data = request.get_json()
         plan_name = data.get('plan_name')
+        addon_key = sanitize_string(data.get('addon_key'))
         billing_period = data.get('billing_period', 'term')  # 'term' or 'annual'
         default_student_count = _count_active_students_for_billing(school.id)
         student_count = data.get('student_count', default_student_count)
         amount_cedis = data.get('amount_cedis')
         email = data.get('email') or user.email
         
-        if not plan_name or not email:
-            return jsonify({"message": "Missing required fields: plan_name, email"}), 400
-        
-        # Model A Pricing: Base Fee + Included Students + Overage
-        pricing = {
-            key: {
-                'base_fee': value.get('base_fee_per_term', 0),
-                'included_students': value.get('included_students', 0),
-                'overage_rate': value.get('per_student_per_term', 0),
-            }
-            for key, value in PRICING.items()
-            if key in {'Basic', 'Premium'}
-        }
-        
-        if plan_name not in pricing:
-            if plan_name == 'Free Tier':
-                return jsonify({"message": "Free plans cannot be purchased"}), 400
-            return jsonify({"message": f"Invalid plan: {plan_name}"}), 400
-        
-        plan_config = pricing[plan_name]
-        terms = 3 if billing_period == 'annual' else 1
-        
-        # Calculate full cost using Model A formula
-        base_fee = plan_config['base_fee']
-        included = plan_config['included_students']
-        overage_count = max(0, student_count - included)
-        term_cost = base_fee + (overage_count * plan_config['overage_rate'])
-        full_cost = term_cost * terms
-        amount_cedis = float(amount_cedis or full_cost)
-        
-        now = datetime.now(timezone.utc)
-        term_proration = get_term_proration_context(school.id, now=now) if billing_period == 'term' else {}
-        days_per_term = max(1, int(term_proration.get('days_in_term') or 120))
-        
-        # Get days remaining until next billing
-        proration_data = {
-            'is_prorated': False,
-            'days_remaining': days_per_term,
-            'days_in_period': days_per_term,
-            'proration_ratio': 1.0,
-            'calculation_source': 'standard',
-        }
-        
-        next_billing_date = school.next_billing_date
-        if next_billing_date and next_billing_date.tzinfo is None:
-            next_billing_date = next_billing_date.replace(tzinfo=timezone.utc)
+        if not email or (not plan_name and not addon_key):
+            return jsonify({"message": "Missing required fields: email and a plan or add-on selection"}), 400
 
-        if next_billing_date and next_billing_date > now:
-            # Calculate days remaining in current billing period
-            if billing_period == 'term':
-                days_remaining = max(1, (next_billing_date.date() - now.date()).days + 1)
-            else:
-                days_remaining = max(0, (next_billing_date - now).days)
-            
-            if days_remaining < days_per_term:
-                # Mid-term upgrade detected
-                proration_ratio = days_remaining / days_per_term
-                prorated_cost = full_cost * proration_ratio
-                proration_data = {
-                    'is_prorated': True,
-                    'days_remaining': days_remaining,
-                    'days_in_period': days_per_term,
-                    'proration_ratio': round(proration_ratio, 2),
-                    'full_cost': round(full_cost, 2),
-                    'prorated_cost': round(prorated_cost, 2),
-                    'calculation_source': 'existing_cycle',
+        transaction_type = 'subscription_upgrade'
+        addon = None
+        overage_count = 0
+        if addon_key:
+            addon = ADDON_CATALOG.get(addon_key)
+            current_plan = school.subscription_plan or 'Free Tier'
+            if not addon:
+                return jsonify({"message": "Unknown add-on selected"}), 400
+            if current_plan not in addon.get('eligible_plans', []):
+                return jsonify({"message": f"{addon.get('name')} requires an active School OS or School OS Plus base plan."}), 400
+
+            transaction_type = 'addon_purchase'
+            plan_name = current_plan
+            terms = 3 if billing_period == 'annual' else 1
+            full_cost = float(addon.get('price_per_term', 0)) * terms
+            amount_cedis = float(amount_cedis or full_cost)
+            proration_data = {
+                'is_prorated': False,
+                'days_remaining': None,
+                'days_in_period': None,
+                'proration_ratio': 1.0,
+                'calculation_source': 'addon_flat_rate',
+            }
+        else:
+            # Model A Pricing: Base Fee + Included Students + Overage
+            pricing = {
+                key: {
+                    'base_fee': value.get('base_fee_per_term', 0),
+                    'included_students': value.get('included_students', 0),
+                    'overage_rate': value.get('per_student_per_term', 0),
                 }
+                for key, value in PRICING.items()
+                if key in {'Basic', 'Premium'}
+            }
+            
+            if plan_name not in pricing:
+                if plan_name == 'Free Tier':
+                    return jsonify({"message": "Free plans cannot be purchased"}), 400
+                return jsonify({"message": f"Invalid plan: {plan_name}"}), 400
+            
+            plan_config = pricing[plan_name]
+            terms = 3 if billing_period == 'annual' else 1
+            
+            # Calculate full cost using Model A formula
+            base_fee = plan_config['base_fee']
+            included = plan_config['included_students']
+            overage_count = max(0, student_count - included)
+            term_cost = base_fee + (overage_count * plan_config['overage_rate'])
+            full_cost = term_cost * terms
+            amount_cedis = float(amount_cedis or full_cost)
+            
+            now = datetime.now(timezone.utc)
+            term_proration = get_term_proration_context(school.id, now=now) if billing_period == 'term' else {}
+            days_per_term = max(1, int(term_proration.get('days_in_term') or 120))
+            
+            # Get days remaining until next billing
+            proration_data = {
+                'is_prorated': False,
+                'days_remaining': days_per_term,
+                'days_in_period': days_per_term,
+                'proration_ratio': 1.0,
+                'calculation_source': 'standard',
+            }
+            
+            next_billing_date = school.next_billing_date
+            if next_billing_date and next_billing_date.tzinfo is None:
+                next_billing_date = next_billing_date.replace(tzinfo=timezone.utc)
+
+            if next_billing_date and next_billing_date > now:
+                # Calculate days remaining in current billing period
                 if billing_period == 'term':
-                    proration_data.update({
+                    days_remaining = max(1, (next_billing_date.date() - now.date()).days + 1)
+                else:
+                    days_remaining = max(0, (next_billing_date - now).days)
+                
+                if days_remaining < days_per_term:
+                    # Mid-term upgrade detected
+                    proration_ratio = days_remaining / days_per_term
+                    prorated_cost = full_cost * proration_ratio
+                    proration_data = {
+                        'is_prorated': True,
+                        'days_remaining': days_remaining,
+                        'days_in_period': days_per_term,
+                        'proration_ratio': round(proration_ratio, 2),
+                        'full_cost': round(full_cost, 2),
+                        'prorated_cost': round(prorated_cost, 2),
+                        'calculation_source': 'existing_cycle',
+                    }
+                    if billing_period == 'term':
+                        proration_data.update({
+                            'term_name': term_proration.get('term_name'),
+                            'academic_year': term_proration.get('academic_year'),
+                            'reference_source': term_proration.get('reference_source'),
+                        })
+                    amount_cedis = prorated_cost
+            elif billing_period == 'term' and (school.subscription_plan or 'Free Tier') == 'Free Tier':
+                days_remaining = term_proration.get('days_remaining')
+                days_in_period = term_proration.get('days_in_term')
+                term_end_date = term_proration.get('term_end_date')
+
+                if days_remaining and days_in_period and days_remaining < days_in_period:
+                    proration_ratio = max(0.0, min(1.0, days_remaining / float(days_in_period)))
+                    prorated_cost = term_cost * proration_ratio
+                    proration_data = {
+                        'is_prorated': True,
+                        'days_remaining': days_remaining,
+                        'days_in_period': days_in_period,
+                        'proration_ratio': round(proration_ratio, 2),
+                        'full_cost': round(term_cost, 2),
+                        'prorated_cost': round(prorated_cost, 2),
                         'term_name': term_proration.get('term_name'),
                         'academic_year': term_proration.get('academic_year'),
                         'reference_source': term_proration.get('reference_source'),
-                    })
-                amount_cedis = prorated_cost
-        elif billing_period == 'term' and (school.subscription_plan or 'Free Tier') == 'Free Tier':
-            days_remaining = term_proration.get('days_remaining')
-            days_in_period = term_proration.get('days_in_term')
-            term_end_date = term_proration.get('term_end_date')
-
-            if days_remaining and days_in_period and days_remaining < days_in_period:
-                proration_ratio = max(0.0, min(1.0, days_remaining / float(days_in_period)))
-                prorated_cost = term_cost * proration_ratio
-                proration_data = {
-                    'is_prorated': True,
-                    'days_remaining': days_remaining,
-                    'days_in_period': days_in_period,
-                    'proration_ratio': round(proration_ratio, 2),
-                    'full_cost': round(term_cost, 2),
-                    'prorated_cost': round(prorated_cost, 2),
-                    'term_name': term_proration.get('term_name'),
-                    'academic_year': term_proration.get('academic_year'),
-                    'reference_source': term_proration.get('reference_source'),
-                    'next_billing_date_override': term_end_date,
-                    'calculation_source': 'current_term_remaining',
-                }
-                amount_cedis = prorated_cost
+                        'next_billing_date_override': term_end_date,
+                        'calculation_source': 'current_term_remaining',
+                    }
+                    amount_cedis = prorated_cost
 
         if amount_cedis <= 0:
             return jsonify({"message": "Invalid amount"}), 400
@@ -20321,6 +20706,15 @@ def paystack_initialize_payment():
         try:
             # Set callback URL for redirect after payment
             callback_url = os.getenv('FRONTEND_URL', 'http://localhost:3000') + '/payment/callback'
+            pricing_metadata = {
+                'base_fee': plan_config['base_fee'],
+                'overage_rate': plan_config['overage_rate'],
+                'included_students': plan_config['included_students'],
+            } if addon is None else {
+                'base_fee': 0,
+                'overage_rate': 0,
+                'included_students': 0,
+            }
             
             result = initialize_payment(
                 email=email,
@@ -20332,17 +20726,22 @@ def paystack_initialize_payment():
                     'student_count': student_count,
                     'billing_period': billing_period,
                     'terms': terms,
-                    'base_fee': plan_config['base_fee'],
-                    'overage_rate': plan_config['overage_rate'],
-                    'included_students': plan_config['included_students'],
+                    'base_fee': pricing_metadata['base_fee'],
+                    'overage_rate': pricing_metadata['overage_rate'],
+                    'included_students': pricing_metadata['included_students'],
                     'overage_count': overage_count,
                     'amount_cedis': amount_cedis,
+                    'addon_key': addon_key,
+                    'addon_name': addon.get('name') if addon else None,
+                    'transaction_type': transaction_type,
                     'callback_url': callback_url,
                     'proration_data': proration_data
                 }
             )
             
             log_msg = f"Payment initialized for school {school.id} ({school.name}): {plan_name}, {student_count} students, GH₵ {amount_cedis}"
+            if addon:
+                log_msg = f"Add-on checkout initialized for school {school.id} ({school.name}): {addon.get('name')} on {plan_name}, GH₵ {amount_cedis}"
             if proration_data['is_prorated']:
                 log_msg += f" (PRORATED: {proration_data['days_remaining']}/{proration_data['days_in_period']} days remaining)"
             logger.info(log_msg)
@@ -20469,12 +20868,20 @@ def paystack_verify_payment(reference):
                 metadata=metadata
             )
 
+            timeline_event_type = "subscription_payment_verified"
+            timeline_title = "Subscription payment verified"
+            timeline_details = f"Payment for {plan_name} processed successfully."
+            if result.get("transaction_type") == "addon_purchase":
+                timeline_event_type = "subscription_addon_verified"
+                timeline_title = "Add-on payment verified"
+                timeline_details = f"Payment for {result.get('addon_name') or 'subscription add-on'} processed successfully."
+
             _append_billing_timeline_event(
                 school.id,
-                event_type="subscription_payment_verified",
+                event_type=timeline_event_type,
                 status="success",
-                title="Subscription payment verified",
-                details=f"Payment for {plan_name} processed successfully.",
+                title=timeline_title,
+                details=timeline_details,
                 amount=amount_paid,
                 reference=reference,
                 due_date=school.next_billing_date.isoformat() if school.next_billing_date else None,
@@ -20530,7 +20937,7 @@ def paystack_verify_payment(reference):
             
             return jsonify({
                 "status": "success",
-                "message": "Payment verified and subscription updated",
+                "message": "Payment verified and subscription updated" if result.get("transaction_type") != "addon_purchase" else "Payment verified and add-on activated",
                 "registration_flow": onboarding_flow == "registration",
                 "data": result
             }), 200
@@ -20635,18 +21042,25 @@ def paystack_subscription_webhook():
                     logger.info(f"Webhook card setup processed for school {school_id}, reference {reference}")
                     return jsonify({"message": "OK"}), 200
 
-                result = process_payment_confirmation(school_id, plan_name, amount_paid, reference=reference)
+                result = process_payment_confirmation(school_id, plan_name, amount_paid, reference=reference, metadata=metadata)
                 _save_reusable_authorization(
                     school_id,
                     transaction.get("authorization") or {},
                     (transaction.get("customer") or {}).get("email"),
                 )
+                event_type = "subscription_payment_webhook"
+                success_title = "Subscription payment received"
+                success_details = f"Webhook payment captured for {plan_name} plan."
+                if result.get("transaction_type") == "addon_purchase":
+                    event_type = "subscription_addon_webhook"
+                    success_title = "Add-on payment received"
+                    success_details = f"Webhook payment captured for {result.get('addon_name') or 'subscription add-on'}."
                 _append_billing_timeline_event(
                     school_id,
-                    event_type="subscription_payment_webhook",
+                    event_type=event_type,
                     status="success",
-                    title="Subscription payment received",
-                    details=f"Webhook payment captured for {plan_name} plan.",
+                    title=success_title,
+                    details=success_details,
                     amount=amount_paid,
                     reference=reference,
                     due_date=school.next_billing_date.isoformat() if school.next_billing_date else None,

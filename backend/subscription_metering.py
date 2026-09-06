@@ -172,13 +172,13 @@ def get_current_term_reference(school_id: str) -> dict[str, Any] | None:
 
 def _get_active_term_trial_end(school_id: str) -> tuple[datetime | None, AcademicTerm | None]:
     active_term = AcademicTerm.query.filter_by(school_id=school_id, is_active=True).first()
-    term_reference = get_current_term_reference(school_id)
+    term_reference = get_current_term_reference(school_id) or {}
     return _term_reference_to_end_datetime(term_reference), active_term
 
 
 def get_term_proration_context(school_id: str, now: datetime | None = None) -> dict[str, Any]:
     now_utc = _normalize_dt(now) or _now_utc()
-    term_reference = get_current_term_reference(school_id)
+    term_reference = get_current_term_reference(school_id) or {}
     term_end = _term_reference_to_end_datetime(term_reference)
 
     if not term_reference or not term_end:
@@ -335,30 +335,44 @@ def get_billing_visibility(school_id: str, commit: bool = True) -> dict[str, Any
     }
 
 
-def activate_premium_trial(school_id: str, days: int | None = None) -> dict[str, Any]:
+def activate_premium_trial(school_id: str, trial_plan: str = "Premium", days: int | None = None) -> dict[str, Any]:
     school = School.query.get(school_id)
     if not school:
         return {"error": "School not found"}
+
+    if trial_plan not in {"Basic", "Premium"}:
+        return {"error": "Trial plan must be School OS or School OS Plus"}
 
     ensure_trial_expiry(school, commit=False)
     if school.trial_plan and school.trial_end_date:
         return {"error": "An active trial already exists"}
 
     if school.trial_end_date is not None:
-        return {"error": "This school has already used its one-time premium trial"}
+        return {"error": "This school has already used its one-time subscription trial"}
 
-    term_reference = get_current_term_reference(school_id)
+    current_plan = school.subscription_plan or "Free Tier"
+    if current_plan == trial_plan:
+        return {"error": "This school is already on that base plan"}
+
+    plan_order = ["Free Tier", "Basic", "Premium"]
+    if plan_order.index(trial_plan) <= plan_order.index(current_plan):
+        return {"error": "Trials are only available for higher subscription plans"}
+
+    term_reference = get_current_term_reference(school_id) or {}
     duration_days = max(1, int(days or TRIAL_DURATION_DAYS))
     trial_end = _now_utc() + timedelta(days=duration_days)
 
-    school.trial_plan = "Premium"
+    from backend.subscription_features import get_plan_display_name
+
+    school.trial_plan = trial_plan
     school.trial_end_date = trial_end
     school.is_trial_active = True
     db.session.commit()
 
     return {
-        "message": "Premium trial activated for 30 days",
+        "message": f"{get_plan_display_name(trial_plan)} trial activated for 30 days",
         "trial_plan": school.trial_plan,
+        "trial_plan_display_name": get_plan_display_name(school.trial_plan),
         "trial_start_date": _now_utc().isoformat(),
         "trial_end_date": school.trial_end_date.isoformat(),
         "trial_mode": "month",

@@ -1,263 +1,198 @@
-# 📊 EduPulse SMT Pricing & Feature Matrix
+# EduPulse SMT Pricing Pitch
 
-> Historical strategy document: where example figures or funnel copy differ from current runtime pricing, the source of truth is `backend/subscription_features.py`, `PRICING_TABLE.txt`, and the active finance/product documentation.
+This document reflects the current runtime pricing model implemented in the application. The operational source of truth remains backend/subscription_features.py, with support references in PRICING_FEATURES.csv and PRICING_TABLE.txt.
 
-> Current runtime note: paid plans are term-based, Premium trial access is a fixed 30-day window, trial conversion uses remaining-term proration without a separate trial discount, and higher paid entitlements are granted only after Paystack checkout succeeds.
+## Positioning
 
-## Subscription Plan Overview
+EduPulse now sells in three layers:
 
-### Tier Hierarchy
-```
-Free Tier ($0/mo)
-    ↓
-Basic ($200/mo)
-    ↓
-Premium ($500/mo)
-```
+- Free: low-friction entry for setup and light record keeping.
+- School OS: the core paid operating system for day-to-day school management.
+- School OS Plus: the governance and scale layer for larger schools.
+- Optional add-ons: AI Pack and Automation Pack for schools that need those workflows without forcing every paid customer to subsidize them.
 
----
+That structure fixes the earlier pricing problem. The old jump from Basic to Premium was too steep and bundled too much value into the top tier. The current model separates operational scale from optional AI and payment automation.
 
-## 🎯 Free Tier
-**Price**: GH₵ 0/month  
-**Student Cap**: 50 students  
-**Best For**: Small schools, pilots, evaluation
+## Live Pricing
 
-### Features ✅
-- ✅ Basic Attendance Tracking
-- ✅ Manual Grade Entry (Teachers)
-- ✅ Student Roster Management
-- ✅ Role-Based Access (Proprietor, Teacher, Homeroom, Finance)
-- ✅ Multi-Tenant Isolation (School Branding)
-- ✅ Payment Recording (Manual Entry)
-- ✅ Audit Logging
-- ✅ Basic Finance Dashboard
+### Free
 
-### Features ❌
-- ❌ AI Student Pulse (Predictive Risk Analysis)
-- ❌ Automated Payment Tracking (MoMo/Bank Webhooks)
-- ❌ AI Question Generation for Admissions
-- ❌ Advanced Reports
-- ❌ Payment Categorization Insights
-- ❌ Proprietor Command Center (AI Features)
+- Price: GH₵ 0
+- Capacity: 50 students, 1 class
+- Best fit: pilots, very small schools, early onboarding
 
----
+### School OS
 
-## 💼 Basic Plan
-**Price**: GH₵ 360/term (Base fee covers 30 students) + GH₵ 12/student/term for additional students  
-**Annual Cost (30 students)**: ~GH₵ 1,080/year  
-**Annual Cost (100 students)**: ~GH₵ 3,600/year  
-**Student Cap**: 200 students  
-**Best For**: Growing schools, full core usage
+- Price: GH₵ 300 per term base
+- Included students: 50
+- Overage: GH₵ 7 per additional student per term
+- Capacity cap: 200 students, 5 classes
+- Best fit: the mainstream Ghana private/basic school segment that needs full operations but not advanced governance tooling
 
-### Pricing Examples
-```
-School with 30 students:
-  GH₵360/term × 3 terms = GH₵1,080/year
+Examples:
 
-School with 80 students (50 over base):
-  (GH₵360 × 3 terms) + (50 students × GH₵12/term × 3) 
-  = GH₵1,080 + GH₵1,800 = GH₵2,880/year
+- 30 students: GH₵ 300 per term, GH₵ 900 per year
+- 100 students: GH₵ 650 per term, GH₵ 1,950 per year
+- 150 students: GH₵ 1,000 per term, GH₵ 3,000 per year
 
-School with 100 students (70 over base):
-  (GH₵360 × 3 terms) + (70 students × GH₵12/term × 3)
-  = GH₵1,080 + GH₵2,520 = GH₵3,600/year
-```
+### School OS Plus
 
-### Features ✅
-Everything in Free Tier, plus:
+- Price: GH₵ 600 per term base
+- Included students: 100
+- Overage: GH₵ 9 per additional student per term
+- Capacity cap: unlimited students, classes, and staff
+- Best fit: larger schools that need stronger reporting, reconciliation, and admin controls
 
-- ✅ Full Attendance & Grades Management
-- ✅ Up to 200 Students
-- ✅ Basic Reports & Analytics
-- ✅ Financial Tracking (Tuition, Feeding, Uniforms)
-- ✅ Payment Method Tracking (Cash, Bank, MoMo)
-- ✅ Lesson Notes & Academic Worklog
-- ✅ Inventory Management
-- ✅ Term Grading Policies
-- ✅ Student Support Tickets
-- ✅ System Alerts
+Examples:
 
-### Features ❌
-- ❌ AI Student Pulse (Predictive Risk)
-- ❌ Automated Payment Webhooks (MoMo/Bank)
-- ❌ AI Admission Question Generation
-- ❌ Advanced Risk Scoring
-- ❌ Priority Support
+- 30 students: GH₵ 600 per term, GH₵ 1,800 per year
+- 100 students: GH₵ 600 per term, GH₵ 1,800 per year
+- 150 students: GH₵ 1,050 per term, GH₵ 3,150 per year
+- 200 students: GH₵ 1,500 per term, GH₵ 4,500 per year
 
----
+### Optional Add-Ons
 
-## 🚀 Premium Plan
-**Price**: GH₵ 750/term (Base fee covers 30 students) + GH₵ 22/student/term for additional students  
-**Annual Cost (30 students)**: ~GH₵ 2,250/year  
-**Annual Cost (100 students)**: ~GH₵ 6,870/year  
-**Student Cap**: Unlimited  
-**Best For**: Large schools, advanced governance, full AI capabilities
+- AI Pack: GH₵ 200 per term
+- Automation Pack: GH₵ 250 per term
 
-### Pricing Examples
-```
-School with 30 students:
-  GH₵750/term × 3 terms = GH₵2,250/year
+Add-ons are available only on paid base plans. They can now be enabled through proprietor checkout instead of manual internal toggles.
 
-School with 100 students (70 over base):
-  (GH₵750 × 3 terms) + (70 students × GH₵22/term × 3) 
-  = GH₵2,250 + GH₵4,620 = GH₵6,870/year
+## Packaging Logic
 
-School with 200 students (170 over base):
-  (GH₵750 × 3 terms) + (170 students × GH₵22/term × 3)
-  = GH₵2,250 + GH₵11,220 = GH₵13,470/year
-```
+### What School OS Includes
 
-### Features ✅
-Everything in Basic, plus:
+- Full attendance, feeding, grades, and lesson-note workflows
+- Finance, inventory, alerts, and student support operations
+- AI Registrar admissions workflow
+- Standard proprietor reporting and core transaction visibility
 
-**🤖 AI & Predictive Intelligence**
-- ✅ Rescue Activity Center for at-risk learner follow-up
-- ✅ Academic Guidance panel for diagnostic hotspots and pathway signals
-- ✅ Exam Intelligence workflows for subject trends and academic support
-- ✅ AI-Generated Narratives for student reports
-- ✅ Predictive Risk Scoring (0-100 scale)
-- ✅ Correlation: Academic performance + Financial payment consistency
+School OS should feel complete for a normal school operator. It is not a teaser tier.
 
-**📄 AI Descriptive Analysis & Report-Card Flexibility**
-- ✅ Flexible report-card parsing (OCR + template normalization) for common Ghanaian formats
-- ✅ Converts scanned/photographed report cards into structured time-series (grades, ranks, remarks)
-- ✅ Generates descriptive trend analysis and narrative explanations (anomalies, improving/declining subjects, payment-performance correlations)
-- ✅ Confidence scores & human-in-the-loop review for low-confidence parses
-- ✅ Customizable templates: support for school-specific report layouts and manual mapping when needed
-- ✅ Privacy & governance: processing only with consent, audit logs, and manual override for any autogenerated narrative
+### What School OS Plus Adds
 
+- Unlimited scale
+- Advanced analytics
+- Stronger payment reconciliation workflows
+- Custom HTML report-template uploads
+- Higher-governance reporting and administrative visibility
 
-**💳 Automated Payment Processing**
-- ✅ MoMo Webhook Automation (Reference-based parsing)
-- ✅ Bank Transfer Webhook Automation
-- ✅ Auto-Categorized Payments (by Term, Frequency, Item)
-- ✅ Duplicate Payment Prevention (Transaction ID deduplication)
-- ✅ Real-time Balance Updates by Student
+School OS Plus is for scale and governance, not for every premium-sounding feature.
 
-**📝 Advanced Admissions**
-- ✅ Parent-facing admissions application and status tracking
-- ✅ School-side admissions review workflows
-- ✅ AI-assisted admissions support and structured intake
-- ✅ Candidate screening support workflows
+### What the AI Pack Adds
 
-**📊 Advanced Features**
-- ✅ Proprietor Dashboard (Live Feed)
-- ✅ Pending Payment Tracking
-- ✅ Critical Risk Intervention List
-- ✅ Daily Revenue Reports
-- ✅ Term Summary Exports
-- ✅ Advanced Financial Analytics
-- ✅ Unlimited Students
-- ✅ Priority Support
+- AI Student Pulse
+- Student Rescue Agent
+- AI-generated narratives
+- Exam Intelligence
+- AI admissions question generation and related academic intelligence flows
 
-**🔐 Premium Security & Compliance**
-- ✅ Advanced audit logging with enhanced retention
-- ✅ Transaction verification workflows
-- ✅ Payment reconciliation tools
-- ✅ Enhanced DSAR workflow support
-- ✅ Webhook signature verification
+This keeps advanced AI monetized without forcing every paid school to pay for it.
 
----
+### What the Automation Pack Adds
 
-## 🌍 Sustainability, Social Impact, and SDG Framing
+- MoMo webhook automation
+- Bank transfer webhook automation
+- Automatic payment categorization
+- Duplicate payment prevention
+- Real-time balance updates from automated payment flows
 
-EduPulse pricing is designed to support both commercial sustainability and education impact.
+This isolates the higher-cost payment automation workflows into a separate product line.
 
-### Sustainability
-- Free tier lowers adoption friction for smaller schools.
-- Basic tier monetizes core operational value.
-- Premium tier funds deeper analytics, intervention, admissions, and governance workflows.
+## Trial Strategy
 
-### Social Impact
-- Schools reduce leakage and protect operating cashflow.
-- Learner-risk workflows support earlier intervention.
-- Parent-facing admissions and payment flows reduce access friction.
+Trials are now plan-selectable instead of being hardcoded to School OS Plus only.
 
-### SDG Alignment
-- **SDG 4**: Quality Education
-- **SDG 8**: Decent Work and Economic Growth
-- **SDG 9**: Industry, Innovation and Infrastructure
-- **SDG 10**: Reduced Inequalities
-- **SDG 16**: Peace, Justice and Strong Institutions
+- Each school gets one 30-day subscription trial.
+- Free schools can choose School OS or School OS Plus.
+- School OS schools can choose School OS Plus.
+- School OS Plus trial temporarily includes AI Pack and Automation Pack access.
+- Trial conversion remains prorated to the remaining current-term days.
 
----
+This is a stronger sales tool because it lets smaller schools try the right commercial step instead of forcing every prospect into the highest package.
 
-## 🔒 Security & Compliance (All Tiers)
+## Why This Model Is Better
 
-EduPulse is built with **production-grade security** and **Ghana Data Protection Act 2012 (Act 843) compliance** across all subscription tiers.
+### Better conversion path
 
-### 🛡️ Data Protection
-- **Encryption at Rest**: Field-level encryption for sensitive data (bank accounts, PII) using Fernet symmetric encryption
-- **Encryption in Transit**: All data transmitted over HTTPS/TLS with security headers (CSP, HSTS, X-Frame-Options)
-- **Multi-Tenant Isolation**: Complete data separation between schools—your data never mixes with other institutions
-- **Tamper-Evident Ledger**: Financial transactions use HMAC-SHA256 chain integrity for audit trail protection
+The first paid step is now materially easier to say yes to. GH₵ 300 per term is a more credible operational entry point than the previous structure.
 
-### 🔐 Access Control & Authentication
-- **Role-Based Access Control (RBAC)**: 10+ role types (Proprietor, Headmaster, Finance, Teacher, etc.) with granular permissions
-- **JWT Authentication**: Industry-standard token-based authentication with secure session management
-- **Password Protection**: Werkzeug hashing with strong password requirements
-- **Rate Limiting**: Login lockout protection prevents brute-force attacks
-- **Production Secret Validation**: Blocks deployment with weak or missing security keys
+### Better margin control
 
-### 📋 Compliance & Governance
-- **Ghana Data Protection Act 2012 Compliance**: Data Controller-ready with documented policies and technical controls
-- **Mandatory Policy Acceptance**: Schools must explicitly accept Terms of Service, Privacy Policy, and Data Retention Policy at signup
-- **Automated School KYB Workflow**: Proprietor-submitted school verification profiles are screened by configured external KYB providers, with auto-approval for clean results and exception routing for manual review.
-- **AML Exception Monitoring**: Risk rules can automatically open AML flags for high-risk payment patterns and unresolved verification states.
-- **DSAR Workflow Support**: 
-  - Free/Basic: 30-day response SLA
-  - Premium: Enhanced workflow with 3-day acknowledgement and dedicated support
-- **Audit Logging**: Comprehensive event tracking with:
-  - Registration policy acceptance with version and client IP
-  - User actions (login, data changes, financial transactions)
-  - Evidence retention for regulatory compliance
-- **Data Retention Policy**: Clear retention periods and deletion procedures aligned with legal requirements
+AI and webhook automation remain monetized separately. That protects gross margin and avoids bundling expensive features into the default paid seat.
 
-### 🔍 Transparency & User Rights
-- **Policy Visibility**: Terms, Privacy, and Data Retention policies accessible on all public pages (login, signup, pricing, password reset)
-- **Acceptance Audit Trail**: Every school registration records policy version, acceptance timestamp, and client IP
-- **DSAR Support**: Students/guardians can request access, correction, or deletion of personal data through documented channels
+### Better story in sales
 
-### 🎯 Why Security Matters for Schools
-```
-❌ Without EduPulse:
-- Student data in plain Excel files
-- No audit trail for financial transactions
-- Manual payment tracking (fraud risk)
-- No compliance documentation for regulators
+The pitch becomes simple:
 
-✅ With EduPulse (All Tiers):
-- Encrypted student data (bank info, grades)
-- Tamper-proof financial ledger
-- External-provider-backed KYB checks and AML exception routing
-- Automated compliance documentation
-- Ready for Data Protection Commission audits
-```
+- Start free.
+- Move to School OS when you need full operations.
+- Move to School OS Plus when you need scale and governance.
+- Add AI Pack or Automation Pack only if those workflows matter to your school.
 
-**Key Benefit**: Schools using EduPulse can demonstrate **Ghana Data Protection Act compliance** with minimal effort—our platform handles the technical requirements automatically.
+### Better for Ghana school buying behavior
 
----
+Most schools do not buy software like enterprise departments. They buy in practical steps. A professional pricing ladder should mirror that decision pattern.
 
-## 🔒 Feature Access Control
+## Recommended Sales Language
 
-### Quotas & Limits
+### Free
 
-| Feature | Free Tier | Basic | Premium |
-|---------|-----------|-------|---------|
-| **Student Capacity** | 50 | 200 | Unlimited |
-| **AI Student Pulse** | ❌ | ❌ | ✅ |
-| **Payment Webhooks** | ❌ | ❌ | ✅ |
-| **AI Questions** | ❌ | ❌ | ✅ |
-| **Advanced Reports** | ❌ | ✅ | ✅ |
-| **Payment Categorization** | Partial | ✅ | ✅ |
-| **Proprietor Analytics** | Basic | Basic | Advanced |
+Use for onboarding and low-friction adoption.
 
-### Enforcement Points
+Suggested framing:
+"Start with EduPulse Free while you centralize records and get your staff used to the system."
 
-```python
-# Webhook access (Premium only)
-@subscription_required('Premium')
-def ai_student_pulse():
+### School OS
+
+Lead with this package in most sales conversations.
+
+Suggested framing:
+"School OS gives your school the full day-to-day operating system for attendance, payments, feeding, reports, inventory, and staff workflows."
+
+### School OS Plus
+
+Position this for larger or more disciplined operators.
+
+Suggested framing:
+"School OS Plus is for schools that need deeper financial control, stronger reporting, and room to scale without limits."
+
+### AI Pack
+
+Sell this only when the school sees direct value from intervention, narratives, or academic intelligence.
+
+Suggested framing:
+"Add the AI Pack when you want EduPulse to help staff spot risk, generate narratives, and support faster academic decisions."
+
+### Automation Pack
+
+Sell this when the pain is reconciliation and payment operations.
+
+Suggested framing:
+"Add the Automation Pack when you want payment processing to move from manual follow-up into verified automated workflows."
+
+## Revenue Framing
+
+Illustrative annual examples:
+
+- 70 schools on School OS at 100 students each: 70 x GH₵ 1,950 = GH₵ 136,500
+- 30 schools on School OS Plus at 100 students each: 30 x GH₵ 1,800 = GH₵ 54,000
+- 25 paid schools on AI Pack: 25 x GH₵ 600 = GH₵ 15,000
+- 20 paid schools on Automation Pack: 20 x GH₵ 750 = GH₵ 15,000
+
+Illustrative annual total: GH₵ 220,500
+
+The important point is not the exact forecast. It is that add-ons create a cleaner path to expansion revenue without destabilizing the core entry offer.
+
+## Guardrails
+
+- Internal stored plan keys remain Free Tier, Basic, and Premium for compatibility.
+- Public-facing names are Free, School OS, and School OS Plus.
+- Paid plan upgrades and add-on activation only apply after successful checkout.
+- Feature restrictions are enforced by the subscription feature layer, not by scattered UI-only checks.
+
+## Bottom Line
+
+This pricing model is more professional, easier to sell, safer operationally, and better aligned with how the product is actually implemented today. It gives EduPulse a credible entry tier, a realistic mainstream paid plan, a governance-tier upgrade, and two monetizable expansion packs without confusing the runtime entitlement model.
     # Sack-Risk Prediction
 
 @subscription_required('Premium')

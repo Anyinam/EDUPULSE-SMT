@@ -26,6 +26,8 @@ export default function KitchenDashboard() {
 
   if (!stats) return <div className="p-8">Loading Kitchen Data...</div>;
 
+  const attendanceInProgress = Boolean(stats.summary.attendance_partial);
+
   return (
     <div className="p-8 bg-orange-50 min-h-screen font-sans">
       <header className="mb-8 border-b border-orange-200 pb-4">
@@ -35,7 +37,9 @@ export default function KitchenDashboard() {
 
       {!stats.summary.attendance_taken_today && !stats.summary.is_holiday && (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 font-semibold text-amber-900">
-          Attendance pending: student meal counts will update after homeroom attendance is submitted for today.
+          {attendanceInProgress
+            ? `Attendance in progress: ${stats.summary.submitted_classes_count || 0} class(es) submitted, ${stats.summary.pending_classes_count || 0} still pending. Student meal counts update as approved feeding coverage becomes active.`
+            : 'Attendance pending: student meal counts will update after homeroom attendance is submitted for today.'}
         </div>
       )}
 

@@ -6,7 +6,7 @@ import MultiYearAnalyticsView from './MultiYearAnalyticsView';
 import OverviewPanel from './OverviewPanel';
 import PremiumFeatureNotice from '../PremiumFeatureNotice';
 import SingleYearAnalyticsView from './SingleYearAnalyticsView';
-import useEffectiveSubscriptionPlan from '../../hooks/useEffectiveSubscriptionPlan';
+import useSubscription from '../../hooks/useSubscription';
 import useSchoolClasses from '../../hooks/useSchoolClasses';
 
 const TERM_OPTIONS = ['Term 1', 'Term 2', 'Term 3'];
@@ -86,7 +86,8 @@ export default function PerformanceAnalyticsShell({
   title = 'Class Performance Overview',
   defaultView = 'overview',
 }) {
-  const { isPremium: canAccessAdvancedAnalytics, loading: planLoading } = useEffectiveSubscriptionPlan();
+  const { hasFeature, loading: planLoading } = useSubscription();
+  const canAccessAdvancedAnalytics = hasFeature('advanced_analytics');
   const [academicTerm, setAcademicTerm] = useState('');
   const [academicYear, setAcademicYear] = useState('');
   const [cohortFromClass, setCohortFromClass] = useState('');
@@ -526,7 +527,7 @@ export default function PerformanceAnalyticsShell({
     return (
       <PremiumFeatureNotice
         title={title}
-        description="Class performance analytics, saved preset history, and comparison views are available on the Premium plan only."
+        description="Class performance analytics, saved preset history, and comparison views are available on School OS Plus."
       />
     );
   }

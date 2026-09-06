@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import PremiumFeatureNotice from './PremiumFeatureNotice';
-import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+import useSubscription from '../hooks/useSubscription';
 
 export default function AcademicGuidancePanel({ title = 'Academic Guidance Intelligence' }) {
-  const { isPremium: canAccessAcademicGuidance, loading: planLoading } = useEffectiveSubscriptionPlan();
+  const { hasFeature, loading: planLoading } = useSubscription();
+  const canAccessAcademicGuidance = hasFeature('advanced_analytics');
   const [guidance, setGuidance] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -47,7 +48,7 @@ export default function AcademicGuidancePanel({ title = 'Academic Guidance Intel
     return (
       <PremiumFeatureNotice
         title={title}
-        description="Diagnostic hotspots and pathway guidance are available on the Premium plan only."
+        description="Diagnostic hotspots and pathway guidance are available on School OS Plus."
       />
     );
   }

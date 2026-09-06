@@ -161,7 +161,7 @@ export default function ProprietorPanel() {
       setProcessingPaymentId(id);
       await axios.post(`/api/finance/confirm-payment/${id}`, {}, { headers });
       alert("Payment confirmed and added to immutable audit ledger!");
-      await fetchRiskData();
+      await Promise.all([fetchRiskData(), fetchAttendance()]);
     } catch (err) {
       alert("Failed to confirm payment.");
     } finally {
@@ -213,7 +213,7 @@ export default function ProprietorPanel() {
         { headers }
       );
       alert(res.data?.message || 'Class payments approved.');
-      await fetchRiskData();
+      await Promise.all([fetchRiskData(), fetchAttendance()]);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to approve class payments.');
     } finally {
@@ -254,6 +254,7 @@ export default function ProprietorPanel() {
   }, []);
 
   const attendancePending = attendanceStats?.attendance_taken_today === false;
+  const attendanceInProgress = Boolean(attendanceStats?.attendance_partial);
 
   return (
     <div className="flex-1 bg-gray-100 font-sans">
@@ -302,15 +303,17 @@ export default function ProprietorPanel() {
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-green-500">
                   <p className="text-gray-500 text-xs font-bold uppercase">Present Today</p>
-                  <p className="text-3xl font-black text-green-600">{attendancePending ? 'Pending' : attendanceStats.present_students}</p>
+                  <p className="text-3xl font-black text-green-600">{attendancePending ? (attendanceInProgress ? attendanceStats.present_students : 'Pending') : attendanceStats.present_students}</p>
+                  <p className="mt-1 text-xs text-slate-500">{attendanceInProgress ? 'Partial class submissions received' : 'Confirmed present count'}</p>
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-red-500">
                   <p className="text-gray-500 text-xs font-bold uppercase">Absent Today</p>
                   <p className="text-3xl font-black text-red-600">{attendancePending ? 'Pending' : attendanceStats.absent_students}</p>
+                  <p className="mt-1 text-xs text-slate-500">School-wide absence locks when all classes submit</p>
                 </div>
                 <div className="bg-blue-900 text-white p-6 rounded-2xl shadow-lg">
                   <p className="text-blue-200 text-xs font-bold uppercase">Attendance Status</p>
-                  <p className="text-4xl font-black">{attendancePending ? 'Pending' : `${attendanceStats.attendance_percentage}%`}</p>
+                  <p className="text-4xl font-black">{attendancePending ? (attendanceInProgress ? `${attendanceStats.submitted_classes_count}/${attendanceStats.active_classes_count}` : 'Pending') : `${attendanceStats.attendance_percentage}%`}</p>
                   <p className="mt-2 text-xs text-blue-200">{attendancePending ? (attendanceStats.status_message || 'Attendance has not been submitted yet.') : "Today's submitted attendance"}</p>
                 </div>
               </div>
@@ -384,7 +387,7 @@ export default function ProprietorPanel() {
               <div className="space-y-6">
                 
                 {/* PAYMENT ENTRY & CONFIRMATION */}
-                <PaymentEntry students={allStudents} />
+                <PaymentEntry students={allStudents} onSuccess={() => Promise.all([fetchRiskData(), fetchAttendance()])} />
                 
                 {pendingPayments.length > 0 && (
                   <div className="bg-yellow-50 p-6 rounded-3xl border border-yellow-200">

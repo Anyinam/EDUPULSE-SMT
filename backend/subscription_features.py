@@ -9,22 +9,65 @@ Pricing model (termly):
 Convenience fees do NOT apply to subscription charges.
 """
 
+from datetime import datetime, timezone
+
 SUBSCRIPTION_TIERS = {"Free Tier": 0, "Basic": 1, "Premium": 2}
+
+PLAN_DISPLAY_NAMES = {
+    "Free Tier": "Free",
+    "Basic": "School OS",
+    "Premium": "School OS Plus",
+}
+
+ADDON_CATALOG = {
+    "automation_pack": {
+        "key": "automation_pack",
+        "name": "Automation Pack",
+        "price_per_term": 250,
+        "eligible_plans": ["Basic", "Premium"],
+        "module_keys": ["automation_pack_addon"],
+        "description": "Automated MoMo and bank payment workflows for paid schools.",
+    },
+    "ai_pack": {
+        "key": "ai_pack",
+        "name": "AI Pack",
+        "price_per_term": 200,
+        "eligible_plans": ["Basic", "Premium"],
+        "module_keys": ["ai_pack_addon"],
+        "description": "Predictive insights, narratives, and AI-assisted academic workflows.",
+    },
+}
+
+FEATURE_ADDON_REQUIREMENTS = {
+    "ai_analysis": "ai_pack",
+    "ai_narratives": "ai_pack",
+    "student_rescue_agent": "ai_pack",
+    "exam_intelligence": "ai_pack",
+    "webhook_payment_automation": "automation_pack",
+}
+
+ADDON_FEATURE_LEVELS = {
+    "ai_analysis": "full",
+    "ai_narratives": True,
+    "student_rescue_agent": True,
+    "exam_intelligence": True,
+    "webhook_payment_automation": True,
+}
 
 # Pricing model (3 terms per year)
 PRICING = {
     "Free Tier": {"per_student_per_term": 0, "max_free_students": 50},
     "Basic": {
-        "base_fee_per_term": 360,
-        "included_students": 30,
-        "per_student_per_term": 12,
-        "per_student_per_term_range": "10-15",
+        "base_fee_per_term": 300,
+        "included_students": 50,
+        "per_student_per_term": 7,
+        "per_student_per_term_range": "7",
     },
     "Premium": {
-        "base_fee_per_term": 750,
-        "included_students": 30,
-        "per_student_per_term": 22,
-        "per_student_per_term_range": "22",
+        "base_fee_per_term": 600,
+        "included_students": 100,
+        "per_student_per_term": 9,
+        "per_student_per_term_range": "9",
     },
 }
 
@@ -93,7 +136,7 @@ PLAN_FEATURES = {
             "grade_entry": True,
             "grade_viewing": True,
             "report_generation": True,
-            "ai_analysis": "basic",
+            "ai_analysis": False,
             "ai_narratives": False,
             "ai_registrar": True,
             "student_rescue_agent": False,
@@ -105,11 +148,11 @@ PLAN_FEATURES = {
             "ai_bursar_addon_available": True,
             "communications_automation_addon_available": True,
         },
-        "description": "Full operations with up to 200 students, 5 classes",
-        "price": "360 GHS base + 12 GHS/student above 30/term",
-        "price_range": "10-15 GHS/student/term",
+        "description": "Mass-market operating system for growing schools with up to 200 students.",
+        "price": "300 GHS base + 7 GHS/student above 50/term",
+        "price_range": "7 GHS/student/term",
         "billing_cycle": "per term (3 terms/year)",
-        "example_cost": "100 students: 360 + (70 x 12) = 1,200 GHS per term",
+        "example_cost": "100 students: 300 + (50 x 7) = 650 GHS per term",
         "marketing_features": [
             {"name": "Up to 200 students", "included": True},
             {"name": "5 classes and 15 staff accounts", "included": True},
@@ -119,15 +162,14 @@ PLAN_FEATURES = {
             {"name": "System alerts and student support tickets", "included": True},
             {"name": "6 report templates", "included": True},
             {"name": "AI Registrar admissions workflow", "included": True},
-            {"name": "AI-generated narratives", "included": False, "note": "Premium only"},
-            {"name": "Webhook payment automation", "included": False, "note": "Premium only"},
-            {"name": "Student Rescue Agent", "included": False, "note": "Premium only"},
+            {"name": "Automation Pack add-on", "included": False, "note": "Optional at GH₵250/term"},
+            {"name": "AI Pack add-on", "included": False, "note": "Optional at GH₵200/term"},
         ],
         "addon_options": [
-            "AI Bursar Add-on",
-            "Communications Automation Add-on",
+            "Automation Pack - GH₵250/term",
+            "AI Pack - GH₵200/term",
         ],
-        "packaging_summary": "AI Registrar is bundled into Basic. Future workflow workers stay optional add-ons.",
+        "packaging_summary": "School OS is the paid entry tier for day-to-day operations. Automation and advanced AI stay optional add-ons.",
         "popular": True,
     },
     "Premium": {
@@ -147,52 +189,119 @@ PLAN_FEATURES = {
             "attendance": "full_access",
             "feeding": "full_access",
             "lesson_notes": True,
-            "exam_intelligence": True,
+            "exam_intelligence": False,
             "grade_entry": True,
             "grade_viewing": True,
             "report_generation": True,
-            "ai_analysis": "full",
-            "ai_narratives": True,
+            "ai_analysis": False,
+            "ai_narratives": False,
             "ai_registrar": True,
-            "student_rescue_agent": True,
+            "student_rescue_agent": False,
             "payment_tracking": True,
-            "webhook_payment_automation": True,
+            "webhook_payment_automation": False,
             "advanced_analytics": True,
             "html_templates": True,
             "bulk_operations": True,
             "ai_bursar_addon_available": True,
             "communications_automation_addon_available": True,
         },
-        "description": "Unlimited access to all features with AI-powered insights",
-        "price": "750 GHS base + 22 GHS/student above 30/term",
-        "price_range": "22 GHS/student/term",
+        "description": "Advanced finance, analytics, and admin workflows for established schools.",
+        "price": "600 GHS base + 9 GHS/student above 100/term",
+        "price_range": "9 GHS/student/term",
         "billing_cycle": "per term (3 terms/year)",
-        "example_cost": "100 students: 750 + (70 x 22) = 2,290 GHS per term",
+        "example_cost": "150 students: 600 + (50 x 9) = 1,050 GHS per term",
         "marketing_features": [
             {"name": "Unlimited students, classes, and staff", "included": True},
-            {"name": "Everything in Basic", "included": True, "bold": True},
-            {"name": "AI Registrar admissions workflow", "included": True},
-            {"name": "Student Rescue Agent bundled", "included": True},
-            {"name": "AI-generated narratives and predictive scoring", "included": True},
-            {"name": "Academic plus financial correlation analysis", "included": True},
-            {"name": "Webhook payment automation", "included": True},
+            {"name": "Everything in School OS", "included": True, "bold": True},
             {"name": "Advanced financial analytics and reconciliation", "included": True},
             {"name": "Custom HTML report templates", "included": True},
-            {"name": "Priority support", "included": True},
+            {"name": "Priority support and stronger admin controls", "included": True},
+            {"name": "Automation Pack add-on", "included": False, "note": "Optional at GH₵250/term"},
+            {"name": "AI Pack add-on", "included": False, "note": "Optional at GH₵200/term"},
         ],
         "addon_options": [
-            "AI Bursar Add-on",
-            "Communications Automation Add-on",
+            "Automation Pack - GH₵250/term",
+            "AI Pack - GH₵200/term",
         ],
-        "packaging_summary": "Premium bundles AI Registrar plus the broader AI and governance stack.",
+        "packaging_summary": "School OS Plus covers higher-governance operations. AI and payment automation remain optional so schools do not pay for tools they are not using.",
     },
 }
 
 
-def calculate_term_cost(plan_name, num_students):
-    """Calculate the cost for a term based on plan and number of students."""
-    breakdown = get_term_cost_breakdown(plan_name, num_students)
-    return breakdown["total"]
+def get_plan_display_name(plan_name):
+    """Return the public-facing plan label for a stored plan key."""
+    return PLAN_DISPLAY_NAMES.get(plan_name, plan_name)
+
+
+def get_addons_for_plan(plan_name):
+    """Return add-ons that can be purchased with a given paid plan."""
+    if plan_name == "Free Tier":
+        return []
+
+    addons = []
+    for addon in ADDON_CATALOG.values():
+        if plan_name in addon.get("eligible_plans", []):
+            addons.append(
+                {
+                    "key": addon["key"],
+                    "name": addon["name"],
+                    "price_per_term": addon["price_per_term"],
+                    "description": addon["description"],
+                }
+            )
+    return addons
+
+
+def _enabled_modules_for_school(school):
+    settings = getattr(school, "settings", None)
+    modules = getattr(settings, "enabled_modules", None) if settings else None
+    return modules if isinstance(modules, dict) else {}
+
+
+def _is_active_premium_trial(school, effective_plan=None):
+    if not school or getattr(school, "trial_plan", None) != "Premium":
+        return False
+
+    trial_end = getattr(school, "trial_end_date", None)
+    if not trial_end:
+        return False
+    if trial_end.tzinfo is None:
+        trial_end = trial_end.replace(tzinfo=timezone.utc)
+
+    plan_name = effective_plan or school.subscription_plan or "Free Tier"
+    return plan_name == "Premium" and datetime.now(timezone.utc) < trial_end
+
+
+def school_has_addon(school, addon_key, effective_plan=None):
+    """Return True if a school can use a paid add-on under its current plan."""
+    plan_name = effective_plan or getattr(school, "subscription_plan", None) or "Free Tier"
+    addon = ADDON_CATALOG.get(addon_key)
+    if not school or not addon or plan_name not in addon.get("eligible_plans", []):
+        return False
+
+    if _is_active_premium_trial(school, effective_plan=effective_plan):
+        return True
+
+    modules = _enabled_modules_for_school(school)
+    return any(bool(modules.get(module_key, False)) for module_key in addon.get("module_keys", []))
+
+
+def get_school_feature_level(school, feature_name, effective_plan=None):
+    """Resolve plan and add-on restrictions for a school's feature access."""
+    plan_name = effective_plan or getattr(school, "subscription_plan", None) or "Free Tier"
+    addon_requirement = FEATURE_ADDON_REQUIREMENTS.get(feature_name)
+    if addon_requirement:
+        if school_has_addon(school, addon_requirement, effective_plan=effective_plan):
+            return ADDON_FEATURE_LEVELS.get(feature_name, True)
+        return False
+
+    return get_feature_level(plan_name, feature_name)
+
+
+def school_has_feature(school, feature_name, effective_plan=None):
+    """Check whether a school can access a feature after add-on rules are applied."""
+    feature_value = get_school_feature_level(school, feature_name, effective_plan=effective_plan)
+    return feature_value not in [False, None]
 
 
 
@@ -228,6 +337,12 @@ def get_term_cost_breakdown(plan_name, num_students):
         "convenience_fee": 0.0,
         "total": round(total, 2),
     }
+
+
+
+def calculate_term_cost(plan_name, num_students):
+    """Calculate the billed term cost for a plan at a given student count."""
+    return get_term_cost_breakdown(plan_name, num_students).get("total", 0.0)
 
 
 
@@ -293,7 +408,7 @@ FEATURE_MATRIX_DISPLAY = {
         "grade_entry": "Full Access",
         "lesson_notes": "Full Access",
         "report_generation": "6 Templates",
-        "ai_features": "Basic AI Feedback",
+        "ai_features": "AI Pack Optional",
         "payment_tracking": "Basic Tracking",
         "html_templates": "Not Available",
     },
@@ -305,8 +420,8 @@ FEATURE_MATRIX_DISPLAY = {
         "grade_entry": "Full Access",
         "lesson_notes": "Full Access",
         "report_generation": "All Templates",
-        "ai_features": "Full AI Suite",
-        "payment_tracking": "Full Reconciliation",
+        "ai_features": "AI Pack Optional",
+        "payment_tracking": "Advanced Reconciliation",
         "html_templates": "Custom Upload",
     },
 }

@@ -25,6 +25,9 @@ const formatDate = (value) => {
 };
 
 const getFeedingStatusLabel = (student) => {
+  if (student?.feeding_pending_approval && !student?.feeding_paid) {
+    return 'Awaiting approval';
+  }
   if (!student?.feeding_paid) {
     return 'Outstanding';
   }
@@ -38,6 +41,11 @@ const getFeedingStatusLabel = (student) => {
 };
 
 const getFeedingStatusMeta = (student) => {
+  if (student?.feeding_pending_approval && !student?.feeding_paid) {
+    return student.feeding_pending_amount
+      ? `Recorded GH₵ ${Number(student.feeding_pending_amount).toLocaleString()} pending proprietor approval`
+      : 'Recorded pending proprietor approval';
+  }
   if (!student?.feeding_paid) {
     return null;
   }

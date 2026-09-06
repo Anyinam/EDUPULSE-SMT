@@ -7,7 +7,7 @@ import logging
 import os
 import requests
 from datetime import datetime, timedelta, timezone
-from backend.api.models import School, Student, add_ledger_entry, db
+from backend.api.models import School, SchoolSettings, Student, add_ledger_entry, db
 from backend.email_templates import get_payment_confirmation_email
 from backend.subscription_metering import _normalize_dt
 from backend.utils import send_email_notification
@@ -248,6 +248,75 @@ def process_payment_confirmation(school_id, plan_name, amount_paid_cedis, refere
         student_count = int(meta.get('student_count', default_student_count))
         terms = int(meta.get('terms', 1))
         proration_data = meta.get('proration_data') if isinstance(meta.get('proration_data'), dict) else {}
+        transaction_type = meta.get('transaction_type') or 'subscription_upgrade'
+
+        if transaction_type == 'addon_purchase':
+            from backend.subscription_features import ADDON_CATALOG, get_plan_display_name
+
+            addon_key = meta.get('addon_key')
+            addon = ADDON_CATALOG.get(addon_key)
+            if not addon:
+                raise PaystackError('Unknown subscription add-on')
+
+            current_plan = school.subscription_plan or 'Free Tier'
+            if current_plan not in addon.get('eligible_plans', []):
+                raise PaystackError(
+                    f"{addon.get('name', 'This add-on')} requires a paid base plan before activation"
+                )
+
+            settings = school.settings
+            if not settings:
+                settings = SchoolSettings(school_id=school.id)
+                db.session.add(settings)
+                db.session.flush()
+
+            current_modules = dict(settings.enabled_modules or {})
+            for module_key in addon.get('module_keys', []):
+                current_modules[module_key] = True
+            settings.enabled_modules = current_modules
+
+            tx_ref = reference or f"ADDON-{school_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+            add_ledger_entry(
+                school_id=school_id,
+                tx_type='subscription_addon',
+                tx_ref=tx_ref,
+                amount=float(amount_paid_cedis),
+                actor_id=None,
+                student_id=None,
+                source='paystack',
+                metadata={
+                    'plan_name': current_plan,
+                    'plan_display_name': get_plan_display_name(current_plan),
+                    'addon_key': addon_key,
+                    'addon_name': addon.get('name'),
+                    'billing_period': billing_period,
+                    'terms': terms,
+                },
+            )
+
+            if _should_inject_failpoint(meta, 'subscription_payment_before_commit'):
+                db.session.rollback()
+                raise PaystackError('Injected failpoint: subscription_payment_before_commit')
+
+            db.session.commit()
+
+            logger.info(
+                'School %s add-on activated: %s on %s, GH₵ %s',
+                school_id,
+                addon.get('name'),
+                current_plan,
+                amount_paid_cedis,
+            )
+
+            return {
+                'status': 'success',
+                'transaction_type': 'addon_purchase',
+                'plan_name': current_plan,
+                'addon_key': addon_key,
+                'addon_name': addon.get('name'),
+                'amount': amount_paid_cedis,
+                'reference': tx_ref,
+            }
         
         # Update school subscription
         old_plan = school.subscription_plan

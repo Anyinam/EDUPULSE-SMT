@@ -1,10 +1,11 @@
 import React from 'react';
 import PremiumFeatureNotice from '../components/PremiumFeatureNotice';
 import StudentRescueAgent from '../components/StudentRescueAgent';
-import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+import useSubscription from '../hooks/useSubscription';
 
 export default function RescueActivityCenter({ endpointBase = '/api/proprietor/student-rescue-agent' }) {
-  const { isPremium: canAccessRescueActivity, loading: planLoading } = useEffectiveSubscriptionPlan();
+  const { hasFeature, loading: planLoading } = useSubscription();
+  const canAccessRescueActivity = hasFeature('student_rescue_agent');
 
   if (planLoading) {
     return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Checking plan access...</div>;
@@ -14,7 +15,7 @@ export default function RescueActivityCenter({ endpointBase = '/api/proprietor/s
     return (
       <PremiumFeatureNotice
         title="Rescue Activity Center"
-        description="Student rescue case tracking, guardian outreach, and intervention reporting are available on the Premium plan only."
+        description="Student rescue case tracking, guardian outreach, and intervention reporting require the AI Pack."
       />
     );
   }

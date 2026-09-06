@@ -114,7 +114,7 @@ export default function AIInsights({ showPremiumOnly = false }) {
                 📊 {alerts.length + insights.length - displayAlerts.length - displayInsights.length} more insights available
               </p>
               <p className="text-xs text-purple-600 mb-2">
-                Upgrade to Premium for complete AI-powered oversight
+                Add the AI Pack for complete AI-powered oversight
               </p>
               <button 
                 onClick={() => window.location.href = '?tab=subscription'}

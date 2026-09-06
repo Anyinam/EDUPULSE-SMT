@@ -577,6 +577,82 @@ def test_paystack_initialize_uses_active_students_for_default_billing_count(
     assert captured["metadata"]["student_count"] == 1
 
 
+def test_paystack_initialize_addon_checkout_captures_addon_metadata(
+    client, db, test_school, proprietor_headers, monkeypatch
+):
+    test_school.subscription_plan = "Basic"
+    test_school.subscription_status = "Active"
+    db.session.commit()
+
+    captured = {}
+
+    def fake_initialize_payment(email, amount_cents, plan_name, school_id, metadata=None):
+        captured["email"] = email
+        captured["amount_cents"] = amount_cents
+        captured["plan_name"] = plan_name
+        captured["school_id"] = school_id
+        captured["metadata"] = metadata or {}
+        return {
+            "status": "success",
+            "authorization_url": "https://paystack.test/addon",
+            "access_code": "ACCESS-ADDON-001",
+            "reference": "PSK-ADDON-001",
+        }
+
+    monkeypatch.setattr("backend.paystack_integration.initialize_payment", fake_initialize_payment)
+
+    response = client.post(
+        "/api/paystack/initialize",
+        headers=proprietor_headers,
+        data=json.dumps({"addon_key": "ai_pack", "billing_period": "term"}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "success"
+    assert captured["plan_name"] == "Basic"
+    assert captured["school_id"] == test_school.id
+    assert captured["amount_cents"] == 20000
+    assert captured["metadata"]["transaction_type"] == "addon_purchase"
+    assert captured["metadata"]["addon_key"] == "ai_pack"
+    assert captured["metadata"]["addon_name"] == "AI Pack"
+    assert captured["metadata"]["proration_data"]["calculation_source"] == "addon_flat_rate"
+    assert captured["metadata"]["proration_data"]["is_prorated"] is False
+
+
+def test_subscription_trial_status_and_activation_support_selectable_paid_plans(
+    client, db, test_school, proprietor_headers
+):
+    test_school.subscription_plan = "Free Tier"
+    test_school.trial_plan = None
+    test_school.trial_end_date = None
+    test_school.is_trial_active = False
+    db.session.commit()
+
+    status_response = client.get(
+        "/api/school/subscription/trial/status",
+        headers=proprietor_headers,
+    )
+
+    assert status_response.status_code == 200
+    status_payload = status_response.get_json()
+    assert [plan["plan"] for plan in status_payload["available_trial_plans"]] == ["Basic", "Premium"]
+
+    activation_response = client.post(
+        "/api/school/subscription/trial/activate",
+        headers=proprietor_headers,
+        data=json.dumps({"trial_plan": "Basic"}),
+    )
+
+    assert activation_response.status_code == 200
+    activation_payload = activation_response.get_json()
+    assert activation_payload["trial_plan"] == "Basic"
+    assert activation_payload["trial_plan_display_name"] == "School OS"
+
+    db.session.refresh(test_school)
+    assert test_school.trial_plan == "Basic"
+
+
 def test_shared_effective_plan_helper_handles_naive_trial_dates(client, test_school):
     from backend.subscription_state import get_effective_plan, is_trial_active
 

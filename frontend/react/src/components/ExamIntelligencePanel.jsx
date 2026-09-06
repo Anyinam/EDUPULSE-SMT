@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import PremiumFeatureNotice from './PremiumFeatureNotice';
-import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+import useSubscription from '../hooks/useSubscription';
 
 export default function ExamIntelligencePanel() {
-  const { isPremium: canAccessExamIntelligence, loading: planLoading } = useEffectiveSubscriptionPlan();
+  const { hasFeature, loading: planLoading } = useSubscription();
+  const canAccessExamIntelligence = hasFeature('exam_intelligence');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -85,7 +86,7 @@ export default function ExamIntelligencePanel() {
     return (
       <PremiumFeatureNotice
         title="Exam Intelligence"
-        description="Result import workspaces, examiner libraries, and school-wide exam trend intelligence are available on the Premium plan only."
+        description="Result import workspaces, examiner libraries, and school-wide exam trend intelligence require the AI Pack."
       />
     );
   }

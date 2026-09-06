@@ -158,10 +158,10 @@ export default function BillingVisibility() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Zap size={24} className="text-yellow-300" />
-                <h3 className="text-xl font-bold">Premium Trial Active!</h3>
+                <h3 className="text-xl font-bold">School OS Plus Trial Active!</h3>
               </div>
               <p className="text-purple-100 mb-3">
-                You're currently enjoying all Premium features at no cost.
+                You're currently enjoying School OS Plus plus all add-on features at no cost.
               </p>
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">

@@ -1,201 +1,158 @@
 EDUPULSE PRICING & FEATURES COMPARISON
 
-═══════════════════════════════════════════════════════════════════════════════
+=======================================================================
 
-PRICING
-─────────────────────────────────────────────────────────────────────────────
-	Free Tier		Basic Plan		Premium Plan
-Price	GH₵ 0/month		GH₵ 360/term (Base)	GH₵ 750/term (Base)
-        + GH₵ 12/student/term	+ GH₵ 22/student/term (Overage)
-Annual (30 students)	GH₵ 0			GH₵ 1,080 (base only)	GH₵ 2,250 (base only)
-Annual (100 students)	GH₵ 0			GH₵ 3,600		GH₵ 6,870
-Students Included	50			30 (in base fee)	30 (in base fee)
+PRICING SNAPSHOT
+-----------------------------------------------------------------------
+Plan                Price Model
+Free                GH₵ 0
+School OS           GH₵ 300/term base + GH₵ 7/student/term above 50
+School OS Plus      GH₵ 600/term base + GH₵ 9/student/term above 100
 
-═══════════════════════════════════════════════════════════════════════════════
+Included Students Per Term
+Free                50 students
+School OS           50 students
+School OS Plus      100 students
 
-CORE FEATURES (All Tiers)
-─────────────────────────────────────────────────────────────────────────────
-✓ Basic Attendance Tracking
-✓ Manual Grade Entry
-✓ Student Roster Management
-✓ Role-Based Access Control (Proprietor, Teacher, Homeroom, Finance)
-✓ Multi-Tenant Isolation (School Branding)
-✓ Audit Logging
-✓ Manual Payment Entry
+Capacity
+Free                1 class, 50 students
+School OS           5 classes, 200 students
+School OS Plus      Unlimited classes, staff, and students
 
-═══════════════════════════════════════════════════════════════════════════════
+Annual Examples (3 terms)
+30 students         Free: GH₵ 0 | School OS: GH₵ 900 | School OS Plus: GH₵ 1,800
+100 students        Free: GH₵ 0 | School OS: GH₵ 1,950 | School OS Plus: GH₵ 1,800
+150 students        Free: GH₵ 0 | School OS: GH₵ 3,000 | School OS Plus: GH₵ 3,150
 
-ADVANCED FEATURES
-─────────────────────────────────────────────────────────────────────────────
-Feature					Free Tier	Basic Plan	Premium Plan
-─────────────────────────────────────────────────────────────────────────────
-Full Grades Management			✗		✓		✓
-Financial Tracking (Tuition/Feeding)	✗		✓		✓
-Payment Method Tracking (Cash/Bank/MoMo)	Partial		✓		✓
-Lesson Notes & Academic Worklog		✗		✓		✓
-Inventory Management			✗		✓		✓
-Term Grading Policies			✗		✓		✓
-Student Support Tickets			✗		✓		✓
-System Alerts				✗		✓		✓
-Basic Reports & Analytics		✗		✓		✓
+Optional Add-Ons (Paid plans only)
+AI Pack             GH₵ 200/term
+Automation Pack     GH₵ 250/term
 
-═══════════════════════════════════════════════════════════════════════════════
+Trial Policy
+One-time 30-day plan trial per school.
+Free schools can trial School OS or School OS Plus.
+School OS schools can trial School OS Plus.
+School OS Plus trial includes temporary access to AI Pack and Automation Pack.
 
-AI & INTELLIGENCE FEATURES (Premium Only)
-─────────────────────────────────────────────────────────────────────────────
-Feature					Free Tier	Basic Plan	Premium Plan
-─────────────────────────────────────────────────────────────────────────────
-AI Student Pulse (Risk Prediction)	✗		✗		✓
-AI-Generated Report Narratives		✗		✗		✓
-Predictive Risk Scoring (0-100 scale)	✗		✗		✓
-Academic + Financial Correlation		✗		✗		✓
-AI Question Generation for Admissions	✗		✗		✓
-Subject-Based Question Pools		✗		✗		✓
-Exam Difficulty Customization		✗		✗		✓
-Candidate Screening Automation		✗		✗		✓
+=======================================================================
 
-═══════════════════════════════════════════════════════════════════════════════
+CORE FEATURES
+-----------------------------------------------------------------------
+Available across all plans:
+- Basic attendance tracking
+- Manual grade entry
+- Student roster management
+- Role-based access control
+- Multi-tenant isolation
+- Audit logging
+- Manual payment entry
 
-PAYMENT AUTOMATION (Premium Only)
-─────────────────────────────────────────────────────────────────────────────
-Feature					Free Tier	Basic Plan	Premium Plan
-─────────────────────────────────────────────────────────────────────────────
-MoMo Webhook Automation			✗		✗		✓
-Bank Transfer Webhook Automation	✗		✗		✓
-Auto-Categorized Payments		✗		✗		✓
-Duplicate Prevention			✗		✗		✓
-Real-Time Balance Updates		✗		✗		✓
-Reference-Based Parsing (S001-T1)	✗		✗		✓
+=======================================================================
 
-═══════════════════════════════════════════════════════════════════════════════
+PLAN COMPARISON
+-----------------------------------------------------------------------
+Feature                             Free            School OS         School OS Plus
+Attendance and feeding edits        View only       Full access       Full access
+Lesson notes and worklog            No              Yes               Yes
+Full grades management              No              Yes               Yes
+Financial tracking                  No              Yes               Yes
+Inventory management                No              Yes               Yes
+Basic reports                       1 template      6 templates       All templates
+Custom HTML templates               No              No                Yes
+Payment tracking                    No              Basic tracking    Advanced reconciliation
+Advanced analytics                  No              No                Yes
+AI Registrar                        No              Included          Included
+AI Pack features                    No              Optional          Optional
+Automation Pack features            No              Optional          Optional
 
-GOVERNANCE & REPORTING
-─────────────────────────────────────────────────────────────────────────────
-Feature					Free Tier	Basic Plan	Premium Plan
-─────────────────────────────────────────────────────────────────────────────
-Proprietor Dashboard			Basic		Basic		Advanced
-Live Transaction Feed			✗		✗		✓
-Pending Payment Tracking		✗		Basic		✓
-Critical Risk Intervention List		✗		Basic		✓
-Daily Revenue Reports			✗		Basic		✓
-Term Summary Exports			✗		Basic		✓
-Advanced Financial Analytics		✗		Basic		✓
-Payment Reconciliation Tools		✗		Basic		✓
+AI Pack unlocks:
+- AI Student Pulse and rescue workflows
+- AI-generated narratives
+- Exam intelligence and admissions question generation
+- Academic and financial correlation analysis
 
-═══════════════════════════════════════════════════════════════════════════════
+Automation Pack unlocks:
+- MoMo and bank webhook automation
+- Auto-categorized payments
+- Duplicate payment prevention
+- Real-time balance updates
+- Reference-based payment parsing automation
 
-SECURITY & COMPLIANCE (All Tiers)
-─────────────────────────────────────────────────────────────────────────────
-Feature					Free Tier	Basic Plan	Premium Plan
-─────────────────────────────────────────────────────────────────────────────
-Data Encryption at Rest (Fernet)	✓		✓		✓
-Secure Data in Transit (HTTPS/TLS)	✓		✓		✓
-Multi-Tenant Data Isolation		✓		✓		✓
-Role-Based Access Control (RBAC)	✓		✓		✓
-JWT Authentication			✓		✓		✓
-Security Headers (CSP/HSTS/XFO)		✓		✓		✓
-Rate Limiting & Login Lockout		✓		✓		✓
-Password Hashing (Werkzeug)		✓		✓		✓
-Field-Level Encryption (Bank/PII)	✓		✓		✓
-Tamper-Evident Financial Ledger		✓		✓		✓
-Production Secret Validation		✓		✓		✓
+=======================================================================
 
-Ghana Data Protection Act Compliance	✓		✓		✓
-Mandatory Policy Acceptance (Signup)	✓		✓		✓
-Terms/Privacy/Retention Display		✓		✓		✓
-DSAR Workflow Support			Basic		Standard	Advanced
-Audit Logging with Evidence		✓		✓		Enhanced
-Policy Acceptance Audit Trail		✓		✓		✓
-Client IP Logging (Registration)	✓		✓		✓
-Webhook Signature Verification		✗		✗		✓
+GOVERNANCE AND REPORTING
+-----------------------------------------------------------------------
+Free
+- Basic proprietor visibility only
 
-═══════════════════════════════════════════════════════════════════════════════
+School OS
+- Proprietor dashboard
+- Live transaction feed
+- Pending payment tracking
+- Daily and term finance visibility
 
-SUPPORT & SERVICE
-─────────────────────────────────────────────────────────────────────────────
-Feature					Free Tier	Basic Plan	Premium Plan
-─────────────────────────────────────────────────────────────────────────────
-Support Level				Community	Standard	Priority
-Max Response Time			24 hours	12 hours	2 hours
-Email Support				✓		✓		✓
-Phone Support				✗		✗		✓
-Dedicated Account Manager		✗		✗		✓
+School OS Plus
+- Everything in School OS
+- Advanced financial analytics
+- Stronger reconciliation workflows
+- Custom reporting controls
 
-═══════════════════════════════════════════════════════════════════════════════
+=======================================================================
+
+SECURITY AND COMPLIANCE
+-----------------------------------------------------------------------
+All plans include:
+- Data encryption at rest
+- HTTPS/TLS transport security
+- Multi-tenant data isolation
+- JWT authentication and RBAC
+- Security headers and rate limiting
+- Password hashing
+- Ghana Data Protection Act support baseline
+- Tamper-evident financial ledger
+
+Higher-tier differences:
+- School OS improves operational workflows and DSAR handling
+- School OS Plus adds the strongest governance, reconciliation, and custom reporting support
+
+=======================================================================
 
 UPGRADE TRIGGERS
-─────────────────────────────────────────────────────────────────────────────
+-----------------------------------------------------------------------
+Free to School OS
+- Need editable attendance, feeding, and finance operations
+- Need more than one class
+- Need lesson notes, inventory, and reporting workflows
 
-Free Tier → Basic Plan
-└─ Hit 50-student capacity limit
-└─ Need advanced reports & analytics
-└─ Want full financial tracking
-└─ Need enhanced DSAR support (Standard SLA)
+School OS to School OS Plus
+- Need unlimited scale
+- Need advanced analytics or custom templates
+- Need stronger reconciliation and governance tooling
 
-Basic Plan → Premium Plan
-└─ Need to exceed 200 students
-└─ Want AI risk prediction
-└─ Want automated payment processing
-└─ Want AI-generated exam questions
-└─ Need enhanced audit logging & compliance support
-└─ Require webhook signature verification
+Add AI Pack
+- Need student rescue workflows, narratives, or exam intelligence
 
-═══════════════════════════════════════════════════════════════════════════════
+Add Automation Pack
+- Need webhook-driven payment automation and auto-reconciliation
 
-REVENUE PROJECTIONS (Per 100 Schools)
-─────────────────────────────────────────────────────────────────────────────
+=======================================================================
 
-Scenario: 70% Basic / 30% Premium Mix (Average: 100 students/school for both)
+SAMPLE REVENUE MIX (100 SCHOOLS)
+-----------------------------------------------------------------------
+Scenario: 70 School OS schools and 30 School OS Plus schools, each with 100 students.
 
-Basic Plan (70 schools × avg 100 students):
-  70 schools × [(GH₵360 × 3) + (70 students × GH₵12 × 3)]
-  = 70 schools × GH₵3,600/year = GH₵252,000/year
+School OS
+70 x GH₵ 1,950/year = GH₵ 136,500/year
 
-Premium Plan (30 schools × avg 100 students):
-  30 schools × [(GH₵750 × 3) + (70 students × GH₵22 × 3)]
-  = 30 schools × GH₵6,870/year = GH₵206,100/year
+School OS Plus
+30 x GH₵ 1,800/year = GH₵ 54,000/year
 
-Total Annual Revenue (100 schools): GH₵458,100
+If 25 School OS schools also buy AI Pack:
+25 x GH₵ 600/year = GH₵ 15,000/year
 
-Average ARR per School: GH₵4,581
+If 20 paid schools also buy Automation Pack:
+20 x GH₵ 750/year = GH₵ 15,000/year
 
-REVENUE SCENARIOS (Basic Plan by School Size)
-─────────────────────────────────────────────────────────────────────────────
-School Size		Students	Annual Cost		Cost Per Student
-─────────────────────────────────────────────────────────────────────────────
-Small JHS		30		GH₵1,080		GH₵36/student
-Mid-size JHS		75		GH₵2,070		GH₵28/student
-Large JHS		150		GH₵3,060		GH₵20/student
-Secondary		200		GH₵4,320		GH₵22/student
-Large Secondary		400		GH₵12,600		GH₵32/student
+Illustrative annual total: GH₵ 220,500
 
-REVENUE SCENARIOS (Premium Plan by School Size)
-─────────────────────────────────────────────────────────────────────────────
-School Size		Students	Annual Cost		Cost Per Student
-─────────────────────────────────────────────────────────────────────────────
-Small JHS		30		GH₵2,250		GH₵75/student
-Mid-size JHS		75		GH₵5,220		GH₵70/student
-Large JHS		150		GH₵10,170		GH₵68/student
-Secondary		200		GH₵13,470		GH₵67/student
-Large Secondary		400		GH₵26,670		GH₵67/student
-
-═══════════════════════════════════════════════════════════════════════════════
-
-COMPETITIVE DIFFERENTIATION
-─────────────────────────────────────────────────────────────────────────────
-
-Feature					EduPulse	Competitors
-─────────────────────────────────────────────────────────────────────────────
-AI Risk Prediction			✓		✗
-Automated Payment Webhooks		✓		✗
-Multi-Tenant (Multiple Schools)		✓		✗
-Free Tier (No Cost Entry)		✓		✗
-Unlimited Scaling (Premium)		✓		✗
-Reference-Based Payment Parsing		✓		✗
-Ghana Data Protection Act Compliance	✓		✗
-Field-Level Data Encryption		✓		✗
-Tamper-Evident Financial Ledger		✓		✗
-Mandatory Policy Acceptance		✓		✗
-DSAR Workflow Support			✓		✗
-
-═══════════════════════════════════════════════════════════════════════════════
+=======================================================================

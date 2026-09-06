@@ -20,35 +20,49 @@ export default function SubscriptionManager() {
     'Premium': 2,
   };
 
-  useEffect(() => {
-    const fetchSub = async () => {
-      setLoading(true);
-      setLoadError('');
-      try {
-        const headers = getSubscriptionHeaders();
-        if (!headers) {
-          setLoadError('Your session expired. Please log in again.');
-          setLoading(false);
-          return;
-        }
-        const [res, plansRes] = await Promise.all([
-          axios.get('/api/school/subscription', { headers }),
-          axios.get('/api/subscription/plans'),
-        ]);
-        setSub({
-          ...res.data,
-          next_billing_date: res.data?.next_billing_date || res.data?.next_billing || null,
-        });
-        setPlanCatalog(plansRes.data?.plans || []);
-      } catch (err) {
-        console.error('Failed to fetch subscription', err);
-        setSub(null);
-        setLoadError(err.response?.data?.message || 'Failed to load subscription details.');
-      } finally {
+  const persistSubscriptionLocally = (payload) => {
+    if (!payload) {
+      return;
+    }
+
+    const nextPlan = payload.subscription_plan || payload.plan || 'Free Tier';
+    localStorage.setItem('subscription_plan', nextPlan);
+    if (payload.enabled_modules) {
+      localStorage.setItem('enabled_modules', JSON.stringify(payload.enabled_modules));
+    }
+  };
+
+  const loadSubscriptionData = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const headers = getSubscriptionHeaders();
+      if (!headers) {
+        setLoadError('Your session expired. Please log in again.');
         setLoading(false);
+        return;
       }
-    };
-    fetchSub();
+      const [res, plansRes] = await Promise.all([
+        axios.get('/api/school/subscription', { headers }),
+        axios.get('/api/subscription/plans'),
+      ]);
+      setSub({
+        ...res.data,
+        next_billing_date: res.data?.next_billing_date || res.data?.next_billing || null,
+      });
+      persistSubscriptionLocally(res.data);
+      setPlanCatalog(plansRes.data?.plans || []);
+    } catch (err) {
+      console.error('Failed to fetch subscription', err);
+      setSub(null);
+      setLoadError(err.response?.data?.message || 'Failed to load subscription details.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSubscriptionData();
   }, []);
 
   const redirectToLogin = (message = 'Your session expired. Please log in again to manage your subscription.') => {
@@ -145,13 +159,13 @@ export default function SubscriptionManager() {
     setProrateInfo(null);
   };
 
-  const handleUpgrade = async (plan, cost) => {
+  const handleUpgrade = async (plan, cost, displayName = plan) => {
     const currentRank = PLAN_ORDER[sub?.plan] ?? 0;
     const nextRank = PLAN_ORDER[plan] ?? 0;
     const isDowngrade = nextRank < currentRank;
 
     if (isDowngrade) {
-      const confirmLabel = plan === 'Free Tier' ? 'Downgrade to Free Tier' : `Switch to ${plan}`;
+      const confirmLabel = plan === 'Free Tier' ? 'Downgrade to Free Tier' : `Switch to ${displayName}`;
       if (!window.confirm(`${confirmLabel}? Your paid features will be reduced immediately.`)) return;
       const headers = getSubscriptionHeaders();
       if (!headers) {
@@ -164,17 +178,10 @@ export default function SubscriptionManager() {
         // Refresh subscription data from backend
         const schoolRes = await axios.get('/api/school/subscription', { headers });
         if (schoolRes.data) {
-          // Update localStorage with new plan
-          const newPlan = schoolRes.data.subscription_plan || schoolRes.data.plan || 'Free Tier';
-          localStorage.setItem('subscription_plan', newPlan);
-          
-          // Update enabled modules
-          if (schoolRes.data.enabled_modules) {
-            localStorage.setItem('enabled_modules', JSON.stringify(schoolRes.data.enabled_modules));
-          }
+          persistSubscriptionLocally(schoolRes.data);
         }
         
-        alert(`Plan changed to ${plan} successfully.`);
+        alert(`Plan changed to ${displayName} successfully.`);
         window.location.reload();  // Full reload to update all components
       } catch (err) {
         handleSubscriptionError(err, 'Plan change failed.');
@@ -191,7 +198,7 @@ export default function SubscriptionManager() {
     }
 
     // Paid plans: Initialize Paystack payment
-    const confirmMsg = `Upgrade to ${plan}?${proratedMsg}\n\nCost: GH₵ ${finalCost.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} for ${billingPeriod === 'term' ? '1 term' : '3 terms (annual)'}\nBased on ${currentStudents} students`;
+    const confirmMsg = `Upgrade to ${displayName}?${proratedMsg}\n\nCost: GH₵ ${finalCost.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} for ${billingPeriod === 'term' ? '1 term' : '3 terms (annual)'}\nBased on ${currentStudents} students`;
     if (!window.confirm(confirmMsg)) return;
 
     const headers = getSubscriptionHeaders();
@@ -218,6 +225,45 @@ export default function SubscriptionManager() {
     } catch (err) {
       console.error('Payment initialization error:', err);
       handleSubscriptionError(err, 'Failed to initialize payment. Please try again.');
+    }
+  };
+
+  const handleAddonCheckout = async (addon) => {
+    const headers = getSubscriptionHeaders();
+    if (!headers) {
+      redirectToLogin();
+      return;
+    }
+
+    const basePlan = sub?.base_plan || sub?.plan || 'Free Tier';
+    if (basePlan === 'Free Tier') {
+      alert('Upgrade to School OS or School OS Plus before enabling paid add-ons.');
+      return;
+    }
+
+    const multiplier = billingPeriod === 'annual' ? 3 : 1;
+    const amount = Number(addon.price_per_term || 0) * multiplier;
+    const cycleLabel = billingPeriod === 'annual' ? '3 terms' : '1 term';
+    if (!window.confirm(`Enable ${addon.name} for ${cycleLabel}?\n\nCharge: GH₵ ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nBase plan required: ${sub.base_plan_display_name || sub.plan_display_name || sub.plan}`)) {
+      return;
+    }
+
+    try {
+      const res = await axios.post('/api/paystack/initialize', {
+        addon_key: addon.key,
+        billing_period: billingPeriod,
+        amount_cedis: amount,
+      }, { headers });
+
+      const checkoutUrl = res.data?.data?.authorization_url;
+      if (!checkoutUrl) {
+        throw new Error('Missing authorization URL for add-on checkout.');
+      }
+
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      console.error('Add-on checkout error:', err);
+      handleSubscriptionError(err, 'Failed to initialize add-on checkout. Please try again.');
     }
   };
 
@@ -257,6 +303,7 @@ export default function SubscriptionManager() {
 
     return {
       name: plan.name,
+      displayName: plan.display_name || plan.name,
       price,
       baseFee,
       included,
@@ -316,7 +363,7 @@ export default function SubscriptionManager() {
               <TrendingUp className="text-blue-600" size={20} />
               <p className="text-xs font-bold text-slate-500 uppercase">Current Plan</p>
             </div>
-            <p className="text-2xl font-black text-blue-900">{sub.plan}</p>
+            <p className="text-2xl font-black text-blue-900">{sub.plan_display_name || sub.plan}</p>
             <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${
               sub.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
             }`}>
@@ -363,7 +410,7 @@ export default function SubscriptionManager() {
 
         {/* Trial Management Widget */}
         <div className="mb-8">
-          <TrialManager />
+          <TrialManager onTrialChange={loadSubscriptionData} />
         </div>
 
         {/* Billing Control Panel (Price Cap, etc.) */}
@@ -431,7 +478,7 @@ export default function SubscriptionManager() {
                   </div>
                 )}
 
-                <h3 className="text-xl font-bold text-slate-800 mb-2 mt-2">{plan.name}</h3>
+                <h3 className="text-xl font-bold text-slate-800 mb-2 mt-2">{plan.displayName}</h3>
                 <p className="text-sm text-slate-600 mb-4">{plan.description}</p>
 
                 <div className="mb-6">
@@ -488,8 +535,8 @@ export default function SubscriptionManager() {
 
                 {plan.addonOptions.length > 0 && (
                   <div className="mb-6 border-t border-slate-100 pt-4">
-                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Future Add-Ons</p>
-                    <p className="mb-2 text-xs text-slate-500">These are future optional products. They are not included in this subscription price.</p>
+                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Optional Add-Ons</p>
+                    <p className="mb-2 text-xs text-slate-500">These products are optional and are not included in this subscription price.</p>
                     <div className="flex flex-wrap gap-2">
                       {plan.addonOptions.map((addon) => (
                         <span key={addon} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
@@ -520,7 +567,7 @@ export default function SubscriptionManager() {
 
                 {!isCurrentPlan && (
                   <button
-                    onClick={() => handleUpgrade(plan.name, displayCost)}
+                    onClick={() => handleUpgrade(plan.name, displayCost, plan.displayName)}
                     className={`w-full py-3 rounded-xl font-bold transition-all ${
                       plan.name === 'Premium'
                         ? 'bg-linear-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 shadow-lg'
@@ -532,13 +579,69 @@ export default function SubscriptionManager() {
                     {isDowngrade
                       ? plan.name === 'Free Tier'
                         ? 'Switch to Free'
-                        : `Switch to ${plan.name}`
+                        : `Switch to ${plan.displayName}`
                       : `Pay GH₵ ${actionAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`}
                   </button>
                 )}
               </div>
             );
           })}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-8 shadow-sm">
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h3 className="text-xl font-black text-slate-800">Optional Add-Ons</h3>
+              <p className="text-sm text-slate-600 mt-1">
+                AI Pack and Automation Pack are billed separately from the base subscription and activate after checkout confirms.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+              Base plan: {sub.base_plan_display_name || sub.plan_display_name || sub.plan}
+            </span>
+          </div>
+
+          {sub.available_addons?.length ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {sub.available_addons.map((addon) => {
+                const isPurchased = Boolean(sub.purchased_addons?.[addon.key]);
+                const isActive = Boolean(sub.active_addons?.[addon.key]);
+                const isTrialAccess = isActive && !isPurchased;
+                const amount = Number(addon.price_per_term || 0) * (billingPeriod === 'annual' ? 3 : 1);
+
+                return (
+                  <div key={addon.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <h4 className="text-lg font-bold text-slate-800">{addon.name}</h4>
+                        <p className="text-sm text-slate-600 mt-1">{addon.description}</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${isPurchased ? 'bg-emerald-100 text-emerald-700' : isTrialAccess ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-800'}`}>
+                        {isPurchased ? 'Enabled' : isTrialAccess ? 'Trial Access' : 'Optional'}
+                      </span>
+                    </div>
+                    <p className="text-2xl font-black text-slate-900 mb-1">
+                      GH₵ {amount.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-slate-500 mb-4">
+                      {billingPeriod === 'annual' ? 'Annual checkout for 3 terms' : 'Per-term checkout'}
+                    </p>
+                    <button
+                      onClick={() => handleAddonCheckout(addon)}
+                      disabled={isPurchased || isTrialAccess || (sub.base_plan || sub.plan) === 'Free Tier'}
+                      className="w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-amber-700 disabled:bg-slate-300 disabled:text-slate-500"
+                    >
+                      {isPurchased ? 'Already Enabled' : isTrialAccess ? 'Included During Trial' : (sub.base_plan || sub.plan) === 'Free Tier' ? 'Upgrade Base Plan First' : `Enable ${addon.name}`}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+              Upgrade to School OS or School OS Plus to unlock paid add-on checkout.
+            </div>
+          )}
         </div>
 
         {/* Billing Explanation */}
@@ -554,7 +657,7 @@ export default function SubscriptionManager() {
                 <strong>Base Fee + (Students Above Included × Price/Student)</strong>
               </p>
               <p className="text-xs">
-                Example: <strong>GH₵ {basicPlan?.baseFee || 0} + (70 × GH₵ {basicPlan?.price || 0}) = GH₵ {basicPlan ? (basicPlan.baseFee + (70 * basicPlan.price)).toLocaleString() : '0'}/term</strong>
+                Example: <strong>GH₵ {basicPlan?.baseFee || 0} + (50 × GH₵ {basicPlan?.price || 0}) = GH₵ {basicPlan ? (basicPlan.baseFee + (50 * basicPlan.price)).toLocaleString() : '0'}/term</strong>
               </p>
             </div>
             <div className="bg-white rounded-lg p-3 border border-blue-100">
@@ -570,7 +673,7 @@ export default function SubscriptionManager() {
           <div className="bg-blue-100 border border-blue-300 rounded-lg p-3">
             <p className="text-xs font-bold text-blue-900 mb-2">🎯 Your Current Billing:</p>
             <div className="text-xs text-blue-800 space-y-1">
-              <p>• <strong>Current Plan:</strong> {sub?.plan}</p>
+              <p>• <strong>Current Plan:</strong> {sub?.plan_display_name || sub?.plan}</p>
               <p>• <strong>Active Students:</strong> {currentStudents}</p>
               <p>• <strong>Next Billing:</strong> {sub?.next_billing_date ? new Date(sub.next_billing_date).toLocaleDateString() : 'N/A'}</p>
               {prorateInfo && (
@@ -604,7 +707,7 @@ export default function SubscriptionManager() {
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={16} />
-                <span>Example: 100 students on Premium = <strong>GH₵ {premiumPlan ? (premiumPlan.baseFee + (Math.max(0, 100 - premiumPlan.included) * premiumPlan.price)).toLocaleString() : '0'}/term</strong></span>
+                <span>Example: 100 students on {premiumPlan?.displayName || 'School OS Plus'} = <strong>GH₵ {premiumPlan ? (premiumPlan.baseFee + (Math.max(0, 100 - premiumPlan.included) * premiumPlan.price)).toLocaleString() : '0'}/term</strong></span>
               </li>
             </ul>
           </div>
