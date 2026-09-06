@@ -100,6 +100,7 @@ from backend.subscription_features import (
     get_all_accessible_templates,
     get_feature_level,
     get_addons_for_plan,
+    get_school_feature_level,
     get_plan_limit,
     get_plan_display_name,
     school_has_addon,
@@ -9559,6 +9560,8 @@ def _call_paystack_api(endpoint, method="GET", data=None):
                 provider_message = str(error_payload.get("message") or "").strip()
             except ValueError:
                 provider_message = response.text.strip()
+            if response.status_code == 401 and "invalid key" in provider_message.lower():
+                provider_message = "Invalid Paystack secret key configured on the server"
             error_detail = provider_message or response.text.strip() or f"HTTP {response.status_code}"
             raise requests.exceptions.HTTPError(
                 f"{response.status_code} {error_detail}",
@@ -11823,7 +11826,7 @@ def get_live_feed():
         )
         staff_meals = (
             User.query.filter_by(school_id=g.school_id)
-            .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
+            .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor"]))
             .count()
         )
         canteen_count = student_meals + staff_meals
@@ -14718,7 +14721,7 @@ def kitchen_dashboard():
         try:
             teacher_count = (
                 User.query.filter_by(school_id=g.school_id)
-                .filter(User.role.in_(["teacher", "headmaster"]))
+                .filter(User.role.in_(["teacher", "homeroom", "headmaster"]))
                 .count()
             )
         except Exception as e:
@@ -15207,7 +15210,7 @@ def get_canteen_count():
     )
     staff_meals = (
         User.query.filter_by(school_id=g.school_id)
-        .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
+        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor"]))
         .count()
     )
     attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
@@ -15361,7 +15364,7 @@ def _find_platform_user_by_email(email, exclude_user_id=None):
 
 
 def _normalize_staff_roles(raw_roles, primary_role=None):
-    allowed_roles = ["teacher", "homeroom", "headmaster", "finance", "inventory_manager"]
+    allowed_roles = ["teacher", "homeroom", "headmaster", "finance", "inventory_manager", "kitchen"]
     roles = raw_roles if isinstance(raw_roles, list) else []
     roles = list(dict.fromkeys(roles))
 
@@ -17792,9 +17795,12 @@ def reconnect_school_paystack_subaccount():
             provision_error,
         )
         db.session.rollback()
+        reconnect_message = "EduPulse could not connect the school's Paystack settlement account right now. Confirm the bank details and try again."
+        if "invalid paystack secret key configured on the server" in str(provision_error).lower():
+            reconnect_message = "EduPulse could not connect the school's Paystack settlement account because the platform Paystack secret key is invalid or missing on the server."
         return jsonify(
             {
-                "message": "EduPulse could not connect the school's Paystack settlement account right now. Confirm the bank details and try again.",
+                "message": reconnect_message,
                 "error": "payment_settlement_setup_unavailable",
                 "provider_detail": provision_error,
             }
@@ -18114,6 +18120,24 @@ def get_subscription():
     effective_plan = get_effective_plan(school)
     plan_info = PLAN_FEATURES.get(effective_plan, PLAN_FEATURES["Free Tier"])
     plan_display = FEATURE_MATRIX_DISPLAY.get(effective_plan, {})
+    feature_keys = set((plan_info.get("features") or {}).keys())
+    feature_keys.update(
+        {
+            "ai_analysis",
+            "ai_narratives",
+            "student_rescue_agent",
+            "exam_intelligence",
+            "webhook_payment_automation",
+        }
+    )
+    resolved_features = {
+        feature_name: get_school_feature_level(
+            school,
+            feature_name,
+            effective_plan=effective_plan,
+        )
+        for feature_name in feature_keys
+    }
     trial_end_date = school.trial_end_date
     if trial_end_date and trial_end_date.tzinfo is None:
         trial_end_date = trial_end_date.replace(tzinfo=timezone.utc)
@@ -18192,7 +18216,7 @@ def get_subscription():
                     and datetime.now(timezone.utc) < trial_end_date
                 ),
             },
-            "features": plan_info.get("features", {}),
+            "features": resolved_features,
             "features_display": plan_display,
             "report_templates": plan_info.get("report_templates", []),
             "available_addons": get_addons_for_plan(effective_plan),

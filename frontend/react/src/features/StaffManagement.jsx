@@ -51,7 +51,8 @@ export default function StaffManagement() {
     { value: 'homeroom', label: 'Homeroom Teacher' },
     { value: 'headmaster', label: 'Headmaster' },
     { value: 'finance', label: 'Finance Officer' },
-    { value: 'inventory_manager', label: 'Store Manager' }
+    { value: 'inventory_manager', label: 'Store Manager' },
+    { value: 'kitchen', label: 'Kitchen / Caterer' }
   ];
 
   const roleLabelMap = Object.fromEntries(roleOptions.map((option) => [option.value, option.label]));

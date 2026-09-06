@@ -1160,7 +1160,79 @@ def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, ap
     payload = response.get_json()
     staff_meals = (
         User.query.filter_by(school_id=test_school.id)
-        .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
+        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor"]))
+        .count()
+    )
+    assert payload["total_meals"] == staff_meals + 1
+
+
+def test_canteen_count_includes_homeroom_staff_meals(client, app, test_school, test_proprietor, monkeypatch):
+    from backend.routes import _mark_attendance_activity
+
+    monkeypatch.setattr("backend.routes._is_school_instruction_day", lambda _school_id, _target_date: True)
+
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    homeroom_user = User(
+        username="homeroom_meals_case",
+        school_id=test_school.id,
+        role="homeroom",
+        roles=["homeroom"],
+        email="homeroom-meals@test.edu",
+        assigned_class="Primary 3",
+    )
+    homeroom_user.set_password("HomeroomPass123")
+    db.session.add(homeroom_user)
+    db.session.flush()
+
+    covered_student = Student(
+        school_id=test_school.id,
+        first_name="Esi",
+        surname="Coverage",
+        name="Esi Coverage",
+        student_code="S953",
+        current_class="Primary 3",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(covered_student)
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "daily": 5.0,
+            }
+        }
+    }
+    db.session.add(
+        Payment(
+            student_id=covered_student.id,
+            school_id=test_school.id,
+            created_by_user_id=test_proprietor.id,
+            amount=5.0,
+            payment_type="Feeding",
+            method="Cash",
+            status="Confirmed",
+            payment_category={"frequency": "Daily"},
+            date_paid=datetime.now(timezone.utc),
+        )
+    )
+    db.session.commit()
+    _mark_attendance_activity(test_school.id, submitted_classes=["Primary 3"])
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/canteen/daily-count", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    staff_meals = (
+        User.query.filter_by(school_id=test_school.id)
+        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor"]))
         .count()
     )
     assert payload["total_meals"] == staff_meals + 1
@@ -1194,7 +1266,7 @@ def test_canteen_count_ignores_stale_present_flags_until_attendance_is_marked_to
     payload = response.get_json()
     staff_meals = (
         User.query.filter_by(school_id=test_school.id)
-        .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
+        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor"]))
         .count()
     )
     assert payload["total_meals"] == staff_meals
@@ -1849,6 +1921,26 @@ def test_basic_plan_blocks_student_rescue_agent_routes(client, app, test_school,
     payload = response.get_json()
     assert payload["current_plan"] == "Basic"
     assert payload["required_plan"] == "School OS + AI Pack"
+
+
+def test_subscription_payload_exposes_trial_addon_features(client, app, test_school, test_proprietor):
+    test_school.subscription_plan = "Free Tier"
+    test_school.trial_plan = "Premium"
+    test_school.trial_end_date = datetime.now(timezone.utc) + timedelta(days=14)
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/school/subscription", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["plan"] == "Premium"
+    assert payload["base_plan"] == "Free Tier"
+    assert payload["active_addons"]["ai_pack"] is True
+    assert payload["active_addons"]["automation_pack"] is True
+    assert payload["features"]["student_rescue_agent"] is True
+    assert payload["features"]["exam_intelligence"] is True
+    assert payload["features"]["webhook_payment_automation"] is True
 
 
 def test_basic_plan_blocks_academic_guidance_routes(client, app, test_school, test_teacher):
