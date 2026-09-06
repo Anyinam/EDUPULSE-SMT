@@ -406,7 +406,8 @@ def test_payment_codes_expose_stable_payment_identity_for_staff_only(client, app
     assert staff_payload["payment_identity"]["stable_payment_identity"] == test_students[0].student_code
     assert staff_payload["payment_codes"][0]["payment_identity_base"] == test_students[0].student_code
     assert staff_payload["admission_fee"]["enabled"] is True
-    assert any(item["fee_type"] == "Admission Fee" for item in staff_payload["payment_codes"])
+    assert staff_payload["admission_fee"]["amount"] == 55.0
+    assert not any(item["fee_type"] == "Admission Fee" for item in staff_payload["payment_codes"])
 
     public_response = client.get(
         f"/api/public/schools/{test_school.id}/payments/{test_students[0].student_code}"
