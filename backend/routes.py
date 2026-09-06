@@ -7778,9 +7778,19 @@ def _attendance_marked_today(school_id):
 
 
 def _get_present_students_for_today(school_id):
-    if not _attendance_has_any_submission_today(school_id):
+    attendance_snapshot = _get_attendance_submission_snapshot(school_id)
+    if not attendance_snapshot.get("has_any_submission", False):
         return []
-    return Student.query.filter_by(school_id=school_id, is_present=True).all()
+
+    query = Student.query.filter_by(school_id=school_id, is_present=True)
+    submitted_classes = [
+        class_name
+        for class_name in (attendance_snapshot.get("submitted_classes") or [])
+        if isinstance(class_name, str) and class_name.strip()
+    ]
+    if submitted_classes:
+        query = query.filter(Student.current_class.in_(submitted_classes))
+    return query.all()
 
 
 def _extract_attendance_submission_classes(attendance_records, explicit_class_name=None):
@@ -8852,6 +8862,28 @@ def _calculate_feeding_coverage_end_date(start_date, purchased_units, frequency,
     return end_date
 
 
+def _normalize_payment_category_for_storage(school_id, payment_type, payment_category, amount_paid=0.0):
+    normalized_category = dict(payment_category or {})
+    if payment_type != "Feeding":
+        return normalized_category
+
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    feeding_plan_fees = _get_feeding_plan_fees(settings)
+    try:
+        amount_value = float(amount_paid or 0.0)
+    except (TypeError, ValueError):
+        amount_value = 0.0
+
+    inferred_frequency = _normalize_feeding_frequency(
+        normalized_category,
+        feeding_plan_fees,
+        amount_paid=amount_value,
+    )
+    if inferred_frequency:
+        normalized_category["frequency"] = inferred_frequency
+    return normalized_category
+
+
 def _get_feeding_status_details_for_students(students, school_id, as_of_date=None):
     student_list = [student for student in (students or []) if student is not None]
     if not student_list:
@@ -9657,13 +9689,28 @@ def _resolve_paystack_account_name(account_number, bank_code):
     return resolved_name, None
 
 
+def _is_valid_paystack_contact_email(value):
+    candidate = sanitize_string(value or "") or ""
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", candidate))
+
+
+def _normalize_paystack_contact_phone(value):
+    raw_value = str(value or "").strip()
+    digits = re.sub(r"\D+", "", raw_value)
+    if len(digits) < 7 or len(digits) > 15:
+        return ""
+    if raw_value.startswith("+"):
+        return f"+{digits}"
+    return digits
+
+
 def _provision_school_paystack_subaccount(school, settings, provider_settings):
     bank_name = sanitize_string(getattr(school, "bank_name", "") or "") or ""
     bank_account = re.sub(r"\s+", "", sanitize_string(getattr(school, "bank_account", "") or "") or "")
     account_name = sanitize_string(getattr(school, "bank_account_name", "") or "") or ""
     country_code = sanitize_string(getattr(settings, "country_code", "") or "GH") or "GH"
     contact_email = sanitize_string(getattr(school, "school_email", "") or "") or ""
-    contact_phone = sanitize_string(getattr(school, "school_phone", "") or "") or ""
+    contact_phone = _normalize_paystack_contact_phone(getattr(school, "school_phone", "") or "")
 
     if not bank_name or not bank_account or not account_name:
         return None, "Provide bank name, account number, and account name before EduPulse can create a Paystack subaccount."
@@ -9684,18 +9731,26 @@ def _provision_school_paystack_subaccount(school, settings, provider_settings):
         "description": f"EduPulse settlement account for {school.name}",
         "primary_contact_name": account_name,
     }
-    if contact_email:
+    if _is_valid_paystack_contact_email(contact_email):
         payload["primary_contact_email"] = contact_email
     if contact_phone:
         payload["primary_contact_phone"] = contact_phone
 
     subaccount_code = sanitize_string(provider_settings.get("paystack_subaccount_code") or "") or ""
-    if subaccount_code:
-        result, error = _call_paystack_api(f"/subaccount/{quote(subaccount_code)}", method="PUT", data=payload)
-        action = "updated"
-    else:
-        result, error = _call_paystack_api("/subaccount", method="POST", data=payload)
-        action = "created"
+    endpoint = f"/subaccount/{quote(subaccount_code)}" if subaccount_code else "/subaccount"
+    method = "PUT" if subaccount_code else "POST"
+    action = "updated" if subaccount_code else "created"
+
+    result, error = _call_paystack_api(endpoint, method=method, data=payload)
+    if error and any(key in payload for key in ("primary_contact_email", "primary_contact_phone")):
+        fallback_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"primary_contact_email", "primary_contact_phone"}
+        }
+        fallback_result, fallback_error = _call_paystack_api(endpoint, method=method, data=fallback_payload)
+        if not fallback_error:
+            result, error = fallback_result, fallback_error
 
     if error:
         return None, f"Paystack subaccount {action} failed: {error}"
@@ -11372,6 +11427,12 @@ def receive_payment():
             **(payment_category or {}),
             "reference_code": structured_reference_code,
         }
+    payment_category = _normalize_payment_category_for_storage(
+        g.school_id,
+        payment_type,
+        payment_category,
+        amount_paid=data.get("amount"),
+    )
     validation_payload = {
         "student_id": student.id,
         "amount": data.get("amount"),
@@ -12365,6 +12426,12 @@ def _confirm_pending_payment_record(payment, confirmed_by_user_id, confirmed_by_
     payment.status = "Confirmed"
     payment.verified_at = get_utc_now()
     payment.verified_by = confirmed_by_user_id
+    payment.payment_category = _normalize_payment_category_for_storage(
+        g.school_id,
+        payment.payment_type,
+        payment.payment_category,
+        amount_paid=payment.amount,
+    )
 
     student = Student.query.get(payment.student_id)
     if student and payment.payment_type == "Tuition":
@@ -15563,15 +15630,28 @@ def get_transactions():
         if collection_restriction:
             return collection_restriction
 
-        return jsonify(
-            finance_read_service.get_transactions_payload(
-                g.school_id,
-                payment_model=Payment,
-                student_model=Student,
-                db=db,
-                to_iso_utc=_to_iso_utc,
-            )
+        payload = finance_read_service.get_transactions_payload(
+            g.school_id,
+            payment_model=Payment,
+            student_model=Student,
+            db=db,
+            to_iso_utc=_to_iso_utc,
         )
+        for item in payload:
+            payment_category = item.get("payment_category") if isinstance(item.get("payment_category"), dict) else {}
+            item["payment_category"] = _normalize_payment_category_for_storage(
+                g.school_id,
+                item.get("type"),
+                payment_category,
+                amount_paid=item.get("amount"),
+            )
+            item["feeding_frequency"] = (
+                item["payment_category"].get("frequency")
+                if item.get("type") == "Feeding"
+                else None
+            )
+
+        return jsonify(payload)
     except Exception as e:
         return (
             jsonify({"message": "Error retrieving transactions", "error": str(e)}),

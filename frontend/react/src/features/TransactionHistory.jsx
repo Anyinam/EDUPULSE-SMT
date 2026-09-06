@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+function getPaymentFrequency(transaction) {
+  if (transaction.type !== 'Feeding') return '-';
+  return transaction.feeding_frequency || transaction.payment_category?.frequency || 'Inferred on approval';
+}
+
 export default function TransactionHistory() {
   const [transactions, setTransactions] = useState([]);
 
@@ -19,11 +24,12 @@ export default function TransactionHistory() {
   const downloadCSV = () => {
     if (!transactions.length) return alert("No transactions to export.");
 
-    const headers = ["Date", "Student Name", "Type", "Method", "Amount", "Status"];
+    const headers = ["Date", "Student Name", "Type", "Frequency", "Method", "Amount", "Status"];
     const rows = transactions.map(t => [
       t.date,
       `"${t.student_name}"`,
       t.type,
+      `"${getPaymentFrequency(t)}"`,
       t.method,
       t.amount,
       t.status
@@ -64,6 +70,7 @@ export default function TransactionHistory() {
               <th className="p-4">Date</th>
               <th className="p-4">Student</th>
               <th className="p-4">Type</th>
+              <th className="p-4">Frequency</th>
               <th className="p-4">Method</th>
               <th className="p-4">Amount</th>
               <th className="p-4">Status</th>
@@ -75,6 +82,7 @@ export default function TransactionHistory() {
                 <td className="p-4 text-sm text-slate-600">{t.date}</td>
                 <td className="p-4 font-bold text-slate-800">{t.student_name}</td>
                 <td className="p-4 text-sm">{t.type}</td>
+                <td className="p-4 text-sm text-slate-600">{getPaymentFrequency(t)}</td>
                 <td className="p-4 text-sm">{t.method}</td>
                 <td className="p-4 font-mono font-bold text-green-600">GH₵ {t.amount}</td>
                 <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${t.status === 'Confirmed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{t.status}</span></td>

@@ -322,6 +322,9 @@ export default function SubscriptionManager() {
 
   const basicPlan = plans.find((plan) => plan.name === 'Basic');
   const premiumPlan = plans.find((plan) => plan.name === 'Premium');
+  const hasTrialAccess = Boolean(sub?.trial?.active && sub?.base_plan && sub.base_plan !== sub.plan);
+  const activeAccessLabel = hasTrialAccess ? `${sub.plan_display_name || sub.plan} Trial` : (sub.plan_display_name || sub.plan);
+  const baseSubscriptionLabel = sub.base_plan_display_name || sub.base_plan || sub.plan_display_name || sub.plan;
 
   return (
     <div className="bg-linear-to-br from-slate-50 to-blue-50 min-h-screen p-8">
@@ -361,9 +364,12 @@ export default function SubscriptionManager() {
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="text-blue-600" size={20} />
-              <p className="text-xs font-bold text-slate-500 uppercase">Current Plan</p>
+              <p className="text-xs font-bold text-slate-500 uppercase">{hasTrialAccess ? 'Active Access' : 'Current Plan'}</p>
             </div>
-            <p className="text-2xl font-black text-blue-900">{sub.plan_display_name || sub.plan}</p>
+            <p className="text-2xl font-black text-blue-900">{activeAccessLabel}</p>
+            {hasTrialAccess && (
+              <p className="mt-1 text-xs font-medium text-slate-500">Base subscription: {baseSubscriptionLabel}</p>
+            )}
             <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${
               sub.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
             }`}>
@@ -448,6 +454,7 @@ export default function SubscriptionManager() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {plans.map((plan) => {
             const isCurrentPlan = sub.plan === plan.name;
+            const isBasePlan = Boolean(sub.base_plan === plan.name);
             const displayCost = billingPeriod === 'term' ? plan.termCost : plan.annualCost;
             const currentRank = PLAN_ORDER[sub.plan] ?? 0;
             const targetRank = PLAN_ORDER[plan.name] ?? 0;
@@ -474,7 +481,12 @@ export default function SubscriptionManager() {
                 )}
                 {isCurrentPlan && (
                   <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg flex items-center gap-1">
-                    <CheckCircle size={14} /> CURRENT PLAN
+                    <CheckCircle size={14} /> {hasTrialAccess ? 'ACTIVE TRIAL ACCESS' : 'CURRENT PLAN'}
+                  </div>
+                )}
+                {hasTrialAccess && isBasePlan && !isCurrentPlan && (
+                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-slate-700 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg">
+                    BASE SUBSCRIPTION
                   </div>
                 )}
 

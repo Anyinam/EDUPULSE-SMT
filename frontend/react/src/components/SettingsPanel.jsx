@@ -1333,7 +1333,9 @@ export default function SettingsPanel() {
       }));
       alert(payload.message || 'Paystack settlement account connected successfully.');
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to reconnect the Paystack settlement account.');
+      const message = err.response?.data?.message || 'Failed to reconnect the Paystack settlement account.';
+      const providerDetail = err.response?.data?.provider_detail;
+      alert(providerDetail ? `${message}\n\nDetails: ${providerDetail}` : message);
       console.error(err);
     } finally {
       setIsReconnectingPaystackSettlement(false);

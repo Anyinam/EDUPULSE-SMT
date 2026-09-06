@@ -509,6 +509,50 @@ def test_first_attendance_submission_of_new_day_resets_stale_present_flags(clien
     assert payload["absent_students"] == len(test_students) - 1
 
 
+def test_partial_attendance_counts_only_submitted_classes(client, app, db, test_school, test_proprietor, test_students):
+    other_class_student = Student(
+        school_id=test_school.id,
+        first_name="Akua",
+        surname="Other",
+        name="Akua Other",
+        student_code="S919",
+        current_class="JHS 2",
+        is_present=False,
+    )
+    db.session.add(other_class_student)
+    db.session.commit()
+
+    mark_response = client.post(
+        "/api/homeroom/attendance/batch",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+        data=json.dumps(
+            {
+                "attendance_records": [
+                    {"student_id": test_students[0].id, "status": True},
+                ],
+                "class_name": "JHS 1",
+            }
+        ),
+    )
+    assert mark_response.status_code == 200
+
+    other_class_student.is_present = True
+    db.session.add(other_class_student)
+    db.session.commit()
+
+    response = client.get(
+        "/api/headmaster/attendance-summary",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["attendance_taken_today"] is False
+    assert payload["attendance_partial"] is True
+    assert payload["present_students"] == 1
+    assert payload["submitted_classes_count"] == 1
+
+
 def test_ai_insights_avoid_misleading_new_school_alerts_before_attendance_or_payment_baseline(client, app, test_school, test_proprietor, test_students):
     response = client.get(
         "/api/proprietor/ai-insights",
@@ -993,6 +1037,61 @@ def test_students_index_uses_derived_feeding_status(client, app, db, test_school
     assert target["feeding_frequency"] is None
     assert target["feeding_pending_approval"] is True
     assert target["feeding_pending_amount"] == 5.0
+
+
+def test_transaction_history_shows_derived_feeding_frequency_for_cash_payments(client, app, db, test_school, test_proprietor):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Kojo",
+        surname="Frequency",
+        name="Kojo Frequency",
+        student_code="S944",
+        current_class="JHS 2",
+        is_present=True,
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "daily": 20.0,
+                "weekly": 100.0,
+                "monthly": 400.0,
+            }
+        }
+    }
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    record_response = client.post(
+        "/api/finance/receive-payment",
+        headers=headers,
+        data=json.dumps(
+            {
+                "student_id": student.id,
+                "amount": 100.0,
+                "type": "Feeding",
+                "method": "Cash",
+                "payment_category": {},
+            }
+        ),
+    )
+    assert record_response.status_code == 200
+
+    history_response = client.get("/api/finance/transactions", headers=headers)
+    assert history_response.status_code == 200
+    transactions = history_response.get_json()
+    target = next(item for item in transactions if item["student_code"] == "S944")
+    assert target["type"] == "Feeding"
+    assert target["feeding_frequency"] == "Weekly"
+    assert target["payment_category"]["frequency"] == "Weekly"
 
 
 def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, app, test_school, test_proprietor, monkeypatch):
@@ -2202,6 +2301,46 @@ def test_school_settings_can_reconnect_missing_paystack_subaccount_without_full_
         "/bank/resolve?account_number=1234567890&bank_code=070100",
         "/subaccount",
     ]
+
+
+def test_school_settings_reconnect_retries_without_optional_contact_fields_when_provider_rejects_them(client, app, db, test_school, test_proprietor, monkeypatch):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    test_school.bank_name = "Fidelity Bank Ghana"
+    test_school.bank_account = "1234567890"
+    test_school.bank_account_name = "EduPulse School Account"
+    test_school.school_email = "owner@example.com"
+    test_school.school_phone = "+233501234567"
+    db.session.commit()
+
+    captured_calls = []
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        captured_calls.append((endpoint, method, data))
+        if endpoint == "/bank?country=ghana&currency=GHS" and method == "GET":
+            return ([{"name": "Fidelity Bank Ghana Ltd", "code": "070100"}], None)
+        if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
+            return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
+        if endpoint == "/subaccount" and method == "POST":
+            if data.get("primary_contact_email"):
+                return (None, "Invalid value for primary_contact_email")
+            assert "primary_contact_email" not in data
+            assert "primary_contact_phone" not in data
+            return ({"subaccount_code": "SUB_retry_no_optional"}, None)
+        raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    response = client.post(
+        "/api/school/settings/paystack/reconnect",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["paystack_subaccount_code"] == "SUB_retry_no_optional"
+    subaccount_calls = [call for call in captured_calls if call[0] == "/subaccount"]
+    assert len(subaccount_calls) == 2
 
 
 def test_school_settings_subaccount_creation_omits_blank_optional_contact_fields(client, app, db, test_school, test_proprietor, monkeypatch):

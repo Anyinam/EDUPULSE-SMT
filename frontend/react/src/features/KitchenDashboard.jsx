@@ -18,10 +18,22 @@ export default function KitchenDashboard() {
         console.error("Failed to load kitchen stats");
       }
     };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        fetchStats();
+      }
+    };
+
     fetchStats();
-    // Refresh every 5 minutes
-    const interval = setInterval(fetchStats, 300000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchStats, 30000);
+    window.addEventListener('focus', fetchStats);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchStats);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+    };
   }, []);
 
   if (!stats) return <div className="p-8">Loading Kitchen Data...</div>;

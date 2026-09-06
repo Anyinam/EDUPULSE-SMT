@@ -24,6 +24,13 @@ import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import RescueActivityCenter from './RescueActivityCenter';
 import SchoolCompliancePanel from '../components/SchoolCompliancePanel';
+import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+
+const PLAN_DISPLAY_NAMES = {
+  'Free Tier': 'Free',
+  Basic: 'School OS',
+  Premium: 'School OS Plus'
+};
 
 export default function ProprietorPanel() {
   // Use React Router's useSearchParams hook to properly handle query parameters
@@ -45,7 +52,19 @@ export default function ProprietorPanel() {
   const [processingPaymentId, setProcessingPaymentId] = useState(null);
   const [bulkApprovingClass, setBulkApprovingClass] = useState('');
   const { branding } = useBranding();
-  const plan = localStorage.getItem('subscription_plan') || 'Free Tier';
+  const {
+    plan: effectivePlan,
+    planDisplayName: effectivePlanDisplayName,
+    basePlan,
+    basePlanDisplayName,
+    loading: loadingPlan,
+    trial,
+  } = useEffectiveSubscriptionPlan();
+  const plan = effectivePlan || 'Free Tier';
+  const planDisplayName = effectivePlanDisplayName || PLAN_DISPLAY_NAMES[plan] || plan;
+  const resolvedBasePlan = basePlan || plan;
+  const resolvedBasePlanDisplayName = basePlanDisplayName || PLAN_DISPLAY_NAMES[resolvedBasePlan] || resolvedBasePlan;
+  const showingTrialAccess = Boolean(trial?.active && resolvedBasePlan !== plan);
 
   const fetchRiskData = async () => {
     try {
@@ -269,9 +288,12 @@ export default function ProprietorPanel() {
                 : 'Dashboard loading...'}
             </p>
           </div>
-          <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-indigo-200">
-            <span className="text-xs font-bold text-indigo-500 uppercase">Plan</span>
-            <p className="text-lg font-black text-indigo-700">{plan}</p>
+          <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-indigo-200 min-w-44">
+            <span className="text-xs font-bold text-indigo-500 uppercase">{showingTrialAccess ? 'Active Access' : 'Plan'}</span>
+            <p className="text-lg font-black text-indigo-700">{loadingPlan ? 'Loading...' : showingTrialAccess ? `${planDisplayName} Trial` : planDisplayName}</p>
+            {!loadingPlan && showingTrialAccess && (
+              <p className="text-[11px] font-medium text-slate-500">Base subscription: {resolvedBasePlanDisplayName}</p>
+            )}
           </div>
         </header>
 

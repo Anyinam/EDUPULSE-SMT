@@ -6,6 +6,9 @@ export default function useEffectiveSubscriptionPlan() {
   const [plan, setPlan] = useState(fallbackPlan);
   const [loading, setLoading] = useState(true);
   const [trial, setTrial] = useState(null);
+  const [planDisplayName, setPlanDisplayName] = useState(fallbackPlan);
+  const [basePlan, setBasePlan] = useState(fallbackPlan);
+  const [basePlanDisplayName, setBasePlanDisplayName] = useState(fallbackPlan);
 
   const headers = useMemo(() => ({
     Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -24,10 +27,16 @@ export default function useEffectiveSubscriptionPlan() {
         const effectivePlan = response.data?.effective_plan || response.data?.plan || fallbackPlan;
         setPlan(effectivePlan);
         setTrial(response.data?.trial || null);
+        setPlanDisplayName(response.data?.plan_display_name || effectivePlan);
+        setBasePlan(response.data?.base_plan || effectivePlan);
+        setBasePlanDisplayName(response.data?.base_plan_display_name || response.data?.base_plan || effectivePlan);
         localStorage.setItem('subscription_plan', effectivePlan);
       } catch (error) {
         if (!cancelled) {
           setPlan(fallbackPlan);
+          setPlanDisplayName(fallbackPlan);
+          setBasePlan(fallbackPlan);
+          setBasePlanDisplayName(fallbackPlan);
         }
       } finally {
         if (!cancelled) {
@@ -45,6 +54,9 @@ export default function useEffectiveSubscriptionPlan() {
 
   return {
     plan,
+    planDisplayName,
+    basePlan,
+    basePlanDisplayName,
     isPremium: plan === 'Premium',
     loading,
     trial,
