@@ -3310,8 +3310,8 @@ def test_payment_codes_return_reference_first_amounts_without_convenience_fee(cl
     assert payload["school_payment_account"]["bank_account"] == "1234567890"
     assert payload["school_payment_account"]["bank_account_name"] == "EduPulse School Account"
     assert payload["school_payment_account"]["bank_branch"] == "Kumasi Main"
-    assert "amount to pay for this fee is gh₵ 100.00" in tuition_code["instructions"].lower()
-    assert "structured reference" in payload["note"].lower()
+    assert "pay gh₵ 100.00 and enter reference s0011 exactly as shown" in tuition_code["instructions"].lower()
+    assert "keep the exact reference" in payload["note"].lower()
 
 
 def test_student_payment_code_can_generate_tracked_transfer_account(client, app, test_school, test_proprietor, test_students, monkeypatch):
