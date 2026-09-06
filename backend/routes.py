@@ -7239,23 +7239,11 @@ def get_students_by_class(class_name):
     students = Student.query.filter_by(
         school_id=g.school_id, current_class=class_name
     ).all()
+    feeding_status_details = _get_feeding_status_details_for_students(students, g.school_id)
 
     results = []
     for s in students:
-        payment_method = None
-        if s.feeding_paid:
-            last_payment = (
-                Payment.query.filter_by(
-                    student_id=s.id,
-                    school_id=g.school_id,
-                    payment_type="Feeding",
-                    status="Confirmed",
-                )
-                .order_by(Payment.date_paid.desc())
-                .first()
-            )
-            if last_payment:
-                payment_method = last_payment.method
+        feeding_status = feeding_status_details.get(s.id, {})
 
         results.append(
             {
@@ -7264,8 +7252,11 @@ def get_students_by_class(class_name):
                 "student_code": s.student_code,
                 "current_class": s.current_class,
                 "parent_email": s.parent_email,
-                "feeding_paid": s.feeding_paid,
-                "payment_method": payment_method,
+                "feeding_paid": bool(feeding_status.get("covered")),
+                "payment_method": feeding_status.get("payment_method"),
+                "feeding_coverage_until": feeding_status.get("coverage_until"),
+                "feeding_days_remaining": feeding_status.get("days_remaining"),
+                "feeding_frequency": feeding_status.get("frequency"),
                 "is_present": s.is_present,
                 "date_of_birth": s.date_of_birth.isoformat() if s.date_of_birth else None,
                 "age": s.age,
@@ -8589,6 +8580,152 @@ def _extract_transaction_reference_from_notice_text(message_text, matched_refere
     return None
 
 
+def _normalize_feeding_frequency(payment_category, feeding_plan_fees):
+    raw_frequency = sanitize_string((payment_category or {}).get("frequency") or "") or ""
+    normalized_frequency = raw_frequency.lower()
+    if normalized_frequency == "daily":
+        return "Daily"
+    if normalized_frequency == "weekly":
+        return "Weekly"
+    if normalized_frequency == "monthly":
+        return "Monthly"
+
+    if float(feeding_plan_fees.get("monthly") or 0) > 0:
+        return "Monthly"
+    if float(feeding_plan_fees.get("weekly") or 0) > 0:
+        return "Weekly"
+    return "Daily"
+
+
+def _resolve_feeding_plan_rate(feeding_plan_fees, frequency):
+    if frequency == "Monthly":
+        return float(feeding_plan_fees.get("monthly") or feeding_plan_fees.get("primary") or 0)
+    if frequency == "Weekly":
+        return float(feeding_plan_fees.get("weekly") or feeding_plan_fees.get("primary") or 0)
+    return float(feeding_plan_fees.get("daily") or feeding_plan_fees.get("primary") or 0)
+
+
+def _end_of_calendar_month(target_date):
+    if target_date.month == 12:
+        next_month_start = date(target_date.year + 1, 1, 1)
+    else:
+        next_month_start = date(target_date.year, target_date.month + 1, 1)
+    return next_month_start - timedelta(days=1)
+
+
+def _calculate_feeding_coverage_units(payment, feeding_plan_fees):
+    frequency = _normalize_feeding_frequency(payment.payment_category or {}, feeding_plan_fees)
+    plan_rate = _resolve_feeding_plan_rate(feeding_plan_fees, frequency)
+    amount_paid = float(payment.amount or 0)
+
+    if amount_paid <= 0:
+        return 0, frequency
+
+    if plan_rate > 0:
+        purchased_units = int((amount_paid + 1e-9) // plan_rate)
+        if purchased_units <= 0:
+            return 0, frequency
+        return purchased_units, frequency
+
+    return 1, frequency
+
+
+def _calculate_feeding_coverage_end_date(start_date, purchased_units, frequency):
+    if purchased_units <= 0:
+        return None
+
+    if frequency == "Daily":
+        return start_date + timedelta(days=purchased_units - 1)
+
+    if frequency == "Weekly":
+        return start_date + timedelta(days=(purchased_units * 7) - 1)
+
+    end_date = _end_of_calendar_month(start_date)
+    for _ in range(1, purchased_units):
+        end_date = _end_of_calendar_month(end_date + timedelta(days=1))
+    return end_date
+
+
+def _get_feeding_status_details_for_students(students, school_id, as_of_date=None):
+    student_list = [student for student in (students or []) if student is not None]
+    if not student_list:
+        return {}
+
+    as_of_date = as_of_date or datetime.now(timezone.utc).date()
+    student_ids = [student.id for student in student_list if getattr(student, "id", None) is not None]
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    feeding_plan_fees = _get_feeding_plan_fees(settings)
+
+    payments = []
+    if student_ids:
+        payments = (
+            Payment.query.filter(
+                Payment.school_id == school_id,
+                Payment.payment_type == "Feeding",
+                Payment.student_id.in_(student_ids),
+                Payment.status.in_(["Pending", "Confirmed"]),
+            )
+            .order_by(Payment.date_paid.asc(), Payment.created_at.asc(), Payment.id.asc())
+            .all()
+        )
+
+    payments_by_student = {}
+    for payment in payments:
+        payments_by_student.setdefault(payment.student_id, []).append(payment)
+
+    details = {}
+    for student in student_list:
+        if bool(getattr(student, "scholarship_covers_feeding", False)):
+            details[student.id] = {
+                "covered": True,
+                "payment_method": "Scholarship",
+                "coverage_until": None,
+                "days_remaining": None,
+                "frequency": "Scholarship",
+            }
+            continue
+
+        covered = False
+        payment_method = None
+        coverage_until = None
+        days_remaining = 0
+        active_frequency = None
+        rolling_coverage_end = None
+
+        for payment in payments_by_student.get(student.id, []):
+            purchased_units, frequency = _calculate_feeding_coverage_units(payment, feeding_plan_fees)
+            if purchased_units <= 0:
+                continue
+
+            payment_date = (payment.date_paid or payment.created_at or datetime.now(timezone.utc)).date()
+            start_date = payment_date
+            if rolling_coverage_end and start_date <= rolling_coverage_end:
+                start_date = rolling_coverage_end + timedelta(days=1)
+
+            end_date = _calculate_feeding_coverage_end_date(start_date, purchased_units, frequency)
+            if end_date is None:
+                continue
+            rolling_coverage_end = end_date
+
+            if start_date <= as_of_date <= end_date:
+                covered = True
+                payment_method = payment.method
+                coverage_until = end_date.isoformat()
+                days_remaining = (end_date - as_of_date).days + 1
+                active_frequency = frequency
+                break
+
+        details[student.id] = {
+            "covered": covered,
+            "payment_method": payment_method,
+            "coverage_until": coverage_until,
+            "days_remaining": days_remaining,
+            "frequency": active_frequency,
+        }
+
+    return details
+
+
 def _apply_confirmed_payment_effects(payment, student, actor_id):
     if payment.payment_type == "Tuition":
         student.total_tuition_owed = max(0, student.total_tuition_owed - float(payment.amount))
@@ -9124,8 +9261,20 @@ def _call_paystack_api(endpoint, method="GET", data=None):
             response = requests.put(url, json=data, headers=headers, timeout=30)
         else:
             response = requests.get(url, headers=headers, timeout=30)
-        
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            provider_message = ""
+            try:
+                error_payload = response.json()
+                provider_message = str(error_payload.get("message") or "").strip()
+            except ValueError:
+                provider_message = response.text.strip()
+            error_detail = provider_message or response.text.strip() or f"HTTP {response.status_code}"
+            raise requests.exceptions.HTTPError(
+                f"{response.status_code} {error_detail}",
+                response=response,
+            )
+
         result = response.json()
         
         if result.get("status") is True:
@@ -9269,7 +9418,7 @@ def _provision_school_paystack_subaccount(school, settings, provider_settings):
 
     payload = {
         "business_name": school.name,
-        "settlement_bank": bank_match["bank_code"],
+        "bank_code": bank_match["bank_code"],
         "account_number": bank_account,
         "percentage_charge": 0,
         "description": f"EduPulse settlement account for {school.name}",
@@ -12276,9 +12425,15 @@ def get_ai_insights():
         # 4. At-Risk Students (Feeding not paid but present)
         at_risk_students = 0
         if attendance_taken_today:
-            at_risk_students = Student.query.filter_by(
-                school_id=g.school_id, is_present=True, feeding_paid=False
-            ).count()
+            present_students = Student.query.filter_by(
+                school_id=g.school_id, is_present=True
+            ).all()
+            feeding_status_details = _get_feeding_status_details_for_students(present_students, g.school_id)
+            at_risk_students = sum(
+                1
+                for student in present_students
+                if not feeding_status_details.get(student.id, {}).get("covered")
+            )
 
         if at_risk_students > 5:
             alerts.append(
@@ -14160,24 +14315,25 @@ def kitchen_dashboard():
         stats = []
         total_students_present = 0
         total_feeding_paid = 0
+        students = Student.query.filter_by(school_id=g.school_id).all()
+        feeding_status_details = _get_feeding_status_details_for_students(students, g.school_id)
+        students_by_class = {}
+        for student in students:
+            students_by_class.setdefault(student.current_class or "Unassigned", []).append(student)
 
         today = datetime.now(timezone.utc).date()
         is_holiday, holiday_name = _get_holiday_status(g.school_id, today)
 
         for grade in VALID_GRADES:
             try:
-                # Count present students in this class
-                present_count = Student.query.filter_by(
-                    school_id=g.school_id, current_class=grade, is_present=True
-                ).count()
-
-                # Count how many of those present have paid feeding
-                paid_count = Student.query.filter_by(
-                    school_id=g.school_id,
-                    current_class=grade,
-                    is_present=True,
-                    feeding_paid=True,
-                ).count()
+                class_students = students_by_class.get(grade, [])
+                present_students = [student for student in class_students if student.is_present]
+                present_count = len(present_students)
+                paid_count = sum(
+                    1
+                    for student in present_students
+                    if feeding_status_details.get(student.id, {}).get("covered")
+                )
 
                 if present_count > 0:
                     stats.append(
@@ -14664,9 +14820,13 @@ def log_academic_work():
 @jwt_required()
 def get_canteen_count():
     """Zero-waste logic for daily meals."""
-    student_meals = Student.query.filter_by(
-        school_id=g.school_id, is_present=True, feeding_paid=True
-    ).count()
+    present_students = Student.query.filter_by(
+        school_id=g.school_id, is_present=True
+    ).all()
+    feeding_status_details = _get_feeding_status_details_for_students(present_students, g.school_id)
+    student_meals = sum(
+        1 for student in present_students if feeding_status_details.get(student.id, {}).get("covered")
+    )
     staff_meals = (
         User.query.filter_by(school_id=g.school_id)
         .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
@@ -14718,6 +14878,7 @@ def get_proprietor_students():
     students = (
         Student.query.filter_by(school_id=g.school_id).order_by(Student.name).all()
     )
+    feeding_status_details = _get_feeding_status_details_for_students(students, g.school_id)
     return jsonify(
         [
             {
@@ -14730,7 +14891,7 @@ def get_proprietor_students():
                 "parent_name": s.parent_name,
                 "parent_email": s.parent_email,
                 "parent_phone": s.parent_phone,
-                "feeding_paid": s.feeding_paid,
+                "feeding_paid": bool(feeding_status_details.get(s.id, {}).get("covered")),
                 "is_present": s.is_present,
                 "date_of_birth": s.date_of_birth.isoformat() if s.date_of_birth else None,
                 "age": s.age,

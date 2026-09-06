@@ -1442,6 +1442,9 @@ export default function SettingsPanel() {
             <option value="NE">Niger</option>
             <option value="CV">Cape Verde</option>
           </select>
+          <p className="mt-2 text-xs text-slate-500">
+            National holidays come from this country setting. Schools should still add their own closure dates separately so feeding, attendance, and meal planning follow the real school calendar.
+          </p>
         </div>
 
         <div>

@@ -5,7 +5,7 @@ import hashlib
 import hmac
 from io import BytesIO
 from types import SimpleNamespace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from reportlab.pdfgen import canvas
 
@@ -694,6 +694,264 @@ def test_proprietor_can_bulk_confirm_pending_payments_for_class(client, app, tes
     assert refreshed_two.verified_by == test_proprietor.id
     assert updated_student_one.total_tuition_owed == 350.0
     assert updated_student_two.feeding_paid is True
+
+
+def test_students_by_class_treat_pending_daily_feeding_cash_as_paid(client, app, test_school):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    homeroom_teacher = User(
+        username="homeroom_feed_pending",
+        school_id=test_school.id,
+        role="homeroom",
+        roles=["homeroom"],
+        email="homeroom-feed-pending@test.edu",
+        assigned_class="JHS 1",
+    )
+    homeroom_teacher.set_password("HomeroomPass123")
+    student = Student(
+        school_id=test_school.id,
+        first_name="Ama",
+        surname="Pending",
+        name="Ama Pending",
+        student_code="S940",
+        current_class="JHS 1",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add_all([homeroom_teacher, student])
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "daily": 5.0,
+                "weekly": 20.0,
+                "monthly": 80.0,
+            }
+        }
+    }
+    db.session.add(
+        Payment(
+            student_id=student.id,
+            school_id=test_school.id,
+            created_by_user_id=homeroom_teacher.id,
+            amount=5.0,
+            payment_type="Feeding",
+            method="Cash",
+            status="Pending",
+            payment_category={"frequency": "Daily"},
+            date_paid=datetime.now(timezone.utc),
+        )
+    )
+    db.session.commit()
+
+    headers = _homeroom_headers(app, test_school.id, homeroom_teacher.id)
+    response = client.get("/api/students/by-class/JHS 1", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    target = next(item for item in payload if item["student_code"] == "S940")
+    assert target["feeding_paid"] is True
+    assert target["payment_method"] == "Cash"
+    assert target["feeding_frequency"] == "Daily"
+
+
+def test_students_by_class_expires_daily_feeding_once_coverage_is_used(client, app, test_school):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    homeroom_teacher = User(
+        username="homeroom_feed_expired",
+        school_id=test_school.id,
+        role="homeroom",
+        roles=["homeroom"],
+        email="homeroom-feed-expired@test.edu",
+        assigned_class="JHS 1",
+    )
+    homeroom_teacher.set_password("HomeroomPass123")
+    student = Student(
+        school_id=test_school.id,
+        first_name="Kojo",
+        surname="Expired",
+        name="Kojo Expired",
+        student_code="S941",
+        current_class="JHS 1",
+        is_present=True,
+        feeding_paid=True,
+    )
+    db.session.add_all([homeroom_teacher, student])
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "daily": 5.0,
+            }
+        }
+    }
+    db.session.add(
+        Payment(
+            student_id=student.id,
+            school_id=test_school.id,
+            created_by_user_id=homeroom_teacher.id,
+            amount=5.0,
+            payment_type="Feeding",
+            method="Bank_Auto",
+            status="Confirmed",
+            payment_category={"frequency": "Daily"},
+            date_paid=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+    )
+    db.session.commit()
+
+    headers = _homeroom_headers(app, test_school.id, homeroom_teacher.id)
+    response = client.get("/api/students/by-class/JHS 1", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    target = next(item for item in payload if item["student_code"] == "S941")
+    assert target["feeding_paid"] is False
+
+
+def test_students_by_class_monthly_feeding_uses_calendar_month_boundaries(client, app, test_school):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    homeroom_teacher = User(
+        username="homeroom_feed_month_boundary",
+        school_id=test_school.id,
+        role="homeroom",
+        roles=["homeroom"],
+        email="homeroom-feed-month-boundary@test.edu",
+        assigned_class="JHS 1",
+    )
+    homeroom_teacher.set_password("HomeroomPass123")
+    student = Student(
+        school_id=test_school.id,
+        first_name="Akua",
+        surname="MonthBoundary",
+        name="Akua MonthBoundary",
+        student_code="S942",
+        current_class="JHS 1",
+        is_present=True,
+        feeding_paid=True,
+    )
+    db.session.add_all([homeroom_teacher, student])
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "monthly": 80.0,
+            }
+        }
+    }
+
+    today = datetime.now(timezone.utc).date()
+    if today.month == 1:
+        payment_date = date(today.year - 1, 12, 15)
+    else:
+        payment_date = date(today.year, today.month - 1, 15)
+
+    db.session.add(
+        Payment(
+            student_id=student.id,
+            school_id=test_school.id,
+            created_by_user_id=homeroom_teacher.id,
+            amount=80.0,
+            payment_type="Feeding",
+            method="Bank_Auto",
+            status="Confirmed",
+            payment_category={"frequency": "Monthly"},
+            date_paid=datetime.combine(payment_date, datetime.min.time(), tzinfo=timezone.utc),
+        )
+    )
+    db.session.commit()
+
+    headers = _homeroom_headers(app, test_school.id, homeroom_teacher.id)
+    response = client.get("/api/students/by-class/JHS 1", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    target = next(item for item in payload if item["student_code"] == "S942")
+    assert target["feeding_paid"] is False
+
+
+def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, app, test_school, test_proprietor):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    covered_student = Student(
+        school_id=test_school.id,
+        first_name="Efua",
+        surname="Covered",
+        name="Efua Covered",
+        student_code="S950",
+        current_class="Primary 4",
+        is_present=True,
+        feeding_paid=False,
+    )
+    unpaid_student = Student(
+        school_id=test_school.id,
+        first_name="Yaw",
+        surname="Unpaid",
+        name="Yaw Unpaid",
+        student_code="S951",
+        current_class="Primary 4",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add_all([covered_student, unpaid_student])
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "daily": 5.0,
+                "weekly": 20.0,
+                "monthly": 80.0,
+            }
+        }
+    }
+    db.session.add(
+        Payment(
+            student_id=covered_student.id,
+            school_id=test_school.id,
+            created_by_user_id=test_proprietor.id,
+            amount=20.0,
+            payment_type="Feeding",
+            method="USSD_Auto",
+            status="Confirmed",
+            payment_category={"frequency": "Weekly"},
+            date_paid=datetime.now(timezone.utc),
+        )
+    )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/canteen/daily-count", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    staff_meals = (
+        User.query.filter_by(school_id=test_school.id)
+        .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
+        .count()
+    )
+    assert payload["total_meals"] == staff_meals + 1
 
 
 def test_finance_dashboard_groups_pending_payments_and_exposes_recorder_metadata(client, app, test_school):
@@ -1647,7 +1905,7 @@ def test_school_settings_auto_create_paystack_subaccount_from_bank_details(clien
         if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
             return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
         if endpoint == "/subaccount" and method == "POST":
-            assert data["settlement_bank"] == "070100"
+            assert data["bank_code"] == "070100"
             assert data["account_number"] == "1234567890"
             return ({"subaccount_code": "SUB_test123"}, None)
         raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")

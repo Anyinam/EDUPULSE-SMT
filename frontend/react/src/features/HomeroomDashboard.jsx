@@ -49,6 +49,20 @@ export default function Homeroom() {
     setStudents(prev => prev.map(s => s.id === studentId ? { ...s, is_present: status } : s));
   };
 
+  const handleSelectAllPresent = () => {
+    const nextChanges = {};
+    for (const student of students) {
+      nextChanges[student.id] = true;
+    }
+    setAttendanceChanges(nextChanges);
+    setStudents(prev => prev.map((student) => ({ ...student, is_present: true })));
+  };
+
+  const handleClearAttendanceDraft = () => {
+    setAttendanceChanges({});
+    setStudents(prev => prev.map((student) => ({ ...student, is_present: false })));
+  };
+
   const handleSaveAttendance = async () => {
     const changesArray = Object.entries(attendanceChanges).map(([studentId, status]) => ({
       student_id: parseInt(studentId),
@@ -84,7 +98,8 @@ export default function Homeroom() {
         student_id: student.id,
         amount: 5.0,
         type: 'Feeding',
-        method: 'Cash'
+        method: 'Cash',
+        payment_category: { frequency: 'Daily' }
       }, getAuthHeaders());
       
       // Update local state
@@ -132,13 +147,29 @@ export default function Homeroom() {
               <div className="p-6 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold text-slate-700">Class Roster: Attendance & Feeding <span className="ml-2 text-sm font-normal text-slate-500">(Class Size: {students.length})</span></h3>
-                  <button
-                    onClick={handleSaveAttendance}
-                    disabled={savingAttendance || Object.keys(attendanceChanges).length === 0}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {savingAttendance ? 'Saving...' : `Save Attendance ${Object.keys(attendanceChanges).length > 0 ? `(${Object.keys(attendanceChanges).length})` : ''}`}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleSelectAllPresent}
+                      disabled={savingAttendance || students.length === 0}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Select All Present
+                    </button>
+                    <button
+                      onClick={handleClearAttendanceDraft}
+                      disabled={savingAttendance || students.length === 0}
+                      className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-semibold hover:bg-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Clear Draft
+                    </button>
+                    <button
+                      onClick={handleSaveAttendance}
+                      disabled={savingAttendance || Object.keys(attendanceChanges).length === 0}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {savingAttendance ? 'Saving...' : `Save Attendance ${Object.keys(attendanceChanges).length > 0 ? `(${Object.keys(attendanceChanges).length})` : ''}`}
+                    </button>
+                  </div>
                 </div>
               </div>
               <table className="w-full text-left">
