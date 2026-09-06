@@ -14,6 +14,11 @@ describe('PerformanceAnalytics', () => {
     localStorage.setItem('school_id', 'TEST-001');
     localStorage.setItem('subscription_plan', 'Premium');
 
+    const schoolClasses = [
+      { class_name: 'JHS 1' },
+      { class_name: 'JHS 2' },
+    ];
+
     const boardViewPreset = {
       name: 'Board View',
       filters: {
@@ -39,6 +44,10 @@ describe('PerformanceAnalytics', () => {
     };
 
     axios.get.mockImplementation((url) => {
+      if (url === '/api/school/classes') {
+        return Promise.resolve({ data: schoolClasses });
+      }
+
       if (url === '/api/analytics/presets') {
         return Promise.resolve({
           data: {

@@ -68,7 +68,7 @@ describe('StaffManagement', () => {
 
     expect(window.confirm).toHaveBeenCalled();
     expect(window.alert).toHaveBeenCalledWith(
-      'Staff invite resent successfully. Invite created, but the welcome email could not be delivered right now.'
+      'Staff invite email could not be delivered right now. The previous login credentials remain unchanged.'
     );
   });
-          'Staff invite email could not be delivered right now. The previous login credentials remain unchanged.'
+});
