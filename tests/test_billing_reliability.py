@@ -156,8 +156,9 @@ def test_admission_blocks_billable_growth_without_saved_card_coverage(
     from backend.api.models import Student
 
     monkeypatch.setattr("backend.routes.get_plan_limits", lambda _plan_name: 200)
+    test_school.subscription_plan = "Basic"
 
-    for index in range(30):
+    for index in range(51):
         db.session.add(
             Student(
                 school_id=test_school.id,
@@ -198,6 +199,8 @@ def test_unsubscribe_auto_billing_blocks_when_school_is_above_included_students(
 ):
     from backend.api.models import PlatformSetting, Student
 
+    test_school.subscription_plan = "Basic"
+
     db.session.add(
         PlatformSetting(
             setting_key=f"auto_billing:{test_school.id}",
@@ -219,7 +222,7 @@ def test_unsubscribe_auto_billing_blocks_when_school_is_above_included_students(
             },
         )
     )
-    for index in range(31):
+    for index in range(51):
         db.session.add(
             Student(
                 school_id=test_school.id,
@@ -253,6 +256,8 @@ def test_remove_last_saved_card_blocks_when_school_is_above_included_students(
 ):
     from backend.api.models import PlatformSetting, Student
 
+    test_school.subscription_plan = "Basic"
+
     db.session.add(
         PlatformSetting(
             setting_key=f"auto_billing:{test_school.id}",
@@ -274,7 +279,7 @@ def test_remove_last_saved_card_blocks_when_school_is_above_included_students(
             },
         )
     )
-    for index in range(31):
+    for index in range(51):
         db.session.add(
             Student(
                 school_id=test_school.id,
@@ -451,7 +456,7 @@ def test_paystack_initialize_prorates_post_trial_free_tier_conversion(
     assert proration_data.get("days_in_period") == 60
     assert proration_data.get("next_billing_date_override")
 
-    expected_term_cost = 360 + (5 * 12)
+    expected_term_cost = 300
     expected_prorated_cost = expected_term_cost * (16 / 60)
     assert metadata.get("amount_cedis") == pytest.approx(expected_prorated_cost, rel=0, abs=0.01)
     assert captured["amount_cents"] == int(expected_prorated_cost * 100)
@@ -1409,9 +1414,11 @@ def test_prorated_admission_charge_uses_fixed_120_days(client, app, db, test_sch
         )
         db.session.add(term)
 
-        # Ensure exactly 30 active students so the 31st triggers overage.
+        test_school.subscription_plan = "Basic"
+
+        # Ensure exactly 50 active students so the 51st triggers overage.
         existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
-        to_add = max(0, 30 - existing)
+        to_add = max(0, 50 - existing)
         for idx in range(to_add):
             db.session.add(
                 Student(
@@ -1440,7 +1447,7 @@ def test_prorated_admission_charge_uses_fixed_120_days(client, app, db, test_sch
 
         # remaining_days = 61 (inclusive) when end_date = today+60
         days_in_term = meta.get("days_in_term")
-        expected = round((61 / float(days_in_term)) * 12, 2)
+        expected = round((61 / float(days_in_term)) * 7, 2)
         assert entry.amount == expected
 
 
@@ -1463,9 +1470,9 @@ def test_prorated_admission_charge_uses_actual_term_length(client, app, db, test
         )
         db.session.add(term)
 
-        # Set exactly 30 students so first overage scenario can be checked
+        # Set exactly 100 students so the next admission exceeds Premium included seats.
         existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
-        to_add = max(0, 30 - existing)
+        to_add = max(0, 100 - existing)
         for idx in range(to_add):
             db.session.add(
                 Student(
@@ -1547,6 +1554,7 @@ def test_prorated_admission_charge_reuses_same_term_vacated_seat(client, app, db
 
     with app.app_context():
         today = date.today()
+        test_school.subscription_plan = "Basic"
         term = AcademicTerm(
             school_id=test_school.id,
             name="Term 1",
@@ -1558,7 +1566,7 @@ def test_prorated_admission_charge_reuses_same_term_vacated_seat(client, app, db
         )
         db.session.add(term)
 
-        for idx in range(31):
+        for idx in range(51):
             db.session.add(
                 Student(
                     school_id=test_school.id,
@@ -1581,7 +1589,7 @@ def test_prorated_admission_charge_reuses_same_term_vacated_seat(client, app, db
             test_school,
             1,
             "Basic",
-            pre_admission_active_students=30,
+            pre_admission_active_students=50,
         )
 
         assert result["prorated_charge"] == 0.0
@@ -1602,6 +1610,7 @@ def test_admission_route_creates_single_overage_invoice_with_correct_baseline(
     from backend.api.models import AcademicTerm, LedgerEntry, PlatformSetting, Student
 
     with app.app_context():
+        test_school.subscription_plan = "Basic"
         db.session.add(
             PlatformSetting(
                 setting_key=f"auto_billing:{test_school.id}",
@@ -1634,7 +1643,7 @@ def test_admission_route_creates_single_overage_invoice_with_correct_baseline(
         db.session.add(term)
 
         existing = Student.query.filter_by(school_id=test_school.id, status="Active").count()
-        to_add = max(0, 30 - existing)
+        to_add = max(0, 50 - existing)
         for idx in range(to_add):
             db.session.add(
                 Student(
