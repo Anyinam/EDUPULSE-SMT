@@ -33,6 +33,12 @@ export default function KitchenDashboard() {
         <p className="text-orange-700 font-medium">Daily Feeding Overview</p>
       </header>
 
+      {!stats.summary.attendance_taken_today && !stats.summary.is_holiday && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 font-semibold text-amber-900">
+          Attendance pending: student meal counts will update after homeroom attendance is submitted for today.
+        </div>
+      )}
+
       {stats.summary.is_holiday && (
         <div className="mb-6 p-4 rounded-2xl border border-red-200 bg-red-50 text-red-800 font-semibold">
           📅 Holiday Today: {stats.summary.holiday_name || 'National Holiday'} — Meals are not required.

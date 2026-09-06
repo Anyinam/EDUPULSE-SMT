@@ -24,6 +24,35 @@ const formatDate = (value) => {
   return date.toLocaleDateString();
 };
 
+const getFeedingStatusLabel = (student) => {
+  if (!student?.feeding_paid) {
+    return 'Outstanding';
+  }
+  if (student.feeding_frequency === 'Scholarship') {
+    return 'Scholarship';
+  }
+  if (student.feeding_frequency) {
+    return `${student.feeding_frequency} covered`;
+  }
+  return 'Paid up';
+};
+
+const getFeedingStatusMeta = (student) => {
+  if (!student?.feeding_paid) {
+    return null;
+  }
+  if (student.payment_method && student.payment_method !== 'Scholarship') {
+    if (student.feeding_coverage_until) {
+      return `${student.payment_method} until ${formatDate(student.feeding_coverage_until)}`;
+    }
+    return student.payment_method;
+  }
+  if (student.feeding_coverage_until) {
+    return `Until ${formatDate(student.feeding_coverage_until)}`;
+  }
+  return null;
+};
+
 const getInitials = (name) => {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return 'ST';
@@ -376,7 +405,7 @@ export default function StudentsRegistry() {
       student.guardian_name,
       student.parent_email,
       student.parent_phone,
-      student.feeding_paid ? 'Yes' : 'No',
+      getFeedingStatusLabel(student),
       student.is_present ? 'Yes' : 'No'
     ]);
 
@@ -486,9 +515,14 @@ export default function StudentsRegistry() {
                   <td className="p-3 text-slate-600">{student.parent_email || '-'}</td>
                   <td className="p-3 text-slate-600">{student.parent_phone || '-'}</td>
                   <td className="p-3">
-                    <span className={student.feeding_paid ? 'text-emerald-600 font-semibold' : 'text-rose-500 font-semibold'}>
-                      {student.feeding_paid ? 'Yes' : 'No'}
-                    </span>
+                    <div>
+                      <span className={student.feeding_paid ? 'text-emerald-600 font-semibold' : 'text-rose-500 font-semibold'}>
+                        {getFeedingStatusLabel(student)}
+                      </span>
+                      {getFeedingStatusMeta(student) ? (
+                        <p className="mt-1 text-xs text-slate-500">{getFeedingStatusMeta(student)}</p>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="p-3">
                     <span className={student.is_present ? 'text-emerald-600 font-semibold' : 'text-slate-400 font-semibold'}>
@@ -750,7 +784,10 @@ export default function StudentsRegistry() {
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Feeding Status</p>
-                      <p className="mt-2 text-lg font-black text-slate-900">{profileStudent.feeding_paid ? 'Paid up' : 'Outstanding'}</p>
+                      <p className="mt-2 text-lg font-black text-slate-900">{getFeedingStatusLabel(profileStudent)}</p>
+                      {getFeedingStatusMeta(profileStudent) ? (
+                        <p className="mt-1 text-sm text-slate-500">{getFeedingStatusMeta(profileStudent)}</p>
+                      ) : null}
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Scholarship</p>

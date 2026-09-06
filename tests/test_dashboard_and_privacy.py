@@ -458,6 +458,44 @@ def test_marking_attendance_updates_daily_summary_state(client, app, test_school
     assert payload["attendance_percentage"] == 40.0
 
 
+def test_first_attendance_submission_of_new_day_resets_stale_present_flags(client, app, db, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    for student in test_students:
+        student.is_present = True
+    settings.attendance_last_marked_at = datetime.now(timezone.utc) - timedelta(days=1)
+    db.session.commit()
+
+    mark_response = client.post(
+        "/api/homeroom/attendance/batch",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+        data=json.dumps(
+            {
+                "attendance_records": [
+                    {"student_id": test_students[0].id, "status": True},
+                ]
+            }
+        ),
+    )
+
+    assert mark_response.status_code == 200
+
+    response = client.get(
+        "/api/headmaster/attendance-summary",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["attendance_taken_today"] is True
+    assert payload["present_students"] == 1
+    assert payload["absent_students"] == len(test_students) - 1
+
+
 def test_ai_insights_avoid_misleading_new_school_alerts_before_attendance_or_payment_baseline(client, app, test_school, test_proprietor, test_students):
     response = client.get(
         "/api/proprietor/ai-insights",
@@ -887,6 +925,59 @@ def test_students_by_class_monthly_feeding_uses_calendar_month_boundaries(client
     assert target["feeding_paid"] is False
 
 
+def test_students_index_uses_derived_feeding_status(client, app, db, test_school, test_proprietor):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Abena",
+        surname="Registry",
+        name="Abena Registry",
+        student_code="S943",
+        current_class="JHS 2",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "daily": 5.0,
+            }
+        }
+    }
+    db.session.add(
+        Payment(
+            student_id=student.id,
+            school_id=test_school.id,
+            created_by_user_id=test_proprietor.id,
+            amount=5.0,
+            payment_type="Feeding",
+            method="Cash",
+            status="Pending",
+            payment_category={"frequency": "Daily"},
+            date_paid=datetime.now(timezone.utc),
+        )
+    )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/students", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    target = next(item for item in payload if item["student_code"] == "S943")
+    assert target["feeding_paid"] is True
+    assert target["payment_method"] == "Cash"
+    assert target["feeding_frequency"] == "Daily"
+
+
 def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, app, test_school, test_proprietor):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     if settings is None:
@@ -939,6 +1030,7 @@ def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, ap
             date_paid=datetime.now(timezone.utc),
         )
     )
+    settings.attendance_last_marked_at = datetime.now(timezone.utc)
     db.session.commit()
 
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
@@ -952,6 +1044,40 @@ def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, ap
         .count()
     )
     assert payload["total_meals"] == staff_meals + 1
+
+
+def test_canteen_count_ignores_stale_present_flags_until_attendance_is_marked_today(client, app, db, test_school, test_proprietor):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    covered_student = Student(
+        school_id=test_school.id,
+        first_name="Adjoa",
+        surname="Stale",
+        name="Adjoa Stale",
+        student_code="S952",
+        current_class="Primary 5",
+        is_present=True,
+        feeding_paid=True,
+    )
+    db.session.add(covered_student)
+    settings.attendance_last_marked_at = datetime.now(timezone.utc) - timedelta(days=1)
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/canteen/daily-count", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    staff_meals = (
+        User.query.filter_by(school_id=test_school.id)
+        .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
+        .count()
+    )
+    assert payload["total_meals"] == staff_meals
 
 
 def test_finance_dashboard_groups_pending_payments_and_exposes_recorder_metadata(client, app, test_school):
@@ -2039,6 +2165,70 @@ def test_school_settings_can_reconnect_missing_paystack_subaccount_without_full_
         "/bank/resolve?account_number=1234567890&bank_code=070100",
         "/subaccount",
     ]
+
+
+def test_school_settings_subaccount_creation_omits_blank_optional_contact_fields(client, app, db, test_school, test_proprietor, monkeypatch):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    test_school.bank_name = "Fidelity Bank Ghana"
+    test_school.bank_account = "1234567890"
+    test_school.bank_account_name = "EduPulse School Account"
+    test_school.school_email = None
+    test_school.school_phone = ""
+    db.session.commit()
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        if endpoint == "/bank?country=ghana&currency=GHS" and method == "GET":
+            return ([{"name": "Fidelity Bank Ghana Ltd", "code": "070100"}], None)
+        if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
+            return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
+        if endpoint == "/subaccount" and method == "POST":
+            assert "primary_contact_email" not in data
+            assert "primary_contact_phone" not in data
+            assert data["primary_contact_name"] == "EduPulse School Account"
+            return ({"subaccount_code": "SUB_optional001"}, None)
+        raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    response = client.post(
+        "/api/school/settings/paystack/reconnect",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["paystack_subaccount_code"] == "SUB_optional001"
+
+
+def test_school_settings_reconnect_returns_provider_detail_on_failure(client, app, db, test_school, test_proprietor, monkeypatch):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    test_school.bank_name = "Fidelity Bank Ghana"
+    test_school.bank_account = "1234567890"
+    test_school.bank_account_name = "EduPulse School Account"
+    db.session.commit()
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        if endpoint == "/bank?country=ghana&currency=GHS" and method == "GET":
+            return ([{"name": "Fidelity Bank Ghana Ltd", "code": "070100"}], None)
+        if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
+            return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
+        if endpoint == "/subaccount" and method == "POST":
+            return (None, "Invalid value for primary_contact_email")
+        raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    response = client.post(
+        "/api/school/settings/paystack/reconnect",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert response.status_code == 502
+    payload = response.get_json()
+    assert payload["error"] == "payment_settlement_setup_unavailable"
+    assert payload["provider_detail"] == "Paystack subaccount created failed: Invalid value for primary_contact_email"
 
 
 def test_school_settings_persist_legacy_migration_and_bece_compliance_flags(client, app, test_school, test_proprietor):

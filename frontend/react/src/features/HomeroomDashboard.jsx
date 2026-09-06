@@ -5,6 +5,36 @@ import TimetableManager from '../components/TimetableManager';
 import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import { useBranding } from '../hooks/useBranding';
 
+const getFeedingBadgeLabel = (student) => {
+  if (!student.feeding_paid) {
+    return 'Pay Now (Unpaid)';
+  }
+
+  const frequency = student.feeding_frequency ? `${student.feeding_frequency} ` : '';
+  const method = student.payment_method || 'Covered';
+  return `${frequency}Paid (${method})`;
+};
+
+const getFeedingBadgeMeta = (student) => {
+  if (!student.feeding_paid) {
+    return null;
+  }
+
+  if (student.feeding_frequency === 'Scholarship') {
+    return 'Covered by scholarship';
+  }
+
+  if (student.feeding_coverage_until) {
+    return `Covered until ${student.feeding_coverage_until}`;
+  }
+
+  if (student.feeding_days_remaining) {
+    return `${student.feeding_days_remaining} day(s) remaining`;
+  }
+
+  return null;
+};
+
 /**
  * Homeroom Module: TRL 6 Interface for Academic Governance.
  * Implements 'Terminal Report' logic as a human-in-the-loop gateway.
@@ -25,16 +55,18 @@ export default function Homeroom() {
     }
   });
 
+  const fetchStudents = async () => {
+    try {
+      const res = await axios.get(`/api/students/by-class/${currentClass}`, getAuthHeaders());
+      setStudents(res.data || []);
+    } catch (err) {
+      console.error('Failed to load students', err);
+      setStudents([]);
+    }
+  };
+
   // Fetch student list for the specific school tenant
   useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const res = await axios.get(`/api/students/by-class/${currentClass}`, getAuthHeaders());
-        setStudents(res.data);
-      } catch (err) {
-        console.error("Failed to load students");
-      }
-    };
     fetchStudents();
   }, [currentClass]);
 
@@ -101,9 +133,8 @@ export default function Homeroom() {
         method: 'Cash',
         payment_category: { frequency: 'Daily' }
       }, getAuthHeaders());
-      
-      // Update local state
-      setStudents(prev => prev.map(s => s.id === student.id ? { ...s, feeding_paid: true } : s));
+
+      await fetchStudents();
       alert("Feeding payment recorded.");
     } catch (err) {
       alert("Failed to record payment.");
@@ -210,13 +241,18 @@ export default function Homeroom() {
                       {isHomeroom && (
                         <td className="px-8 py-6">
                           {student.feeding_paid ? (
-                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">Paid ({student.payment_method || 'Cash'})</span>
+                            <div>
+                              <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">{getFeedingBadgeLabel(student)}</span>
+                              {getFeedingBadgeMeta(student) ? (
+                                <p className="mt-2 text-xs text-slate-500">{getFeedingBadgeMeta(student)}</p>
+                              ) : null}
+                            </div>
                           ) : (
                             <button 
                               onClick={() => handlePayFeeding(student)}
                               className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold hover:bg-red-200 transition-colors"
                             >
-                              Pay Now (Unpaid)
+                              {getFeedingBadgeLabel(student)}
                             </button>
                           )}
                         </td>

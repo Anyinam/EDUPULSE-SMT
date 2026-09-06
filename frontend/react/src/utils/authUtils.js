@@ -4,10 +4,27 @@
  */
 
 const TOKEN_KEY = 'edupulse_token';
+const LEGACY_TOKEN_KEY = 'token';
 const SCHOOL_ID_KEY = 'school_id';
 const USER_ROLE_KEY = 'role';
 const BRANDING_KEY = 'branding';
 const ASSIGNED_CLASS_KEY = 'assigned_class';
+
+const decodeJwtPayload = (token) => {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    return JSON.parse(window.atob(padded));
+  } catch (error) {
+    console.error('Error decoding auth token payload:', error);
+    return null;
+  }
+};
 
 /**
  * Store authentication token securely
@@ -20,6 +37,7 @@ export const setAuthToken = (token) => {
       return false;
     }
     localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(LEGACY_TOKEN_KEY, token);
     return true;
   } catch (error) {
     console.error('Error storing auth token:', error);
@@ -32,7 +50,11 @@ export const setAuthToken = (token) => {
  */
 export const getAuthToken = () => {
   try {
-    return localStorage.getItem(TOKEN_KEY) || null;
+    const token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || null;
+    if (token && !localStorage.getItem(TOKEN_KEY)) {
+      localStorage.setItem(TOKEN_KEY, token);
+    }
+    return token;
   } catch (error) {
     console.error('Error retrieving auth token:', error);
     return null;
@@ -83,10 +105,16 @@ export const getAuthHeaders = () => {
 export const clearAuth = () => {
   try {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
     localStorage.removeItem(SCHOOL_ID_KEY);
     localStorage.removeItem(USER_ROLE_KEY);
     localStorage.removeItem(BRANDING_KEY);
     localStorage.removeItem(ASSIGNED_CLASS_KEY);
+    localStorage.removeItem('roles');
+    localStorage.removeItem('enabled_modules');
+    localStorage.removeItem('branding_school_id');
+    localStorage.removeItem('post_login_target');
+    localStorage.removeItem('requires_password_reset');
     localStorage.removeItem('subscription_plan');
   } catch (error) {
     console.error('Error clearing authentication:', error);
@@ -154,11 +182,11 @@ export const validateTokenExpiry = () => {
   if (!token) return false;
 
   try {
-    // Decode JWT without verifying signature (for client-side check only)
-    const parts = token.split('.');
-    if (parts.length !== 3) return false;
-
-    const payload = JSON.parse(atob(parts[1]));
+    const payload = decodeJwtPayload(token);
+    if (!payload?.exp) {
+      clearAuth();
+      return false;
+    }
     const expiresAt = payload.exp * 1000; // Convert to milliseconds
 
     if (Date.now() >= expiresAt) {

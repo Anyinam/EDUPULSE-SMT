@@ -356,6 +356,7 @@ def update_school_settings(
             return None, {
                 "message": "EduPulse could not connect the school's Paystack settlement account right now. Confirm the bank details and try saving again.",
                 "error": "payment_settlement_setup_unavailable",
+                "provider_detail": provision_error,
             }, 502
         changed_fields.extend([
             "paystack_bank_code",

@@ -746,18 +746,20 @@ def _build_student_rescue_payload(school_id, limit=8):
                     Student.tuition_deadline <= now,
                 ),
             ),
-            and_(Student.is_present == True, Student.feeding_paid == False),
+            Student.is_present == True,
         ),
     ).order_by(Student.total_tuition_owed.desc(), Student.name.asc())
     if candidate_limit is not None:
         candidate_query = candidate_query.limit(candidate_limit)
     candidate_students = candidate_query.all()
+    feeding_status_details = _get_feeding_status_details_for_students(candidate_students, school_id, as_of_date=now.date())
 
     flagged_students = []
 
     for student in candidate_students:
         reasons = []
         recommended_actions = []
+        feeding_status = feeding_status_details.get(student.id, {})
         payment_summary = _get_recent_tuition_payment_summary(school_id, student.id, now)
         student_reports = ReportCard.query.filter_by(
             school_id=school_id,
@@ -794,7 +796,7 @@ def _build_student_rescue_payload(school_id, limit=8):
             (term_average is not None and term_average < 60)
             or trend_direction == "declining"
         )
-        feeding_issue = bool(student.is_present and not student.feeding_paid)
+        feeding_issue = bool(student.is_present and not feeding_status.get("covered"))
         support_signal_count = sum(1 for flag in [attendance_issue, academic_issue, feeding_issue] if flag)
 
         tuition_flagged = False
@@ -864,7 +866,7 @@ def _build_student_rescue_payload(school_id, limit=8):
                     }
                 )
 
-        if student.is_present and not student.feeding_paid:
+        if feeding_issue:
             risk_score += 20
             reasons.append(
                 {
@@ -983,7 +985,11 @@ def _build_student_rescue_payload(school_id, limit=8):
                 "current_class": student.current_class,
                 "student_code": student.student_code,
                 "is_present": bool(student.is_present),
-                "feeding_paid": bool(student.feeding_paid),
+                "feeding_paid": bool(feeding_status.get("covered")),
+                "payment_method": feeding_status.get("payment_method"),
+                "feeding_coverage_until": feeding_status.get("coverage_until"),
+                "feeding_days_remaining": feeding_status.get("days_remaining"),
+                "feeding_frequency": feeding_status.get("frequency"),
                 "is_on_scholarship": bool(student.is_on_scholarship),
                 "scholarship_covers_tuition": bool(student.scholarship_covers_tuition),
                 "total_tuition_owed": float(student.total_tuition_owed or 0),
@@ -7412,6 +7418,7 @@ def get_students():
         students = (
             Student.query.filter_by(school_id=g.school_id).order_by(Student.name).all()
         )
+        feeding_status_details = _get_feeding_status_details_for_students(students, g.school_id)
         response = jsonify(
             [
                 {
@@ -7423,7 +7430,11 @@ def get_students():
                     "parent_name": s.parent_name,
                     "parent_email": s.parent_email,
                     "parent_phone": s.parent_phone,
-                    "feeding_paid": s.feeding_paid,
+                    "feeding_paid": bool(feeding_status_details.get(s.id, {}).get("covered")),
+                    "payment_method": feeding_status_details.get(s.id, {}).get("payment_method"),
+                    "feeding_coverage_until": feeding_status_details.get(s.id, {}).get("coverage_until"),
+                    "feeding_days_remaining": feeding_status_details.get(s.id, {}).get("days_remaining"),
+                    "feeding_frequency": feeding_status_details.get(s.id, {}).get("frequency"),
                     "is_present": s.is_present,
                     "date_of_birth": s.date_of_birth.isoformat() if s.date_of_birth else None,
                     "age": s.age,
@@ -7662,12 +7673,29 @@ def _mark_attendance_activity(school_id):
     return settings
 
 
+def _prepare_daily_attendance_state(school_id):
+    settings = _get_or_create_school_settings_record(school_id)
+    marked_at = getattr(settings, "attendance_last_marked_at", None)
+    today = get_utc_now().date()
+    if marked_at and marked_at.date() == today:
+        return settings, False
+
+    Student.query.filter_by(school_id=school_id).update({"is_present": False})
+    return settings, True
+
+
 def _attendance_marked_today(school_id):
     settings = SchoolSettings.query.filter_by(school_id=school_id).first()
     marked_at = getattr(settings, "attendance_last_marked_at", None) if settings else None
     if not marked_at:
         return False
     return marked_at.date() == get_utc_now().date()
+
+
+def _get_present_students_for_today(school_id):
+    if not _attendance_marked_today(school_id):
+        return []
+    return Student.query.filter_by(school_id=school_id, is_present=True).all()
 
 
 @api.route("/homeroom/attendance", methods=["POST"])
@@ -7679,6 +7707,8 @@ def update_attendance():
     data = request.json
     student_id = data.get("student_id")
     status = data.get("status")  # True/False
+
+    _prepare_daily_attendance_state(g.school_id)
 
     student = Student.query.filter_by(
         id=student_id, school_id=g.school_id
@@ -7709,6 +7739,8 @@ def update_attendance_batch():
 
     if not attendance_records:
         return jsonify({"error": "No attendance records provided"}), 400
+
+    _prepare_daily_attendance_state(g.school_id)
 
     updated_count = 0
     for record in attendance_records:
@@ -7747,6 +7779,8 @@ def update_attendance_bulk():
 
     if not attendance_records:
         return jsonify({"error": "No attendance records provided"}), 400
+
+    _prepare_daily_attendance_state(g.school_id)
 
     updated_count = 0
     for record in attendance_records:
@@ -9404,6 +9438,8 @@ def _provision_school_paystack_subaccount(school, settings, provider_settings):
     bank_account = re.sub(r"\s+", "", sanitize_string(getattr(school, "bank_account", "") or "") or "")
     account_name = sanitize_string(getattr(school, "bank_account_name", "") or "") or ""
     country_code = sanitize_string(getattr(settings, "country_code", "") or "GH") or "GH"
+    contact_email = sanitize_string(getattr(school, "school_email", "") or "") or ""
+    contact_phone = sanitize_string(getattr(school, "school_phone", "") or "") or ""
 
     if not bank_name or not bank_account or not account_name:
         return None, "Provide bank name, account number, and account name before EduPulse can create a Paystack subaccount."
@@ -9422,10 +9458,12 @@ def _provision_school_paystack_subaccount(school, settings, provider_settings):
         "account_number": bank_account,
         "percentage_charge": 0,
         "description": f"EduPulse settlement account for {school.name}",
-        "primary_contact_email": school.school_email,
         "primary_contact_name": account_name,
-        "primary_contact_phone": school.school_phone,
     }
+    if contact_email:
+        payload["primary_contact_email"] = contact_email
+    if contact_phone:
+        payload["primary_contact_phone"] = contact_phone
 
     subaccount_code = sanitize_string(provider_settings.get("paystack_subaccount_code") or "") or ""
     if subaccount_code:
@@ -11470,6 +11508,8 @@ def get_live_feed():
             Student.school_id == g.school_id, Student.total_tuition_owed > 0
         ).count()
         critical_list = rescue_payload["students"]
+        attendance_taken_today = _attendance_marked_today(g.school_id)
+        present_students = _get_present_students_for_today(g.school_id)
 
         # Fetch pending payments recorded by teachers
         pending_payments = (
@@ -11486,9 +11526,15 @@ def get_live_feed():
         pending_groups = _group_pending_payments_by_class(pending_list)
 
         # Canteen Stats for Proprietor Oversight
-        student_meals = Student.query.filter_by(
-            school_id=g.school_id, is_present=True, feeding_paid=True
-        ).count()
+        feeding_status_details = _get_feeding_status_details_for_students(
+            present_students,
+            g.school_id,
+        )
+        student_meals = sum(
+            1
+            for student in present_students
+            if feeding_status_details.get(student.id, {}).get("covered")
+        )
         staff_meals = (
             User.query.filter_by(school_id=g.school_id)
             .filter(User.role.in_(["teacher", "headmaster", "proprietor"]))
@@ -11586,6 +11632,8 @@ def get_live_feed():
                     "canteen_count": canteen_count,
                     "pending_cash": len(pending_list),
                     "total_students": total_students,
+                    "present_students": len(present_students),
+                    "attendance_taken_today": attendance_taken_today,
                     "unpaid_tuition": unpaid_tuition,
                     "low_stock_count": len(low_stock_items),
                 },
@@ -14316,7 +14364,10 @@ def kitchen_dashboard():
         total_students_present = 0
         total_feeding_paid = 0
         students = Student.query.filter_by(school_id=g.school_id).all()
-        feeding_status_details = _get_feeding_status_details_for_students(students, g.school_id)
+        attendance_taken_today = _attendance_marked_today(g.school_id)
+        present_students_today = _get_present_students_for_today(g.school_id)
+        present_student_ids = {student.id for student in present_students_today}
+        feeding_status_details = _get_feeding_status_details_for_students(present_students_today, g.school_id)
         students_by_class = {}
         for student in students:
             students_by_class.setdefault(student.current_class or "Unassigned", []).append(student)
@@ -14327,7 +14378,9 @@ def kitchen_dashboard():
         for grade in VALID_GRADES:
             try:
                 class_students = students_by_class.get(grade, [])
-                present_students = [student for student in class_students if student.is_present]
+                present_students = [
+                    student for student in class_students if student.id in present_student_ids
+                ]
                 present_count = len(present_students)
                 paid_count = sum(
                     1
@@ -14383,6 +14436,10 @@ def kitchen_dashboard():
                     "total_feeding_paid": total_feeding_paid,
                     "total_teachers": teacher_count,
                     "total_meals_needed": total_meals_needed,
+                    "attendance_taken_today": attendance_taken_today,
+                    "status_message": (
+                        None if attendance_taken_today else "Attendance has not been submitted for today yet."
+                    ),
                     "is_holiday": is_holiday,
                     "holiday_name": holiday_name,
                     "holiday_date": today.isoformat(),
@@ -14620,11 +14677,8 @@ def get_attendance_summary():
     """Headmaster view of daily attendance."""
     total_students = Student.query.filter_by(school_id=g.school_id).count()
     attendance_taken_today = _attendance_marked_today(g.school_id)
-    present_students = 0
-    if attendance_taken_today:
-        present_students = Student.query.filter_by(
-            school_id=g.school_id, is_present=True
-        ).count()
+    present_students_list = _get_present_students_for_today(g.school_id)
+    present_students = len(present_students_list)
 
     class_breakdown = []
     for grade in VALID_GRADES:
@@ -14633,9 +14687,9 @@ def get_attendance_summary():
         ).count()
         present_in_class = 0
         if attendance_taken_today:
-            present_in_class = Student.query.filter_by(
-                school_id=g.school_id, current_class=grade, is_present=True
-            ).count()
+            present_in_class = sum(
+                1 for student in present_students_list if student.current_class == grade
+            )
         if total_in_class > 0:
             class_breakdown.append(
                 {
@@ -14820,9 +14874,7 @@ def log_academic_work():
 @jwt_required()
 def get_canteen_count():
     """Zero-waste logic for daily meals."""
-    present_students = Student.query.filter_by(
-        school_id=g.school_id, is_present=True
-    ).all()
+    present_students = _get_present_students_for_today(g.school_id)
     feeding_status_details = _get_feeding_status_details_for_students(present_students, g.school_id)
     student_meals = sum(
         1 for student in present_students if feeding_status_details.get(student.id, {}).get("covered")
@@ -17402,6 +17454,7 @@ def reconnect_school_paystack_subaccount():
             {
                 "message": "EduPulse could not connect the school's Paystack settlement account right now. Confirm the bank details and try again.",
                 "error": "payment_settlement_setup_unavailable",
+                "provider_detail": provision_error,
             }
         ), 502
 

@@ -71,6 +71,15 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
+    const expiredMessage = sessionStorage.getItem('session_expired_message');
+    if (!expiredMessage) {
+      return;
+    }
+    setError(expiredMessage);
+    sessionStorage.removeItem('session_expired_message');
+  }, []);
+
+  useEffect(() => {
     if (resendCooldown <= 0) return undefined;
     const timer = window.setInterval(() => {
       setResendCooldown((current) => (current > 0 ? current - 1 : 0));
