@@ -298,7 +298,9 @@ export default function SettingsPanel() {
   });
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [subscriptionPlan, setSubscriptionPlan] = useState('');
+  const [subscriptionTrial, setSubscriptionTrial] = useState({ active: false, plan: '', end_date: null });
   const [bankDetailsVisible, setBankDetailsVisible] = useState(false);
+  const [isReconnectingPaystackSettlement, setIsReconnectingPaystackSettlement] = useState(false);
   const [maskedBankSnapshot, setMaskedBankSnapshot] = useState({
     bank_name: '',
     bank_account: '',
@@ -385,9 +387,10 @@ export default function SettingsPanel() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'X-School-ID': localStorage.getItem('school_id')
         };
-        const res = await axios.get('/api/school/profile', { headers });
-        const planFromServer = res.data.subscription_plan || localStorage.getItem('subscription_plan') || 'Free Tier';
+        const res = await axios.get('/api/school/subscription/effective-plan', { headers });
+        const planFromServer = res.data.effective_plan || res.data.plan || localStorage.getItem('subscription_plan') || 'Free Tier';
         setSubscriptionPlan(planFromServer);
+        setSubscriptionTrial(res.data.trial || { active: false, plan: '', end_date: null });
         // Update localStorage with latest plan
         localStorage.setItem('subscription_plan', planFromServer);
       } catch (err) {
@@ -395,6 +398,7 @@ export default function SettingsPanel() {
         // Fallback to localStorage
         const plan = localStorage.getItem('subscription_plan') || 'Free Tier';
         setSubscriptionPlan(plan);
+        setSubscriptionTrial({ active: false, plan: '', end_date: null });
       }
     };
     
@@ -1311,6 +1315,31 @@ export default function SettingsPanel() {
     }
   };
 
+  const handleReconnectPaystackSettlement = async () => {
+    setIsReconnectingPaystackSettlement(true);
+    try {
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-School-ID': localStorage.getItem('school_id')
+      };
+
+      const response = await axios.post('/api/school/settings/paystack/reconnect', {}, { headers });
+      const payload = response.data || {};
+      setSettings((prev) => ({
+        ...prev,
+        paystack_subaccount_code: payload.paystack_subaccount_code || prev.paystack_subaccount_code,
+        paystack_bank_code: payload.paystack_bank_code || prev.paystack_bank_code,
+        paystack_resolved_account_name: payload.paystack_resolved_account_name || prev.paystack_resolved_account_name,
+      }));
+      alert(payload.message || 'Paystack settlement account connected successfully.');
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to reconnect the Paystack settlement account.');
+      console.error(err);
+    } finally {
+      setIsReconnectingPaystackSettlement(false);
+    }
+  };
+
 
   const handleGradingSchemePreset = (preset) => {
     if (preset === '30/70') {
@@ -1614,6 +1643,16 @@ export default function SettingsPanel() {
                     {settings.paystack_subaccount_code ? <p className="mt-2">Generated subaccount code: {settings.paystack_subaccount_code}</p> : null}
                     {settings.paystack_bank_code ? <p className="mt-1">Verified Paystack bank code: {settings.paystack_bank_code}</p> : null}
                     {settings.paystack_resolved_account_name ? <p className="mt-1">Verified account name: {settings.paystack_resolved_account_name}</p> : null}
+                    {!settings.paystack_subaccount_code && bankDetailsReadyForProvisioning ? (
+                      <button
+                        type="button"
+                        onClick={handleReconnectPaystackSettlement}
+                        disabled={isReconnectingPaystackSettlement}
+                        className="mt-3 inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                      >
+                        {isReconnectingPaystackSettlement ? 'Connecting...' : 'Reconnect Settlement Account'}
+                      </button>
+                    ) : null}
                   </div>
                   <p className="mt-2 text-xs text-slate-500">Schools only enter their bank details here. EduPulse creates and maintains the Paystack settlement subaccount in the background.</p>
                 </div>
@@ -1901,7 +1940,9 @@ export default function SettingsPanel() {
 
           {!settings.ai_registrar_enabled && (
             <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              AI Registrar workflow automation is included on paid subscription plans. Free Tier schools can still review applications, but the approval letter stays locked.
+              {subscriptionTrial.active
+                ? `This school has an active ${subscriptionTrial.plan || subscriptionPlan} trial, but AI Registrar access is still not enabled. Refresh this page, and if the message remains, contact support because the trial entitlement should unlock the approval letter workflow.`
+                : 'AI Registrar workflow automation is available on Basic, Premium, or an active eligible trial. Free Tier schools can still review applications, but the approval letter stays locked.'}
             </div>
           )}
 

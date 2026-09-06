@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import useSchoolClasses from '../hooks/useSchoolClasses';
 
 const PROFILE_TABS = ['Profile', 'Academic', 'Guardian', 'Finance', 'Documents'];
 
@@ -68,6 +69,7 @@ export default function StudentsRegistry() {
   const [documentUploadCategory, setDocumentUploadCategory] = useState('document');
   const [documentUploadNote, setDocumentUploadNote] = useState('');
   const [documentUploadBusy, setDocumentUploadBusy] = useState(false);
+  const { classes: schoolClasses } = useSchoolClasses();
 
   const getAuthHeaders = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -95,11 +97,20 @@ export default function StudentsRegistry() {
   const normalizedQuery = query.trim().toLowerCase();
 
   const classOptions = useMemo(() => {
-    const uniqueClasses = Array.from(new Set(
-      students.map(s => s.current_class).filter(Boolean)
-    )).sort();
+    const uniqueClasses = Array.from(new Set([
+      ...schoolClasses,
+      ...students.map((student) => student.current_class).filter(Boolean),
+    ])).sort();
     return ['All', ...uniqueClasses];
-  }, [students]);
+  }, [schoolClasses, students]);
+
+  const editableClassOptions = useMemo(() => (
+    Array.from(new Set([
+      ...schoolClasses,
+      ...students.map((student) => student.current_class).filter(Boolean),
+      editData.current_class,
+    ].filter(Boolean))).sort()
+  ), [schoolClasses, students, editData.current_class]);
 
   const filteredStudents = useMemo(() => {
     return students.filter((student) => {
@@ -576,18 +587,10 @@ export default function StudentsRegistry() {
                 onChange={(e) => setEditData({ ...editData, current_class: e.target.value })}
                 className="w-full p-3 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">Select class</option>
-                <option value="Nursery">Nursery</option>
-                <option value="KG">KG</option>
-                <option value="Class 1">Class 1</option>
-                <option value="Class 2">Class 2</option>
-                <option value="Class 3">Class 3</option>
-                <option value="Class 4">Class 4</option>
-                <option value="Class 5">Class 5</option>
-                <option value="Class 6">Class 6</option>
-                <option value="JHS 1">JHS 1</option>
-                <option value="JHS 2">JHS 2</option>
-                <option value="JHS 3">JHS 3</option>
+                <option value="">{editableClassOptions.length > 0 ? 'Select class' : 'No school classes configured'}</option>
+                {editableClassOptions.map((className) => (
+                  <option key={className} value={className}>{className}</option>
+                ))}
               </select>
             </div>
 

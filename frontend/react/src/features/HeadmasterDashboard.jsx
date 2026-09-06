@@ -12,20 +12,6 @@ import StudentsRegistry from './StudentsRegistry';
 import RescueActivityCenter from './RescueActivityCenter';
 import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
 
-const CLASS_OPTIONS = [
-  'Nursery',
-  'KG',
-  'Class 1',
-  'Class 2',
-  'Class 3',
-  'Class 4',
-  'Class 5',
-  'Class 6',
-  'JHS 1',
-  'JHS 2',
-  'JHS 3'
-];
-
 export default function HeadmasterDashboard() {
   const { isPremium: canAccessPremiumInsights } = useEffectiveSubscriptionPlan();
   const [searchParams, setSearchParams] = useSearchParams();

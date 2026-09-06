@@ -1,22 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-
-const DEFAULT_CLASSES = [
-  'Nursery',
-  'KG',
-  'Class 1',
-  'Class 2',
-  'Class 3',
-  'Class 4',
-  'Class 5',
-  'Class 6',
-  'JHS 1',
-  'JHS 2',
-  'JHS 3',
-  'SHS 1',
-  'SHS 2',
-  'SHS 3'
-];
+import useSchoolClasses from '../hooks/useSchoolClasses';
 
 const DEFAULT_SUBJECTS = [
   'Mathematics',
@@ -42,7 +26,6 @@ export default function StaffManagement() {
   const [staffList, setStaffList] = useState([]);
   const [editingStaffId, setEditingStaffId] = useState(null);
   const [resendingInviteId, setResendingInviteId] = useState(null);
-  const [availableClasses, setAvailableClasses] = useState(DEFAULT_CLASSES);
   const [availableSubjects, setAvailableSubjects] = useState(DEFAULT_SUBJECTS);
   const [customSubject, setCustomSubject] = useState('');
   const [customSubjectEdit, setCustomSubjectEdit] = useState('');
@@ -61,6 +44,7 @@ export default function StaffManagement() {
     assigned_classes: [],
     assigned_subjects: []
   });
+  const { classes: schoolClasses } = useSchoolClasses();
 
   const roleOptions = [
     { value: 'teacher', label: 'Subject Teacher' },
@@ -78,8 +62,8 @@ export default function StaffManagement() {
     <div>
       <label className="text-xs font-bold text-slate-600 block mb-2">Homeroom Class Assignment</label>
       <div className="border rounded-lg p-3 bg-white max-h-40 overflow-y-auto">
-        {availableClasses.length > 0 ? (
-          availableClasses.map((cls) => (
+        {classChoices.length > 0 ? (
+          classChoices.map((cls) => (
             <label key={cls} className="flex items-center gap-2 text-sm mb-2">
               <input
                 type="radio"
@@ -121,6 +105,14 @@ export default function StaffManagement() {
     }
   });
 
+  const classChoices = Array.from(new Set([
+    ...schoolClasses,
+    formData.assigned_class,
+    ...(formData.assigned_classes || []),
+    editForm.assigned_class,
+    ...(editForm.assigned_classes || []),
+  ].filter(Boolean))).sort((left, right) => left.localeCompare(right));
+
   useEffect(() => {
     fetchStaff();
     fetchAvailableData();
@@ -128,20 +120,12 @@ export default function StaffManagement() {
 
   const fetchAvailableData = async () => {
     try {
-      // Try to get classes from timetable and merge with defaults
       const timetableRes = await axios.get('/api/timetable', getAuthHeaders());
-      const timetableClasses = [...new Set(timetableRes.data.map(entry => entry.class_name))].filter(Boolean);
       const timetableSubjects = [...new Set(timetableRes.data.map(entry => entry.subject_name))].filter(Boolean);
-      
-      // Merge with defaults and sort
-      const mergedClasses = [...new Set([...DEFAULT_CLASSES, ...timetableClasses])].sort();
       const mergedSubjects = [...new Set([...DEFAULT_SUBJECTS, ...timetableSubjects])].sort();
-      
-      setAvailableClasses(mergedClasses);
       setAvailableSubjects(mergedSubjects);
     } catch (err) {
-      console.error('Failed to fetch available data, using defaults');
-      setAvailableClasses(DEFAULT_CLASSES);
+      console.error('Failed to fetch available subjects, using defaults');
       setAvailableSubjects(DEFAULT_SUBJECTS);
     }
   };
@@ -318,8 +302,8 @@ export default function StaffManagement() {
               <div>
                 <label className="text-xs font-bold text-slate-600 block mb-2">Classes to Teach</label>
                 <div className="border rounded-lg p-3 bg-white max-h-40 overflow-y-auto">
-                  {availableClasses.length > 0 ? (
-                    availableClasses.map((cls) => (
+                  {classChoices.length > 0 ? (
+                    classChoices.map((cls) => (
                       <label key={cls} className="flex items-center gap-2 text-sm mb-2">
                         <input
                           type="checkbox"
@@ -524,7 +508,7 @@ export default function StaffManagement() {
                   {editingStaffId === staff.id ? (
                     (editForm.roles.includes('teacher') || editForm.roles.includes('homeroom')) ? (
                       <div className="border rounded-lg p-2 bg-white max-h-32 overflow-y-auto">
-                        {availableClasses.map((cls) => (
+                        {classChoices.map((cls) => (
                           <label key={cls} className="flex items-center gap-2 text-xs mb-1">
                             <input
                               type="checkbox"

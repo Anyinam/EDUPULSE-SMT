@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Check, Loader, Settings, Trash2 } from 'lucide-react';
 import axios from 'axios';
-
-const CLASS_OPTIONS = [
-  'All Classes',
-  'Nursery', 'KG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6',
-  'JHS 1', 'JHS 2', 'JHS 3'
-];
+import useSchoolClasses from '../hooks/useSchoolClasses';
 
 const PromotionThresholdManager = () => {
   const [showModal, setShowModal] = useState(false);
@@ -16,10 +11,22 @@ const PromotionThresholdManager = () => {
   const [thresholds, setThresholds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const { classes: schoolClasses } = useSchoolClasses();
+  const classOptions = ['All Classes', ...schoolClasses];
 
   useEffect(() => {
     fetchThresholds();
   }, []);
+
+  useEffect(() => {
+    if (selectedClass === 'All Classes') {
+      return;
+    }
+    if (schoolClasses.length === 0 || schoolClasses.includes(selectedClass)) {
+      return;
+    }
+    setSelectedClass('All Classes');
+  }, [schoolClasses, selectedClass]);
 
   const fetchThresholds = async () => {
     try {
@@ -147,7 +154,7 @@ const PromotionThresholdManager = () => {
                       onChange={(e) => setSelectedClass(e.target.value)}
                       className="w-full p-3 border rounded-lg bg-slate-50 font-medium text-slate-900"
                     >
-                      {CLASS_OPTIONS.map(cls => (
+                      {classOptions.map(cls => (
                         <option key={cls} value={cls}>{cls}</option>
                       ))}
                     </select>

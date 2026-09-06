@@ -1,37 +1,47 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check, Loader, Zap } from 'lucide-react';
 import axios from 'axios';
+import useSchoolClasses from '../hooks/useSchoolClasses';
 
-const CLASS_OPTIONS = [
-  'Nursery', 'KG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6',
-  'JHS 1', 'JHS 2', 'JHS 3'
-];
-
-const NEXT_CLASS_MAP = {
-  'Nursery': 'KG',
-  'KG': 'Class 1',
-  'Class 1': 'Class 2',
-  'Class 2': 'Class 3',
-  'Class 3': 'Class 4',
-  'Class 4': 'Class 5',
-  'Class 5': 'Class 6',
-  'Class 6': 'JHS 1',
-  'JHS 1': 'JHS 2',
-  'JHS 2': 'JHS 3',
-  'JHS 3': 'Alumni'
+const getSuggestedNextClass = (classList, currentClass) => {
+  const currentIndex = classList.indexOf(currentClass);
+  if (currentIndex === -1) {
+    return '';
+  }
+  return classList[currentIndex + 1] || '';
 };
 
 const AutoPromoteButton = () => {
   const [showModal, setShowModal] = useState(false);
-  const [selectedClass, setSelectedClass] = useState('JHS 3');
-  const [nextClass, setNextClass] = useState(NEXT_CLASS_MAP['JHS 3']);
+  const [selectedClass, setSelectedClass] = useState('');
+  const [nextClass, setNextClass] = useState('');
   const [dryRun, setDryRun] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const { classes: schoolClasses } = useSchoolClasses();
+  const suggestedNextClass = useMemo(
+    () => getSuggestedNextClass(schoolClasses, selectedClass),
+    [schoolClasses, selectedClass]
+  );
+
+  useEffect(() => {
+    if (schoolClasses.length === 0) {
+      return;
+    }
+
+    if (!schoolClasses.includes(selectedClass)) {
+      setSelectedClass(schoolClasses[0]);
+      return;
+    }
+
+    if (!nextClass) {
+      setNextClass(suggestedNextClass);
+    }
+  }, [nextClass, schoolClasses, selectedClass, suggestedNextClass]);
 
   const handleClassChange = (cls) => {
     setSelectedClass(cls);
-    setNextClass(NEXT_CLASS_MAP[cls] || 'Alumni');
+    setNextClass(getSuggestedNextClass(schoolClasses, cls));
   };
 
   const handleAutoPromote = async (isDryRun) => {
@@ -126,8 +136,10 @@ const AutoPromoteButton = () => {
                         value={selectedClass}
                         onChange={(e) => handleClassChange(e.target.value)}
                         className="w-full p-3 border rounded-lg bg-white font-medium text-slate-900"
+                        disabled={schoolClasses.length === 0}
                       >
-                        {CLASS_OPTIONS.map(cls => (
+                        {schoolClasses.length === 0 && <option value="">No school classes configured</option>}
+                        {schoolClasses.map(cls => (
                           <option key={cls} value={cls}>{cls}</option>
                         ))}
                       </select>

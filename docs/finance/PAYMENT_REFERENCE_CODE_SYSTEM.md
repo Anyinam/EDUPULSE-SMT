@@ -70,6 +70,8 @@ The first segment is the student's stable identifier in the school system. The l
 - ✅ Payment references section showing what references to tell parents
 - ✅ Copy individual references to clipboard for quick communication
 - ✅ Copy full payment instructions for sharing with parents
+- ✅ Batch-print payment instruction sheets for the current filtered student list
+- ✅ Auto-attach tracked transfer account details to printed instruction sheets when the school is configured for tracked transfers
 - ✅ Outstanding balance calculated per fee type
 - ✅ Progress bars show payment completion
 

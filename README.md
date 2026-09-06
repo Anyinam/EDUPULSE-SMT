@@ -102,14 +102,16 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - Future only: fully autonomous admission approval, multilingual voice bots, predictive dropout automation, and pure outcome-based billing for AI employees.
 
 ### Payment Architecture Direction
-- The recommended product default is one stable student or family payment identity, with structured references to categorize tuition, feeding, transport, uniforms, admission, and other fee types across bank app, USSD, and manual fallback channels.
-- Legacy Paystack route or DVA records may still exist in historical data, but new route setup is retired and the product should be treated as reference-first.
+- The recommended product default is one stable student or family payment identity, with structured references to categorize tuition, feeding, transport, uniforms, admission, and other fee types across bank app, USSD, printed instruction sheets, and manual fallback channels.
+- Active school-fee collection is now hybrid: EduPulse prints reference-led payment instructions and can automatically attach tracked transfer accounts per fee through Paystack dedicated virtual accounts when the school is configured for them.
 - Shortcode and low-literacy payment paths remain strategically important and should not be removed.
 
 ### Recent Workflow Updates
 - Feeding fee instructions can now be configured as separate daily, weekly, and monthly plans per school.
 - Parent payment instructions emit structured feeding references in the format `STUDENT_IDENTIFIER-FEED-DAY`, `STUDENT_IDENTIFIER-FEED-WEK`, and `STUDENT_IDENTIFIER-FEED-MON`.
 - The student identifier in those references is the learner's stable school identifier, typically the student code used throughout EduPulse.
+- Payment Tracker can now batch-print instruction sheets for filtered learners and auto-attach tracked transfer account details where supported.
+- The school-side tracked online checkout link is now secondary to printed instructions plus tracked transfer accounts.
 - Proprietor compliance work now lives in a dedicated School Verification tab instead of being buried inside the main dashboard.
 - Inventory payment entry for proprietors and inventory managers now supports typed student identifiers with live learner-name lookup instead of requiring a full student dropdown search.
 

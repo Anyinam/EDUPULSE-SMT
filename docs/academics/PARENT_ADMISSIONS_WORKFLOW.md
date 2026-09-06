@@ -74,7 +74,7 @@ Parents can view:
 - missing items
 - reviewer notes
 - admitted learner details when available
-- public payment link after successful admission
+- public admission-fee checkout on the status page when the school requires admission payment
 - school branding on the public page
 
 If the school requests correction:
@@ -82,19 +82,18 @@ If the school requests correction:
 - parents can update guardian contact details
 - the AI Registrar re-scores the application immediately after resubmission
 
-### 3. Parent Payment Instructions
+### 3. Parent Fee Instructions After Admission
 
-Route:
-- `GET /api/public/schools/<school_id>/payments/<student_code>`
+School-side routes:
+- `GET /api/students/<student_id>/payment-codes`
+- `POST /api/students/<student_id>/payment-codes/<reference_code>/virtual-account`
 
-This route returns a parent-safe payment payload with:
-- stable learner payment identity
-- supported payment rails
-- structured reference examples
-- fee-by-fee payment instructions
-- structured reference and phone-payment total where applicable
-- school-office fallback guidance
-- school-configured admission fee when enabled
+Current workflow:
+- once a learner is approved, school staff opens the payment tracker inside the tenant app
+- EduPulse generates fee references per learner
+- when staff prints instructions for one learner or a filtered batch, EduPulse can automatically create or reuse tracked transfer accounts for each fee reference
+- the printed sheet includes the learner payment identity, per-fee reference, tracked transfer bank details when available, and the school's ordinary bank account only as a fallback/manual route
+- the optional online checkout link remains available for special cases, but it is no longer the default school workflow for routine fee sharing
 
 ## School Review Flow
 
@@ -127,7 +126,7 @@ If staff approves an application:
 - the application is linked to that learner
 - the application passport photo can be copied into `Student.profile_picture`
 - uploaded admissions records remain available as linked documents in the learner profile document vault
-- the parent status endpoint can expose the payment link for the admitted learner
+- the parent status endpoint can expose admission-fee checkout when configured
 - the parent receives a fresh status update email when an email address is on file
 
 ## Student Profile Linkage
@@ -147,20 +146,22 @@ If staff requests correction, schedules a visit, invites a test, or rejects:
 Public routes:
 - `/apply/:schoolId`
 - `/apply/:schoolId/status/:statusToken`
-- `/pay/:schoolId/:studentCode`
 
 School-side review surface:
 - admissions panel AI Registrar review queue
+- payment tracker bulk and single-student instruction printing
 
 ## Payment Identity Model
 
-The current payment experience uses a transition model.
+The current payment experience uses a hybrid model.
 
 Preferred parent guidance:
 - stable learner payment identity first
 - structured reference per fee type
+- tracked transfer account on the printed instruction sheet when available
 
 Supported payment rails:
+- tracked transfer accounts auto-attached to printed instructions when the school is configured
 - structured references across approved phone and digital payment channels
 - shortcode or MoMo narration where the school's payment rail supports it
 

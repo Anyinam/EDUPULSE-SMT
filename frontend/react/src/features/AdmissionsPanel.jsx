@@ -3,6 +3,7 @@ import axios from 'axios';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
 import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+import useSchoolClasses from '../hooks/useSchoolClasses';
 
 const getAdmissionsBillingMessage = (err, fallbackMessage) => {
   const payload = err?.response?.data || {};
@@ -30,7 +31,7 @@ export default function AdmissionsPanel() {
     student_code: '',
     guardian_name: '',
     parent_email: '',
-    class_assigned: 'JHS 1',
+    class_assigned: '',
     scholarship_type: 'none',
     scholarship_notes: '',
     score: 0 // Default for manual admission
@@ -52,17 +53,13 @@ export default function AdmissionsPanel() {
   // Promotion state
   const [promotionData, setPromotionData] = useState({
     student_id: '',
-    new_class: 'JHS 2',
+    new_class: '',
     remarks: ''
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
 
-  const validGrades = [
-    "Nursery", "KG", 
-    "Class 1", "Class 2", "Class 3", "Class 4", "Class 5", "Class 6",
-    "JHS 1", "JHS 2", "JHS 3"
-  ];
+  const { classes: schoolClasses } = useSchoolClasses();
 
   const genderOptions = ['Male', 'Female', 'Other'];
 
@@ -74,6 +71,24 @@ export default function AdmissionsPanel() {
   useEffect(() => {
     fetchApplications();
   }, []);
+
+  useEffect(() => {
+    if (schoolClasses.length === 0) {
+      return;
+    }
+
+    setFormData((current) => (
+      current.class_assigned && schoolClasses.includes(current.class_assigned)
+        ? current
+        : { ...current, class_assigned: schoolClasses[0] }
+    ));
+
+    setPromotionData((current) => (
+      current.new_class && schoolClasses.includes(current.new_class)
+        ? current
+        : { ...current, new_class: schoolClasses[0] }
+    ));
+  }, [schoolClasses]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -162,6 +177,10 @@ export default function AdmissionsPanel() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.class_assigned) {
+      alert('Add a school class first before admitting students.');
+      return;
+    }
     try {
       const headers = {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -178,7 +197,7 @@ export default function AdmissionsPanel() {
         student_code: '',
         guardian_name: '',
         parent_email: '',
-        class_assigned: 'JHS 1',
+        class_assigned: schoolClasses[0] || '',
         scholarship_type: 'none',
         scholarship_notes: '',
         score: 0
@@ -226,7 +245,12 @@ export default function AdmissionsPanel() {
         notes: reviewNotes[application.id] || '',
       };
       if (action === 'approve') {
-        payload.class_assigned = reviewClass[application.id] || application.preferred_class;
+        payload.class_assigned = reviewClass[application.id] || (schoolClasses.includes(application.preferred_class) ? application.preferred_class : '');
+        if (!payload.class_assigned) {
+          alert('Select a valid school class before approving this application.');
+          setReviewingId(null);
+          return;
+        }
       }
       if (action === 'schedule_visit') {
         const followUp = reviewFollowUp[application.id] || {};
@@ -254,6 +278,10 @@ export default function AdmissionsPanel() {
       alert("Please select a student");
       return;
     }
+    if (!promotionData.new_class) {
+      alert('Add a school class first before running promotion overrides.');
+      return;
+    }
 
     try {
       const headers = {
@@ -264,7 +292,7 @@ export default function AdmissionsPanel() {
       alert(res.data.message);
       setPromotionData({
         student_id: '',
-        new_class: 'JHS 2',
+        new_class: schoolClasses[0] || '',
         remarks: ''
       });
       setSearchQuery('');
@@ -321,8 +349,9 @@ export default function AdmissionsPanel() {
           </div>
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-2">Class Assigned</label>
-            <select name="class_assigned" value={formData.class_assigned} onChange={handleChange} className="w-full p-3 border rounded-lg bg-slate-50">
-              {validGrades.map(g => <option key={g} value={g}>{g}</option>)}
+            <select name="class_assigned" value={formData.class_assigned} onChange={handleChange} className="w-full p-3 border rounded-lg bg-slate-50" disabled={schoolClasses.length === 0}>
+              {schoolClasses.length === 0 && <option value="">No school classes configured</option>}
+              {schoolClasses.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
           <div>
@@ -501,11 +530,13 @@ export default function AdmissionsPanel() {
                       </div>
                     </div>
                     <select
-                      value={reviewClass[application.id] || application.preferred_class}
+                      value={reviewClass[application.id] || (schoolClasses.includes(application.preferred_class) ? application.preferred_class : '')}
                       onChange={(event) => setReviewClass((current) => ({ ...current, [application.id]: event.target.value }))}
                       className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      disabled={schoolClasses.length === 0}
                     >
-                      {validGrades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+                      {schoolClasses.length === 0 && <option value="">No school classes configured</option>}
+                      {schoolClasses.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
                     </select>
                   </div>
                 </div>
@@ -582,8 +613,9 @@ export default function AdmissionsPanel() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">New Class</label>
-              <select name="new_class" value={promotionData.new_class} onChange={handlePromotionChange} className="w-full p-3 border rounded-lg bg-slate-50">
-                {validGrades.map(g => <option key={g} value={g}>{g}</option>)}
+              <select name="new_class" value={promotionData.new_class} onChange={handlePromotionChange} className="w-full p-3 border rounded-lg bg-slate-50" disabled={schoolClasses.length === 0}>
+                {schoolClasses.length === 0 && <option value="">No school classes configured</option>}
+                {schoolClasses.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
             </div>
             <div>

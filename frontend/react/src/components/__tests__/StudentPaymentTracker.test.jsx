@@ -407,6 +407,9 @@ describe('StudentPaymentTracker', () => {
             student_name: 'Ama Mensah',
             student_code: 'S001',
             class: 'JHS 1',
+            payment_identity: {
+              supports_fee_route_dvas: true,
+            },
             payment_codes: [
               {
                 fee_type: 'Tuition',
@@ -425,6 +428,9 @@ describe('StudentPaymentTracker', () => {
             student_name: 'Yaw Owusu',
             student_code: 'S002',
             class: 'JHS 1',
+            payment_identity: {
+              supports_fee_route_dvas: true,
+            },
             payment_codes: [
               {
                 fee_type: 'Tuition',
@@ -433,6 +439,62 @@ describe('StudentPaymentTracker', () => {
                 base_amount: 120,
               },
             ],
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    axios.post.mockImplementation((url) => {
+      if (url === '/api/students/1/payment-codes/S001-T1/virtual-account') {
+        return Promise.resolve({
+          data: {
+            payment_code: {
+              fee_type: 'Tuition',
+              code: 'S001-T1',
+              reference_code: 'S001-T1',
+              base_amount: 120,
+              has_virtual_route: true,
+              virtual_route: {
+                bank_name: 'Paystack-Titan',
+                account_number: '1111111111',
+                account_name: 'EDUPULSE / AMA MENSAH',
+                total_amount: 126,
+              },
+            },
+            virtual_route: {
+              bank_name: 'Paystack-Titan',
+              account_number: '1111111111',
+              account_name: 'EDUPULSE / AMA MENSAH',
+              total_amount: 126,
+            },
+          },
+        });
+      }
+
+      if (url === '/api/students/2/payment-codes/S002-T1/virtual-account') {
+        return Promise.resolve({
+          data: {
+            payment_code: {
+              fee_type: 'Tuition',
+              code: 'S002-T1',
+              reference_code: 'S002-T1',
+              base_amount: 120,
+              has_virtual_route: true,
+              virtual_route: {
+                bank_name: 'Paystack-Titan',
+                account_number: '2222222222',
+                account_name: 'EDUPULSE / YAW OWUSU',
+                total_amount: 126,
+              },
+            },
+            virtual_route: {
+              bank_name: 'Paystack-Titan',
+              account_number: '2222222222',
+              account_name: 'EDUPULSE / YAW OWUSU',
+              total_amount: 126,
+            },
           },
         });
       }
@@ -474,5 +536,7 @@ describe('StudentPaymentTracker', () => {
     expect(printWindow.document.write).toHaveBeenCalled();
     expect(printWindow.document.write.mock.calls[0][0]).toContain('Ama Mensah');
     expect(printWindow.document.write.mock.calls[0][0]).toContain('Yaw Owusu');
+    expect(printWindow.document.write.mock.calls[0][0]).toContain('1111111111');
+    expect(printWindow.document.write.mock.calls[0][0]).toContain('2222222222');
   });
 });

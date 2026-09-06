@@ -4,6 +4,7 @@ import TimetableManager from '../components/TimetableManager';
 import TeacherAlerts from '../components/TeacherAlerts';
 import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import { useBranding } from '../hooks/useBranding';
+import useSchoolClasses from '../hooks/useSchoolClasses';
 
 export default function TeacherDashboard() {
   const [students, setStudents] = useState([]);
@@ -12,7 +13,7 @@ export default function TeacherDashboard() {
   const [notice, setNotice] = useState(null);
   const [lessonNoteData, setLessonNoteData] = useState({
     week_number: 1,
-    class_name: 'JHS 1',
+    class_name: '',
     subject: 'Mathematics',
     lesson_dates: [],
     class_size: '',
@@ -28,14 +29,13 @@ export default function TeacherDashboard() {
     { day: 'Monday', phase_1_starter: '', phase_2_main: '', phase_3_plenary: '' }
   ]);
   const [lessonDateInput, setLessonDateInput] = useState('');
-  const [selectedClass, setSelectedClass] = useState("JHS 1");
+  const [selectedClass, setSelectedClass] = useState('');
   const [selectedSubject, setSelectedSubject] = useState("Mathematics");
   const [lessonNoteSubject, setLessonNoteSubject] = useState("Mathematics");
   const [subjects, setSubjects] = useState([]);
   const [assignedSubjects, setAssignedSubjects] = useState([]);
   const [assignedClasses, setAssignedClasses] = useState([]);
   const [timetableEntries, setTimetableEntries] = useState([]);
-  const [availableClasses, setAvailableClasses] = useState([]);
   const [useTimetable, setUseTimetable] = useState(false);
   const [classScoreMax, setClassScoreMax] = useState(30);
   const [examScoreMax, setExamScoreMax] = useState(70);
@@ -48,6 +48,7 @@ export default function TeacherDashboard() {
   const [examSubjectSummary, setExamSubjectSummary] = useState(null);
   const [examSubjectSummaryError, setExamSubjectSummaryError] = useState('');
   const { branding } = useBranding();
+  const { classes: schoolClasses } = useSchoolClasses();
 
   const createEmptyDiagnosticTopic = () => ({ topic: '', score: '', max_score: '' });
 
@@ -155,39 +156,32 @@ export default function TeacherDashboard() {
         // If teacher has assigned classes, use only those
         if (assignedClasses.length > 0) {
           setAssignedClasses(assignedClasses);
-          setAvailableClasses(assignedClasses);
-          // Set initial selected class to first assigned class
-          if (!assignedClasses.includes(selectedClass)) {
-            setSelectedClass(assignedClasses[0]);
-          }
           return;
         }
 
-        // Otherwise, fall back to all school classes (for backward compatibility)
-        const res = await axios.get('/api/school/classes', getAuthHeaders());
-        const allClasses = Array.isArray(res.data) ? res.data.map(c => c.name || c.class_name) : [];
         setAssignedClasses([]);
-        
-        if (allClasses.length > 0) {
-          setAvailableClasses(allClasses);
-          // Ensure selectedClass is in the list
-          if (!allClasses.includes(selectedClass)) {
-            setSelectedClass(allClasses[0]);
-          }
-        } else {
-          // Should not reach here since endpoint has fallback, but just in case
-          setAssignedClasses([]);
-          setAvailableClasses(['JHS 1', 'JHS 2', 'JHS 3', 'Class 6', 'Class 5']);
-        }
       } catch (err) {
         console.error('Failed to load classes', err);
-        // Fallback to default classes on error
         setAssignedClasses([]);
-        setAvailableClasses(['JHS 1', 'JHS 2', 'JHS 3', 'Class 6', 'Class 5']);
       }
     };
     fetchClasses();
   }, []);
+
+  const classOptions = assignedClasses.length > 0 ? assignedClasses : schoolClasses;
+
+  useEffect(() => {
+    if (classOptions.length === 0) {
+      if (selectedClass) {
+        setSelectedClass('');
+      }
+      return;
+    }
+
+    if (!classOptions.includes(selectedClass)) {
+      setSelectedClass(classOptions[0]);
+    }
+  }, [classOptions, selectedClass]);
 
   useEffect(() => {
     const fetchTimetable = async () => {
@@ -221,10 +215,6 @@ export default function TeacherDashboard() {
   const gradeSubjectOptions = useTimetable
     ? timetableSubjects.filter((subject) => allowedSubjects.includes(subject))
     : allowedSubjects;
-
-  const classOptions = availableClasses.length > 0 
-    ? availableClasses 
-    : ['JHS 1', 'JHS 2', 'JHS 3', 'Class 6', 'Class 5'];
 
   const selectedStudent = students.find((student) => String(student.id) === String(selectedStudentId)) || null;
   const completedStudentCount = students.filter((student) => (
@@ -949,7 +939,9 @@ export default function TeacherDashboard() {
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
                 className="p-2 border rounded-lg bg-gray-50 font-bold text-slate-700"
+                disabled={classOptions.length === 0}
               >
+                {classOptions.length === 0 && <option value="">No school classes configured</option>}
                 {classOptions.map(c => (
                   <option key={c} value={c}>{c}</option>
                 ))}
@@ -1189,7 +1181,9 @@ export default function TeacherDashboard() {
                   className="w-full p-2 border rounded-lg bg-gray-50"
                   value={selectedClass}
                   onChange={(e) => setSelectedClass(e.target.value)}
+                  disabled={classOptions.length === 0}
                 >
+                  {classOptions.length === 0 && <option value="">No school classes configured</option>}
                   {classOptions.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}

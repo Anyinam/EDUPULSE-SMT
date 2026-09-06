@@ -192,11 +192,55 @@ export default function StudentPaymentTracker() {
     }
   };
 
-  const printPaymentInstructions = () => {
+  const ensureTrackedTransferRoutes = async (studentId, codesRecord) => {
+    if (!codesRecord?.payment_identity?.supports_fee_route_dvas || !Array.isArray(codesRecord.payment_codes) || codesRecord.payment_codes.length === 0) {
+      return codesRecord;
+    }
+
+    const headers = {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'X-School-ID': localStorage.getItem('school_id')
+    };
+
+    const updatedPaymentCodes = await Promise.all(
+      codesRecord.payment_codes.map(async (code) => {
+        if (code.virtual_route?.account_number || code.has_virtual_route) {
+          return code;
+        }
+
+        try {
+          const res = await axios.post(
+            `/api/students/${studentId}/payment-codes/${encodeURIComponent(code.reference_code || code.code)}/virtual-account`,
+            {},
+            { headers }
+          );
+          return res.data?.payment_code || {
+            ...code,
+            virtual_route: res.data?.virtual_route || null,
+            has_virtual_route: Boolean(res.data?.virtual_route),
+          };
+        } catch (err) {
+          return {
+            ...code,
+            tracked_transfer_error: err.response?.data?.message || 'Tracked transfer account is not available right now.',
+          };
+        }
+      })
+    );
+
+    return {
+      ...codesRecord,
+      payment_codes: updatedPaymentCodes,
+    };
+  };
+
+  const printPaymentInstructions = async () => {
     if (!paymentCodes) return;
 
-    const html = buildPaymentInstructionsHtml(paymentCodes);
-    openInstructionPrintWindow(`Payment Instructions & Reference Guide - ${paymentCodes.student_name}`, html);
+    const preparedCodes = await ensureTrackedTransferRoutes(selectedStudent?.id, paymentCodes);
+    setPaymentCodes(preparedCodes);
+    const html = buildPaymentInstructionsHtml(preparedCodes);
+    openInstructionPrintWindow(`Payment Instructions & Reference Guide - ${preparedCodes.student_name}`, html);
   };
 
   const openInstructionPrintWindow = (title, content) => {
@@ -456,7 +500,7 @@ export default function StudentPaymentTracker() {
         </div>` : ''}
 
         <div class="section">
-          <div class="section-title">💳 Fee References And Tracked Payment Options</div>
+          <div class="section-title">💳 Fee References And Tracked Transfer Accounts</div>
           <table class="payment-codes-table">
             <thead>
               <tr>
@@ -471,7 +515,7 @@ export default function StudentPaymentTracker() {
                 <tr>
                   <td><strong>${code.fee_type}</strong></td>
                   <td><span class="code-column">${code.reference_code || code.code}</span></td>
-                  <td><span style="color:#475569;">Use the tracked transfer account or tracked payment link for this exact fee whenever the school provides one</span></td>
+                  <td><span style="color:#475569;">Use the tracked transfer account shown for this exact fee whenever it is available</span></td>
                   <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
                 </tr>
               `).join('')}
@@ -480,7 +524,7 @@ export default function StudentPaymentTracker() {
         </div>
 
         <div class="important">
-          <strong>⚠️ Important:</strong> Best option: use the tracked transfer account or tracked payment link created for the exact fee. That keeps the learner and fee purpose attached automatically.
+          <strong>⚠️ Important:</strong> Best option: use the tracked transfer account created for the exact fee. That keeps the learner and fee purpose attached automatically.
         </div>
 
         <div class="section">
@@ -490,16 +534,22 @@ export default function StudentPaymentTracker() {
               <div class="payment-method-title">${code.fee_type}</div>
               <div class="payment-method-content">
                 <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
-                <p><strong>Best Option:</strong> Ask the school for the tracked transfer account or tracked payment link for this fee.</p>
+                ${code.virtual_route?.account_number ? `<p><strong>Tracked Transfer Bank:</strong> ${code.virtual_route.bank_name || 'Paystack transfer account'}</p>` : ''}
+                ${code.virtual_route?.account_number ? `<p><strong>Tracked Transfer Account Number:</strong> ${code.virtual_route.account_number}</p>` : ''}
+                ${code.virtual_route?.account_name ? `<p><strong>Tracked Transfer Account Name:</strong> ${code.virtual_route.account_name}</p>` : ''}
+                ${code.virtual_route?.account_number ? `<p><strong>Best Option:</strong> Pay into this tracked transfer account for this fee.</p>` : `<p><strong>Best Option:</strong> Ask the school to generate the tracked transfer account for this fee.</p>`}
+                ${Number(code.virtual_route?.convenience_fee_amount || 0) > 0 ? `<p><strong>Convenience Fee:</strong> GH₵ ${Number(code.virtual_route.convenience_fee_amount || 0).toFixed(2)}</p>` : ''}
+                ${code.virtual_route?.total_amount ? `<p><strong>Transfer Total:</strong> GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)}</p>` : ''}
                 ${hasBankDetails ? `<p><strong>School Bank Account:</strong> ${[bankName, bankAccount, bankAccountName].filter(Boolean).join(' • ')}${bankBranch ? ` • ${bankBranch}` : ''}</p>` : ''}
                 <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> Use it when the school asks for bank narration or office confirmation.</p>
                 <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                 <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
                 <p style="margin-top: 8px;"><strong>Payment Flow:</strong></p>
-                <p style="margin-left: 12px;">1) Use the tracked transfer account or tracked payment link from the school for this fee whenever available.</p>
-                <p style="margin-left: 12px;">2) If the school instead gives a normal bank account, enter the amount shown for this fee.</p>
+                <p style="margin-left: 12px;">1) ${code.virtual_route?.account_number ? 'Use the tracked transfer bank name and account number shown above for this exact fee.' : 'Ask the school for the tracked transfer account for this exact fee.'}</p>
+                <p style="margin-left: 12px;">2) ${code.virtual_route?.total_amount ? `Transfer GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)} to match the tracked amount for this fee.` : `If the school instead gives a normal bank account, enter GH₵ ${Number(code.base_amount || 0).toFixed(2)} for this fee.`}</p>
                 <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration or present it at the school office.</p>
                 <p style="margin-left: 12px;">4) The school records the payment under this learner and fee purpose.</p>
+                ${code.tracked_transfer_error ? `<p style="margin-top: 8px; color:#b45309;"><strong>Tracked transfer note:</strong> ${code.tracked_transfer_error}</p>` : ''}
               </div>
             </div>
           `).join('')}
@@ -511,7 +561,7 @@ export default function StudentPaymentTracker() {
             <div class="instructions-title">Per-Fee Instructions:</div>
             <div class="instruction-text">
               ${(codesRecord.payment_codes || []).map(code =>
-                `• <strong>${code.fee_type}:</strong> Pay GH₵ ${Number(code.base_amount || 0).toFixed(2)} using the tracked transfer account or tracked payment link for reference <strong>${code.reference_code || code.code}</strong>. If the school asks for direct transfer, keep the same reference in the narration.`
+                `• <strong>${code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.base_amount || 0).toFixed(2)}` : `Pay GH₵ ${Number(code.base_amount || 0).toFixed(2)} using the tracked transfer account the school provides`} for reference <strong>${code.reference_code || code.code}</strong>. If the school asks for direct transfer, keep the same reference in the narration.`
               ).join('<br>')}
             </div>
             <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
@@ -555,7 +605,8 @@ export default function StudentPaymentTracker() {
         studentsToPrint.map(async (student) => {
           try {
             const result = await fetchPaymentCodesData(student.id);
-            return { student, result };
+            const printableResult = await ensureTrackedTransferRoutes(student.id, result);
+            return { student, result: printableResult };
           } catch (err) {
             return {
               student,
@@ -992,7 +1043,7 @@ export default function StudentPaymentTracker() {
                       {paymentCodes.school_payment_account.bank_account_name ? <p><strong>Account Name:</strong> {paymentCodes.school_payment_account.bank_account_name}</p> : null}
                       {paymentCodes.school_payment_account.bank_branch ? <p><strong>Branch:</strong> {paymentCodes.school_payment_account.bank_branch}</p> : null}
                     </div>
-                    <p className="mt-2 text-xs text-cyan-800">Use this only for direct bank transfer or office-confirmed payment. For automatic tracking, generate the tracked transfer account or tracked payment link below.</p>
+                    <p className="mt-2 text-xs text-cyan-800">Use this only for direct bank transfer or office-confirmed payment. For automatic tracking, print the fee instructions with the tracked transfer account or generate a tracked transfer account below.</p>
                   </div>
                 ) : null
               )}
@@ -1050,7 +1101,7 @@ export default function StudentPaymentTracker() {
                           const bankLines = (schoolPaymentAccount.bank_name || schoolPaymentAccount.bank_account || schoolPaymentAccount.bank_account_name || schoolPaymentAccount.bank_branch)
                             ? `School Bank Account:\n${schoolPaymentAccount.bank_name ? `- Bank: ${schoolPaymentAccount.bank_name}\n` : ''}${schoolPaymentAccount.bank_account ? `- Account Number: ${schoolPaymentAccount.bank_account}\n` : ''}${schoolPaymentAccount.bank_account_name ? `- Account Name: ${schoolPaymentAccount.bank_account_name}\n` : ''}${schoolPaymentAccount.bank_branch ? `- Branch: ${schoolPaymentAccount.bank_branch}\n` : ''}\n`
                             : '';
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nBest option: use the tracked transfer account or tracked payment link generated from EduPulse for the exact fee. Only use the normal school bank account when the school is manually confirming the payment.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nBest option: use the tracked transfer account generated from EduPulse for the exact fee. Only use the normal school bank account when the school is manually confirming the payment.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -1078,7 +1129,7 @@ export default function StudentPaymentTracker() {
                         {paymentCodes.school_payment_account.bank_branch && (
                           <p className="text-xs text-slate-600">Branch: {paymentCodes.school_payment_account.bank_branch}</p>
                         )}
-                        <p className="mt-2 text-xs text-amber-800">Use this only when the school wants a direct bank transfer or office-confirmed payment. For automatic tracking, use the tracked transfer account or tracked payment link for the exact fee below.</p>
+                        <p className="mt-2 text-xs text-amber-800">Use this only when the school wants a direct bank transfer or office-confirmed payment. For automatic tracking, use the tracked transfer account shown on the printed instructions or generate one below.</p>
                       </div>
                     )}
                     {paymentCodes.payment_identity?.tracked_transfer_readiness_note ? (
@@ -1100,7 +1151,7 @@ export default function StudentPaymentTracker() {
                           <p className="font-semibold text-slate-800">{code.fee_type}</p>
                           <p className="text-xs text-slate-600">Amount: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
-                          <p className="text-xs text-slate-700">Best option: generate the tracked transfer account or tracked payment link for this exact fee so EduPulse records the learner and purpose automatically.</p>
+                          <p className="text-xs text-slate-700">Best option: use the tracked transfer account for this exact fee so EduPulse records the learner and purpose automatically.</p>
 
                           <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
                           {generatedLinks[referenceKey] ? (
@@ -1145,9 +1196,10 @@ export default function StudentPaymentTracker() {
                           <button
                             onClick={() => generateTrackedPaymentLink(code)}
                             disabled={linkLoadingCode === referenceKey}
-                            className="px-2 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors text-xs font-bold disabled:bg-emerald-300"
+                            className="px-2 py-2 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors text-xs font-semibold disabled:bg-slate-100 disabled:text-slate-400"
+                            title="Optional online checkout link"
                           >
-                            {linkLoadingCode === referenceKey ? 'Generating...' : 'Tracked Link'}
+                            {linkLoadingCode === referenceKey ? 'Generating...' : 'Online Checkout Link'}
                           </button>
                           {generatedLinks[referenceKey] ? (
                             <button
@@ -1167,7 +1219,10 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Preferred instruction: "Use the tracked transfer account or tracked payment link generated from EduPulse for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>. Only use the normal school bank account if the school asks for direct transfer confirmation." 
+                    💬 Preferred instruction: "Use the tracked transfer account generated from EduPulse for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>. Only use the normal school bank account if the school asks for direct transfer confirmation." 
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Online checkout link is optional and mainly for cases where the school wants card or web checkout instead of bank transfer.
                   </p>
                 </div>
               )}

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowRight, CheckCircle2, FileText, ShieldCheck, Sparkles, UploadCloud } from 'lucide-react';
@@ -6,10 +6,6 @@ import SchoolVerifiedBadge from '../components/SchoolVerifiedBadge';
 import usePublicSchoolProfile from '../hooks/usePublicSchoolProfile';
 
 const PARENT_ADMISSION_CONSENT_VERSION = '2026-04-29';
-
-const validGrades = [
-  'Nursery', 'KG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'JHS 1', 'JHS 2', 'JHS 3'
-];
 
 const intakeHighlights = [
   {
@@ -78,11 +74,55 @@ export default function ParentAdmissionsPortal() {
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState('');
+  const [availableClasses, setAvailableClasses] = useState([]);
 
   const statusPath = useMemo(() => result?.status_path || '', [result]);
   const schoolName = schoolProfile?.school_name || schoolId;
   const schoolColor = schoolProfile?.theme_color || '#0f766e';
   const admissionFee = schoolProfile?.admission_fee;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchSchoolClasses = async () => {
+      if (!schoolId) {
+        if (mounted) {
+          setAvailableClasses([]);
+        }
+        return;
+      }
+
+      try {
+        const response = await axios.get(`/api/public/schools/${schoolId}/classes`);
+        if (!mounted) {
+          return;
+        }
+
+        const classList = Array.from(new Set(
+          (Array.isArray(response.data) ? response.data : [])
+            .map((item) => item.class_name || item.name)
+            .filter(Boolean)
+        )).sort((left, right) => left.localeCompare(right));
+
+        setAvailableClasses(classList);
+        setFormData((current) => (
+          current.preferred_class && classList.includes(current.preferred_class)
+            ? current
+            : { ...current, preferred_class: classList[0] || '' }
+        ));
+      } catch (requestError) {
+        if (mounted) {
+          setAvailableClasses([]);
+          setFormData((current) => ({ ...current, preferred_class: '' }));
+        }
+      }
+    };
+
+    fetchSchoolClasses();
+    return () => {
+      mounted = false;
+    };
+  }, [schoolId]);
 
   const getDocumentKey = (file) => `${file.name}-${file.size}-${file.lastModified}`;
 
@@ -128,6 +168,11 @@ export default function ParentAdmissionsPortal() {
     event.preventDefault();
     setSubmitting(true);
     setError('');
+    if (!formData.preferred_class) {
+      setError('This school has not configured any classes yet. Please contact the school before submitting.');
+      setSubmitting(false);
+      return;
+    }
     if (!consentAccepted) {
       setError('You must confirm that you are the parent or lawful guardian before submitting this application.');
       setSubmitting(false);
@@ -433,8 +478,9 @@ export default function ParentAdmissionsPortal() {
               </div>
               <div>
                 <FieldLabel helper="Choose the class you want the learner assessed for.">Preferred Class</FieldLabel>
-                <select name="preferred_class" value={formData.preferred_class} onChange={handleChange} className={inputClassName}>
-                  {validGrades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+                <select name="preferred_class" value={formData.preferred_class} onChange={handleChange} className={inputClassName} disabled={availableClasses.length === 0}>
+                  {availableClasses.length === 0 && <option value="">No school classes configured</option>}
+                  {availableClasses.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
                 </select>
               </div>
               <div>

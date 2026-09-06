@@ -72,6 +72,16 @@ from backend.api.models import (
     get_ledger_summary,
     verify_ledger_chain,
 )
+from backend.payment_workflow import (
+    build_intent_customer_email,
+    calculate_payment_collection_breakdown,
+    looks_like_provider_error,
+    public_payment_setup_failure_message,
+    public_tracked_transfer_failure_message,
+    split_person_name,
+    tenant_email_delivery_failure_message,
+)
+from backend import finance_read_service, legacy_consent_service, parent_admission_service, payment_checkout_service, payment_collection_service, payment_instruction_service, school_configuration_service, school_settings_service, staff_service
 from backend.report_card_parser import ocr_image_bytes, parse_report_card_image_bytes
 from backend.settings import (
     AUTH_LOCKOUT_ATTEMPTS,
@@ -2281,8 +2291,7 @@ def _has_ai_employee_addon(settings, addon_key):
 
 
 def _has_ai_registrar_access(school):
-    plan = ((getattr(school, "subscription_plan", None) or "Free Tier").strip())
-    return plan in {"Basic", "Premium"}
+    return has_feature(get_effective_plan(school), "ai_registrar")
 
 
 def _get_public_school_profile_payload(school, settings):
@@ -3874,163 +3883,20 @@ def _admit_student_from_payload(school_id, data, actor_id):
 def _build_student_payment_instruction_payload(student, school_id):
     from backend.utils import generate_all_payment_codes
 
-    school = School.query.get(school_id)
-    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
-    other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
-    admission_fee = _get_school_admission_fee_config(settings)
-    feeding_plan_fees = _get_feeding_plan_fees(settings)
-    if admission_fee["enabled"]:
-        other_fees.setdefault(admission_fee["label"], admission_fee["amount"])
-
-    fees_config = {
-        "tuition_fee": settings.tuition_fee if settings else 0.0,
-        "feeding_fee": feeding_plan_fees["primary"],
-        "uniform_fee": settings.uniform_fee if settings else 0.0,
-        "transport_fee": settings.transport_fee if settings else 0.0,
-        "terminal_report_fee": settings.terminal_report_fee if settings else 0.0,
-        "other_fees": other_fees,
-    }
-
-    payment_codes = generate_all_payment_codes(student.student_code, fees_config)
-
-    codes_list = []
-    for fee_type, code in payment_codes.items():
-        if fee_type == "Feeding" and feeding_plan_fees["has_explicit_plans"]:
-            continue
-
-        if fee_type == "Tuition":
-            base_amount = fees_config["tuition_fee"] + fees_config["terminal_report_fee"]
-            display_name = "Tuition + Terminal Report"
-        elif fee_type == "Feeding":
-            base_amount = fees_config["feeding_fee"]
-            display_name = fee_type
-        elif fee_type == "Uniform":
-            base_amount = fees_config["uniform_fee"]
-            display_name = fee_type
-        elif fee_type == "Transport":
-            base_amount = fees_config["transport_fee"]
-            display_name = fee_type
-        else:
-            base_amount = fees_config["other_fees"].get(fee_type, 0.0)
-            display_name = fee_type
-
-        if student.is_on_scholarship:
-            if fee_type == "Tuition" and student.scholarship_covers_tuition:
-                base_amount = 0.0
-            if fee_type == "Feeding" and student.scholarship_covers_feeding:
-                base_amount = 0.0
-
-        codes_list.append({
-            "fee_type": display_name,
-            "code": code,
-            "reference_code": code,
-            "payment_identity_base": student.student_code,
-            "payment_category": {"fee_type": fee_type},
-            "base_amount": round(base_amount, 2),
-            "cash_amount": round(base_amount, 2),
-            "total_amount": round(base_amount, 2),
-            "amount": round(base_amount, 2),
-            "virtual_bank_account": None,
-            "virtual_bank_name": None,
-            "momo_shortcode": None,
-            "subaccount_code": None,
-            "has_virtual_route": False,
-            "preferred_payment_model": "reference_first",
-            "virtual_route": None,
-            "is_scholarship_fee": bool(
-                (fee_type == "Tuition" and student.scholarship_covers_tuition)
-                or (fee_type == "Feeding" and student.scholarship_covers_feeding)
-            ),
-            "instructions": (
-                f"Use the stable learner payment identity {student.student_code} with reference {code}. "
-                + "Phone payments should use the structured reference through bank transfer, bank app, USSD, or the school's approved digital channel. "
-                + f"The amount to pay for this fee is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
-            ),
-        })
-
-    if feeding_plan_fees["has_explicit_plans"]:
-        frequency_specs = [
-            ("Daily", "DAY", feeding_plan_fees["daily"]),
-            ("Weekly", "WEK", feeding_plan_fees["weekly"]),
-            ("Monthly", "MON", feeding_plan_fees["monthly"]),
-        ]
-
-        for frequency_label, frequency_code, configured_amount in frequency_specs:
-            if configured_amount <= 0:
-                continue
-
-            base_amount = 0.0 if student.is_on_scholarship and student.scholarship_covers_feeding else configured_amount
-            reference_code = f"{student.student_code}-FEED-{frequency_code}"
-
-            codes_list.append({
-                "fee_type": f"Feeding ({frequency_label})",
-                "code": reference_code,
-                "reference_code": reference_code,
-                "payment_identity_base": student.student_code,
-                "payment_category": {"fee_type": "Feeding", "frequency": frequency_label},
-                "base_amount": round(base_amount, 2),
-                "cash_amount": round(base_amount, 2),
-                "total_amount": round(base_amount, 2),
-                "amount": round(base_amount, 2),
-                "virtual_bank_account": None,
-                "virtual_bank_name": None,
-                "momo_shortcode": None,
-                "subaccount_code": None,
-                "has_virtual_route": False,
-                "preferred_payment_model": "reference_first",
-                "virtual_route": None,
-                "is_scholarship_fee": bool(student.is_on_scholarship and student.scholarship_covers_feeding),
-                "instructions": (
-                    f"Use reference {reference_code} for the {frequency_label.lower()} feeding plan. "
-                    + "Phone payments should use the structured reference through bank transfer, bank app, USSD, or the school's approved digital channel. "
-                    + f"The amount to pay for this plan is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
-                ),
-            })
-
-    _attach_virtual_routes_to_payment_codes(student, codes_list)
-    provider_settings = _get_payment_provider_settings(settings)
-    country_supports_dvas = bool(
-        (settings.country_code if settings and settings.country_code else "GH") in PAYSTACK_DVA_SUPPORTED_COUNTRIES
+    return payment_instruction_service.build_student_payment_instruction_payload(
+        student,
+        school_id,
+        School,
+        SchoolSettings,
+        generate_all_payment_codes,
+        _get_school_admission_fee_config,
+        _get_feeding_plan_fees,
+        _attach_virtual_routes_to_payment_codes,
+        _get_payment_provider_settings,
+        PAYSTACK_DVA_SUPPORTED_COUNTRIES,
+        sanitize_string,
+        _get_payment_collection_pricing,
     )
-    supports_fee_route_dvas = bool(
-        country_supports_dvas and sanitize_string(provider_settings.get("paystack_subaccount_code") or "")
-    )
-
-    return {
-        "student_id": student.id,
-        "student_name": student.name,
-        "student_code": student.student_code,
-        "class": student.current_class,
-        "parent_name": student.parent_name,
-        "parent_phone": student.parent_phone,
-        "parent_email": student.parent_email,
-        "payment_identity": {
-            "model": "reference_first",
-            "student_code": student.student_code,
-            "stable_payment_identity": student.student_code,
-            "supports_structured_references": True,
-            "supports_fee_route_dvas": supports_fee_route_dvas,
-            "dva_country_supported": country_supports_dvas,
-            "tracked_transfer_ready": supports_fee_route_dvas,
-            "tracked_transfer_readiness_note": None if supports_fee_route_dvas else (
-                "Save verified school bank details in Settings so EduPulse can create the school Paystack settlement subaccount first."
-                if country_supports_dvas
-                else "Tracked transfer accounts are not available for this school country yet."
-            ),
-            "supported_rails": ["bank_app", "ussd_or_shortcode", "school_office_manual"],
-            "recommended_examples": [item["reference_code"] for item in codes_list[:3]],
-        },
-        "admission_fee": admission_fee,
-        "payment_collection_pricing": _get_payment_collection_pricing(),
-        "school_payment_account": {
-            "bank_name": school.bank_name if school else None,
-            "bank_account": school.bank_account if school else None,
-            "bank_account_name": school.bank_account_name if school else None,
-            "bank_branch": school.bank_branch if school else None,
-        },
-        "payment_codes": codes_list,
-        "note": "Preferred model: use the learner's stable payment identity and structured reference across the school's approved payment channels.",
-    }
 
 
 def normalize_login_attempt(attempt, now, window_minutes):
@@ -5509,8 +5375,10 @@ def _send_staff_invite_email(user, school, temporary_password, expiry_days=30):
 
     try:
         if template_subject and template_body:
-            send_email_notification(user.email, template_subject, template_body)
-            email_sent = True
+            delivery_result = send_email_notification(user.email, template_subject, template_body)
+            email_sent = bool(delivery_result)
+            if not email_sent:
+                email_error = "Email delivery is unavailable right now."
     except Exception as invite_error:
         email_error = str(invite_error)
         logger.error(f"Failed to send staff welcome email: {email_error}")
@@ -6636,10 +6504,10 @@ def get_school_classes():
 
         # Fallback: get unique class names from students
         student_classes = (
-            db.session.query(Student.class_name)
+            db.session.query(Student.current_class)
             .filter(Student.school_id == g.school_id)
-            .group_by(Student.class_name)
-            .order_by(Student.class_name)
+            .group_by(Student.current_class)
+            .order_by(Student.current_class)
             .all()
         )
 
@@ -6648,14 +6516,74 @@ def get_school_classes():
         if class_names:
             return jsonify([{"name": c, "class_name": c} for c in class_names])
 
-        # Final fallback to default classes
-        default_classes = ["JHS 1", "JHS 2", "JHS 3", "Class 6", "Class 5"]
-        return jsonify([{"name": c, "class_name": c} for c in default_classes])
+        return jsonify([])
 
     except Exception as e:
         print(f"Error fetching classes: {e}", flush=True)
-        default_classes = ["JHS 1", "JHS 2", "JHS 3", "Class 6", "Class 5"]
-        return jsonify([{"name": c, "class_name": c} for c in default_classes])
+        return jsonify([])
+
+
+@api.route("/school/classes", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor", "headmaster")
+@jwt_required()
+def create_school_class():
+    """Create a school-defined class for timetable and academic workflows."""
+    data = request.json or {}
+    class_name = sanitize_string(data.get("name") or data.get("class_name") or "")
+    level = sanitize_string(data.get("level") or "") or None
+    stream = sanitize_string(data.get("stream") or "") or None
+
+    if not class_name:
+        return jsonify({"message": "Class name is required."}), 400
+
+    existing = AcademicClass.query.filter_by(
+        school_id=g.school_id,
+        name=class_name,
+        stream=stream,
+    ).first()
+    if existing:
+        return jsonify(
+            {
+                "message": "Class already exists.",
+                "class": {"id": existing.id, "name": existing.name, "class_name": existing.name, "stream": existing.stream},
+            }
+        ), 200
+
+    school_class = AcademicClass(
+        school_id=g.school_id,
+        name=class_name,
+        level=level,
+        stream=stream,
+    )
+    db.session.add(school_class)
+    db.session.commit()
+
+    log_action(
+        int(get_jwt_identity()),
+        g.school_id,
+        "ACADEMIC_CLASS_CREATED",
+        json.dumps(
+            {
+                "class_name": class_name,
+                "stream": stream,
+                "level": level,
+            }
+        ),
+    )
+
+    return jsonify(
+        {
+            "message": "Class created successfully.",
+            "class": {
+                "id": school_class.id,
+                "name": school_class.name,
+                "class_name": school_class.name,
+                "level": school_class.level,
+                "stream": school_class.stream,
+            },
+        }
+    ), 201
 
 
 @api.route("/report-cards/preview", methods=["GET"])
@@ -7432,7 +7360,7 @@ def create_student_payment_virtual_account(student_id, reference_code):
     intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, selected_code)
     if error:
         db.session.rollback()
-        if _looks_like_provider_error(error):
+        if looks_like_provider_error(error, sanitize_string):
             logger.error(
                 "Tracked transfer account generation failed for school %s student %s ref %s: %s",
                 g.school_id,
@@ -7440,7 +7368,7 @@ def create_student_payment_virtual_account(student_id, reference_code):
                 reference_code,
                 error,
             )
-            return jsonify({"message": _public_tracked_transfer_failure_message()}), 502
+            return jsonify({"message": public_tracked_transfer_failure_message()}), 502
         return jsonify({"message": error}), 400
 
     route_payload = _build_payment_collection_intent_payload(intent)
@@ -9390,96 +9318,6 @@ def _school_bank_details_ready_for_paystack(school):
     )
 
 
-def _public_payment_setup_failure_message():
-    return (
-        "EduPulse could not connect to the payment provider right now. "
-        "Please try again shortly or use the school office for manual assistance."
-    )
-
-
-def _tenant_email_delivery_failure_message():
-    return "Invite created, but the welcome email could not be delivered right now."
-
-
-def _public_tracked_transfer_failure_message():
-    return (
-        "EduPulse could not prepare the tracked transfer account right now. "
-        "Please try again shortly or use the school office for manual assistance."
-    )
-
-
-def _looks_like_provider_error(message):
-    normalized = (sanitize_string(message or "") or "").lower()
-    if not normalized:
-        return False
-    if normalized.startswith("school settlement is not ready yet"):
-        return False
-    provider_markers = [
-        "paystack",
-        "unauthorized",
-        "dedicated-account",
-        "dedicated account",
-        "transfer account",
-        "customer creation",
-        "customer for this payment route",
-        "bank directory",
-        "bank account with paystack",
-        "split code",
-        "provider",
-        "401",
-        "403",
-        "404",
-        "500",
-    ]
-    return any(marker in normalized for marker in provider_markers)
-
-
-def _build_intent_customer_email(base_email, school_id, reference_code):
-    email = sanitize_string(base_email or "") or ""
-    safe_ref = re.sub(r"[^a-z0-9]+", "-", (reference_code or "").lower()).strip("-") or "payment"
-    safe_school = re.sub(r"[^a-z0-9]+", "-", (school_id or "").lower()).strip("-") or "school"
-    if "@" in email:
-        local_part, domain = email.split("@", 1)
-        local_part = local_part or "parent"
-        domain = domain or "example.com"
-        return f"{local_part}+edupulse-{safe_school}-{safe_ref}@{domain}"
-    return f"edupulse-{safe_school}-{safe_ref}@parents.edupulse.invalid"
-
-
-def _split_person_name(full_name, fallback_last_name="Customer"):
-    parts = [part for part in (sanitize_string(full_name or "") or "").split() if part]
-    if not parts:
-        return "EduPulse", fallback_last_name
-    if len(parts) == 1:
-        return parts[0], fallback_last_name
-    return parts[0], " ".join(parts[1:])
-
-
-def _calculate_payment_collection_breakdown(base_amount, pricing=None):
-    pricing = pricing or _get_payment_collection_pricing()
-    base_amount = round(float(base_amount or 0.0), 2)
-    estimated_provider_fee_amount = round(
-        (base_amount * (float(pricing.get("estimated_provider_fee_rate_pct") or 0.0) / 100.0))
-        + float(pricing.get("estimated_provider_fee_flat") or 0.0),
-        2,
-    )
-    platform_fee_amount = round(float(pricing.get("platform_fee_flat") or 0.0), 2)
-    convenience_fee_amount = round(
-        (estimated_provider_fee_amount + platform_fee_amount)
-        if pricing.get("charge_parent_convenience_fee", True)
-        else 0.0,
-        2,
-    )
-    return {
-        "base_amount": base_amount,
-        "estimated_provider_fee_amount": estimated_provider_fee_amount,
-        "platform_fee_amount": platform_fee_amount,
-        "convenience_fee_amount": convenience_fee_amount,
-        "total_amount": round(base_amount + convenience_fee_amount, 2),
-        "pricing": pricing,
-    }
-
-
 def _resolve_payment_collection_currency_code(settings):
     country_code = (settings.country_code if settings and settings.country_code else "GH").upper()
     if country_code == "NG":
@@ -9488,504 +9326,123 @@ def _resolve_payment_collection_currency_code(settings):
 
 
 def _get_or_create_paystack_transfer_split(school, provider_settings, base_amount, total_amount, settings=None):
-    school_subaccount_code = sanitize_string(provider_settings.get("paystack_subaccount_code") or "") or ""
-    if not school_subaccount_code:
-        return None, "School settlement is not ready yet. Save verified bank details first so EduPulse can create the school's Paystack subaccount."
-
-    base_amount_minor = int(round(float(base_amount or 0.0) * 100))
-    total_amount_minor = int(round(float(total_amount or 0.0) * 100))
-    if base_amount_minor <= 0:
-        return None, "A positive school fee amount is required before a transfer account can be created."
-    if total_amount_minor < base_amount_minor:
-        return None, "The payable total cannot be smaller than the school fee amount."
-
-    currency_code = _resolve_payment_collection_currency_code(settings)
-    cache_key = f"{school.id}:{currency_code}:{school_subaccount_code}:{base_amount_minor}"
-    cache = _get_payment_collection_split_cache()
-    cached_split = cache.get(cache_key) if isinstance(cache, dict) else None
-    cached_split_code = sanitize_string((cached_split or {}).get("split_code") or "") or ""
-    if cached_split_code:
-        return {
-            "split_code": cached_split_code,
-            "split_id": sanitize_string((cached_split or {}).get("split_id") or "") or None,
-            "currency": currency_code,
-            "school_settlement_amount_minor": base_amount_minor,
-            "platform_settlement_amount_minor": max(0, total_amount_minor - base_amount_minor),
-            "school_settlement_amount": round(base_amount_minor / 100.0, 2),
-            "platform_settlement_amount": round(max(0, total_amount_minor - base_amount_minor) / 100.0, 2),
-            "settlement_mode": "paystack_flat_split",
-            "fee_bearer": "account",
-        }, None
-
-    split_payload = {
-        "name": f"EduPulse Transfer Split {school.id} {base_amount_minor}",
-        "type": "flat",
-        "currency": currency_code,
-        "bearer_type": "account",
-        "subaccounts": [
-            {
-                "subaccount": school_subaccount_code,
-                "share": base_amount_minor,
-            }
-        ],
-    }
-    result, error = _call_paystack_api("/split", method="POST", data=split_payload)
-    if error:
-        return None, f"Unable to configure Paystack settlement split for this transfer account: {error}"
-    if not isinstance(result, dict):
-        return None, "Paystack split creation returned an unexpected response."
-
-    split_code = sanitize_string(result.get("split_code") or "") or ""
-    if not split_code:
-        return None, "Paystack did not return a split code for the transfer settlement."
-
-    next_cache = cache if isinstance(cache, dict) else {}
-    next_cache[cache_key] = {
-        "split_code": split_code,
-        "split_id": sanitize_string(result.get("id") or "") or None,
-        "school_id": school.id,
-        "currency": currency_code,
-        "school_subaccount_code": school_subaccount_code,
-        "school_settlement_amount_minor": base_amount_minor,
-        "settlement_mode": "paystack_flat_split",
-        "fee_bearer": "account",
-    }
-    _set_payment_collection_split_cache(next_cache)
-
-    return {
-        "split_code": split_code,
-        "split_id": sanitize_string(result.get("id") or "") or None,
-        "currency": currency_code,
-        "school_settlement_amount_minor": base_amount_minor,
-        "platform_settlement_amount_minor": max(0, total_amount_minor - base_amount_minor),
-        "school_settlement_amount": round(base_amount_minor / 100.0, 2),
-        "platform_settlement_amount": round(max(0, total_amount_minor - base_amount_minor) / 100.0, 2),
-        "settlement_mode": "paystack_flat_split",
-        "fee_bearer": "account",
-    }, None
+    return payment_collection_service.get_or_create_paystack_transfer_split(
+        school,
+        provider_settings,
+        base_amount,
+        total_amount,
+        settings,
+        sanitize_string,
+        _call_paystack_api,
+        _get_payment_collection_split_cache,
+        _set_payment_collection_split_cache,
+        _resolve_payment_collection_currency_code,
+    )
 
 
 def _build_payment_collection_intent_payload(intent):
-    if not intent:
-        return None
-    split_config = intent.meta.get("split_config") if isinstance(intent.meta, dict) else {}
-    return {
-        "id": intent.id,
-        "provider": intent.provider,
-        "channel": intent.collection_channel,
-        "status": intent.intent_status,
-        "reference_code": intent.reference_code,
-        "payment_type": intent.payment_type,
-        "base_amount": round(float(intent.base_amount or 0.0), 2),
-        "convenience_fee_amount": round(float(intent.convenience_fee_amount or 0.0), 2),
-        "estimated_provider_fee_amount": round(float(intent.estimated_provider_fee_amount or 0.0), 2),
-        "platform_fee_amount": round(float(intent.platform_fee_amount or 0.0), 2),
-        "total_amount": round(float(intent.total_amount or 0.0), 2),
-        "currency": intent.currency or "GH₵",
-        "bank_name": intent.provider_bank_name,
-        "bank_slug": intent.provider_bank_slug,
-        "account_name": intent.provider_account_name,
-        "account_number": intent.provider_account_number,
-        "subaccount_code": intent.provider_subaccount_code,
-        "split_code": sanitize_string(split_config.get("split_code") or "") or None,
-        "settlement_mode": sanitize_string(split_config.get("settlement_mode") or "reference_first") or "reference_first",
-        "school_settlement_amount": round(float(split_config.get("school_settlement_amount") or intent.base_amount or 0.0), 2),
-        "platform_settlement_amount": round(float(split_config.get("platform_settlement_amount") or 0.0), 2),
-        "provider_customer_code": intent.provider_customer_code,
-        "expires_at": intent.expires_at.isoformat() if intent.expires_at else None,
-        "paid_at": intent.paid_at.isoformat() if intent.paid_at else None,
-    }
+    return payment_instruction_service.build_payment_collection_intent_payload(intent, sanitize_string)
 
 
 def _get_student_payment_collection_intents(student):
-    if not student:
-        return {}
-
-    now = datetime.now(timezone.utc)
-    intents = (
-        PaymentCollectionIntent.query.filter_by(
-            school_id=student.school_id,
-            student_id=student.id,
-            provider="paystack",
-            collection_channel="dedicated_virtual_account",
-        )
-        .order_by(PaymentCollectionIntent.id.desc())
-        .all()
-    )
-
-    latest_by_reference = {}
-    for intent in intents:
-        if intent.reference_code in latest_by_reference:
-            continue
-        if intent.intent_status == "deactivated":
-            continue
-        if intent.expires_at and intent.expires_at < now and intent.intent_status == "assigned" and not intent.paid_at:
-            intent.intent_status = "expired"
-            continue
-        latest_by_reference[intent.reference_code] = intent
-    return latest_by_reference
+    return payment_instruction_service.get_student_payment_collection_intents(student, PaymentCollectionIntent)
 
 
 def _attach_virtual_routes_to_payment_codes(student, codes_list):
-    latest_by_reference = _get_student_payment_collection_intents(student)
-    for code in codes_list:
-        intent = latest_by_reference.get(code.get("reference_code"))
-        route_payload = _build_payment_collection_intent_payload(intent)
-        code["virtual_route"] = route_payload
-        code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
-        code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
-        code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
-        code["has_virtual_route"] = bool(route_payload and route_payload.get("status") in {"assigned", "paid"})
-        code["preferred_payment_model"] = "virtual_account_ready" if code["has_virtual_route"] else "reference_first"
+    return payment_instruction_service.attach_virtual_routes_to_payment_codes(
+        student,
+        codes_list,
+        _get_student_payment_collection_intents,
+        _build_payment_collection_intent_payload,
+    )
 
 
 def _get_paystack_dva_provider(country_code):
-    normalized_country = (sanitize_string(country_code or "GH") or "GH").upper()
-    if normalized_country not in PAYSTACK_DVA_SUPPORTED_COUNTRIES:
-        return None, "Dedicated virtual accounts are currently available only for supported Paystack countries like Ghana and Nigeria."
-
-    providers, error = _call_paystack_api("/dedicated_account/available_providers", method="GET")
-    if error:
-        return None, f"Unable to load Paystack dedicated-account providers: {error}"
-    if not isinstance(providers, list) or not providers:
-        return None, "Paystack did not return any dedicated-account providers for this integration."
-
-    indexed = {sanitize_string(item.get("provider_slug") or "") or "": item for item in providers}
-    for preferred_slug in PAYSTACK_DVA_DEFAULT_PROVIDER_PREFERENCE:
-        if preferred_slug in indexed:
-            return indexed[preferred_slug], None
-
-    first_provider = next((item for item in providers if sanitize_string(item.get("provider_slug") or "")), None)
-    if not first_provider:
-        return None, "Paystack returned provider entries without usable provider slugs."
-    return first_provider, None
+    return payment_collection_service.get_paystack_dva_provider(
+        country_code,
+        sanitize_string,
+        _call_paystack_api,
+        PAYSTACK_DVA_SUPPORTED_COUNTRIES,
+        PAYSTACK_DVA_DEFAULT_PROVIDER_PREFERENCE,
+    )
 
 
 def _create_paystack_collection_customer(email, full_name, phone, metadata=None):
-    first_name, last_name = _split_person_name(full_name)
-    payload = {
-        "email": email,
-        "first_name": first_name,
-        "last_name": last_name,
-    }
-    if phone:
-        payload["phone"] = phone
-    if metadata:
-        payload["metadata"] = metadata
-
-    result, error = _call_paystack_api("/customer", method="POST", data=payload)
-    if error:
-        return None, f"Unable to create the Paystack customer for this payment route: {error}"
-    if not isinstance(result, dict):
-        return None, "Paystack customer creation returned an unexpected response."
-    customer_code = sanitize_string(result.get("customer_code") or result.get("code") or "") or ""
-    if not customer_code:
-        return None, "Paystack customer creation did not return a customer code."
-    return {
-        "customer_code": customer_code,
-        "first_name": first_name,
-        "last_name": last_name,
-    }, None
+    return payment_collection_service.create_paystack_collection_customer(
+        email,
+        full_name,
+        phone,
+        metadata,
+        sanitize_string,
+        split_person_name,
+        _call_paystack_api,
+    )
 
 
 def _create_paystack_dedicated_virtual_account(customer_code, provider_slug, provider_settings, split_code=None, phone=None, first_name="", last_name=""):
-    payload = {
-        "customer": customer_code,
-        "preferred_bank": provider_slug,
-    }
-    if split_code:
-        payload["split_code"] = split_code
-    elif provider_settings.get("paystack_subaccount_code"):
-        payload["subaccount"] = provider_settings["paystack_subaccount_code"]
-    if phone:
-        payload["phone"] = phone
-    if first_name:
-        payload["first_name"] = first_name
-    if last_name:
-        payload["last_name"] = last_name
-
-    result, error = _call_paystack_api("/dedicated_account", method="POST", data=payload)
-    if error:
-        return None, f"Unable to create the Paystack transfer account: {error}"
-    if not isinstance(result, dict):
-        return None, "Paystack dedicated-account creation returned an unexpected response."
-    account_number = sanitize_string(result.get("account_number") or "") or ""
-    if not account_number:
-        return None, "Paystack did not return an account number for the dedicated account."
-    return result, None
+    return payment_collection_service.create_paystack_dedicated_virtual_account(
+        customer_code,
+        provider_slug,
+        provider_settings,
+        split_code,
+        phone,
+        first_name,
+        last_name,
+        sanitize_string,
+        _call_paystack_api,
+    )
 
 
 def _create_or_reuse_student_virtual_account_intent(student, school, settings, payment_code):
-    now = datetime.now(timezone.utc)
-    reference_code = sanitize_string(payment_code.get("reference_code") or payment_code.get("code") or "") or ""
-    if not reference_code:
-        return None, "A payment reference is required before a transfer route can be created."
-
-    existing = (
-        PaymentCollectionIntent.query.filter_by(
-            school_id=student.school_id,
-            student_id=student.id,
-            reference_code=reference_code,
-            provider="paystack",
-            collection_channel="dedicated_virtual_account",
-        )
-        .order_by(PaymentCollectionIntent.id.desc())
-        .first()
-    )
-    if existing and existing.intent_status == "assigned" and (not existing.expires_at or existing.expires_at >= now):
-        return existing, None
-    if existing and existing.intent_status == "paid":
-        return existing, None
-    if existing and existing.intent_status == "assigned" and existing.expires_at and existing.expires_at < now:
-        existing.intent_status = "expired"
-
-    base_amount = round(float(payment_code.get("base_amount") or payment_code.get("amount") or 0.0), 2)
-    if base_amount <= 0:
-        return None, "This fee route does not currently require payment."
-
-    pricing_breakdown = _calculate_payment_collection_breakdown(base_amount)
-    provider_settings = _get_payment_provider_settings(settings)
-    split_config, error = _get_or_create_paystack_transfer_split(
+    return payment_collection_service.create_or_reuse_student_virtual_account_intent(
+        student,
         school,
-        provider_settings,
-        pricing_breakdown["base_amount"],
-        pricing_breakdown["total_amount"],
-        settings=settings,
+        settings,
+        payment_code,
+        PaymentCollectionIntent,
+        sanitize_string,
+        _get_payment_collection_pricing,
+        calculate_payment_collection_breakdown,
+        _get_payment_provider_settings,
+        _get_or_create_paystack_transfer_split,
+        _get_paystack_dva_provider,
+        lambda base_email, school_id, reference_code: build_intent_customer_email(base_email, school_id, reference_code, sanitize_string),
+        _create_paystack_collection_customer,
+        _create_paystack_dedicated_virtual_account,
+        PAYSTACK_DVA_INTENT_TTL_DAYS,
+        db.session,
     )
-    if error:
-        return None, error
-
-    provider, error = _get_paystack_dva_provider(settings.country_code if settings else "GH")
-    if error:
-        return None, error
-
-    reference_email = _build_intent_customer_email(student.parent_email or school.school_email, student.school_id, reference_code)
-    customer_name = student.parent_name or student.guardian_name or student.name
-    customer_result, error = _create_paystack_collection_customer(
-        reference_email,
-        customer_name,
-        student.parent_phone or school.school_phone,
-        metadata={
-            "school_id": student.school_id,
-            "student_id": student.id,
-            "reference_code": reference_code,
-            "payment_type": payment_code.get("payment_category", {}).get("fee_type") or payment_code.get("fee_type"),
-        },
-    )
-    if error:
-        return None, error
-
-    dedicated_account, error = _create_paystack_dedicated_virtual_account(
-        customer_result["customer_code"],
-        sanitize_string(provider.get("provider_slug") or "") or "",
-        provider_settings,
-        split_code=split_config.get("split_code") if split_config else None,
-        phone=student.parent_phone or school.school_phone,
-        first_name=customer_result["first_name"],
-        last_name=customer_result["last_name"],
-    )
-    if error:
-        return None, error
-
-    bank_payload = dedicated_account.get("bank") if isinstance(dedicated_account.get("bank"), dict) else {}
-    intent = PaymentCollectionIntent(
-        school_id=student.school_id,
-        student_id=student.id,
-        provider="paystack",
-        collection_channel="dedicated_virtual_account",
-        intent_status="assigned",
-        reference_code=reference_code,
-        payment_type=sanitize_string(payment_code.get("payment_category", {}).get("fee_type") or payment_code.get("fee_type") or "Tuition") or "Tuition",
-        payment_category=payment_code.get("payment_category") if isinstance(payment_code.get("payment_category"), dict) else {},
-        base_amount=pricing_breakdown["base_amount"],
-        convenience_fee_amount=pricing_breakdown["convenience_fee_amount"],
-        estimated_provider_fee_amount=pricing_breakdown["estimated_provider_fee_amount"],
-        platform_fee_amount=pricing_breakdown["platform_fee_amount"],
-        total_amount=pricing_breakdown["total_amount"],
-        currency=settings.currency if settings and settings.currency else "GH₵",
-        provider_customer_code=customer_result["customer_code"],
-        provider_dedicated_account_id=str(dedicated_account.get("id") or "") or None,
-        provider_bank_slug=sanitize_string(bank_payload.get("slug") or provider.get("provider_slug") or "") or None,
-        provider_bank_name=sanitize_string(bank_payload.get("name") or provider.get("bank_name") or "") or None,
-        provider_account_name=sanitize_string(dedicated_account.get("account_name") or "") or None,
-        provider_account_number=sanitize_string(dedicated_account.get("account_number") or "") or None,
-        provider_subaccount_code=provider_settings.get("paystack_subaccount_code") or None,
-        expires_at=now + timedelta(days=PAYSTACK_DVA_INTENT_TTL_DAYS),
-        meta={
-            "provider": provider,
-            "pricing": pricing_breakdown["pricing"],
-            "split_config": split_config,
-            "raw_account": dedicated_account,
-        },
-    )
-    db.session.add(intent)
-    db.session.flush()
-    return intent, None
 
 
 def _extract_paystack_virtual_account_identifiers(payload):
-    authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
-    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
-    dedicated_account = payload.get("dedicated_account") if isinstance(payload.get("dedicated_account"), dict) else {}
-    if not dedicated_account and isinstance(customer.get("dedicated_account"), dict):
-        dedicated_account = customer.get("dedicated_account")
-
-    account_number_candidates = [
-        sanitize_string(dedicated_account.get("account_number") or "") or None,
-        sanitize_string(payload.get("receiver_account_number") or "") or None,
-        sanitize_string(payload.get("account_number") or "") or None,
-        sanitize_string(authorization.get("receiver_account_number") or "") or None,
-        sanitize_string(authorization.get("receiver_bank_account_number") or "") or None,
-    ]
-    customer_code = sanitize_string(customer.get("customer_code") or payload.get("customer_code") or "") or None
-    dedicated_account_id = sanitize_string(dedicated_account.get("id") or payload.get("dedicated_account_id") or "") or None
-
-    return {
-        "account_number": next((value for value in account_number_candidates if value), None),
-        "customer_code": customer_code,
-        "dedicated_account_id": dedicated_account_id,
-    }
+    return payment_collection_service.extract_paystack_virtual_account_identifiers(payload, sanitize_string)
 
 
 def _record_paystack_virtual_account_payment(payload, event="charge.success"):
-    identifiers = _extract_paystack_virtual_account_identifiers(payload)
-    query = PaymentCollectionIntent.query.filter_by(provider="paystack", collection_channel="dedicated_virtual_account")
-    intent = None
-
-    if identifiers.get("account_number"):
-        intent = query.filter_by(provider_account_number=identifiers["account_number"]).order_by(PaymentCollectionIntent.id.desc()).first()
-    if not intent and identifiers.get("dedicated_account_id"):
-        intent = query.filter_by(provider_dedicated_account_id=identifiers["dedicated_account_id"]).order_by(PaymentCollectionIntent.id.desc()).first()
-    if not intent and identifiers.get("customer_code"):
-        intent = query.filter_by(provider_customer_code=identifiers["customer_code"]).order_by(PaymentCollectionIntent.id.desc()).first()
-
-    if not intent:
-        return None
-
-    split_config = intent.meta.get("split_config") if isinstance(intent.meta, dict) else {}
-
-    tx_ref = sanitize_string(payload.get("reference") or str(payload.get("id") or ""))
-    if intent.provider_reference and intent.provider_reference == tx_ref and intent.intent_status == "paid":
-        return {"status": "duplicate", "reference": tx_ref, "intent_id": intent.id}, 200
-
-    adjusted_payload = {
-        **payload,
-        "amount": int(round(float(intent.base_amount or 0.0) * 100)),
-        "metadata": {
-            "school_id": intent.school_id,
-            "student_id": intent.student_id,
-            "payment_type": intent.payment_type,
-            "payment_category": {
-                **(intent.payment_category or {}),
-                "reference_code": intent.reference_code,
-                "collection_channel": intent.collection_channel,
-                "payment_collection_intent_id": intent.id,
-                "transfer_total_amount": round(float(intent.total_amount or 0.0), 2),
-                "convenience_fee_amount": round(float(intent.convenience_fee_amount or 0.0), 2),
-                "platform_fee_amount": round(float(intent.platform_fee_amount or 0.0), 2),
-                "estimated_provider_fee_amount": round(float(intent.estimated_provider_fee_amount or 0.0), 2),
-                "settlement_mode": sanitize_string(split_config.get("settlement_mode") or "reference_first") or "reference_first",
-                "split_code": sanitize_string(split_config.get("split_code") or "") or None,
-                "school_settlement_amount": round(float(split_config.get("school_settlement_amount") or intent.base_amount or 0.0), 2),
-                "platform_settlement_amount": round(float(split_config.get("platform_settlement_amount") or 0.0), 2),
-            },
-            "reference_code": intent.reference_code,
-        },
-    }
-
-    body, status_code = _record_paystack_finance_payment(adjusted_payload, event=event, school_id_scope=intent.school_id)
-    if status_code >= 400:
-        return body, status_code
-
-    authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
-    intent.intent_status = "paid" if body.get("status") in {"recorded", "duplicate", "blocked"} else intent.intent_status
-    intent.provider_reference = tx_ref or intent.provider_reference
-    intent.provider_last_event = event
-    intent.paid_at = datetime.now(timezone.utc)
-    intent.payer_name = sanitize_string(authorization.get("sender_name") or intent.payer_name or "") or intent.payer_name
-    intent.payer_bank_name = sanitize_string(authorization.get("sender_bank") or intent.payer_bank_name or "") or intent.payer_bank_name
-    intent.meta = {
-        **(intent.meta or {}),
-        "last_charge_success_payload": {
-            "reference": tx_ref,
-            "authorization": authorization,
-            "customer": payload.get("customer") if isinstance(payload.get("customer"), dict) else {},
-        },
-    }
-    db.session.commit()
-    return {
-        **body,
-        "intent_id": intent.id,
-        "transfer_total_amount": round(float(intent.total_amount or 0.0), 2),
-    }, status_code
+    return payment_collection_service.record_paystack_virtual_account_payment(
+        payload,
+        event,
+        sanitize_string,
+        PaymentCollectionIntent,
+        _record_paystack_finance_payment,
+        db.session,
+    )
 
 
 def _record_paystack_parent_admission_payment(payload, event="charge.success"):
-    tx_ref = sanitize_string(payload.get("reference") or str(payload.get("id") or ""))
-    if not tx_ref:
-        return {"status": "error", "message": "Missing transaction reference"}, 400
-
-    amount_minor = payload.get("amount")
-    try:
-        amount = round(float(amount_minor or 0) / 100.0, 2)
-    except Exception:
-        return {"status": "error", "message": "Invalid payment amount"}, 400
-
-    if amount <= 0:
-        return {"status": "error", "message": "Amount must be greater than zero"}, 400
-
-    metadata = payload.get("metadata") or {}
-    school_id = sanitize_string(metadata.get("school_id") or "") or None
-    application = None
-
-    application_id = metadata.get("parent_admission_application_id")
-    if application_id is not None:
-        try:
-            query = ParentAdmissionApplication.query.filter_by(id=int(application_id))
-            if school_id:
-                query = query.filter_by(school_id=school_id)
-            application = query.first()
-        except (TypeError, ValueError):
-            application = None
-
-    if not application:
-        status_token = sanitize_string(metadata.get("status_token") or "") or None
-        if status_token:
-            query = ParentAdmissionApplication.query.filter_by(status_token=status_token)
-            if school_id:
-                query = query.filter_by(school_id=school_id)
-            application = query.first()
-
-    if not application:
-        return {"status": "unmapped", "reference": tx_ref}, 200
-
-    settings = SchoolSettings.query.filter_by(school_id=application.school_id).first()
-    payment_summary = _get_parent_admission_payment_summary(application, settings)
-    if payment_summary.get("status") == "paid" and payment_summary.get("reference") == tx_ref:
-        return {"status": "duplicate", "reference": tx_ref, "application_id": application.id}, 200
-
-    paid_at = sanitize_string(payload.get("paid_at") or payload.get("created_at") or "") or datetime.now(timezone.utc).isoformat()
-    updated_summary = _normalize_parent_admission_payment_summary(
-        {
-            **payment_summary,
-            "status": "paid",
-            "reference": tx_ref,
-            "amount": amount,
-            "provider": "paystack",
-            "paid_at": paid_at,
-        },
-        fee_config=_get_school_admission_fee_config(settings),
+    return payment_collection_service.record_paystack_parent_admission_payment(
+        payload,
+        event,
+        sanitize_string,
+        ParentAdmissionApplication,
+        SchoolSettings,
+        _get_parent_admission_payment_summary,
+        _normalize_parent_admission_payment_summary,
+        _get_school_admission_fee_config,
+        _set_parent_admission_payment_summary,
+        log_action,
+        db.session,
     )
-    _set_parent_admission_payment_summary(application, updated_summary)
-
-    log_action(
-        user_id=None,
-        school_id=application.school_id,
-        action="PARENT_ADMISSION_FEE_PAID",
-        details=f"Parent admission fee paid for {application.application_code} (ref={tx_ref}, amount=GH₵{amount:.2f})",
-    )
-    db.session.commit()
-    return {"status": "recorded", "reference": tx_ref, "application_id": application.id}, 200
 
 
 @api.route("/finance/paystack/initialize-payment", methods=["POST"])
@@ -10007,96 +9464,20 @@ def initialize_paystack_payment():
     if restriction:
         return restriction
     
-    student_id = data.get("student_id")
-    reference_code = sanitize_string(data.get("reference_code")) or None
-    payment_type = sanitize_string(data.get("payment_type", "Tuition"))
-    amount = data.get("amount")
-    payment_category = data.get("payment_category") if isinstance(data.get("payment_category"), dict) else {}
-
-    student = None
-    if student_id:
-        student = Student.query.filter_by(
-            id=student_id,
-            school_id=g.school_id
-        ).first_or_404()
-    elif reference_code:
-        resolved_student, resolved_type, resolved_category = _resolve_payment_from_reference(
-            reference_code,
-            school_id_hint=g.school_id,
-        )
-        if not resolved_student:
-            return jsonify({"error": f"Invalid reference code: {reference_code}"}), 400
-        student = resolved_student
-        payment_type = resolved_type or payment_type or "Tuition"
-        payment_category = {
-            **(resolved_category or {}),
-            **(payment_category or {}),
-            "reference_code": reference_code,
-        }
-    else:
-        return jsonify({"error": "student_id or reference_code required"}), 400
-
-    if amount in (None, ""):
-        return jsonify({"error": "amount required"}), 400
-
-    try:
-        amount = float(amount)
-    except (TypeError, ValueError):
-        return jsonify({"error": "amount must be numeric"}), 400
-
-    if amount <= 0:
-        return jsonify({"error": "amount must be greater than zero"}), 400
-
-    if reference_code and "reference_code" not in payment_category:
-        payment_category = {
-            **(payment_category or {}),
-            "reference_code": reference_code,
-        }
-    
-    # Generate unique reference
-    import uuid
-    reference = f"PS-{student.student_code}-{payment_type[:3].upper()}-{uuid.uuid4().hex[:8].upper()}"
-    
-    # Prepare Paystack initialization payload
-    paystack_payload = {
-        "email": student.parent_email or f"{student.student_code}@temp.edupulse.gh",
-        "amount": int(amount * 100),  # Convert to pesewas
-        "reference": reference,
-        "currency": "GHS",
-        "metadata": {
-            "student_id": student.id,
-            "student_code": student.student_code,
-            "student_name": student.name,
-            "school_id": g.school_id,
-            "payment_type": payment_type,
-            "reference_code": reference_code,
-            "payment_category": payment_category,
-        },
-        "callback_url": data.get("callback_url", "https://edupulse.com/payment-complete"),
-    }
-
-    # Call Paystack API to initialize transaction
-    result, error = _call_paystack_api("/transaction/initialize", method="POST", data=paystack_payload)
-    
+    response_body, error, status_code = payment_checkout_service.initialize_student_paystack_payment(
+        data,
+        g.school_id,
+        Student,
+        sanitize_string,
+        _resolve_payment_from_reference,
+        _call_paystack_api,
+    )
     if error:
-        logger.error(f"Paystack initialization failed: {error}")
-        return jsonify({"message": _public_payment_setup_failure_message()}), 502
-    
-    return jsonify({
-        "status": "success",
-        "authorization_url": result.get("authorization_url"),
-        "access_code": result.get("access_code"),
-        "reference": reference,
-        "amount": amount,
-        "student": {
-            "id": student.id,
-            "name": student.name,
-            "student_code": student.student_code,
-        },
-        "reference_code": reference_code,
-        "payment_type": payment_type,
-        "message": f"Payment link generated for {student.name}"
-    })
+        if status_code == 502:
+            logger.error(f"Paystack initialization failed: {error}")
+            return jsonify({"message": public_payment_setup_failure_message()}), 502
+        return jsonify(error), status_code
+    return jsonify(response_body)
 
 
 @api.route("/public/schools/<school_id>/admissions/status/<status_token>/initialize-payment", methods=["POST"])
@@ -10118,65 +9499,30 @@ def initialize_parent_admission_fee_payment(school_id, status_token):
         return jsonify({"message": "This school does not require an admission fee right now."}), 409
 
     payment_summary = _get_parent_admission_payment_summary(application, settings)
-    if payment_summary.get("status") == "paid":
-        return jsonify({"message": "Admission fee has already been paid.", "payment_summary": payment_summary}), 409
-
-    amount = round(float(fee_config["amount"] or 0.0), 2)
-    if amount <= 0:
-        return jsonify({"message": "Admission fee amount is not configured."}), 409
-
-    callback_url = _build_parent_public_url(_build_parent_status_path(school_id, status_token))
-    reference = f"PADM-{application.application_code}-{secrets.token_hex(4).upper()}"
-    provider_settings = _get_payment_provider_settings(settings)
-    paystack_payload = {
-        "email": application.parent_email or f"{application.application_code.lower()}@parents.edupulse.invalid",
-        "amount": int(amount * 100),
-        "reference": reference,
-        "currency": "GHS",
-        "metadata": {
-            "transaction_type": "parent_admission_fee",
-            "school_id": school_id,
-            "parent_admission_application_id": application.id,
-            "application_code": application.application_code,
-            "status_token": application.status_token,
-            "payment_type": fee_config["label"],
-        },
-        "callback_url": callback_url,
-    }
-    if provider_settings.get("paystack_subaccount_code"):
-        paystack_payload["subaccount"] = provider_settings["paystack_subaccount_code"]
-
-    result, error = _call_paystack_api("/transaction/initialize", method="POST", data=paystack_payload)
-    if error:
-        logger.error(f"Parent admission payment initialization failed: {error}")
-        return jsonify({"message": _public_payment_setup_failure_message()}), 502
-
-    initiated_summary = _normalize_parent_admission_payment_summary(
-        {
-            **payment_summary,
-            "status": "initiated",
-            "reference": reference,
-            "amount": amount,
-            "provider": "paystack",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        },
-        fee_config=fee_config,
+    response_body, error, status_code = payment_checkout_service.initialize_parent_admission_fee_payment(
+        school_id,
+        status_token,
+        school,
+        settings,
+        application,
+        fee_config,
+        payment_summary,
+        _get_payment_provider_settings,
+        _build_parent_status_path,
+        _build_parent_public_url,
+        _normalize_parent_admission_payment_summary,
+        _set_parent_admission_payment_summary,
+        _call_paystack_api,
+        db.session,
+        secrets.token_hex,
     )
-    _set_parent_admission_payment_summary(application, initiated_summary)
-    db.session.commit()
+    if error:
+        if status_code == 502:
+            logger.error(f"Parent admission payment initialization failed: {error}")
+            return jsonify({"message": public_payment_setup_failure_message()}), 502
+        return jsonify(error), status_code
 
-    return jsonify(
-        {
-            "status": "success",
-            "authorization_url": result.get("authorization_url"),
-            "access_code": result.get("access_code"),
-            "reference": reference,
-            "amount": amount,
-            "application_code": application.application_code,
-            "payment_summary": initiated_summary,
-            "message": f"Payment link generated for {application.application_code}",
-        }
-    ), 200
+    return jsonify(response_body), status_code
 
 
 @api.route("/proprietor/terminal-reports/whatsapp/bulk-send", methods=["POST"])
@@ -13069,146 +12415,40 @@ def get_staff_notifications():
 @api.route("/public/schools/<school_id>/admissions/apply", methods=["POST"])
 def submit_parent_admission_application(school_id):
     """Public parent-facing admissions intake for the AI Registrar MVP."""
-    school = School.query.filter_by(id=school_id, is_active=True).first()
-    if not school:
-        return jsonify({"message": "School not found"}), 404
-    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
-
     payload = request.get_json(silent=True) or {}
     if request.form:
         payload = request.form.to_dict(flat=True)
-
-    first_name = sanitize_string(payload.get("first_name") or "")
-    surname = sanitize_string(payload.get("surname") or "")
-    preferred_class = sanitize_string(payload.get("preferred_class") or payload.get("class_assigned") or "")
-    guardian_name = sanitize_string(payload.get("guardian_name") or payload.get("parent_name") or "")
-    parent_email = sanitize_string(payload.get("parent_email") or "")
-    parent_phone = sanitize_string(payload.get("parent_phone") or "")
-    consent_confirmed = str(payload.get("consent_confirmed") or payload.get("consentConfirmed") or "").strip().lower() in {"1", "true", "yes", "on"}
-    consent_version = sanitize_string(payload.get("consent_version") or payload.get("consentVersion") or "") or PARENT_ADMISSION_CONSENT_VERSION
-
-    if not first_name or not surname:
-        return jsonify({"message": "first_name and surname are required"}), 400
-    if preferred_class not in VALID_GRADES:
-        return jsonify({"message": f"preferred_class must be one of: {', '.join(VALID_GRADES)}"}), 400
-    if not guardian_name:
-        return jsonify({"message": "guardian_name is required"}), 400
-    if not parent_email and not parent_phone:
-        return jsonify({"message": "Provide at least parent_email or parent_phone"}), 400
-    if not consent_confirmed:
-        return jsonify({"message": "Parent or guardian consent confirmation is required before submission."}), 400
-
-    date_of_birth = None
-    raw_dob = sanitize_string(payload.get("date_of_birth") or "")
-    if raw_dob:
-        try:
-            date_of_birth = date.fromisoformat(raw_dob)
-        except ValueError:
-            return jsonify({"message": "Invalid date_of_birth format. Use YYYY-MM-DD."}), 400
-
-    document_manifest = []
     passport_photo = request.files.get("passport_photo")
-    if passport_photo and passport_photo.filename:
-        file_bytes = passport_photo.read()
-        if file_bytes:
-            entry = _extract_parent_admission_document_details(
-                passport_photo.filename,
-                passport_photo.mimetype,
-                file_bytes,
-                category_override="passport_photo",
-            )
-            entry.update(_store_parent_admission_document(school_id, passport_photo, file_bytes))
-            entry["is_primary_photo"] = True
-            document_manifest.append(entry)
-
-    for uploaded in request.files.getlist("documents"):
-        if not uploaded or not uploaded.filename:
-            continue
-        file_bytes = uploaded.read()
-        entry = _extract_parent_admission_document_details(
-            uploaded.filename,
-            uploaded.mimetype,
-            file_bytes,
-        )
-        entry.update(_store_parent_admission_document(school_id, uploaded, file_bytes))
-        document_manifest.append(entry)
-
-    assessment = _build_ai_registrar_assessment(payload, document_manifest)
-    application = ParentAdmissionApplication(
-        school_id=school_id,
-        application_code=_generate_parent_admission_code(school_id),
-        status_token=secrets.token_urlsafe(24),
-        first_name=first_name,
-        surname=surname,
-        gender=sanitize_string(payload.get("gender") or "") or None,
-        date_of_birth=date_of_birth,
-        preferred_class=preferred_class,
-        guardian_name=guardian_name,
-        parent_email=parent_email or None,
-        parent_phone=parent_phone or None,
-        prior_school=sanitize_string(payload.get("prior_school") or "") or None,
-        desired_test_mode=sanitize_string(payload.get("desired_test_mode") or "either") or "either",
-        internet_quality=sanitize_string(payload.get("internet_quality") or "unknown") or "unknown",
-        parent_notes=sanitize_string(payload.get("parent_notes") or "") or None,
-        document_manifest=document_manifest,
-        ai_summary=assessment["summary"],
-        ai_recommendation=assessment["recommendation"],
-        ai_readiness_score=assessment["readiness_score"],
-        ai_flags=assessment["flags"],
-        ai_missing_items=assessment["missing_items"],
-        status=assessment["status"],
+    response_body, error, status_code = parent_admission_service.submit_parent_admission_application(
+        school_id,
+        payload,
+        passport_photo,
+        request.files.getlist("documents"),
+        School,
+        SchoolSettings,
+        ParentAdmissionApplication,
+        VALID_GRADES,
+        PARENT_ADMISSION_CONSENT_VERSION,
+        sanitize_string,
+        _extract_parent_admission_document_details,
+        _store_parent_admission_document,
+        _build_ai_registrar_assessment,
+        _generate_parent_admission_code,
+        secrets,
+        _build_parent_status_path,
+        _build_parent_public_url,
+        _send_parent_admission_update,
+        _get_public_school_profile_payload,
+        _build_parent_admission_payment_payload,
+        _build_parent_notification_sms,
+        log_action,
+        get_client_ip,
+        logger,
+        db.session,
     )
-    db.session.add(application)
-    db.session.commit()
-
-    try:
-        log_action(
-            None,
-            school_id,
-            "PARENT_ADMISSION_CONSENT_RECORDED",
-            json.dumps(
-                {
-                    "application_id": application.id,
-                    "application_code": application.application_code,
-                    "status_token": application.status_token,
-                    "consent_version": consent_version,
-                    "accepted_ip": get_client_ip(),
-                    "accepted_at": application.submitted_at.isoformat() if application.submitted_at else None,
-                },
-                ensure_ascii=False,
-            ),
-        )
-    except Exception as consent_log_error:
-        logger.warning("Parent admission consent audit log failed for %s: %s", application.application_code, consent_log_error)
-
-    status_path = _build_parent_status_path(school_id, application.status_token)
-    status_url = _build_parent_public_url(status_path)
-    email_sent = _send_parent_admission_update(
-        application,
-        school,
-        next_step="Keep this token safe and use the tracking link to monitor review updates from the school.",
-    )
-
-    return jsonify({
-        "message": "Admission application submitted.",
-        "application": application.to_public_dict(),
-        "school": _get_public_school_profile_payload(school, settings),
-        "status_token": application.status_token,
-        "status_path": status_path,
-        "status_url": status_url,
-        "payment_summary": _build_parent_admission_payment_payload(application, school, settings),
-        "consent_recorded": True,
-        "notification": {
-            "email_sent": email_sent,
-            "sms_preview": _build_parent_notification_sms(
-                application.guardian_name,
-                school.name,
-                application.application_code,
-                application.status_token,
-                status_url,
-            ) if application.parent_phone else None,
-        },
-    }), 201
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/public/schools/<school_id>/profile", methods=["GET"])
@@ -13218,6 +12458,34 @@ def get_public_school_profile(school_id):
         return jsonify({"message": "School not found"}), 404
     settings = SchoolSettings.query.filter_by(school_id=school_id).first()
     return jsonify(_get_public_school_profile_payload(school, settings))
+
+
+@api.route("/public/schools/<school_id>/classes", methods=["GET"])
+def get_public_school_classes(school_id):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    classes = (
+        AcademicClass.query.filter_by(school_id=school_id)
+        .order_by(AcademicClass.name)
+        .all()
+    )
+    if classes:
+        return jsonify([
+            {"id": class_item.id, "name": class_item.name, "class_name": class_item.name}
+            for class_item in classes
+        ]), 200
+
+    student_classes = (
+        db.session.query(Student.current_class)
+        .filter(Student.school_id == school_id)
+        .group_by(Student.current_class)
+        .order_by(Student.current_class)
+        .all()
+    )
+    class_names = [row[0] for row in student_classes if row[0]]
+    return jsonify([{"name": class_name, "class_name": class_name} for class_name in class_names]), 200
 
 
 @api.route("/public/schools/<school_id>/admissions/status/<status_token>", methods=["GET"])
@@ -13289,110 +12557,30 @@ def download_parent_admission_decision_pdf(school_id, status_token):
 
 @api.route("/public/schools/<school_id>/admissions/status/<status_token>/resubmit", methods=["POST"])
 def resubmit_parent_admission_application(school_id, status_token):
-    school = School.query.filter_by(id=school_id, is_active=True).first()
-    if not school:
-        return jsonify({"message": "School not found"}), 404
-
-    application = ParentAdmissionApplication.query.filter_by(
-        school_id=school_id,
-        status_token=status_token,
-    ).first()
-    if not application:
-        return jsonify({"message": "Application not found"}), 404
-    if application.status in {"Approved", "Rejected"}:
-        return jsonify({"message": "This application can no longer be updated."}), 409
-
     payload = request.get_json(silent=True) or {}
     if request.form:
         payload = request.form.to_dict(flat=True)
-
-    merged_payload = {
-        "guardian_name": sanitize_string(payload.get("guardian_name") or application.guardian_name or ""),
-        "parent_email": sanitize_string(payload.get("parent_email") or application.parent_email or ""),
-        "parent_phone": sanitize_string(payload.get("parent_phone") or application.parent_phone or ""),
-        "preferred_class": sanitize_string(payload.get("preferred_class") or application.preferred_class or ""),
-        "desired_test_mode": sanitize_string(payload.get("desired_test_mode") or application.desired_test_mode or "either"),
-        "internet_quality": sanitize_string(payload.get("internet_quality") or application.internet_quality or "unknown"),
-    }
-
-    if not merged_payload["guardian_name"]:
-        return jsonify({"message": "guardian_name is required"}), 400
-    if not merged_payload["parent_email"] and not merged_payload["parent_phone"]:
-        return jsonify({"message": "Provide at least parent_email or parent_phone"}), 400
-    if merged_payload["preferred_class"] not in VALID_GRADES:
-        return jsonify({"message": f"preferred_class must be one of: {', '.join(VALID_GRADES)}"}), 400
-
-    application.guardian_name = merged_payload["guardian_name"]
-    application.parent_email = merged_payload["parent_email"] or None
-    application.parent_phone = merged_payload["parent_phone"] or None
-    application.preferred_class = merged_payload["preferred_class"]
-    application.desired_test_mode = merged_payload["desired_test_mode"] or "either"
-    application.internet_quality = merged_payload["internet_quality"] or "unknown"
-    application.prior_school = sanitize_string(payload.get("prior_school") or application.prior_school or "") or None
-
-    new_notes = sanitize_string(payload.get("parent_notes") or "")
-    if new_notes:
-        existing_notes = (application.parent_notes or "").strip()
-        application.parent_notes = f"{existing_notes}\n\nCorrection update: {new_notes}".strip()
-
-    document_manifest = list(application.document_manifest or [])
     passport_photo = request.files.get("passport_photo")
-    if passport_photo and passport_photo.filename:
-        file_bytes = passport_photo.read()
-        if file_bytes:
-            entry = _extract_parent_admission_document_details(
-                passport_photo.filename,
-                passport_photo.mimetype,
-                file_bytes,
-                category_override="passport_photo",
-            )
-            entry.update(_store_parent_admission_document(school_id, passport_photo, file_bytes))
-            entry["submitted_in_correction"] = True
-            entry["is_primary_photo"] = True
-            document_manifest.append(entry)
-
-    for uploaded in request.files.getlist("documents"):
-        if not uploaded or not uploaded.filename:
-            continue
-        file_bytes = uploaded.read()
-        entry = _extract_parent_admission_document_details(uploaded.filename, uploaded.mimetype, file_bytes)
-        entry.update(_store_parent_admission_document(school_id, uploaded, file_bytes))
-        entry["submitted_in_correction"] = True
-        document_manifest.append(entry)
-
-    application.document_manifest = document_manifest
-    assessment = _build_ai_registrar_assessment(
-        {
-            "guardian_name": application.guardian_name,
-            "parent_email": application.parent_email,
-            "parent_phone": application.parent_phone,
-            "preferred_class": application.preferred_class,
-            "desired_test_mode": application.desired_test_mode,
-            "internet_quality": application.internet_quality,
-        },
-        document_manifest,
+    response_body, error, status_code = parent_admission_service.resubmit_parent_admission_application(
+        school_id,
+        status_token,
+        payload,
+        passport_photo,
+        request.files.getlist("documents"),
+        School,
+        ParentAdmissionApplication,
+        VALID_GRADES,
+        sanitize_string,
+        _extract_parent_admission_document_details,
+        _store_parent_admission_document,
+        _build_ai_registrar_assessment,
+        _send_parent_admission_update,
+        _build_parent_status_path,
+        db.session,
     )
-    application.ai_summary = assessment["summary"]
-    application.ai_recommendation = assessment["recommendation"]
-    application.ai_readiness_score = assessment["readiness_score"]
-    application.ai_flags = assessment["flags"]
-    application.ai_missing_items = assessment["missing_items"]
-    application.status = assessment["status"]
-    db.session.commit()
-
-    _send_parent_admission_update(
-        application,
-        school,
-        next_step="Your correction update has been received. Use the same tracking link to monitor the next school review decision.",
-    )
-
-    return jsonify(
-        {
-            "message": "Application updated successfully.",
-            "application": application.to_public_dict(),
-            "status_path": _build_parent_status_path(school_id, application.status_token),
-        }
-    )
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/admissions/applications", methods=["GET"])
@@ -13431,140 +12619,33 @@ def list_parent_admission_applications():
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def review_parent_admission_application(application_id):
-    application = ParentAdmissionApplication.query.filter_by(
-        id=application_id,
-        school_id=g.school_id,
-    ).first()
-    if not application:
-        return jsonify({"message": "Application not found"}), 404
-
-    payload = request.get_json(silent=True) or {}
-    action = sanitize_string(payload.get("action") or "").lower()
-    reviewer_notes = sanitize_string(payload.get("notes") or "")
-    reviewer_id = int(get_jwt_identity())
-
-    action_map = {
-        "approve": "Approved",
-        "reject": "Rejected",
-        "request_correction": "NeedsCorrection",
-        "invite_test": "TestReady",
-        "schedule_visit": "VisitRequired",
-    }
-    if action not in action_map:
-        return jsonify({"message": "Invalid review action"}), 400
-
-    application.reviewed_by_user_id = reviewer_id
-    application.reviewed_at = get_utc_now()
-    application.status = action_map[action]
-
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-    workflow_config = _get_parent_admission_workflow_config(settings)
-    school = School.query.get(g.school_id)
-    class_assigned = sanitize_string(payload.get("class_assigned") or application.preferred_class)
-    try:
-        follow_up_plan = _build_parent_admission_follow_up_plan(action, payload, workflow_config)
-    except ValueError as exc:
-        return jsonify({"message": str(exc)}), 400
-
-    if action == "schedule_visit" and not follow_up_plan and not reviewer_notes:
-        return jsonify({"message": "Provide visit details or reviewer notes before marking the school visit as required."}), 400
-
-    existing_payment_summary = _parse_parent_admission_review_notes(application.reviewer_notes).get("payment_summary")
-
-    parent_response_message = _build_parent_admission_response_message(
-        action,
-        application,
-        school,
-        workflow_config,
-        class_assigned=class_assigned,
-        follow_up_plan=follow_up_plan,
-    )
-    application.reviewer_notes = _serialize_parent_admission_review_notes(
-        reviewer_notes,
-        parent_response_message,
-        follow_up_plan=follow_up_plan,
-        class_assigned=class_assigned if action == "approve" else None,
-    )
-    if existing_payment_summary:
-        _set_parent_admission_payment_summary(
-            application,
-            _normalize_parent_admission_payment_summary(
-                existing_payment_summary,
-                fee_config=_get_school_admission_fee_config(settings),
-            ),
-        )
-
-    response_payload = {
-        "message": f"Application marked as {application.status}.",
-        "application": _build_staff_parent_admission_payload(application, settings, g.school_id),
-    }
-
-    if action == "approve":
-        if application.admitted_student_id:
-            return jsonify({"message": "Application has already been approved and converted to a student."}), 409
-        admission_payload = {
-            "first_name": application.first_name,
-            "surname": application.surname,
-            "gender": application.gender,
-            "date_of_birth": application.date_of_birth.isoformat() if application.date_of_birth else None,
-            "class_assigned": class_assigned,
-            "guardian_name": application.guardian_name,
-            "parent_name": application.guardian_name,
-            "parent_email": application.parent_email,
-            "parent_phone": application.parent_phone,
-            "score": application.ai_readiness_score,
-            "scholarship_type": "none",
-        }
-        try:
-            student, _school, _scholarship_type, warning, proration_result = _admit_student_from_payload(
-                g.school_id,
-                admission_payload,
-                reviewer_id,
-            )
-        except ValueError as exc:
-            db.session.rollback()
-            return jsonify({"message": str(exc)}), 400 if "Invalid" in str(exc) or "Missing" in str(exc) else 403
-
-        application.admitted_student_id = student.id
-        application.status = "Approved"
-        db.session.commit()
-        response_payload.update({
-            "message": f"Application approved and {student.name} admitted.",
-            "student_id": student.id,
-            "student_code": student.student_code,
-            "warning": warning,
-            "billing_notice": proration_result if proration_result.get("prorated_charge") else None,
-            "application": _build_staff_parent_admission_payload(application, settings, g.school_id),
-        })
-        _send_parent_admission_update(
-            application,
-            school,
-            next_step=parent_response_message + " Contact the school directly for any approved charges, including admission fee if your school applies one.",
-        )
-    else:
-        db.session.commit()
-        next_step = parent_response_message
-        if reviewer_notes:
-            next_step = f"{next_step} School note: {reviewer_notes}"
-        _send_parent_admission_update(
-            application,
-            school,
-            next_step=next_step,
-        )
-
-    log_action(
-        reviewer_id,
+    response_body, error, status_code = parent_admission_service.review_parent_admission_application(
+        application_id,
         g.school_id,
-        "PARENT_ADMISSION_REVIEWED",
-        json.dumps({
-            "application_id": application.id,
-            "application_code": application.application_code,
-            "action": action,
-            "status": application.status,
-        }),
+        request.get_json(silent=True) or {},
+        int(get_jwt_identity()),
+        ParentAdmissionApplication,
+        School,
+        SchoolSettings,
+        sanitize_string,
+        get_utc_now,
+        _get_parent_admission_workflow_config,
+        _build_parent_admission_follow_up_plan,
+        _parse_parent_admission_review_notes,
+        _build_parent_admission_response_message,
+        _serialize_parent_admission_review_notes,
+        _set_parent_admission_payment_summary,
+        _normalize_parent_admission_payment_summary,
+        _get_school_admission_fee_config,
+        _build_staff_parent_admission_payload,
+        _admit_student_from_payload,
+        _send_parent_admission_update,
+        log_action,
+        db.session,
     )
-
-    return jsonify(response_payload)
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/admissions/applications/<int:application_id>/documents/<string:document_id>/download", methods=["GET"])
@@ -15769,84 +14850,25 @@ def _normalize_homeroom_assignment(roles, assigned_class):
 @role_required("proprietor")
 def add_staff():
     """Adds a new staff member to the tenant."""
-    data = request.json
-
-    # Email is now required for staff accounts
-    email = _normalize_email_address(data.get("email"))
-    if not email:
-        return jsonify({"message": "Email is required for staff accounts."}), 400
-
-    if User.query.filter_by(username=data["username"], school_id=g.school_id).first():
-        return jsonify({"message": "Username already exists in this school."}), 400
-
-    if _find_school_user_by_email(g.school_id, email):
-        return jsonify({"message": "Email address is already assigned to another staff member in this school."}), 400
-
-    roles, primary_role, role_error = _normalize_staff_roles(
-        data.get("roles") if isinstance(data.get("roles"), list) else [],
-        data.get("role"),
+    response_body, error, status_code = staff_service.add_staff_member(
+        request.json or {},
+        g.school_id,
+        User,
+        School,
+        generate_password_hash,
+        _normalize_email_address,
+        _find_school_user_by_email,
+        _normalize_staff_roles,
+        _normalize_homeroom_assignment,
+        _generate_staff_temp_password,
+        replace_teacher_assignments,
+        _send_staff_invite_email,
+        tenant_email_delivery_failure_message,
+        db.session,
     )
-    if role_error:
-        return jsonify({"message": role_error}), 400
-
-    assigned_class, assigned_class_error = _normalize_homeroom_assignment(
-        roles,
-        data.get("assigned_class"),
-    )
-    if assigned_class_error:
-        return jsonify({"message": assigned_class_error}), 400
-
-    temp_password = _generate_staff_temp_password()
-
-    # Set temp password expiry to 30 days from now
-    temp_expires = datetime.now(timezone.utc) + timedelta(days=30)
-
-    new_user = User(
-        username=data["username"],
-        email=email,
-        role=primary_role,
-        roles=roles,
-        school_id=g.school_id,
-        password_hash=generate_password_hash(temp_password),
-        is_temp_password=True,
-        temp_password_expires_at=temp_expires,
-        assigned_class=assigned_class,
-    )
-    db.session.add(new_user)
-    db.session.commit()
-
-    if "homeroom" in roles or "teacher" in roles:
-        replace_teacher_assignments(
-            new_user.id,
-            data.get("assigned_classes", []),
-            data.get("assigned_subjects", []),
-        )
-        db.session.commit()
-
-    school = School.query.get(g.school_id)
-    email_sent, email_error = _send_staff_invite_email(
-        new_user,
-        school,
-        temp_password,
-        expiry_days=30,
-    )
-
-    status_message = "Staff member added successfully."
-    if email_sent:
-        status_message += " Welcome email sent with login credentials."
-    else:
-        status_message += f" {_tenant_email_delivery_failure_message()}"
-
-    return jsonify(
-        {
-            "message": status_message,
-            "username": data["username"],
-            "email": email,
-            "password_expires_in_days": 30,
-            "email_sent": email_sent,
-            "email_error": email_error,
-        }
-    )
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/staff/<int:user_id>/resend-invite", methods=["POST"])
@@ -15855,50 +14877,22 @@ def add_staff():
 @jwt_required()
 def resend_staff_invite(user_id):
     """Issue a fresh temporary password and resend the staff invite email."""
-    user = User.query.filter_by(id=user_id, school_id=g.school_id).first_or_404()
-    if user.role == "proprietor":
-        return jsonify({"message": "Cannot resend invite for proprietor accounts."}), 400
-
-    if not user.email:
-        return jsonify({"message": "This staff account has no email address on file."}), 400
-
-    temp_password = _generate_staff_temp_password()
-    user.password_hash = generate_password_hash(temp_password)
-    user.is_temp_password = True
-    user.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-
-    school = School.query.get(g.school_id)
-    email_sent, email_error = _send_staff_invite_email(
-        user,
-        school,
-        temp_password,
-        expiry_days=30,
-    )
-
-    log_action(
-        int(get_jwt_identity()),
+    response_body, error, status_code = staff_service.resend_staff_invite(
+        user_id,
         g.school_id,
-        "STAFF_INVITE_RESENT",
-        f"Resent invite to user {user.username}",
+        int(get_jwt_identity()),
+        User,
+        School,
+        generate_password_hash,
+        _generate_staff_temp_password,
+        _send_staff_invite_email,
+        tenant_email_delivery_failure_message,
+        log_action,
+        db.session,
     )
-    db.session.commit()
-
-    status_message = "Staff invite resent successfully."
-    if email_sent:
-        status_message += " A fresh temporary password was emailed to the staff member."
-    else:
-        status_message += f" {_tenant_email_delivery_failure_message()}"
-
-    return jsonify(
-        {
-            "message": status_message,
-            "username": user.username,
-            "email": user.email,
-            "password_expires_in_days": 30,
-            "email_sent": email_sent,
-            "email_error": email_error,
-        }
-    )
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/staff/bulk-upload", methods=["POST"])
@@ -16047,114 +15041,16 @@ def get_finance_dashboard():
         if collection_restriction:
             return collection_restriction
 
-        now = datetime.now(timezone.utc)
-        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        last_30_days = now - timedelta(days=30)
-        last_365_days = now - timedelta(days=365)
-
-        # Get all students for the school
-        students = Student.query.filter_by(school_id=g.school_id).all()
-
-        # Get all payments for the school
-        payments = Payment.query.filter_by(
-            school_id=g.school_id, status="Confirmed"
-        ).all()
-
-        # Calculate statistics
-        total_collected = sum(p.amount for p in payments) if payments else 0
-        outstanding_balance = (
-            sum(s.total_tuition_owed for s in students) if students else 0
-        )
-
-        daily_revenue = (
-            db.session.query(db.func.sum(Payment.amount))
-            .filter(
-                Payment.school_id == g.school_id,
-                Payment.status == "Confirmed",
-                Payment.date_paid.isnot(None),
-                Payment.date_paid >= start_of_day,
-            )
-            .scalar()
-            or 0
-        )
-
-        monthly_revenue = (
-            db.session.query(db.func.sum(Payment.amount))
-            .filter(
-                Payment.school_id == g.school_id,
-                Payment.status == "Confirmed",
-                Payment.date_paid.isnot(None),
-                Payment.date_paid >= last_30_days,
-            )
-            .scalar()
-            or 0
-        )
-
-        yearly_revenue = (
-            db.session.query(db.func.sum(Payment.amount))
-            .filter(
-                Payment.school_id == g.school_id,
-                Payment.status == "Confirmed",
-                Payment.date_paid.isnot(None),
-                Payment.date_paid >= last_365_days,
-            )
-            .scalar()
-            or 0
-        )
-
-        # Count students with paid vs unpaid balances
-        paid_count = sum(1 for s in students if s.total_tuition_owed == 0)
-        unpaid_count = len(students) - paid_count
-
-        # Get recent transactions (last 10)
-        recent_payments = (
-            Payment.query.filter_by(school_id=g.school_id, status="Confirmed")
-            .order_by(Payment.date_paid.desc())
-            .limit(10)
-            .all()
-        )
-
-        recent_transactions = []
-        for payment in recent_payments:
-            student = Student.query.get(payment.student_id)
-            recent_transactions.append(
-                {
-                    "id": payment.id,
-                    "date": payment.date_paid.strftime("%Y-%m-%d"),
-                    "student_name": student.name if student else "Unknown",
-                    "amount": payment.amount,
-                    "type": payment.payment_type,
-                    "method": payment.method,
-                }
-            )
-
-        # Pending payments recorded by staff and awaiting proprietor approval
-        pending_payments = (
-            db.session.query(Payment, Student)
-            .join(Student)
-            .filter(Payment.school_id == g.school_id, Payment.status == "Pending")
-            .order_by(Student.current_class.asc(), Payment.created_at.asc(), Payment.id.asc())
-            .all()
-        )
-        pending_list = [
-            _serialize_pending_payment(row.Payment, row.Student)
-            for row in pending_payments
-        ]
-        pending_groups = _group_pending_payments_by_class(pending_list)
-
         return jsonify(
-            {
-                "daily_revenue": daily_revenue,
-                "monthly_revenue": monthly_revenue,
-                "yearly_revenue": yearly_revenue,
-                "total_collected": total_collected,
-                "outstanding_balance": outstanding_balance,
-                "paid_count": paid_count,
-                "unpaid_count": unpaid_count,
-                "recent_transactions": recent_transactions,
-                "pending_payments": pending_list,
-                "pending_payments_by_class": pending_groups,
-            }
+            finance_read_service.get_finance_dashboard_payload(
+                g.school_id,
+                now=datetime.now(timezone.utc),
+                student_model=Student,
+                payment_model=Payment,
+                db=db,
+                serialize_pending_payment=_serialize_pending_payment,
+                group_pending_payments_by_class=_group_pending_payments_by_class,
+            )
         )
     except Exception as e:
         return (
@@ -16186,31 +15082,14 @@ def get_transactions():
         if collection_restriction:
             return collection_restriction
 
-        payments = (
-            db.session.query(Payment, Student)
-            .join(Student, Payment.student_id == Student.id)
-            .filter(Payment.school_id == g.school_id)
-            .order_by(Payment.date_paid.desc(), Payment.created_at.desc(), Payment.id.desc())
-            .all()
-        )
         return jsonify(
-            [
-                {
-                    "id": payment.id,
-                    "student_name": student.name,
-                    "student_code": student.student_code,
-                    "amount": payment.amount,
-                    "type": payment.payment_type,
-                    "method": payment.method,
-                    "status": payment.status,
-                    "reference_id": payment.reference_id,
-                    "payment_category": payment.payment_category or {},
-                    "date": (payment.date_paid or payment.created_at).strftime("%Y-%m-%d %H:%M") if (payment.date_paid or payment.created_at) else None,
-                    "created_at": _to_iso_utc(payment.created_at),
-                    "verified_at": _to_iso_utc(payment.verified_at),
-                }
-                for payment, student in payments
-            ]
+            finance_read_service.get_transactions_payload(
+                g.school_id,
+                payment_model=Payment,
+                student_model=Student,
+                db=db,
+                to_iso_utc=_to_iso_utc,
+            )
         )
     except Exception as e:
         return (
@@ -18085,61 +16964,24 @@ def remove_staff(user_id):
 @jwt_required()
 def update_staff(user_id):
     """Update staff role, assigned class, or email."""
-    data = request.json or {}
-    user = User.query.filter_by(id=user_id, school_id=g.school_id).first_or_404()
-
-    if "email" in data:
-        email = _normalize_email_address(data.get("email"))
-        if not email:
-            return jsonify({"message": "Email is required for staff accounts."}), 400
-        if _find_school_user_by_email(g.school_id, email, exclude_user_id=user.id):
-            return jsonify({"message": "Email address is already assigned to another staff member in this school."}), 400
-        user.email = email
-
-    roles = (
-        data.get("roles")
-        if isinstance(data.get("roles"), list)
-        else (user.roles or [user.role])
-    )
-    primary_role = data.get("role", user.role)
-    if roles:
-        primary_role = roles[0]
-
-    roles, primary_role, role_error = _normalize_staff_roles(roles, primary_role)
-    if role_error:
-        return jsonify({"message": role_error}), 400
-
-    assigned_class, assigned_class_error = _normalize_homeroom_assignment(
-        roles,
-        data.get("assigned_class", user.assigned_class),
-    )
-    if assigned_class_error:
-        return jsonify({"message": assigned_class_error}), 400
-
-    user.role = primary_role
-    user.roles = roles
-    user.assigned_class = assigned_class
-
-    if "homeroom" in roles or "teacher" in roles:
-        if "assigned_classes" in data or "assigned_subjects" in data:
-            replace_teacher_assignments(
-                user.id,
-                data.get("assigned_classes", []),
-                data.get("assigned_subjects", []),
-            )
-    else:
-        TeacherAssignment.query.filter_by(
-            school_id=g.school_id, teacher_id=user.id
-        ).delete()
-
-    log_action(
-        int(get_jwt_identity()),
+    response_body, error, status_code = staff_service.update_staff_member(
+        user_id,
+        request.json or {},
         g.school_id,
-        "STAFF_UPDATED",
-        f"Updated user {user.username} to roles {', '.join(roles)}",
+        int(get_jwt_identity()),
+        User,
+        TeacherAssignment,
+        _normalize_email_address,
+        _find_school_user_by_email,
+        _normalize_staff_roles,
+        _normalize_homeroom_assignment,
+        replace_teacher_assignments,
+        log_action,
+        db.session,
     )
-    db.session.commit()
-    return jsonify({"message": "Staff member updated."})
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/inventory", methods=["GET"])
@@ -18296,93 +17138,30 @@ def get_inventory_transactions():
 @jwt_required()
 def get_school_settings():
     """Returns school settings with bank details masked until password re-entry."""
-    school = School.query.get(g.school_id)
-    if not school:
-        return jsonify({"message": "School not found"}), 404
-
     actor_id = get_jwt_identity()
     try:
         actor_id = int(actor_id) if actor_id is not None else None
     except (TypeError, ValueError):
         actor_id = None
-
-    log_action(
-        actor_id,
+    response_body, error, status_code = school_settings_service.get_school_settings_payload(
         g.school_id,
-        "SETTINGS_VIEWED",
-        json.dumps(
-            {
-                "module": "school_settings",
-                "contains_bank_fields": True,
-                "ip": request.remote_addr,
-            }
-        ),
+        actor_id,
+        request.remote_addr,
+        School,
+        SchoolSettings,
+        TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY,
+        _get_enabled_modules,
+        _get_parent_admission_workflow_config,
+        _get_data_compliance_workflow_config,
+        _get_payment_provider_settings,
+        _masked_bank_fields_for_school,
+        _get_report_global_settings,
+        _has_ai_registrar_access,
+        log_action,
     )
-
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-    enabled_modules = _get_enabled_modules(settings)
-    workflow_config = _get_parent_admission_workflow_config(settings)
-    compliance_workflow = _get_data_compliance_workflow_config(settings)
-    provider_settings = _get_payment_provider_settings(settings)
-    registration_ack = compliance_workflow.get("registration_acknowledgements") or {}
-    legacy_migration = compliance_workflow.get("legacy_migration") or {}
-    consent_plan_confirmed = bool(registration_ack.get("legacy_and_exam_consent_plan_confirmed"))
-    bece_result_processing_enabled = bool(legacy_migration.get("bece_result_processing_enabled", False) or consent_plan_confirmed)
-    bece_parent_notice_confirmed = bool(legacy_migration.get("bece_parent_notice_confirmed", False) or consent_plan_confirmed)
-
-    masked_bank_fields = _masked_bank_fields_for_school(school)
-
-    return jsonify(
-        {
-            "name": school.name,
-            "motto": school.motto,
-            "logo_url": school.logo_url,
-            "primary_color": school.primary_color,
-            "school_email": school.school_email,
-            "school_phone": school.school_phone,
-            "school_address": school.school_address,
-            "school_website": school.school_website,
-            "bank_name": masked_bank_fields["bank_name"],
-            "bank_account": masked_bank_fields["bank_account"],
-            "bank_account_name": masked_bank_fields["bank_account_name"],
-            "bank_branch": masked_bank_fields["bank_branch"],
-            "paystack_subaccount_code": provider_settings.get("paystack_subaccount_code", ""),
-            "paystack_bank_code": provider_settings.get("paystack_bank_code", ""),
-            "paystack_resolved_account_name": provider_settings.get("paystack_resolved_account_name", ""),
-            "bank_details_masked": True,
-            "country_code": settings.country_code if settings and settings.country_code else "GH",
-            "anniversary_date": settings.anniversary_date.isoformat() if settings and settings.anniversary_date else None,
-            "next_term_reopen_date": _get_report_global_settings(settings).get("next_term_reopen_date") if settings else None,
-            "ai_registrar_enabled": _has_ai_registrar_access(school),
-            "ai_registrar_addon_enabled": _has_ai_registrar_access(school),
-            "ai_bursar_addon_enabled": bool(enabled_modules.get("ai_bursar_addon", False)),
-            "admissions_visit_location_default": workflow_config["visit_defaults"].get("location", ""),
-            "admissions_visit_contact_person_default": workflow_config["visit_defaults"].get("contact_person", ""),
-            "admissions_visit_contact_phone_default": workflow_config["visit_defaults"].get("contact_phone", ""),
-            "admissions_approve_message_template": workflow_config["response_templates"].get("approve"),
-            "admissions_reject_message_template": workflow_config["response_templates"].get("reject"),
-            "admissions_correction_message_template": workflow_config["response_templates"].get("request_correction"),
-            "admissions_online_test_message_template": workflow_config["response_templates"].get("invite_test"),
-            "admissions_visit_message_template": workflow_config["response_templates"].get("schedule_visit"),
-            "approval_pdf_enabled": bool(settings.approval_pdf_enabled) if settings else False,
-            "approval_pdf_delivery_mode": settings.approval_pdf_delivery_mode if settings and settings.approval_pdf_delivery_mode else "email_link",
-            "approval_pdf_include_payment_summary": bool(settings.approval_pdf_include_payment_summary) if settings else True,
-            "approval_pdf_include_required_items": bool(settings.approval_pdf_include_required_items) if settings else True,
-            "approval_pdf_required_items": settings.approval_pdf_required_items if settings and settings.approval_pdf_required_items else "",
-            "data_compliance_school_authority_confirmed": bool(registration_ack.get("school_data_authority_confirmed", False)),
-            "data_compliance_aggregated_analytics_accepted": bool(registration_ack.get("aggregated_analytics_accepted", False)),
-            "data_compliance_registration_confirmed_at": registration_ack.get("accepted_at"),
-            "data_compliance_registration_confirmed_ip": registration_ack.get("accepted_ip"),
-            "legacy_parent_notice_dispatched": bool(legacy_migration.get("parent_notice_dispatched", False)),
-            "legacy_consent_collection_completed": bool(legacy_migration.get("consent_collection_completed", False)),
-            "legacy_consent_collection_date": legacy_migration.get("consent_collection_date") or "",
-            "legacy_consent_evidence_notes": legacy_migration.get("evidence_notes") or "",
-            "legacy_consent_evidence_artifact_count": len(legacy_migration.get("evidence_artifacts") or []),
-            "bece_result_processing_enabled": bece_result_processing_enabled,
-            "bece_parent_notice_confirmed": bece_parent_notice_confirmed,
-            "teacher_class_level_exam_summaries_enabled": bool(_get_report_global_settings(settings).get(TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY, False)),
-        }
-    ), 200
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/school/settings", methods=["POST"])
@@ -18392,296 +17171,107 @@ def get_school_settings():
 def update_school_settings():
     """Updates school branding settings."""
     data = request.json
-    school = School.query.get(g.school_id)
+    actor_id = get_jwt_identity()
+    try:
+        actor_id = int(actor_id) if actor_id is not None else None
+    except (TypeError, ValueError):
+        actor_id = None
+    response_body, error, status_code = school_settings_service.update_school_settings(
+        data,
+        g.school_id,
+        actor_id,
+        request.remote_addr,
+        School,
+        SchoolSettings,
+        DEFAULT_PARENT_ADMISSION_WORKFLOW,
+        TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY,
+        sanitize_string,
+        _masked_bank_fields_for_school,
+        _get_payment_provider_settings,
+        _set_payment_provider_settings,
+        _set_report_global_setting,
+        _get_parent_admission_workflow_config,
+        _set_parent_admission_workflow_config,
+        _get_data_compliance_workflow_config,
+        _set_data_compliance_workflow_config,
+        _school_bank_details_ready_for_paystack,
+        _provision_school_paystack_subaccount,
+        _has_ai_registrar_access,
+        log_action,
+        logger,
+        db.session,
+    )
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
+
+
+@api.route("/school/settings/paystack/reconnect", methods=["POST"])
+@multi_tenant_guard
+@role_required("proprietor")
+@jwt_required()
+def reconnect_school_paystack_subaccount():
+    school = School.query.filter_by(id=g.school_id).first()
+    if not school:
+        return jsonify({"message": "School not found."}), 404
+
+    if not _school_bank_details_ready_for_paystack(school):
+        return jsonify(
+            {
+                "message": "Enter the bank name, account number, and account holder name before reconnecting Paystack settlement.",
+                "error": "bank_details_required",
+            }
+        ), 400
+
+    settings = _get_or_create_school_settings()
+    provider_settings = _get_payment_provider_settings(settings)
+    paystack_subaccount_result, provision_error = _provision_school_paystack_subaccount(
+        school,
+        settings,
+        provider_settings,
+    )
+    if provision_error:
+        logger.error(
+            "Paystack subaccount reconnect failed for school %s: %s",
+            g.school_id,
+            provision_error,
+        )
+        db.session.rollback()
+        return jsonify(
+            {
+                "message": "EduPulse could not connect the school's Paystack settlement account right now. Confirm the bank details and try again.",
+                "error": "payment_settlement_setup_unavailable",
+            }
+        ), 502
+
     actor_id = get_jwt_identity()
     try:
         actor_id = int(actor_id) if actor_id is not None else None
     except (TypeError, ValueError):
         actor_id = None
 
-    changed_fields = []
-
-    if "name" in data:
-        school.name = data["name"]
-        changed_fields.append("name")
-    if "logo_url" in data:
-        school.logo_url = data["logo_url"]
-        changed_fields.append("logo_url")
-    if "primary_color" in data:
-        school.primary_color = data["primary_color"]
-        changed_fields.append("primary_color")
-    if "motto" in data:
-        school.motto = data["motto"]
-        changed_fields.append("motto")
-    if "school_email" in data:
-        school.school_email = data["school_email"]
-        changed_fields.append("school_email")
-    if "school_phone" in data:
-        school.school_phone = data["school_phone"]
-        changed_fields.append("school_phone")
-    if "school_address" in data:
-        school.school_address = data["school_address"]
-        changed_fields.append("school_address")
-    if "school_website" in data:
-        school.school_website = data["school_website"]
-        changed_fields.append("school_website")
-
-    masked_bank_fields = _masked_bank_fields_for_school(school)
-
-    # Payment account details
-    bank_fields_changed = []
-    if "bank_name" in data:
-        incoming_bank_name = data["bank_name"]
-        if incoming_bank_name != masked_bank_fields["bank_name"]:
-            school.bank_name = incoming_bank_name
-            changed_fields.append("bank_name")
-            bank_fields_changed.append("bank_name")
-    if "bank_account" in data:
-        incoming_bank_account = data["bank_account"]
-        if incoming_bank_account != masked_bank_fields["bank_account"]:
-            school.bank_account = incoming_bank_account
-            changed_fields.append("bank_account")
-            bank_fields_changed.append("bank_account")
-    if "bank_account_name" in data:
-        incoming_account_name = data["bank_account_name"]
-        if incoming_account_name != masked_bank_fields["bank_account_name"]:
-            school.bank_account_name = incoming_account_name
-            changed_fields.append("bank_account_name")
-            bank_fields_changed.append("bank_account_name")
-    if "bank_branch" in data:
-        incoming_bank_branch = data["bank_branch"]
-        if incoming_bank_branch != masked_bank_fields["bank_branch"]:
-            school.bank_branch = incoming_bank_branch
-            changed_fields.append("bank_branch")
-            bank_fields_changed.append("bank_branch")
-
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-    if not settings:
-        settings = SchoolSettings(school_id=g.school_id)
-        db.session.add(settings)
-    provider_settings = _get_payment_provider_settings(settings)
-    if "country_code" in data:
-        settings.country_code = (data["country_code"] or "GH").upper()
-        changed_fields.append("country_code")
-    if "anniversary_date" in data:
-        from datetime import datetime as dt
-        if data["anniversary_date"]:
-            # Parse date string to date object
-            settings.anniversary_date = dt.strptime(data["anniversary_date"], "%Y-%m-%d").date()
-        else:
-            settings.anniversary_date = None
-        changed_fields.append("anniversary_date")
-    if "next_term_reopen_date" in data:
-        next_term_reopen_date = (data.get("next_term_reopen_date") or "").strip()
-        if next_term_reopen_date:
-            from datetime import datetime as dt
-            try:
-                dt.strptime(next_term_reopen_date, "%Y-%m-%d").date()
-            except ValueError:
-                return jsonify({"message": "Invalid next_term_reopen_date format. Use YYYY-MM-DD."}), 400
-        _set_report_global_setting(settings, "next_term_reopen_date", next_term_reopen_date or None)
-        changed_fields.append("next_term_reopen_date")
-    workflow_config = _get_parent_admission_workflow_config(settings)
-    workflow_changed = False
-    provider_settings_changed = False
-    paystack_subaccount_result = None
-    compliance_workflow = _get_data_compliance_workflow_config(settings)
-    compliance_changed_fields = []
-    if "admissions_visit_location_default" in data:
-        workflow_config["visit_defaults"]["location"] = sanitize_string(data.get("admissions_visit_location_default") or "") or ""
-        workflow_changed = True
-        changed_fields.append("admissions_visit_location_default")
-    if "admissions_visit_contact_person_default" in data:
-        workflow_config["visit_defaults"]["contact_person"] = sanitize_string(data.get("admissions_visit_contact_person_default") or "") or ""
-        workflow_changed = True
-        changed_fields.append("admissions_visit_contact_person_default")
-    if "admissions_visit_contact_phone_default" in data:
-        workflow_config["visit_defaults"]["contact_phone"] = sanitize_string(data.get("admissions_visit_contact_phone_default") or "") or ""
-        workflow_changed = True
-        changed_fields.append("admissions_visit_contact_phone_default")
-    if "admissions_approve_message_template" in data:
-        workflow_config["response_templates"]["approve"] = sanitize_string(data.get("admissions_approve_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["approve"]
-        workflow_changed = True
-        changed_fields.append("admissions_approve_message_template")
-    if "admissions_reject_message_template" in data:
-        workflow_config["response_templates"]["reject"] = sanitize_string(data.get("admissions_reject_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["reject"]
-        workflow_changed = True
-        changed_fields.append("admissions_reject_message_template")
-    if "admissions_correction_message_template" in data:
-        workflow_config["response_templates"]["request_correction"] = sanitize_string(data.get("admissions_correction_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["request_correction"]
-        workflow_changed = True
-        changed_fields.append("admissions_correction_message_template")
-    if "admissions_online_test_message_template" in data:
-        workflow_config["response_templates"]["invite_test"] = sanitize_string(data.get("admissions_online_test_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["invite_test"]
-        workflow_changed = True
-        changed_fields.append("admissions_online_test_message_template")
-    if "admissions_visit_message_template" in data:
-        workflow_config["response_templates"]["schedule_visit"] = sanitize_string(data.get("admissions_visit_message_template") or "") or DEFAULT_PARENT_ADMISSION_WORKFLOW["response_templates"]["schedule_visit"]
-        workflow_changed = True
-        changed_fields.append("admissions_visit_message_template")
-    if workflow_changed:
-        _set_parent_admission_workflow_config(settings, workflow_config)
-    if "paystack_subaccount_code" in data:
-        provider_settings["paystack_subaccount_code"] = sanitize_string(data.get("paystack_subaccount_code") or "") or ""
-        provider_settings_changed = True
-        changed_fields.append("paystack_subaccount_code")
-    if provider_settings_changed:
-        _set_payment_provider_settings(settings, provider_settings)
-    if "data_compliance_school_authority_confirmed" in data:
-        confirmed = bool(data.get("data_compliance_school_authority_confirmed"))
-        compliance_workflow["registration_acknowledgements"]["school_data_authority_confirmed"] = confirmed
-        if confirmed:
-            if not compliance_workflow["registration_acknowledgements"].get("accepted_at"):
-                compliance_workflow["registration_acknowledgements"]["accepted_at"] = datetime.now(timezone.utc).isoformat()
-            if not compliance_workflow["registration_acknowledgements"].get("accepted_ip"):
-                compliance_workflow["registration_acknowledgements"]["accepted_ip"] = request.remote_addr
-            if actor_id is not None and not compliance_workflow["registration_acknowledgements"].get("proprietor_user_id"):
-                compliance_workflow["registration_acknowledgements"]["proprietor_user_id"] = actor_id
-        compliance_changed_fields.append("data_compliance_school_authority_confirmed")
-    if "legacy_parent_notice_dispatched" in data:
-        compliance_workflow["legacy_migration"]["parent_notice_dispatched"] = bool(data.get("legacy_parent_notice_dispatched"))
-        compliance_changed_fields.append("legacy_parent_notice_dispatched")
-    if "legacy_consent_collection_completed" in data:
-        compliance_workflow["legacy_migration"]["consent_collection_completed"] = bool(data.get("legacy_consent_collection_completed"))
-        compliance_changed_fields.append("legacy_consent_collection_completed")
-    if "legacy_consent_collection_date" in data:
-        consent_collection_date = sanitize_string(data.get("legacy_consent_collection_date") or "") or None
-        if consent_collection_date:
-            from datetime import datetime as dt
-            try:
-                dt.strptime(consent_collection_date, "%Y-%m-%d")
-            except ValueError:
-                return jsonify({"message": "Invalid legacy_consent_collection_date format. Use YYYY-MM-DD."}), 400
-        compliance_workflow["legacy_migration"]["consent_collection_date"] = consent_collection_date
-        compliance_changed_fields.append("legacy_consent_collection_date")
-    if "legacy_consent_evidence_notes" in data:
-        compliance_workflow["legacy_migration"]["evidence_notes"] = sanitize_string(data.get("legacy_consent_evidence_notes") or "") or ""
-        compliance_changed_fields.append("legacy_consent_evidence_notes")
-    if "bece_result_processing_enabled" in data:
-        compliance_workflow["legacy_migration"]["bece_result_processing_enabled"] = bool(data.get("bece_result_processing_enabled"))
-        compliance_changed_fields.append("bece_result_processing_enabled")
-    if "bece_parent_notice_confirmed" in data:
-        compliance_workflow["legacy_migration"]["bece_parent_notice_confirmed"] = bool(data.get("bece_parent_notice_confirmed"))
-        compliance_changed_fields.append("bece_parent_notice_confirmed")
-    if "teacher_class_level_exam_summaries_enabled" in data:
-        _set_report_global_setting(
-            settings,
-            TEACHER_CLASS_LEVEL_EXAM_SUMMARIES_KEY,
-            bool(data.get("teacher_class_level_exam_summaries_enabled")),
-        )
-        changed_fields.append("teacher_class_level_exam_summaries_enabled")
-    if compliance_changed_fields:
-        _set_data_compliance_workflow_config(settings, compliance_workflow)
-        changed_fields.extend(compliance_changed_fields)
-    if "whatsapp_daily_limit" in data:
-        settings.whatsapp_daily_limit = max(5, int(data.get("whatsapp_daily_limit") or 50))
-        changed_fields.append("whatsapp_daily_limit")
-    if "whatsapp_notifications_enabled" in data:
-        settings.whatsapp_notifications_enabled = bool(data.get("whatsapp_notifications_enabled", True))
-        changed_fields.append("whatsapp_notifications_enabled")
-    if "approval_pdf_enabled" in data:
-        if bool(data.get("approval_pdf_enabled")) and not _has_ai_registrar_access(school):
-            return jsonify({"message": "Approval PDFs require a paid subscription plan with AI Registrar included."}), 403
-        settings.approval_pdf_enabled = bool(data.get("approval_pdf_enabled"))
-        changed_fields.append("approval_pdf_enabled")
-    if "approval_pdf_delivery_mode" in data:
-        delivery_mode = (data.get("approval_pdf_delivery_mode") or "email_link").strip()
-        if delivery_mode not in {"status_page_only", "email_link", "email_attachment"}:
-            return jsonify({"message": "Invalid approval_pdf_delivery_mode."}), 400
-        settings.approval_pdf_delivery_mode = delivery_mode
-        changed_fields.append("approval_pdf_delivery_mode")
-    if "approval_pdf_include_payment_summary" in data:
-        settings.approval_pdf_include_payment_summary = bool(data.get("approval_pdf_include_payment_summary"))
-        changed_fields.append("approval_pdf_include_payment_summary")
-    if "approval_pdf_include_required_items" in data:
-        settings.approval_pdf_include_required_items = bool(data.get("approval_pdf_include_required_items"))
-        changed_fields.append("approval_pdf_include_required_items")
-    if "approval_pdf_required_items" in data:
-        settings.approval_pdf_required_items = sanitize_string(data.get("approval_pdf_required_items") or "") or None
-        changed_fields.append("approval_pdf_required_items")
-
-    manual_subaccount_override = bool(
-        sanitize_string(data.get("paystack_subaccount_code") or "")
-    ) if "paystack_subaccount_code" in data else False
-    missing_subaccount_with_ready_bank_details = (
-        not manual_subaccount_override
-        and not sanitize_string(provider_settings.get("paystack_subaccount_code") or "")
-        and _school_bank_details_ready_for_paystack(school)
-    )
-    should_provision_subaccount = not manual_subaccount_override and (
-        bool(bank_fields_changed) or missing_subaccount_with_ready_bank_details
-    )
-    if should_provision_subaccount:
-        provider_settings = _get_payment_provider_settings(settings)
-        paystack_subaccount_result, provision_error = _provision_school_paystack_subaccount(school, settings, provider_settings)
-        if provision_error:
-            logger.error(
-                "Paystack subaccount provisioning failed for school %s: %s",
-                g.school_id,
-                provision_error,
-            )
-            db.session.rollback()
-            return jsonify(
-                {
-                    "message": "EduPulse could not connect the school's Paystack settlement account right now. Confirm the bank details and try saving again.",
-                    "error": "payment_settlement_setup_unavailable",
-                }
-            ), 502
-        changed_fields.extend([
-            "paystack_bank_code",
-            "paystack_resolved_account_name",
-            "paystack_subaccount_code",
-        ])
-
     log_action(
         actor_id,
         g.school_id,
-        "SETTINGS_UPDATE",
+        "PAYSTACK_SUBACCOUNT_RECONNECTED",
         json.dumps(
             {
-                "updated_fields": changed_fields,
+                "action": paystack_subaccount_result["action"],
+                "subaccount_code": paystack_subaccount_result["subaccount_code"],
                 "ip": request.remote_addr,
             }
         ),
     )
-
-    if bank_fields_changed:
-        log_action(
-            actor_id,
-            g.school_id,
-            "BANK_DETAILS_UPDATED",
-            json.dumps(
-                {
-                    "updated_fields": bank_fields_changed,
-                    "contains_sensitive_data": True,
-                    "ip": request.remote_addr,
-                }
-            ),
-        )
-    if compliance_changed_fields:
-        log_action(
-            actor_id,
-            g.school_id,
-            "DATA_COMPLIANCE_SETTINGS_UPDATED",
-            json.dumps(
-                {
-                    "updated_fields": compliance_changed_fields,
-                    "ip": request.remote_addr,
-                }
-            ),
-        )
     db.session.commit()
-    response_payload = {"message": "Settings updated."}
-    if paystack_subaccount_result:
-        response_payload.update(
-            {
-                "message": f"Settings updated. Paystack subaccount {paystack_subaccount_result['action']} automatically.",
-                "paystack_subaccount_code": paystack_subaccount_result["subaccount_code"],
-                "paystack_bank_code": paystack_subaccount_result["bank_code"],
-                "paystack_resolved_account_name": paystack_subaccount_result["resolved_account_name"],
-            }
-        )
-    return jsonify(response_payload)
+
+    return jsonify(
+        {
+            "message": f"Paystack settlement account {paystack_subaccount_result['action']} successfully.",
+            "paystack_subaccount_code": paystack_subaccount_result["subaccount_code"],
+            "paystack_bank_code": paystack_subaccount_result["bank_code"],
+            "paystack_resolved_account_name": paystack_subaccount_result["resolved_account_name"],
+        }
+    ), 200
 
 
 @api.route("/school/settings/legacy-consent-evidence", methods=["GET"])
@@ -18690,13 +17280,13 @@ def update_school_settings():
 @jwt_required()
 def get_legacy_consent_evidence_artifacts():
     settings = _get_or_create_school_settings()
-    workflow_config = _get_data_compliance_workflow_config(settings)
-    artifacts = []
-    for artifact in workflow_config.get("legacy_migration", {}).get("evidence_artifacts", []):
-        item = dict(artifact)
-        item["download_path"] = _build_legacy_evidence_download_path(artifact["id"])
-        artifacts.append(item)
-    return jsonify({"artifacts": artifacts})
+    return jsonify(
+        legacy_consent_service.get_legacy_consent_evidence_artifacts(
+            settings,
+            get_data_compliance_workflow_config=_get_data_compliance_workflow_config,
+            build_download_path=_build_legacy_evidence_download_path,
+        )
+    )
 
 
 @api.route("/school/settings/legacy-consent-evidence", methods=["POST"])
@@ -18707,53 +17297,26 @@ def upload_legacy_consent_evidence_artifact():
     uploaded = request.files.get("file")
     if not uploaded:
         return jsonify({"message": "Upload a consent evidence file using the file field."}), 400
-
-    original_filename = secure_filename(uploaded.filename or "")
-    if not original_filename:
-        return jsonify({"message": "A valid filename is required."}), 400
-
-    artifact_id = f"evidence_{secrets.token_hex(6)}"
-    stored_filename = f"{artifact_id}_{original_filename}"
-    target_path = os.path.join(_get_legacy_evidence_storage_root(), stored_filename)
-    uploaded.save(target_path)
-    file_size = os.path.getsize(target_path)
-
     settings = _get_or_create_school_settings()
-    workflow_config = _get_data_compliance_workflow_config(settings)
-    artifacts = workflow_config["legacy_migration"].get("evidence_artifacts") or []
-    new_artifact = {
-        "id": artifact_id,
-        "stored_filename": stored_filename,
-        "original_filename": original_filename,
-        "category": sanitize_string(request.form.get("category") or "general") or "general",
-        "note": sanitize_string(request.form.get("note") or "") or "",
-        "uploaded_at": datetime.now(timezone.utc).isoformat(),
-        "uploaded_by": int(get_jwt_identity()),
-        "size_bytes": file_size,
-    }
-    workflow_config["legacy_migration"]["evidence_artifacts"] = [new_artifact] + artifacts
-    _set_data_compliance_workflow_config(settings, workflow_config)
-    db.session.commit()
-
-    try:
-        log_action(
-            int(get_jwt_identity()),
-            g.school_id,
-            "LEGACY_CONSENT_EVIDENCE_UPLOADED",
-            json.dumps(
-                {
-                    "artifact_id": artifact_id,
-                    "original_filename": original_filename,
-                    "category": new_artifact["category"],
-                }
-            ),
-        )
-    except Exception as audit_error:
-        logger.warning("Legacy consent evidence audit log failed for %s: %s", artifact_id, audit_error)
-
-    response_artifact = dict(new_artifact)
-    response_artifact["download_path"] = _build_legacy_evidence_download_path(artifact_id)
-    return jsonify({"message": "Consent evidence uploaded.", "artifact": response_artifact}), 201
+    response_body, error, status_code = legacy_consent_service.upload_legacy_consent_evidence_artifact(
+        uploaded,
+        school_settings=settings,
+        actor_id=int(get_jwt_identity()),
+        school_id=g.school_id,
+        category=sanitize_string(request.form.get("category") or "general") or "general",
+        note=sanitize_string(request.form.get("note") or "") or "",
+        secure_filename=secure_filename,
+        get_storage_root=_get_legacy_evidence_storage_root,
+        get_data_compliance_workflow_config=_get_data_compliance_workflow_config,
+        set_data_compliance_workflow_config=_set_data_compliance_workflow_config,
+        build_download_path=_build_legacy_evidence_download_path,
+        log_action=log_action,
+        logger=logger,
+        db_session=db.session,
+    )
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/school/settings/legacy-consent-evidence/<string:artifact_id>/download", methods=["GET"])
@@ -18762,19 +17325,16 @@ def upload_legacy_consent_evidence_artifact():
 @jwt_required()
 def download_legacy_consent_evidence_artifact(artifact_id):
     settings = _get_or_create_school_settings()
-    workflow_config = _get_data_compliance_workflow_config(settings)
-    matching_artifact = next(
-        (item for item in workflow_config.get("legacy_migration", {}).get("evidence_artifacts", []) if item.get("id") == artifact_id),
-        None,
+    resolved_path, download_name, error, status_code = legacy_consent_service.resolve_legacy_consent_evidence_download(
+        artifact_id,
+        settings,
+        get_data_compliance_workflow_config=_get_data_compliance_workflow_config,
+        get_storage_root=_get_legacy_evidence_storage_root,
+        resolve_existing_school_file=_resolve_existing_school_file,
     )
-    if not matching_artifact:
-        return jsonify({"message": "Consent evidence artifact not found"}), 404
-
-    resolved_path = _resolve_existing_school_file(_get_legacy_evidence_storage_root(), matching_artifact.get("stored_filename"))
-    if not resolved_path:
-        return jsonify({"message": "Consent evidence file is no longer available"}), 404
-
-    return send_file(resolved_path, as_attachment=True, download_name=matching_artifact.get("original_filename") or "consent-evidence")
+    if error:
+        return jsonify(error), status_code
+    return send_file(resolved_path, as_attachment=True, download_name=download_name)
 
 
 @api.route("/school/fees", methods=["POST"])
@@ -18783,57 +17343,17 @@ def download_legacy_consent_evidence_artifact(artifact_id):
 @jwt_required()
 def update_school_fees():
     """Updates school fee configuration (tuition, feeding, uniform, transport, etc.)."""
-    data = request.json
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-
-    if not settings:
-        settings = SchoolSettings(school_id=g.school_id)
-        db.session.add(settings)
-
-    if "tuition_fee" in data:
-        settings.tuition_fee = (
-            float(data["tuition_fee"]) if data["tuition_fee"] else 0.0
+    return jsonify(
+        school_configuration_service.update_school_fees(
+            request.json,
+            g.school_id,
+            int(get_jwt_identity()),
+            school_settings_model=SchoolSettings,
+            set_feeding_plan_fees=_set_feeding_plan_fees,
+            log_action=log_action,
+            db_session=db.session,
         )
-    if "feeding_fee" in data:
-        settings.feeding_fee = (
-            float(data["feeding_fee"]) if data["feeding_fee"] else 0.0
-        )
-    if any(key in data for key in ["feeding_daily_fee", "feeding_weekly_fee", "feeding_monthly_fee"]):
-        _set_feeding_plan_fees(
-            settings,
-            data.get("feeding_daily_fee"),
-            data.get("feeding_weekly_fee"),
-            data.get("feeding_monthly_fee"),
-        )
-    # Uniform fee is now managed through inventory pricing, not school fee settings.
-    settings.uniform_fee = 0.0
-    if "transport_fee" in data:
-        settings.transport_fee = (
-            float(data["transport_fee"]) if data["transport_fee"] else 0.0
-        )
-    if "terminal_report_fee" in data:
-        settings.terminal_report_fee = (
-            float(data["terminal_report_fee"]) if data["terminal_report_fee"] else 0.0
-        )
-    if "admission_fee_enabled" in data:
-        settings.admission_fee_enabled = bool(data.get("admission_fee_enabled"))
-    if "admission_fee_amount" in data:
-        settings.admission_fee_amount = (
-            float(data["admission_fee_amount"]) if data["admission_fee_amount"] else 0.0
-        )
-    if "other_fees" in data:
-        settings.other_fees = (
-            data["other_fees"] if isinstance(data["other_fees"], dict) else {}
-        )
-
-    log_action(
-        int(get_jwt_identity()),
-        g.school_id,
-        "FEES_UPDATE",
-        f"Updated school fees: Tuition={settings.tuition_fee}, Feeding={settings.feeding_fee}, Transport={settings.transport_fee}",
     )
-    db.session.commit()
-    return jsonify({"message": "Fees updated successfully."})
 
 
 @api.route("/school/fees", methods=["GET"])
@@ -18841,42 +17361,12 @@ def update_school_fees():
 @jwt_required()
 def get_school_fees():
     """Retrieves school fee configuration."""
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-
-    if not settings:
-        # Return default fees if not configured
-        return jsonify(
-            {
-                "tuition_fee": 0.0,
-                "feeding_fee": 0.0,
-                "feeding_daily_fee": 0.0,
-                "feeding_weekly_fee": 0.0,
-                "feeding_monthly_fee": 0.0,
-                "uniform_fee": 0.0,
-                "transport_fee": 0.0,
-                "terminal_report_fee": 0.0,
-                "admission_fee_enabled": False,
-                "admission_fee_amount": 0.0,
-                "other_fees": {},
-            }
-        )
-
-    feeding_plan_fees = _get_feeding_plan_fees(settings)
-
     return jsonify(
-        {
-            "tuition_fee": settings.tuition_fee or 0.0,
-            "feeding_fee": feeding_plan_fees["primary"],
-            "feeding_daily_fee": feeding_plan_fees["daily"],
-            "feeding_weekly_fee": feeding_plan_fees["weekly"],
-            "feeding_monthly_fee": feeding_plan_fees["monthly"],
-            "uniform_fee": 0.0,
-            "transport_fee": settings.transport_fee or 0.0,
-            "terminal_report_fee": settings.terminal_report_fee or 0.0,
-            "admission_fee_enabled": bool(settings.admission_fee_enabled),
-            "admission_fee_amount": settings.admission_fee_amount or 0.0,
-            "other_fees": settings.other_fees or {},
-        }
+        school_configuration_service.get_school_fees_payload(
+            g.school_id,
+            school_settings_model=SchoolSettings,
+            get_feeding_plan_fees=_get_feeding_plan_fees,
+        )
     )
 
 
@@ -18906,64 +17396,17 @@ def get_whatsapp_settings():
 @jwt_required()
 def update_grading_scheme():
     """Updates school grading scheme (class score max and exam score max)."""
-    data = request.json
-
-    # Validate input
-    class_score_max = data.get("class_score_max")
-    exam_score_max = data.get("exam_score_max")
-
-    if class_score_max is None or exam_score_max is None:
-        return (
-            jsonify(
-                {"message": "Both class_score_max and exam_score_max are required"}
-            ),
-            400,
-        )
-
-    # Ensure they're integers
-    try:
-        class_score_max = int(class_score_max)
-        exam_score_max = int(exam_score_max)
-    except (ValueError, TypeError):
-        return jsonify({"message": "Scores must be valid integers"}), 400
-
-    # Validate that they add up to 100
-    if class_score_max + exam_score_max != 100:
-        return (
-            jsonify({"message": "Class score and exam score must add up to 100"}),
-            400,
-        )
-
-    # Validate positive values
-    if class_score_max < 0 or exam_score_max < 0:
-        return jsonify({"message": "Scores must be positive"}), 400
-
-    # Get or create school settings
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-
-    if not settings:
-        settings = SchoolSettings(school_id=g.school_id)
-        db.session.add(settings)
-
-    # Update grading scheme
-    settings.class_score_max = class_score_max
-    settings.exam_score_max = exam_score_max
-
-    log_action(
-        int(get_jwt_identity()),
+    response_body, error, status_code = school_configuration_service.update_grading_scheme(
+        request.json,
         g.school_id,
-        "GRADING_SCHEME_UPDATE",
-        f"Updated grading scheme to {class_score_max}/{exam_score_max}",
+        int(get_jwt_identity()),
+        school_settings_model=SchoolSettings,
+        log_action=log_action,
+        db_session=db.session,
     )
-    db.session.commit()
-
-    return jsonify(
-        {
-            "message": "Grading scheme updated successfully",
-            "class_score_max": class_score_max,
-            "exam_score_max": exam_score_max,
-        }
-    )
+    if error:
+        return jsonify(error), status_code
+    return jsonify(response_body), status_code
 
 
 @api.route("/school/grading-scheme", methods=["GET"])
@@ -18971,17 +17414,11 @@ def update_grading_scheme():
 @jwt_required()
 def get_grading_scheme():
     """Retrieves current grading scheme configuration."""
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-
-    if not settings:
-        # Return default values
-        return jsonify({"class_score_max": 30, "exam_score_max": 70})
-
     return jsonify(
-        {
-            "class_score_max": settings.class_score_max or 30,
-            "exam_score_max": settings.exam_score_max or 70,
-        }
+        school_configuration_service.get_grading_scheme_payload(
+            g.school_id,
+            school_settings_model=SchoolSettings,
+        )
     )
 
 
@@ -21306,6 +19743,29 @@ def create_timetable_entry():
 
     if not teacher_id:
         return jsonify({"message": "Teacher assignment required"}), 400
+
+    available_class_names = [
+        row.name
+        for row in AcademicClass.query.filter_by(school_id=g.school_id)
+        .order_by(AcademicClass.name)
+        .all()
+    ]
+    if not available_class_names:
+        available_class_names = [
+            row[0]
+            for row in db.session.query(Student.current_class)
+            .filter(Student.school_id == g.school_id)
+            .group_by(Student.current_class)
+            .order_by(Student.current_class)
+            .all()
+            if row[0]
+        ]
+
+    if not available_class_names:
+        return jsonify({"message": "Add a school class before creating timetable entries."}), 400
+
+    if class_name not in available_class_names:
+        return jsonify({"message": "Select a valid school class."}), 400
 
     # Verify teacher belongs to this school
     teacher = User.query.filter_by(id=teacher_id, school_id=g.school_id).first()

@@ -48,7 +48,7 @@ describe('StaffManagement', () => {
   it('shows a tenant-safe resend invite message when email delivery fails', async () => {
     axios.post.mockResolvedValue({
       data: {
-        message: 'Staff invite resent successfully. Invite created, but the welcome email could not be delivered right now.',
+        message: 'Staff invite email could not be delivered right now. The previous login credentials remain unchanged.',
         email_sent: false,
         email_error: 'SMTPAuthenticationError: 535 Authentication failed',
       },
@@ -71,4 +71,4 @@ describe('StaffManagement', () => {
       'Staff invite resent successfully. Invite created, but the welcome email could not be delivered right now.'
     );
   });
-});
+          'Staff invite email could not be delivered right now. The previous login credentials remain unchanged.'

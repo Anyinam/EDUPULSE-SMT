@@ -29,9 +29,9 @@ Examples:
 
 The school can share any of these references in 3 ways:
 
-1. Manual school-office payment instruction
-2. Tracked digital payment link
-3. Tracked transfer account generated from EduPulse
+1. Printed instruction sheet with tracked transfer account details attached automatically when available
+2. Manual school-office or direct-bank instruction using the same reference
+3. Optional tracked online checkout link for cases where the school wants web checkout instead of bank transfer
 
 When the school generates a tracked transfer account, the dedicated virtual account is bound to one reference. Parents do not need to understand Paystack. They only see a bank account to transfer to and the exact amount to pay.
 
@@ -55,7 +55,7 @@ Examples:
 
 Reference alone does not guarantee automatic tracking if money is sent to the schoolâ€™s ordinary bank account and the provider does not return the reference reliably.
 
-For reliable automatic tracking, the school should generate the tracked transfer account for that reference. EduPulse then stores a `PaymentCollectionIntent` that maps:
+For reliable automatic tracking, the school should use the tracked transfer account for that reference. EduPulse then stores a `PaymentCollectionIntent` that maps:
 - student
 - reference
 - Paystack customer
@@ -83,7 +83,7 @@ The payment record will still categorize the fee under `S001-T1`, but only `GHâ‚
 
 Recommended wording:
 
-1. If a tracked transfer account has been generated, pay the exact total into that account.
+1. If a tracked transfer account appears on the printed instruction sheet, pay the exact total into that account.
 2. If the school shares only a normal bank or MoMo destination, include the reference exactly as shown.
 3. Keep the same reference when showing proof at the school office.
 

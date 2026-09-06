@@ -2,20 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useBranding } from '../hooks/useBranding';
 
-const CLASS_OPTIONS = [
-  'Nursery',
-  'KG',
-  'Class 1',
-  'Class 2',
-  'Class 3',
-  'Class 4',
-  'Class 5',
-  'Class 6',
-  'JHS 1',
-  'JHS 2',
-  'JHS 3'
-];
-
 const DEFAULT_SUBJECTS = [
   'Mathematics',
   'English Language',
@@ -53,8 +39,10 @@ export default function TimetableManager({
   const [availableSubjects, setAvailableSubjects] = useState(DEFAULT_SUBJECTS);
   const [customSubject, setCustomSubject] = useState('');
   const [showSubjectManager, setShowSubjectManager] = useState(false);
+  const [availableClasses, setAvailableClasses] = useState([]);
+  const [customClassName, setCustomClassName] = useState('');
   const [form, setForm] = useState({
-    class_name: 'JHS 1',
+    class_name: '',
     subject_name: '',
     teacher_id: '',
     day_of_week: 'Monday',
@@ -126,8 +114,36 @@ export default function TimetableManager({
       }
     };
 
+    const fetchClasses = async () => {
+      try {
+        const res = await axios.get('/api/school/classes', getAuthHeaders());
+        const classList = Array.isArray(res.data)
+          ? res.data
+              .map((item) => item.class_name || item.name)
+              .filter(Boolean)
+          : [];
+        setAvailableClasses(classList);
+        setForm((prev) => {
+          if (prev.class_name && classList.includes(prev.class_name)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            class_name: classList[0] || ''
+          };
+        });
+        if (scope === 'class' && className && !classList.includes(className)) {
+          setClassFilter(classList[0] || '');
+        }
+      } catch (err) {
+        console.error('Failed to load school classes', err);
+        setAvailableClasses([]);
+      }
+    };
+
     fetchEntries();
     fetchStaff();
+    fetchClasses();
   }, [scope, canManage, classFilter]);
 
   const handleChange = (e) => {
@@ -188,6 +204,36 @@ export default function TimetableManager({
       setEntries((prev) => prev.filter((entry) => entry.id !== entryId));
     } catch (err) {
       alert('Failed to delete entry.');
+    }
+  };
+
+  const handleAddCustomClass = async () => {
+    const name = customClassName.trim();
+    if (!name) {
+      setMessage('Enter a class name first.');
+      return;
+    }
+
+    try {
+      const res = await axios.post(
+        '/api/school/classes',
+        { name },
+        getAuthHeaders()
+      );
+      const createdName = res.data?.class?.class_name || res.data?.class?.name || name;
+      setAvailableClasses((prev) => {
+        if (prev.includes(createdName)) {
+          return prev;
+        }
+        return [...prev, createdName].sort((a, b) => a.localeCompare(b));
+      });
+      setForm((prev) => ({ ...prev, class_name: createdName }));
+      setCustomClassName('');
+      setMessage(`Class "${createdName}" added successfully.`);
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to add class.';
+      setMessage(errorMessage);
     }
   };
 
@@ -412,17 +458,53 @@ export default function TimetableManager({
       )}
 
       {canManage && (
-        <form onSubmit={handleCreate} className="grid grid-cols-1 lg:grid-cols-7 gap-3 mb-6">
-          <select
-            name="class_name"
-            value={form.class_name}
-            onChange={handleChange}
-            className="p-2 border rounded-lg bg-slate-50 font-semibold text-slate-700"
-          >
-            {CLASS_OPTIONS.map((cls) => (
-              <option key={cls} value={cls}>{cls}</option>
-            ))}
-          </select>
+        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <label className="block text-sm font-bold text-slate-700 mb-2">Classes</label>
+          <div className="flex flex-col gap-3 lg:flex-row">
+            <select
+              name="class_name"
+              value={form.class_name}
+              onChange={handleChange}
+              className="flex-1 p-2 border rounded-lg bg-white font-semibold text-slate-700"
+              disabled={availableClasses.length === 0}
+            >
+              {availableClasses.length === 0 ? (
+                <option value="">No classes available yet</option>
+              ) : (
+                availableClasses.map((cls) => (
+                  <option key={cls} value={cls}>{cls}</option>
+                ))
+              )}
+            </select>
+            <div className="flex gap-2 lg:w-md">
+              <input
+                type="text"
+                value={customClassName}
+                onChange={(e) => setCustomClassName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddCustomClass();
+                  }
+                }}
+                placeholder="Add custom class"
+                className="flex-1 p-2 border rounded-lg bg-white font-semibold text-slate-700"
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomClass}
+                className="px-4 py-2 rounded-lg bg-slate-800 text-white font-semibold hover:bg-slate-700"
+              >
+                Add Class
+              </button>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Timetable classes now come from the school setup. Add a custom class here when your school needs one.</p>
+        </div>
+      )}
+
+      {canManage && (
+        <form onSubmit={handleCreate} className="grid grid-cols-1 lg:grid-cols-6 gap-3 mb-6">
           <div className="relative">
             <select
               name="subject_name"
@@ -486,7 +568,7 @@ export default function TimetableManager({
             placeholder="Room (optional)"
             className="p-2 border rounded-lg bg-slate-50 font-semibold text-slate-700"
           />
-          <button type="submit" className="lg:col-span-7 bg-blue-700 text-white py-2 rounded-lg font-bold hover:bg-blue-600">
+          <button type="submit" className="lg:col-span-6 bg-blue-700 text-white py-2 rounded-lg font-bold hover:bg-blue-600" disabled={!form.class_name}>
             Add Timetable Slot
           </button>
         </form>

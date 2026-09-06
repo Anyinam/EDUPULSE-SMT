@@ -736,6 +736,89 @@ class TestPaymentEndpoints:
             data = json.loads(payment_response.data)
             assert "recorded" in data["message"]
 
+    def test_school_classes_fall_back_to_student_current_class(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import User
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+            response = client.get(
+                "/api/school/classes",
+                headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+            )
+
+            assert response.status_code == 200
+            payload = json.loads(response.data)
+            assert payload == [{"name": "JHS 1", "class_name": "JHS 1"}]
+
+    def test_school_can_create_custom_class_for_timetable(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import AcademicClass, User
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-School-ID": "TEST-001",
+                "Content-Type": "application/json",
+            }
+
+            create_response = client.post(
+                "/api/school/classes",
+                json={"name": "STEM 1", "level": "Senior High"},
+                headers=headers,
+            )
+
+            assert create_response.status_code == 201
+            payload = create_response.get_json()
+            assert payload["class"]["name"] == "STEM 1"
+            assert payload["class"]["class_name"] == "STEM 1"
+
+            stored = AcademicClass.query.filter_by(school_id="TEST-001", name="STEM 1").first()
+            assert stored is not None
+            assert stored.level == "Senior High"
+
+            list_response = client.get("/api/school/classes", headers=headers)
+            assert list_response.status_code == 200
+            listed_names = {item["class_name"] for item in list_response.get_json()}
+            assert "STEM 1" in listed_names
+
+    def test_timetable_creation_rejects_unknown_school_class(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import User
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            teacher = User.query.filter_by(username="teacher1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+            response = client.post(
+                "/api/timetable",
+                json={
+                    "class_name": "Ghost 1",
+                    "subject_name": "Mathematics",
+                    "teacher_id": teacher.id,
+                    "day_of_week": "Monday",
+                    "start_time": "08:00",
+                    "end_time": "09:00",
+                    "location": "Room 1",
+                },
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-School-ID": "TEST-001",
+                    "Content-Type": "application/json",
+                },
+            )
+
+            assert response.status_code == 400
+            assert response.get_json()["message"] == "Select a valid school class."
+
     def test_receive_payment_keeps_structured_reference_separate_from_transaction_reference(self, client, app):
         """Manual reconciliation should store the bank or MoMo transaction ID, not overwrite it with the learner reference."""
         with app.app_context():

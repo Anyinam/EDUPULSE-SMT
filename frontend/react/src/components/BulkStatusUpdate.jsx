@@ -1,15 +1,26 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertCircle, Check, Loader } from 'lucide-react';
 import axios from 'axios';
+import useSchoolClasses from '../hooks/useSchoolClasses';
 
 const BulkStatusUpdate = ({ trigger = 'button' }) => {
   const [showModal, setShowModal] = useState(false);
-  const [classes, setClasses] = useState(['JHS 1', 'JHS 2', 'JHS 3', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6']);
-  const [selectedClass, setSelectedClass] = useState('JHS 3');
+  const [selectedClass, setSelectedClass] = useState('');
   const [newStatus, setNewStatus] = useState('Graduated');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const { classes } = useSchoolClasses();
+
+  useEffect(() => {
+    if (classes.length === 0) {
+      return;
+    }
+
+    if (!classes.includes(selectedClass)) {
+      setSelectedClass(classes[0]);
+    }
+  }, [classes, selectedClass]);
 
   const validStatuses = ['Graduated', 'Withdrawn', 'Transferred', 'Suspended', 'Inactive'];
 
@@ -91,7 +102,9 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
                         value={selectedClass}
                         onChange={(e) => setSelectedClass(e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-medium"
+                        disabled={classes.length === 0}
                       >
+                        {classes.length === 0 && <option value="">No school classes configured</option>}
                         {classes.map(cls => (
                           <option key={cls} value={cls}>{cls}</option>
                         ))}

@@ -11,6 +11,8 @@ Important scope note:
 Current parent-fee scope note:
 - EduPulse uses structured references for fee categorization.
 - Reliable automatic transfer tracking is handled through on-demand Paystack dedicated virtual accounts created per learner fee reference.
+- When a school prints payment instructions, EduPulse can automatically create or reuse the tracked transfer account and place those bank details directly on the printed sheet.
+- The school-facing online checkout link is now a secondary optional action rather than the main collection workflow.
 - Those tracked transfer accounts split settlement so the school receives the base fee amount through its Paystack subaccount while EduPulse retains the convenience-fee remainder in the main Paystack settlement account.
 
 ### Current Onboarding Payment Behavior

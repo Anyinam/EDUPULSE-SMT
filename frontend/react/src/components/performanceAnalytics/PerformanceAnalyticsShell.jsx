@@ -7,9 +7,9 @@ import OverviewPanel from './OverviewPanel';
 import PremiumFeatureNotice from '../PremiumFeatureNotice';
 import SingleYearAnalyticsView from './SingleYearAnalyticsView';
 import useEffectiveSubscriptionPlan from '../../hooks/useEffectiveSubscriptionPlan';
+import useSchoolClasses from '../../hooks/useSchoolClasses';
 
 const TERM_OPTIONS = ['Term 1', 'Term 2', 'Term 3'];
-const CLASS_OPTIONS = ['Nursery', 'KG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'JHS 1', 'JHS 2', 'JHS 3'];
 
 function normalizePresetFilters(filters = {}) {
   return {
@@ -104,6 +104,7 @@ export default function PerformanceAnalyticsShell({
   const [presetHistoryBusyId, setPresetHistoryBusyId] = useState('');
   const [selectedPresetHistoryId, setSelectedPresetHistoryId] = useState('');
   const analyticsRef = useRef(null);
+  const { classes: schoolClasses } = useSchoolClasses();
 
   const headers = useMemo(() => ({
     Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -552,13 +553,13 @@ export default function PerformanceAnalyticsShell({
           <input className="rounded-lg border bg-slate-50 p-2 text-sm" placeholder="Year (e.g., 2025/2026)" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} />
           <select className="rounded-lg border bg-slate-50 p-2 text-sm" value={cohortFromClass} onChange={(e) => setCohortFromClass(e.target.value)}>
             <option value="">Cohort From Class</option>
-            {CLASS_OPTIONS.map((className) => (
+            {schoolClasses.map((className) => (
               <option key={`from-${className}`} value={className}>{className}</option>
             ))}
           </select>
           <select className="rounded-lg border bg-slate-50 p-2 text-sm" value={cohortToClass} onChange={(e) => setCohortToClass(e.target.value)}>
             <option value="">Cohort To Class</option>
-            {CLASS_OPTIONS.map((className) => (
+            {schoolClasses.map((className) => (
               <option key={`to-${className}`} value={className}>{className}</option>
             ))}
           </select>

@@ -1737,6 +1737,52 @@ def test_school_settings_save_can_create_missing_paystack_subaccount_from_existi
     ]
 
 
+def test_school_settings_can_reconnect_missing_paystack_subaccount_without_full_save(client, app, db, test_school, test_proprietor, monkeypatch):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    test_school.bank_name = "Fidelity Bank Ghana"
+    test_school.bank_account = "1234567890"
+    test_school.bank_account_name = "EduPulse School Account"
+    db.session.commit()
+
+    captured_calls = []
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        captured_calls.append((endpoint, method, data))
+        if endpoint == "/bank?country=ghana&currency=GHS" and method == "GET":
+            return ([{"name": "Fidelity Bank Ghana Ltd", "code": "070100"}], None)
+        if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
+            return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
+        if endpoint == "/subaccount" and method == "POST":
+            return ({"subaccount_code": "SUB_retry123"}, None)
+        raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    response = client.post(
+        "/api/school/settings/paystack/reconnect",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["message"] == "Paystack settlement account created successfully."
+    assert payload["paystack_subaccount_code"] == "SUB_retry123"
+    assert payload["paystack_bank_code"] == "070100"
+    assert payload["paystack_resolved_account_name"] == "EDUPULSE SCHOOL ACCOUNT"
+
+    settings_response = client.get("/api/school/settings", headers=headers)
+    assert settings_response.status_code == 200
+    settings_payload = settings_response.get_json()
+    assert settings_payload["paystack_subaccount_code"] == "SUB_retry123"
+
+    assert [call[0] for call in captured_calls] == [
+        "/bank?country=ghana&currency=GHS",
+        "/bank/resolve?account_number=1234567890&bank_code=070100",
+        "/subaccount",
+    ]
+
+
 def test_school_settings_persist_legacy_migration_and_bece_compliance_flags(client, app, test_school, test_proprietor):
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
 
@@ -1768,6 +1814,27 @@ def test_school_settings_persist_legacy_migration_and_bece_compliance_flags(clie
     assert payload["bece_result_processing_enabled"] is True
     assert payload["bece_parent_notice_confirmed"] is True
     assert payload["teacher_class_level_exam_summaries_enabled"] is True
+
+
+def test_school_settings_ai_registrar_enabled_for_active_premium_trial(client, app, db, test_school, test_proprietor):
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    test_school.subscription_plan = "Free Tier"
+    test_school.trial_plan = "Premium"
+    test_school.trial_end_date = datetime.now(timezone.utc) + timedelta(days=7)
+    db.session.commit()
+
+    settings_response = client.get("/api/school/settings", headers=headers)
+    assert settings_response.status_code == 200
+    payload = settings_response.get_json()
+    assert payload["ai_registrar_enabled"] is True
+    assert payload["ai_registrar_addon_enabled"] is True
+
+    plan_response = client.get("/api/school/subscription/effective-plan", headers=headers)
+    assert plan_response.status_code == 200
+    plan_payload = plan_response.get_json()
+    assert plan_payload["effective_plan"] == "Premium"
+    assert plan_payload["trial"]["active"] is True
+    assert plan_payload["trial"]["plan"] == "Premium"
 
 
 def test_legacy_consent_evidence_upload_list_and_download(client, app, test_school, test_proprietor, tmp_path):

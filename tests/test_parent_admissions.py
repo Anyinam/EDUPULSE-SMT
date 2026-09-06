@@ -6,7 +6,7 @@ import hmac
 import pytest
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import ParentAdmissionApplication, SchoolSettings, Student
+from backend.api.models import AcademicClass, ParentAdmissionApplication, SchoolSettings, Student
 
 
 def _proprietor_headers(app, school_id, proprietor_id):
@@ -237,6 +237,22 @@ def test_public_school_profile_exposes_branding_and_admission_fee(client, db, te
     assert payload["theme_color"] == "#0f766e"
     assert payload["admission_fee"]["enabled"] is True
     assert payload["admission_fee"]["amount"] == 150.0
+
+
+def test_public_school_classes_use_school_defined_or_student_classes(client, db, test_school):
+    academic_class = AcademicClass(
+        school_id=test_school.id,
+        name="Creche A",
+    )
+    db.session.add(academic_class)
+    db.session.commit()
+
+    response = client.get(f"/api/public/schools/{test_school.id}/classes")
+
+    assert response.status_code == 200
+    assert response.get_json() == [
+        {"id": academic_class.id, "name": "Creche A", "class_name": "Creche A"}
+    ]
 
 
 def test_school_can_review_parent_application_and_admit_student(client, app, db, test_school, test_proprietor):

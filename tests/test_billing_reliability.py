@@ -1879,6 +1879,47 @@ def test_resend_staff_invite_rotates_temp_password_and_sends_email(
     assert "Temporary Password" in captured["body"]
 
 
+def test_resend_staff_invite_does_not_rotate_password_when_email_delivery_fails(
+    client, app, db, test_school, test_proprietor, proprietor_headers, monkeypatch
+):
+    from backend.api.models import User
+
+    staff = User(
+        username="teacher_resend_fail",
+        school_id=test_school.id,
+        role="teacher",
+        roles=["teacher"],
+        email="teacherresendfail@example.com",
+        is_temp_password=False,
+        temp_password_expires_at=None,
+    )
+    staff.set_password("ExistingPass123")
+    db.session.add(staff)
+    db.session.commit()
+
+    old_hash = staff.password_hash
+
+    monkeypatch.setattr(
+        "backend.routes.send_email_notification",
+        lambda *args, **kwargs: False,
+    )
+
+    response = client.post(f"/api/staff/{staff.id}/resend-invite", json={}, headers=proprietor_headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["email_sent"] is False
+    assert payload["message"] == (
+        "Staff invite email could not be delivered right now. The previous login credentials remain unchanged."
+    )
+    assert payload["password_expires_in_days"] is None
+
+    refreshed = User.query.get(staff.id)
+    assert refreshed.password_hash == old_hash
+    assert refreshed.is_temp_password is False
+    assert refreshed.temp_password_expires_at is None
+
+
 def test_overage_auto_charge_creates_settlement_entry(client, app, db, test_school, monkeypatch):
     from datetime import date
 
