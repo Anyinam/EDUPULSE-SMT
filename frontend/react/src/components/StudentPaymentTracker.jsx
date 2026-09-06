@@ -13,6 +13,7 @@ export default function StudentPaymentTracker() {
   const [generatedLinks, setGeneratedLinks] = useState({});
   const [transferRouteLoadingCode, setTransferRouteLoadingCode] = useState('');
   const [generatedVirtualRoutes, setGeneratedVirtualRoutes] = useState({});
+  const [bulkPrintLoading, setBulkPrintLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState('all');
@@ -77,14 +78,19 @@ export default function StudentPaymentTracker() {
     fetchPaymentCodes(student.id);
   };
 
+  const fetchPaymentCodesData = async (studentId) => {
+    const headers = {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'X-School-ID': localStorage.getItem('school_id')
+    };
+    const res = await axios.get(`/api/students/${studentId}/payment-codes`, { headers });
+    return res.data;
+  };
+
   const fetchPaymentCodes = async (studentId) => {
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
-      const res = await axios.get(`/api/students/${studentId}/payment-codes`, { headers });
-      setPaymentCodes(res.data);
+      const result = await fetchPaymentCodesData(studentId);
+      setPaymentCodes(result);
       setPaymentCodesError(null);
     } catch (err) {
       const responseData = err.response?.data || null;
@@ -189,26 +195,28 @@ export default function StudentPaymentTracker() {
   const printPaymentInstructions = () => {
     if (!paymentCodes) return;
 
+    const html = buildPaymentInstructionsHtml(paymentCodes);
+    openInstructionPrintWindow(`Payment Instructions & Reference Guide - ${paymentCodes.student_name}`, html);
+  };
+
+  const openInstructionPrintWindow = (title, content) => {
+    const printWindow = window.open('', '', 'width=900,height=1200');
+    if (!printWindow) {
+      alert('Unable to open the print window right now. Please allow pop-ups and try again.');
+      return;
+    }
+
     const schoolName = branding.school_name || branding.name || 'School';
     const schoolEmail = branding.school_email || branding.email || '';
     const schoolPhone = branding.school_phone || branding.phone || '';
     const schoolAddress = branding.school_address || branding.address || '';
     const themeColor = branding.theme_color || '#3b82f6';
-    const schoolPaymentAccount = paymentCodes.school_payment_account || {};
-    const bankName = schoolPaymentAccount.bank_name || '';
-    const bankAccount = schoolPaymentAccount.bank_account || '';
-    const bankAccountName = schoolPaymentAccount.bank_account_name || '';
-    const bankBranch = schoolPaymentAccount.bank_branch || '';
-    const hasBankDetails = Boolean(bankName || bankAccount || bankAccountName || bankBranch);
 
-    const totalCashAmount = paymentCodes.payment_codes.reduce((sum, code) => sum + Number(code.base_amount || code.cash_amount || 0), 0);
-
-    const printWindow = window.open('', '', 'width=900,height=1200');
     const html = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Payment Instructions & Reference Guide - ${paymentCodes.student_name}</title>
+        <title>${title}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body {
@@ -303,29 +311,6 @@ export default function StudentPaymentTracker() {
           .payment-codes-table tr:nth-child(even) {
             background: #fafafa;
           }
-          .payment-summary-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-          }
-          .payment-summary-table th {
-            background: #f0f0f0;
-            color: #333;
-            padding: 12px;
-            text-align: left;
-            font-weight: bold;
-            border-bottom: 2px solid ${themeColor};
-            font-size: 13px;
-          }
-          .payment-summary-table td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #e0e0e0;
-            font-size: 13px;
-          }
-          .payment-summary-table tfoot td {
-            font-weight: bold;
-            border-top: 2px solid ${themeColor};
-          }
           .code-column {
             font-family: 'Courier New', monospace;
             font-size: 14px;
@@ -359,14 +344,6 @@ export default function StudentPaymentTracker() {
             color: #666;
             line-height: 1.8;
             margin: 8px 0;
-          }
-          .instruction-text code {
-            background: #fff3cd;
-            padding: 4px 8px;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
-            font-weight: bold;
-            color: #d97706;
           }
           .payment-method {
             background: #f8f9fa;
@@ -407,6 +384,11 @@ export default function StudentPaymentTracker() {
             display: block;
             margin-bottom: 5px;
           }
+          .page-break {
+            break-before: page;
+            page-break-before: always;
+            height: 0;
+          }
           @media print {
             body { background: white; }
             .container { box-shadow: none; }
@@ -414,140 +396,194 @@ export default function StudentPaymentTracker() {
         </style>
       </head>
       <body>
-        <div class="container">
-          <!-- Header -->
-          <div class="header">
-            <div class="school-name">${schoolName}</div>
-            <div class="school-contact">
-              ${schoolAddress ? `<div>${schoolAddress}</div>` : ''}
-              ${schoolPhone ? `<div>📞 ${schoolPhone}</div>` : ''}
-              ${schoolEmail ? `<div>✉️ ${schoolEmail}</div>` : ''}
-            </div>
-          </div>
-
-          <!-- Document Title -->
-          <div class="document-title">📋 Payment Instructions For Parent</div>
-
-          <!-- Student Information -->
-          <div class="student-info">
-            <p><span class="info-label">Student Name:</span> ${paymentCodes.student_name}</p>
-            <p><span class="info-label">Stable Payment Identity:</span> <strong>${paymentCodes.student_code}</strong></p>
-            <p><span class="info-label">Class:</span> ${paymentCodes.class || 'Not assigned'}</p>
-            ${paymentCodes.parent_phone ? `<p><span class="info-label">Parent/Guardian:</span> ${paymentCodes.parent_name || ''} (${paymentCodes.parent_phone})</p>` : ''}
-          </div>
-
-          ${hasBankDetails ? `
-          <div class="section">
-            <div class="section-title">🏦 School Bank Account</div>
-            <div class="payment-method">
-              <div class="payment-method-content">
-                <p><strong>Bank Name:</strong> ${bankName}</p>
-                <p><strong>Account Number:</strong> ${bankAccount}</p>
-                ${bankAccountName ? `<p><strong>Account Name:</strong> ${bankAccountName}</p>` : ''}
-                ${bankBranch ? `<p><strong>Branch:</strong> ${bankBranch}</p>` : ''}
-                <p style="margin-top: 8px;"><strong>Use this only when the school has asked for a direct bank transfer or office-confirmed payment.</strong></p>
-              </div>
-            </div>
-          </div>` : ''}
-
-          <!-- Payment Routes Section -->
-          <div class="section">
-            <div class="section-title">💳 Fee References And Tracked Payment Options</div>
-            <table class="payment-codes-table">
-              <thead>
-                <tr>
-                  <th>Fee Type</th>
-                  <th>Preferred Reference</th>
-                  <th>Payment Channel</th>
-                  <th class="amount-column">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${paymentCodes.payment_codes.map(code => `
-                  <tr>
-                    <td><strong>${code.fee_type}</strong></td>
-                    <td><span class="code-column">${code.reference_code || code.code}</span></td>
-                    <td><span style="color:#475569;">Use the tracked transfer account or tracked payment link for this exact fee whenever the school provides one</span></td>
-                    <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Important Notice -->
-          <div class="important">
-            <strong>⚠️ Important:</strong> Best option: use the tracked transfer account or tracked payment link created for the exact fee. That keeps the learner and fee purpose attached automatically.
-          </div>
-
-          <!-- Payment Methods Section -->
-          <div class="section">
-            <div class="section-title">💰 How to Pay</div>
-            ${paymentCodes.payment_codes.map(code => `
-              <div class="payment-method">
-                <div class="payment-method-title">${code.fee_type}</div>
-                <div class="payment-method-content">
-                  <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
-                  <p><strong>Best Option:</strong> Ask the school for the tracked transfer account or tracked payment link for this fee.</p>
-                  ${hasBankDetails ? `<p><strong>School Bank Account:</strong> ${[bankName, bankAccount, bankAccountName].filter(Boolean).join(' • ')}${bankBranch ? ` • ${bankBranch}` : ''}</p>` : ''}
-                  <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> Use it when the school asks for bank narration or office confirmation.</p>
-                  <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
-                  <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
-                  <p style="margin-top: 8px;"><strong>Payment Flow:</strong></p>
-                  <p style="margin-left: 12px;">1) Use the tracked transfer account or tracked payment link from the school for this fee whenever available.</p>
-                  <p style="margin-left: 12px;">2) If the school instead gives a normal bank account, enter the amount shown for this fee.</p>
-                  <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration or present it at the school office.</p>
-                  <p style="margin-left: 12px;">4) The school records the payment under this learner and fee purpose.</p>
-                </div>
-              </div>
-            `).join('')}
-
-          </div>
-
-          <!-- Summary Section -->
-          <div class="section">
-            <div class="section-title">📊 Amount Summary</div>
-            <div class="instructions">
-              <div class="instructions-title">Per-Fee Instructions:</div>
-              <div class="instruction-text">
-                ${paymentCodes.payment_codes.map(code => 
-                  `• <strong>${code.fee_type}:</strong> Pay GH₵ ${Number(code.base_amount || 0).toFixed(2)} using the tracked transfer account or tracked payment link for reference <strong>${code.reference_code || code.code}</strong>. If the school asks for direct transfer, keep the same reference in the narration.`
-                ).join('<br>')}
-              </div>
-              <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
-                Total amount due across these references: GH₵ ${totalCashAmount.toFixed(2)}
-              </div>
-            </div>
-          </div>
-
-          <!-- Contact Instructions -->
-          <div class="section">
-            <div class="section-title">❓ Questions?</div>
-            <div class="instructions">
-              <div class="instruction-text">
-                If you have any questions about the payment reference to use or the school\'s approved payment channel:
-              </div>
-              ${schoolPhone ? `<div class="instruction-text">📞 Call: ${schoolPhone}</div>` : ''}
-              ${schoolEmail ? `<div class="instruction-text">✉️ Email: ${schoolEmail}</div>` : ''}
-              <div class="instruction-text" style="margin-top: 10px;">
-                Or visit the school office during office hours.
-              </div>
-            </div>
-          </div>
-
-          <!-- Footer -->
-          <div class="footer">
-            <p>Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-            <p>Please keep this document for your records</p>
-          </div>
-        </div>
+        ${content}
       </body>
       </html>
     `;
+
     printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => printWindow.print(), 500);
+  };
+
+  const buildPaymentInstructionsHtml = (codesRecord) => {
+    const schoolName = branding.school_name || branding.name || 'School';
+    const schoolEmail = branding.school_email || branding.email || '';
+    const schoolPhone = branding.school_phone || branding.phone || '';
+    const schoolAddress = branding.school_address || branding.address || '';
+    const themeColor = branding.theme_color || '#3b82f6';
+    const schoolPaymentAccount = codesRecord.school_payment_account || {};
+    const bankName = schoolPaymentAccount.bank_name || '';
+    const bankAccount = schoolPaymentAccount.bank_account || '';
+    const bankAccountName = schoolPaymentAccount.bank_account_name || '';
+    const bankBranch = schoolPaymentAccount.bank_branch || '';
+    const hasBankDetails = Boolean(bankName || bankAccount || bankAccountName || bankBranch);
+    const totalCashAmount = (codesRecord.payment_codes || []).reduce((sum, code) => sum + Number(code.base_amount || code.cash_amount || 0), 0);
+
+    return `
+      <div class="container">
+        <div class="header">
+          <div class="school-name">${schoolName}</div>
+          <div class="school-contact">
+            ${schoolAddress ? `<div>${schoolAddress}</div>` : ''}
+            ${schoolPhone ? `<div>📞 ${schoolPhone}</div>` : ''}
+            ${schoolEmail ? `<div>✉️ ${schoolEmail}</div>` : ''}
+          </div>
+        </div>
+
+        <div class="document-title">📋 Payment Instructions For Parent</div>
+
+        <div class="student-info">
+          <p><span class="info-label">Student Name:</span> ${codesRecord.student_name}</p>
+          <p><span class="info-label">Stable Payment Identity:</span> <strong>${codesRecord.student_code}</strong></p>
+          <p><span class="info-label">Class:</span> ${codesRecord.class || 'Not assigned'}</p>
+          ${codesRecord.parent_phone ? `<p><span class="info-label">Parent/Guardian:</span> ${codesRecord.parent_name || ''} (${codesRecord.parent_phone})</p>` : ''}
+        </div>
+
+        ${hasBankDetails ? `
+        <div class="section">
+          <div class="section-title">🏦 School Bank Account</div>
+          <div class="payment-method">
+            <div class="payment-method-content">
+              <p><strong>Bank Name:</strong> ${bankName}</p>
+              <p><strong>Account Number:</strong> ${bankAccount}</p>
+              ${bankAccountName ? `<p><strong>Account Name:</strong> ${bankAccountName}</p>` : ''}
+              ${bankBranch ? `<p><strong>Branch:</strong> ${bankBranch}</p>` : ''}
+              <p style="margin-top: 8px;"><strong>Use this only when the school has asked for a direct bank transfer or office-confirmed payment.</strong></p>
+            </div>
+          </div>
+        </div>` : ''}
+
+        <div class="section">
+          <div class="section-title">💳 Fee References And Tracked Payment Options</div>
+          <table class="payment-codes-table">
+            <thead>
+              <tr>
+                <th>Fee Type</th>
+                <th>Preferred Reference</th>
+                <th>Payment Channel</th>
+                <th class="amount-column">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(codesRecord.payment_codes || []).map(code => `
+                <tr>
+                  <td><strong>${code.fee_type}</strong></td>
+                  <td><span class="code-column">${code.reference_code || code.code}</span></td>
+                  <td><span style="color:#475569;">Use the tracked transfer account or tracked payment link for this exact fee whenever the school provides one</span></td>
+                  <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="important">
+          <strong>⚠️ Important:</strong> Best option: use the tracked transfer account or tracked payment link created for the exact fee. That keeps the learner and fee purpose attached automatically.
+        </div>
+
+        <div class="section">
+          <div class="section-title">💰 How to Pay</div>
+          ${(codesRecord.payment_codes || []).map(code => `
+            <div class="payment-method">
+              <div class="payment-method-title">${code.fee_type}</div>
+              <div class="payment-method-content">
+                <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
+                <p><strong>Best Option:</strong> Ask the school for the tracked transfer account or tracked payment link for this fee.</p>
+                ${hasBankDetails ? `<p><strong>School Bank Account:</strong> ${[bankName, bankAccount, bankAccountName].filter(Boolean).join(' • ')}${bankBranch ? ` • ${bankBranch}` : ''}</p>` : ''}
+                <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> Use it when the school asks for bank narration or office confirmation.</p>
+                <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
+                <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
+                <p style="margin-top: 8px;"><strong>Payment Flow:</strong></p>
+                <p style="margin-left: 12px;">1) Use the tracked transfer account or tracked payment link from the school for this fee whenever available.</p>
+                <p style="margin-left: 12px;">2) If the school instead gives a normal bank account, enter the amount shown for this fee.</p>
+                <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration or present it at the school office.</p>
+                <p style="margin-left: 12px;">4) The school records the payment under this learner and fee purpose.</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="section">
+          <div class="section-title">📊 Amount Summary</div>
+          <div class="instructions">
+            <div class="instructions-title">Per-Fee Instructions:</div>
+            <div class="instruction-text">
+              ${(codesRecord.payment_codes || []).map(code =>
+                `• <strong>${code.fee_type}:</strong> Pay GH₵ ${Number(code.base_amount || 0).toFixed(2)} using the tracked transfer account or tracked payment link for reference <strong>${code.reference_code || code.code}</strong>. If the school asks for direct transfer, keep the same reference in the narration.`
+              ).join('<br>')}
+            </div>
+            <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
+              Total amount due across these references: GH₵ ${totalCashAmount.toFixed(2)}
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">❓ Questions?</div>
+          <div class="instructions">
+            <div class="instruction-text">
+              If you have any questions about the payment reference to use or the school's approved payment channel:
+            </div>
+            ${schoolPhone ? `<div class="instruction-text">📞 Call: ${schoolPhone}</div>` : ''}
+            ${schoolEmail ? `<div class="instruction-text">✉️ Email: ${schoolEmail}</div>` : ''}
+            <div class="instruction-text" style="margin-top: 10px;">
+              Or visit the school office during office hours.
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p>Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <p>Please keep this document for your records</p>
+        </div>
+      </div>
+    `;
+  };
+
+  const printFilteredPaymentInstructions = async () => {
+    const studentsToPrint = filteredStudents.slice(0, 100);
+    if (studentsToPrint.length === 0) {
+      alert('No students match the current search or class filter.');
+      return;
+    }
+
+    try {
+      setBulkPrintLoading(true);
+      const results = await Promise.all(
+        studentsToPrint.map(async (student) => {
+          try {
+            const result = await fetchPaymentCodesData(student.id);
+            return { student, result };
+          } catch (err) {
+            return {
+              student,
+              error: err.response?.data?.message || 'Unable to load payment instructions right now.',
+            };
+          }
+        })
+      );
+
+      const printableResults = results.filter(({ result }) => Array.isArray(result?.payment_codes) && result.payment_codes.length > 0);
+      if (printableResults.length === 0) {
+        alert(results.find(({ error }) => error)?.error || 'Unable to prepare payment instructions right now.');
+        return;
+      }
+
+      const combinedHtml = printableResults
+        .map(({ result }, index) => `${index > 0 ? '<div class="page-break"></div>' : ''}${buildPaymentInstructionsHtml(result)}`)
+        .join('');
+
+      openInstructionPrintWindow('Bulk Payment Instructions', combinedHtml);
+
+      const failedCount = results.length - printableResults.length;
+      if (failedCount > 0) {
+        alert(`Printed ${printableResults.length} instruction sheet${printableResults.length === 1 ? '' : 's'}. ${failedCount} student${failedCount === 1 ? '' : 's'} could not be prepared right now.`);
+      }
+    } finally {
+      setBulkPrintLoading(false);
+    }
   };
 
   const printPaymentReceipt = (student, payment, feeTypeSummary) => {
@@ -831,6 +867,13 @@ export default function StudentPaymentTracker() {
     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-slate-800">💳 Student Payment Tracker</h2>
+        <button
+          onClick={printFilteredPaymentInstructions}
+          disabled={bulkPrintLoading || filteredStudents.length === 0}
+          className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-bold hover:bg-slate-900 transition-colors disabled:bg-slate-300"
+        >
+          {bulkPrintLoading ? 'Preparing Batch Print...' : `🖨️ Print ${Math.min(filteredStudents.length, 100)} Filtered Instruction${Math.min(filteredStudents.length, 100) === 1 ? '' : 's'}`}
+        </button>
       </div>
       
       {/* Search & Filter */}
@@ -868,6 +911,9 @@ export default function StudentPaymentTracker() {
           </select>
         </div>
       </div>
+      <p className="mb-6 text-xs text-slate-500">
+        Batch print uses the current search and class filter and prepares up to the first 100 matching students at once.
+      </p>
 
       {/* Students List */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

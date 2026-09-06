@@ -353,4 +353,126 @@ describe('StudentPaymentTracker', () => {
       })
     );
   });
+
+  it('prints payment instructions for the filtered students in one batch', async () => {
+    const printWindow = {
+      document: {
+        write: vi.fn(),
+        close: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+    };
+    vi.stubGlobal('open', vi.fn(() => printWindow));
+
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              name: 'Ama Mensah',
+              student_code: 'S001',
+              current_class: 'JHS 1',
+            },
+            {
+              id: 2,
+              name: 'Yaw Owusu',
+              student_code: 'S002',
+              current_class: 'JHS 1',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/school/fees') {
+        return Promise.resolve({
+          data: {
+            tuition_fee: 120,
+            terminal_report_fee: 10,
+            feeding_fee: 0,
+            uniform_fee: 0,
+            transport_fee: 0,
+          },
+        });
+      }
+
+      if (url === '/api/students/1/payments' || url === '/api/students/2/payments') {
+        return Promise.resolve({ data: [] });
+      }
+
+      if (url === '/api/students/1/payment-codes') {
+        return Promise.resolve({
+          data: {
+            student_name: 'Ama Mensah',
+            student_code: 'S001',
+            class: 'JHS 1',
+            payment_codes: [
+              {
+                fee_type: 'Tuition',
+                code: 'S001-T1',
+                reference_code: 'S001-T1',
+                base_amount: 120,
+              },
+            ],
+          },
+        });
+      }
+
+      if (url === '/api/students/2/payment-codes') {
+        return Promise.resolve({
+          data: {
+            student_name: 'Yaw Owusu',
+            student_code: 'S002',
+            class: 'JHS 1',
+            payment_codes: [
+              {
+                fee_type: 'Tuition',
+                code: 'S002-T1',
+                reference_code: 'S002-T1',
+                base_amount: 120,
+              },
+            ],
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    render(<StudentPaymentTracker />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
+      expect(screen.getByText('Yaw Owusu')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /print 2 filtered instructions/i }));
+
+    await waitFor(() => {
+      expect(window.open).toHaveBeenCalled();
+    });
+
+    expect(axios.get).toHaveBeenCalledWith(
+      '/api/students/1/payment-codes',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token-1',
+          'X-School-ID': 'TEST-001',
+        }),
+      })
+    );
+    expect(axios.get).toHaveBeenCalledWith(
+      '/api/students/2/payment-codes',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token-1',
+          'X-School-ID': 'TEST-001',
+        }),
+      })
+    );
+    expect(printWindow.document.write).toHaveBeenCalled();
+    expect(printWindow.document.write.mock.calls[0][0]).toContain('Ama Mensah');
+    expect(printWindow.document.write.mock.calls[0][0]).toContain('Yaw Owusu');
+  });
 });
