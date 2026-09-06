@@ -1686,7 +1686,10 @@ def test_staff_add_includes_email_sent_fallback(client, app, db, test_school, te
     assert response.status_code == 200
     result = response.get_json()
     assert result.get("email_sent") is False
-    assert "Failed to send welcome email" in result.get("message", "")
+    assert (
+        result.get("message")
+        == "Staff member added successfully. Invite created, but the welcome email could not be delivered right now."
+    )
 
 
 def test_staff_add_welcome_email_includes_school_id_and_support_details(
