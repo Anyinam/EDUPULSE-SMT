@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { Logo } from './Logo';
@@ -8,6 +8,7 @@ import { useBranding } from '../hooks/useBranding';
 import useSubscription from '../hooks/useSubscription';
 
 export default function Layout() {
+  const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
   const location = useLocation();
   const role = localStorage.getItem('role');
   const { hasFeature } = useSubscription();
@@ -37,6 +38,7 @@ export default function Layout() {
   const [dismissedSystemAlert, setDismissedSystemAlert] = useState('');
   const [expandedMenus, setExpandedMenus] = useState({}); // Track expanded menu sections
   const currentSystemAlert = notifications.find((notification) => notification.isSystem);
+  const inactivityTimerRef = useRef(null);
 
   // Developer-only access check
   const isDeveloper = (
@@ -60,6 +62,31 @@ export default function Layout() {
       return;
     }
   }, [location.pathname]);
+
+  useEffect(() => {
+    const logoutForInactivity = () => {
+      localStorage.clear();
+      window.location.href = '/login';
+    };
+
+    const resetInactivityTimer = () => {
+      if (inactivityTimerRef.current) {
+        window.clearTimeout(inactivityTimerRef.current);
+      }
+      inactivityTimerRef.current = window.setTimeout(logoutForInactivity, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach((eventName) => window.addEventListener(eventName, resetInactivityTimer, { passive: true }));
+    resetInactivityTimer();
+
+    return () => {
+      if (inactivityTimerRef.current) {
+        window.clearTimeout(inactivityTimerRef.current);
+      }
+      activityEvents.forEach((eventName) => window.removeEventListener(eventName, resetInactivityTimer));
+    };
+  }, []);
 
   useEffect(() => {
     const fetchNotifications = async () => {

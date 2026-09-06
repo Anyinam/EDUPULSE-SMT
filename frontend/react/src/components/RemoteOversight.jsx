@@ -285,8 +285,8 @@ export default function RemoteOversight() {
             <p className="text-lg font-black text-green-600">GH₵ {(stats.today_revenue || 0).toFixed(2)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-slate-500 uppercase font-bold">Meals Count</p>
-            <p className="text-lg font-black text-orange-600">{stats.canteen_count || 0}</p>
+            <p className="text-xs text-slate-500 uppercase font-bold">Student Meals Today</p>
+            <p className="text-lg font-black text-orange-600">{stats.student_meals || 0}</p>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-500 uppercase font-bold">Total Students</p>

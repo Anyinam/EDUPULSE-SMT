@@ -92,10 +92,8 @@ def build_student_payment_instruction_payload(
     school = school_model.query.get(school_id)
     settings = school_settings_model.query.filter_by(school_id=school_id).first()
     other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
-    admission_fee = get_school_admission_fee_config(settings)
     feeding_plan_fees = get_feeding_plan_fees(settings)
-    if admission_fee["enabled"]:
-        other_fees.setdefault(admission_fee["label"], admission_fee["amount"])
+    admission_fee = get_school_admission_fee_config(settings)
 
     fees_config = {
         "tuition_fee": settings.tuition_fee if settings else 0.0,
@@ -157,9 +155,9 @@ def build_student_payment_instruction_payload(
                 or (fee_type == "Feeding" and student.scholarship_covers_feeding)
             ),
             "instructions": (
-                f"Use the stable learner payment identity {student.student_code} with reference {code}. "
-                + "Phone payments should use the structured reference through bank transfer, bank app, USSD, or the school's approved digital channel. "
-                + f"The amount to pay for this fee is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
+                f"Preferred option: use the EduPulse tracked transfer account for reference {code} when it is available. "
+                + f"If the school shares only its normal bank account or approved MoMo destination, pay GH₵ {base_amount:.2f} and enter reference {code} exactly as shown. "
+                + f"Keep learner code {student.student_code} and present the same reference at the school office if proof or manual confirmation is needed."
             ),
         })
 
@@ -196,9 +194,9 @@ def build_student_payment_instruction_payload(
                 "virtual_route": None,
                 "is_scholarship_fee": bool(student.is_on_scholarship and student.scholarship_covers_feeding),
                 "instructions": (
-                    f"Use reference {reference_code} for the {frequency_label.lower()} feeding plan. "
-                    + "Phone payments should use the structured reference through bank transfer, bank app, USSD, or the school's approved digital channel. "
-                    + f"The amount to pay for this plan is GH₵ {base_amount:.2f}, and the same reference can also be presented at the school office."
+                    f"Preferred option: use the EduPulse tracked transfer account for the {frequency_label.lower()} feeding reference {reference_code} when it is available. "
+                    + f"If the school shares only its normal bank account or approved MoMo destination, pay GH₵ {base_amount:.2f} and enter reference {reference_code} exactly as shown. "
+                    + "Use the same reference at the school office when the payment is being confirmed manually."
                 ),
             })
 
@@ -244,5 +242,5 @@ def build_student_payment_instruction_payload(
             "bank_branch": school.bank_branch if school else None,
         },
         "payment_codes": codes_list,
-        "note": "Preferred model: use the learner's stable payment identity and structured reference across the school's approved payment channels.",
+        "note": "Preferred model: use the EduPulse tracked transfer account for each fee whenever it appears. If the school gives only a normal bank or approved MoMo destination, keep the exact reference in the narration and in any proof shown at the school office.",
     }

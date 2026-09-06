@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import AcademicTerm, Payment, PaymentCollectionIntent, PlatformSetting, PlatformUser, School, SchoolSettings, SchoolVerification, Student, StudentGrade, TeacherAssignment, User, db
+from backend.api.models import AcademicTerm, AuditLog, Payment, PaymentCollectionIntent, PlatformSetting, PlatformUser, School, SchoolSettings, SchoolVerification, Student, StudentGrade, TeacherAssignment, User, db
 from backend.api.models import ReportCard
 from backend.utils import generate_descriptive_analysis
 
@@ -709,6 +709,100 @@ def test_live_feed_groups_pending_payments_by_class(client, app, test_school, te
     assert grouped["JHS 1"]["total_amount"] == 120.0
     assert grouped["JHS 1"]["payments"][0]["student"] == "Efia Owusu"
     assert grouped["Primary 4"]["payments"][0]["type"] == "Feeding"
+
+
+def test_live_feed_sanitizes_structured_details_and_uses_current_tuition_balance(client, app, test_school, test_proprietor):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+
+    paid_student = Student(
+        school_id=test_school.id,
+        first_name="Abena",
+        surname="Paid",
+        name="Abena Paid",
+        student_code="S922",
+        current_class="JHS 1",
+        status="Active",
+    )
+    unpaid_student = Student(
+        school_id=test_school.id,
+        first_name="Kojo",
+        surname="Unpaid",
+        name="Kojo Unpaid",
+        student_code="S923",
+        current_class="JHS 1",
+        status="Active",
+    )
+    db.session.add_all([paid_student, unpaid_student])
+    db.session.flush()
+
+    db.session.add(
+        Payment(
+            student_id=paid_student.id,
+            school_id=test_school.id,
+            amount=100.0,
+            payment_type="Tuition",
+            method="Paystack_Payment",
+            status="Confirmed",
+            reference_id="TX-LIVE-001",
+            payment_category={"fee_type": "Tuition"},
+            date_paid=datetime.now(timezone.utc),
+        )
+    )
+    db.session.add(
+        AuditLog(
+            actor_id=test_proprietor.id,
+            school_id=test_school.id,
+            action="PAYMENT_CODES_GENERATED",
+            details=json.dumps(
+                {
+                    "student_id": paid_student.id,
+                    "student_code": paid_student.student_code,
+                    "student_class": paid_student.current_class,
+                    "routes_count": 3,
+                    "has_virtual_route": False,
+                }
+            ),
+        )
+    )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/proprietor/live-feed", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["stats"]["unpaid_tuition"] == 1
+    assert payload["stats"]["student_meals"] == 0
+    assert payload["logs"][0]["details"] == "Generated 3 payment references for S922 for JHS 1."
+
+
+def test_payment_codes_exclude_admission_fee_for_enrolled_students(client, app, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    settings.admission_fee_enabled = True
+    settings.admission_fee_amount = 75.0
+    settings.other_fees = {}
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(f"/api/students/{test_students[0].id}/payment-codes", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert not any("admission" in (item.get("fee_type") or "").lower() for item in payload["payment_codes"])
 
 
 def test_proprietor_can_bulk_confirm_pending_payments_for_class(client, app, test_school, test_proprietor):
@@ -3419,6 +3513,124 @@ def test_paystack_dedicated_virtual_account_webhook_records_student_payment(clie
     db.session.refresh(intent)
     assert intent.intent_status == "paid"
     assert intent.provider_reference == "PS-DVA-443322"
+
+
+def test_paystack_dedicated_virtual_account_webhook_uses_metadata_to_avoid_cross_student_match(client, app, test_school, test_proprietor, test_students):
+    first_student = test_students[0]
+    second_student = test_students[1]
+    first_student.total_tuition_owed = 500.0
+    second_student.total_tuition_owed = 300.0
+
+    older_target_intent = PaymentCollectionIntent(
+        school_id=test_school.id,
+        student_id=first_student.id,
+        provider="paystack",
+        collection_channel="dedicated_virtual_account",
+        intent_status="assigned",
+        reference_code=f"{first_student.student_code}-TUIT",
+        payment_type="Tuition",
+        payment_category={"fee_type": "Tuition", "term": "Term 1"},
+        base_amount=100.0,
+        convenience_fee_amount=6.0,
+        estimated_provider_fee_amount=3.0,
+        platform_fee_amount=3.0,
+        total_amount=106.0,
+        provider_customer_code="CUS_SHARED_001",
+        provider_dedicated_account_id="9001",
+        provider_bank_slug="titan-paystack",
+        provider_bank_name="Paystack-Titan",
+        provider_account_name="EDUPULSE / FIRST STUDENT",
+        provider_account_number="1000000001",
+        provider_subaccount_code="SUB_school001",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        meta={
+            "split_config": {
+                "split_code": "SPLIT_school001_10000",
+                "settlement_mode": "paystack_flat_split",
+                "school_settlement_amount": 100.0,
+                "platform_settlement_amount": 6.0,
+            }
+        },
+    )
+    newer_wrong_intent = PaymentCollectionIntent(
+        school_id=test_school.id,
+        student_id=second_student.id,
+        provider="paystack",
+        collection_channel="dedicated_virtual_account",
+        intent_status="assigned",
+        reference_code=f"{second_student.student_code}-TUIT",
+        payment_type="Tuition",
+        payment_category={"fee_type": "Tuition", "term": "Term 1"},
+        base_amount=100.0,
+        convenience_fee_amount=6.0,
+        estimated_provider_fee_amount=3.0,
+        platform_fee_amount=3.0,
+        total_amount=106.0,
+        provider_customer_code="CUS_SHARED_001",
+        provider_dedicated_account_id="9002",
+        provider_bank_slug="titan-paystack",
+        provider_bank_name="Paystack-Titan",
+        provider_account_name="EDUPULSE / SECOND STUDENT",
+        provider_account_number="1000000002",
+        provider_subaccount_code="SUB_school001",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        meta={
+            "split_config": {
+                "split_code": "SPLIT_school001_10000",
+                "settlement_mode": "paystack_flat_split",
+                "school_settlement_amount": 100.0,
+                "platform_settlement_amount": 6.0,
+            }
+        },
+    )
+    db.session.add_all([older_target_intent, newer_wrong_intent])
+    db.session.commit()
+
+    os.environ["PAYSTACK_SECRET_KEY"] = "dva-paystack-secret"
+    body = {
+        "event": "charge.success",
+        "data": {
+            "id": 443355,
+            "reference": "PS-DVA-443355",
+            "amount": 10600,
+            "metadata": {
+                "school_id": test_school.id,
+                "student_id": first_student.id,
+                "reference_code": older_target_intent.reference_code,
+                "payment_type": "Tuition",
+            },
+            "customer": {
+                "customer_code": "CUS_SHARED_001",
+            },
+            "authorization": {
+                "channel": "dedicated_nuban",
+                "sender_name": "DANIEL ANYINAM",
+                "sender_bank": "Some Bank",
+            },
+        },
+    }
+    raw = json.dumps(body).encode("utf-8")
+    signature = hmac.new(b"dva-paystack-secret", raw, hashlib.sha512).hexdigest()
+
+    response = client.post(
+        "/api/finance/webhook/paystack",
+        data=raw,
+        headers={"Content-Type": "application/json", "X-Paystack-Signature": signature},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "recorded"
+    assert payload["student_id"] == first_student.id
+
+    payment = Payment.query.filter_by(reference_id="PS-DVA-443355").first()
+    assert payment is not None
+    assert payment.student_id == first_student.id
+
+    db.session.refresh(first_student)
+    db.session.refresh(second_student)
+    assert first_student.total_tuition_owed == 400.0
+    assert second_student.total_tuition_owed == 300.0
 
 
 def test_class_performance_returns_cohort_migration_comparison(client, app, test_school, test_proprietor):

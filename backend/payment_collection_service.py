@@ -305,8 +305,25 @@ def extract_paystack_virtual_account_identifiers(payload, sanitize_string):
     authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
     customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
     dedicated_account = payload.get("dedicated_account") if isinstance(payload.get("dedicated_account"), dict) else {}
+    payload_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    customer_metadata = customer.get("metadata") if isinstance(customer.get("metadata"), dict) else {}
+    dedicated_account_metadata = dedicated_account.get("metadata") if isinstance(dedicated_account.get("metadata"), dict) else {}
     if not dedicated_account and isinstance(customer.get("dedicated_account"), dict):
         dedicated_account = customer.get("dedicated_account")
+
+    metadata_candidates = [
+        payload_metadata,
+        customer_metadata,
+        dedicated_account_metadata,
+    ]
+
+    def _extract_metadata_value(*keys):
+        for metadata in metadata_candidates:
+            for key in keys:
+                value = sanitize_string(metadata.get(key) or "") if isinstance(metadata, dict) else ""
+                if value:
+                    return value
+        return None
 
     account_number_candidates = [
         sanitize_string(dedicated_account.get("account_number") or "") or None,
@@ -322,6 +339,10 @@ def extract_paystack_virtual_account_identifiers(payload, sanitize_string):
         "account_number": next((value for value in account_number_candidates if value), None),
         "customer_code": customer_code,
         "dedicated_account_id": dedicated_account_id,
+        "reference_code": _extract_metadata_value("reference_code", "payment_reference", "student_payment_code"),
+        "payment_type": _extract_metadata_value("payment_type", "fee_type"),
+        "student_id": _extract_metadata_value("student_id"),
+        "school_id": _extract_metadata_value("school_id"),
     }
 
 
@@ -337,12 +358,53 @@ def record_paystack_virtual_account_payment(
     query = payment_collection_intent_model.query.filter_by(provider="paystack", collection_channel="dedicated_virtual_account")
     intent = None
 
+    def _matches_hint(candidate, key, expected_value):
+        if not expected_value:
+            return True
+        actual_value = getattr(candidate, key, None)
+        return sanitize_string(actual_value or "") == sanitize_string(expected_value or "")
+
+    def _find_by_exact_identifier(column_name, value):
+        if not value:
+            return None
+        candidate = query.filter_by(**{column_name: value}).order_by(payment_collection_intent_model.id.desc()).first()
+        if not candidate:
+            return None
+        if not _matches_hint(candidate, "reference_code", identifiers.get("reference_code")):
+            return None
+        if not _matches_hint(candidate, "payment_type", identifiers.get("payment_type")):
+            return None
+        if not _matches_hint(candidate, "student_id", identifiers.get("student_id")):
+            return None
+        if not _matches_hint(candidate, "school_id", identifiers.get("school_id")):
+            return None
+        return candidate
+
     if identifiers.get("account_number"):
-        intent = query.filter_by(provider_account_number=identifiers["account_number"]).order_by(payment_collection_intent_model.id.desc()).first()
+        intent = _find_by_exact_identifier("provider_account_number", identifiers["account_number"])
     if not intent and identifiers.get("dedicated_account_id"):
-        intent = query.filter_by(provider_dedicated_account_id=identifiers["dedicated_account_id"]).order_by(payment_collection_intent_model.id.desc()).first()
+        intent = _find_by_exact_identifier("provider_dedicated_account_id", identifiers["dedicated_account_id"])
     if not intent and identifiers.get("customer_code"):
-        intent = query.filter_by(provider_customer_code=identifiers["customer_code"]).order_by(payment_collection_intent_model.id.desc()).first()
+        customer_query = query.filter_by(provider_customer_code=identifiers["customer_code"])
+        if identifiers.get("reference_code"):
+            customer_query = customer_query.filter_by(reference_code=identifiers["reference_code"])
+        if identifiers.get("payment_type"):
+            customer_query = customer_query.filter_by(payment_type=identifiers["payment_type"])
+        if identifiers.get("student_id"):
+            try:
+                customer_query = customer_query.filter_by(student_id=int(identifiers["student_id"]))
+            except (TypeError, ValueError):
+                return None
+        if identifiers.get("school_id"):
+            customer_query = customer_query.filter_by(school_id=identifiers["school_id"])
+
+        candidates = customer_query.order_by(payment_collection_intent_model.id.desc()).all()
+        if len(candidates) == 1:
+            intent = candidates[0]
+        elif len(candidates) > 1:
+            active_candidates = [candidate for candidate in candidates if candidate.intent_status in {"assigned", "paid"}]
+            if len(active_candidates) == 1:
+                intent = active_candidates[0]
 
     if not intent:
         return None

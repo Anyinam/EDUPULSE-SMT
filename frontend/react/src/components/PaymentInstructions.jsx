@@ -10,6 +10,13 @@ function formatMoney(value) {
   return currency.format(Number(value || 0));
 }
 
+function getCollectionModelLabel(model) {
+  if (model === 'virtual_account_ready') {
+    return 'Tracked transfer ready';
+  }
+  return 'Reference first';
+}
+
 function PaymentInstructions({ payload, loading, error, errorDetails }) {
   if (loading) {
     return (
@@ -134,10 +141,10 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
             <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">How To Pay</p>
               <ol className="mt-3 space-y-2 text-sm text-slate-700">
-                <li>1. Choose the fee below and copy the exact reference shown.</li>
-                <li>2. Pay with bank transfer, bank app, USSD, or the school office fallback channel.</li>
-                <li>3. Keep the learner code {identity.stable_payment_identity || payload.student_code} in the payment narration.</li>
-                <li>4. The payment will appear after the school reconciles the transfer or the connected provider callback is received.</li>
+                <li>1. If a tracked transfer account appears below for a fee, pay the exact transfer total into that account.</li>
+                <li>2. If no tracked transfer account appears, use the school's normal bank account or approved MoMo destination and enter the exact fee reference shown.</li>
+                <li>3. Keep learner code {identity.stable_payment_identity || payload.student_code} and the same reference in the narration or proof.</li>
+                <li>4. Use the same reference at the school office if the payment is being confirmed manually.</li>
               </ol>
             </div>
 
@@ -149,7 +156,7 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
                   {schoolPaymentAccount.bank_account ? <p><strong>Account Number:</strong> {schoolPaymentAccount.bank_account}</p> : null}
                   {schoolPaymentAccount.bank_account_name ? <p><strong>Account Name:</strong> {schoolPaymentAccount.bank_account_name}</p> : null}
                   {schoolPaymentAccount.bank_branch ? <p><strong>Branch:</strong> {schoolPaymentAccount.bank_branch}</p> : null}
-                  <p className="pt-1 text-xs text-cyan-800">Use the payment reference below in the bank transfer narration.</p>
+                  <p className="pt-1 text-xs text-cyan-800">Use this account only when the school asks for direct transfer or manual office confirmation. Keep the exact fee reference in the narration.</p>
                 </div>
               </div>
             ) : null}
@@ -187,6 +194,11 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
             key={item.reference_code}
             className="rounded-4xl border border-slate-200 bg-white p-6 shadow-lg shadow-slate-200/50"
           >
+            {(() => {
+              const trackedRoute = item.virtual_route;
+              const trackedTotal = Number(trackedRoute?.total_amount || item.total_amount || item.cash_amount || item.base_amount || 0);
+              const officeAmount = Number(item.cash_amount ?? item.base_amount ?? item.total_amount ?? 0);
+              return (
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{item.fee_type}</p>
@@ -196,12 +208,12 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
 
               <div className="grid min-w-60 gap-2 rounded-3xl bg-slate-50 p-4 text-sm text-slate-700">
                 <div className="flex items-center justify-between gap-4">
-                  <span>Amount to pay</span>
-                  <strong>{formatMoney(item.cash_amount ?? item.base_amount ?? item.total_amount)}</strong>
+                  <span>{trackedRoute ? 'Tracked transfer total' : 'Amount to pay'}</span>
+                  <strong>{formatMoney(trackedTotal)}</strong>
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <span>School office amount</span>
-                  <strong>{formatMoney(item.cash_amount ?? item.base_amount ?? item.total_amount)}</strong>
+                  <strong>{formatMoney(officeAmount)}</strong>
                 </div>
               </div>
             </div>
@@ -225,24 +237,50 @@ function PaymentInstructions({ payload, loading, error, errorDetails }) {
 
               <div className="rounded-3xl border border-slate-200 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Digital Channel</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">Phone Payment</p>
-                <p className="mt-1 text-sm text-slate-500">Bank transfer, bank app, USSD, or the school's approved phone channel.</p>
+                <p className="mt-2 text-lg font-semibold text-slate-900">{trackedRoute ? 'Tracked transfer account' : 'Direct transfer or office'}</p>
+                <p className="mt-1 text-sm text-slate-500">{trackedRoute ? 'Use the account below for this exact fee and transfer the exact tracked total.' : 'Use the school bank account or approved MoMo destination and keep the same reference.'}</p>
               </div>
 
               <div className="rounded-3xl border border-slate-200 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Collection Model</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{item.preferred_payment_model || 'reference_first'}</p>
+                <p className="mt-2 text-lg font-semibold text-slate-900">{getCollectionModelLabel(item.preferred_payment_model)}</p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Use the same structured reference across the school's approved payment channels.
+                  {trackedRoute ? 'EduPulse can match this transfer automatically when it lands in the tracked account.' : 'Use the same structured reference across the school\'s approved payment channels.'}
                 </p>
               </div>
             </div>
+
+            {trackedRoute ? (
+              <div className="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Tracked Transfer Details</p>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  <p><strong>Bank:</strong> {trackedRoute.bank_name || 'Paystack transfer account'}</p>
+                  <p><strong>Account Number:</strong> {trackedRoute.account_number}</p>
+                  {trackedRoute.account_name ? <p><strong>Account Name:</strong> {trackedRoute.account_name}</p> : null}
+                  <p><strong>Transfer Total:</strong> {formatMoney(trackedTotal)}</p>
+                </div>
+                <p className="mt-3 text-xs text-emerald-800">Pay the exact tracked total into this account for reference {item.reference_code}. EduPulse will apply only the base school fee to the learner balance and keep the fee purpose attached automatically.</p>
+              </div>
+            ) : hasBankDetails ? (
+              <div className="mt-5 rounded-[1.5rem] border border-cyan-200 bg-cyan-50 p-5 text-sm text-cyan-950">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">Direct Transfer Fallback</p>
+                <p className="mt-3">Use the school bank account above or the school's approved MoMo destination and pay {formatMoney(officeAmount)} for reference {item.reference_code}.</p>
+                <p className="mt-2 text-xs text-cyan-800">Keep the same reference in the narration and use it again if the school asks for proof or manual confirmation.</p>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Manual Confirmation Required</p>
+                <p className="mt-3">Ask the school for the approved payment destination for reference {item.reference_code}, then keep that same reference when sharing proof at the school office.</p>
+              </div>
+            )}
 
             <div className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-emerald-700">
               Continue with this reference
               <ArrowRight size={15} />
             </div>
           </article>
+              );
+            })()}
         ))}
       </section>
 

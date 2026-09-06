@@ -8993,6 +8993,92 @@ def _get_feeding_status_details_for_students(students, school_id, as_of_date=Non
     return details
 
 
+def _summarize_live_feed_details(action, details):
+    text = details if isinstance(details, str) else ""
+    if not text:
+        return None
+
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = None
+
+    if not isinstance(payload, dict):
+        return text
+
+    action_name = sanitize_string(action or "") or ""
+    reference_code = sanitize_string(payload.get("reference_code") or "") or None
+    student_code = sanitize_string(payload.get("student_code") or "") or None
+    student_class = sanitize_string(payload.get("student_class") or "") or None
+    payment_type = sanitize_string(payload.get("payment_type") or "") or None
+
+    if action_name == "PAYMENT_CODES_GENERATED":
+        routes_count = int(payload.get("routes_count") or 0)
+        route_word = "reference" if routes_count == 1 else "references"
+        class_suffix = f" for {student_class}" if student_class else ""
+        return f"Generated {routes_count} payment {route_word} for {student_code or 'student'}{class_suffix}."
+
+    if action_name == "PAYMENT_TRANSFER_ROUTE_GENERATED":
+        fee_label = payment_type or "payment"
+        return f"Tracked transfer account prepared for {student_code or reference_code or fee_label} ({reference_code or fee_label})."
+
+    if action_name == "STUDENT_RESCUE_OUTCOME":
+        student_name = sanitize_string(payload.get("student_name") or "") or "student"
+        action_label = sanitize_string(payload.get("action_label") or payload.get("action_code") or "") or "Outcome logged"
+        return f"{action_label} for {student_name}."
+
+    if action_name == "PROPRIETOR_ALERT_ACK":
+        alert_id = sanitize_string(payload.get("alert_id") or "") or "alert"
+        return f"Alert acknowledged: {alert_id}."
+
+    safe_pairs = []
+    for key in ["student_name", "student_code", "payment_type", "reference_code", "reference_id", "amount", "status", "message"]:
+        value = payload.get(key)
+        if value in (None, "", [], {}):
+            continue
+        safe_pairs.append(f"{key.replace('_', ' ').title()}: {value}")
+    if safe_pairs:
+        return " | ".join(safe_pairs[:4])
+    return "Details available in the full audit report."
+
+
+def _count_students_with_current_tuition_outstanding(school_id):
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    required_amount = round(float((settings.tuition_fee if settings else 0.0) or 0.0) + float((settings.terminal_report_fee if settings else 0.0) or 0.0), 2)
+    if required_amount <= 0:
+        return 0
+
+    students = Student.query.filter(
+        Student.school_id == school_id,
+        Student.status.in_(["Active", "active"]),
+    ).all()
+    if not students:
+        return 0
+
+    student_ids = [student.id for student in students]
+    payment_rows = (
+        db.session.query(Payment.student_id, db.func.coalesce(db.func.sum(Payment.amount), 0.0))
+        .filter(
+            Payment.school_id == school_id,
+            Payment.status == "Confirmed",
+            Payment.payment_type == "Tuition",
+            Payment.student_id.in_(student_ids),
+        )
+        .group_by(Payment.student_id)
+        .all()
+    )
+    paid_by_student = {student_id: float(total_paid or 0.0) for student_id, total_paid in payment_rows}
+
+    outstanding_count = 0
+    for student in students:
+        if bool(getattr(student, "scholarship_covers_tuition", False)):
+            continue
+        total_paid = paid_by_student.get(student.id, 0.0)
+        if total_paid + 1e-9 < required_amount:
+            outstanding_count += 1
+    return outstanding_count
+
+
 def _serialize_feeding_status_detail(feeding_status):
     plan_rates = feeding_status.get("plan_rates") or {}
     return {
@@ -11792,9 +11878,7 @@ def get_live_feed():
         )
 
         total_students = Student.query.filter_by(school_id=g.school_id).count()
-        unpaid_tuition = Student.query.filter(
-            Student.school_id == g.school_id, Student.total_tuition_owed > 0
-        ).count()
+        unpaid_tuition = _count_students_with_current_tuition_outstanding(g.school_id)
         critical_list = rescue_payload["students"]
         attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
         attendance_taken_today = attendance_snapshot.get("is_complete", False)
@@ -11909,7 +11993,7 @@ def get_live_feed():
                         "timestamp_iso": log.timestamp.isoformat() if log.timestamp else None,
                         "user": log.actor.username if log.actor else "Unknown",
                         "action": log.action,
-                        "details": log.details,
+                        "details": _summarize_live_feed_details(log.action, log.details),
                     }
                     for log in recent_logs
                 ],
@@ -11922,6 +12006,8 @@ def get_live_feed():
                     "pending_cash": len(pending_list),
                     "total_students": total_students,
                     "present_students": len(present_students),
+                    "student_meals": student_meals,
+                    "staff_meals": staff_meals,
                     "attendance_taken_today": attendance_taken_today,
                     "attendance_partial": attendance_snapshot.get("has_any_submission", False) and not attendance_taken_today,
                     "submitted_classes_count": attendance_snapshot.get("submitted_classes_count", 0),
@@ -12323,7 +12409,7 @@ def proprietor_live_events():
                             "timestamp_iso": log.timestamp.isoformat() if log.timestamp else None,
                             "user": log.actor.username if log.actor else "Unknown",
                             "action": log.action,
-                            "details": log.details,
+                            "details": _summarize_live_feed_details(log.action, log.details),
                         }
                         for log in new_logs
                     ],

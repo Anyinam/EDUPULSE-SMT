@@ -516,8 +516,9 @@ export default function ProprietorPanel() {
                 </div>
 
                 <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-orange-500">
-                  <p className="text-slate-400 font-bold uppercase text-xs mb-2">Kitchen Manifest (9:00 AM)</p>
-                  <h3 className="text-5xl font-black text-orange-600">{stats.canteen_count} <span className="text-lg text-slate-400 font-medium">Meals</span></h3>
+                  <p className="text-slate-400 font-bold uppercase text-xs mb-2">Student Meals Today</p>
+                  <h3 className="text-5xl font-black text-orange-600">{stats.student_meals || 0} <span className="text-lg text-slate-400 font-medium">Meals</span></h3>
+                  <p className="mt-2 text-xs text-slate-500">Kitchen prep total: {stats.canteen_count || 0} including staff meals.</p>
                 </div>
               </div>
             </div>

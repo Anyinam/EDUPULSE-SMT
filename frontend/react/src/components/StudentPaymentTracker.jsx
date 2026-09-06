@@ -1094,14 +1094,18 @@ export default function StudentPaymentTracker() {
                         onClick={() => {
                           const codesText = paymentCodes.payment_codes
                             .map(c => {
-                              return `${c.fee_type}: Ref ${c.reference_code || c.code} | Amount GH₵ ${Number(c.base_amount || 0).toFixed(2)} | Best option: tracked transfer account or tracked payment link`;
+                              const virtualRoute = generatedVirtualRoutes[c.reference_code || c.code] || c.virtual_route;
+                              if (virtualRoute?.account_number) {
+                                return `${c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer bank: ${virtualRoute.bank_name || 'Paystack transfer account'} | Account: ${virtualRoute.account_number} | Transfer total GH₵ ${Number(virtualRoute.total_amount || c.base_amount || 0).toFixed(2)}`;
+                              }
+                              return `${c.fee_type}: Ref ${c.reference_code || c.code} | Direct transfer amount GH₵ ${Number(c.base_amount || 0).toFixed(2)} | Use school bank account or approved MoMo destination and keep the same reference`;
                             })
                             .join('\n');
                           const schoolPaymentAccount = paymentCodes.school_payment_account || {};
                           const bankLines = (schoolPaymentAccount.bank_name || schoolPaymentAccount.bank_account || schoolPaymentAccount.bank_account_name || schoolPaymentAccount.bank_branch)
                             ? `School Bank Account:\n${schoolPaymentAccount.bank_name ? `- Bank: ${schoolPaymentAccount.bank_name}\n` : ''}${schoolPaymentAccount.bank_account ? `- Account Number: ${schoolPaymentAccount.bank_account}\n` : ''}${schoolPaymentAccount.bank_account_name ? `- Account Name: ${schoolPaymentAccount.bank_account_name}\n` : ''}${schoolPaymentAccount.bank_branch ? `- Branch: ${schoolPaymentAccount.bank_branch}\n` : ''}\n`
                             : '';
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nBest option: use the tracked transfer account generated from EduPulse for the exact fee. Only use the normal school bank account when the school is manually confirming the payment.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nHow to pay:\n1. If a tracked transfer account is listed for a fee, pay the exact transfer total into that account.\n2. If no tracked transfer account is listed, use the school's normal bank account or approved MoMo destination and enter the exact reference shown.\n3. Keep the same reference when sharing proof at the school office.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -1219,7 +1223,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Preferred instruction: "Use the tracked transfer account generated from EduPulse for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>. Only use the normal school bank account if the school asks for direct transfer confirmation." 
+                    💬 Preferred instruction: "If EduPulse shows a tracked transfer account for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>, pay the exact tracked total into that account. Otherwise use the school's normal bank account or approved MoMo destination and keep the same reference." 
                   </p>
                   <p className="text-xs text-slate-500 mt-2">
                     Online checkout link is optional and mainly for cases where the school wants card or web checkout instead of bank transfer.
