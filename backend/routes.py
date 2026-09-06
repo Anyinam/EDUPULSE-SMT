@@ -16554,7 +16554,6 @@ def download_platform_chief_examiner_library_history(version_id):
 
 @api.route("/analytics/chief-examiner-library/import", methods=["POST"])
 @multi_tenant_guard
-@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def import_chief_examiner_library():
@@ -16563,7 +16562,6 @@ def import_chief_examiner_library():
 
 @api.route("/analytics/chief-examiner-library/template", methods=["GET"])
 @multi_tenant_guard
-@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def download_chief_examiner_library_template():
@@ -16572,7 +16570,6 @@ def download_chief_examiner_library_template():
 
 @api.route("/analytics/chief-examiner-library/history", methods=["GET"])
 @multi_tenant_guard
-@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def get_chief_examiner_library_history():
@@ -16581,7 +16578,6 @@ def get_chief_examiner_library_history():
 
 @api.route("/analytics/chief-examiner-library/history/<string:version_id>/restore", methods=["POST"])
 @multi_tenant_guard
-@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def restore_chief_examiner_library_history(version_id):
@@ -16590,7 +16586,6 @@ def restore_chief_examiner_library_history(version_id):
 
 @api.route("/analytics/chief-examiner-library/history/<string:version_id>/download", methods=["GET"])
 @multi_tenant_guard
-@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def download_chief_examiner_library_history(version_id):
@@ -16599,7 +16594,6 @@ def download_chief_examiner_library_history(version_id):
 
 @api.route("/analytics/chief-examiner-library", methods=["GET"])
 @multi_tenant_guard
-@feature_required("exam_intelligence")
 @role_required("proprietor", "headmaster", "teacher", "homeroom")
 @jwt_required()
 def get_chief_examiner_library():

@@ -75,6 +75,19 @@ def _platform_headers(app, platform_user_id):
     }
 
 
+def _enable_ai_pack_for_school(school_id):
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=school_id)
+        db.session.add(settings)
+        db.session.flush()
+
+    enabled_modules = dict(settings.enabled_modules or {})
+    enabled_modules["ai_pack_addon"] = True
+    settings.enabled_modules = enabled_modules
+    db.session.commit()
+
+
 def test_platform_public_content_round_trip(client, app):
     platform_user = PlatformUser(username="platform-owner", email="owner@example.com")
     platform_user.set_password("secret123")
@@ -793,9 +806,11 @@ def test_students_by_class_treat_pending_daily_feeding_cash_as_paid(client, app,
     assert response.status_code == 200
     payload = response.get_json()
     target = next(item for item in payload if item["student_code"] == "S940")
-    assert target["feeding_paid"] is True
-    assert target["payment_method"] == "Cash"
-    assert target["feeding_frequency"] == "Daily"
+    assert target["feeding_paid"] is False
+    assert target["payment_method"] is None
+    assert target["feeding_frequency"] is None
+    assert target["feeding_pending_approval"] is True
+    assert target["feeding_pending_amount"] == 5.0
 
 
 def test_students_by_class_expires_daily_feeding_once_coverage_is_used(client, app, test_school):
@@ -973,12 +988,18 @@ def test_students_index_uses_derived_feeding_status(client, app, db, test_school
     assert response.status_code == 200
     payload = response.get_json()
     target = next(item for item in payload if item["student_code"] == "S943")
-    assert target["feeding_paid"] is True
-    assert target["payment_method"] == "Cash"
-    assert target["feeding_frequency"] == "Daily"
+    assert target["feeding_paid"] is False
+    assert target["payment_method"] is None
+    assert target["feeding_frequency"] is None
+    assert target["feeding_pending_approval"] is True
+    assert target["feeding_pending_amount"] == 5.0
 
 
-def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, app, test_school, test_proprietor):
+def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, app, test_school, test_proprietor, monkeypatch):
+    from backend.routes import _mark_attendance_activity
+
+    monkeypatch.setattr("backend.routes._is_school_instruction_day", lambda _school_id, _target_date: True)
+
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     if settings is None:
         settings = SchoolSettings(school_id=test_school.id)
@@ -1030,8 +1051,8 @@ def test_canteen_count_includes_pending_or_confirmed_feeding_coverage(client, ap
             date_paid=datetime.now(timezone.utc),
         )
     )
-    settings.attendance_last_marked_at = datetime.now(timezone.utc)
     db.session.commit()
+    _mark_attendance_activity(test_school.id, submitted_classes=["Primary 4"])
 
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
     response = client.get("/api/canteen/daily-count", headers=headers)
@@ -1144,6 +1165,8 @@ def test_finance_dashboard_groups_pending_payments_and_exposes_recorder_metadata
 
 
 def test_student_rescue_agent_does_not_flag_tuition_just_after_reopening_without_other_behaviour_signals(client, app, test_school, test_proprietor):
+    _enable_ai_pack_for_school(test_school.id)
+
     active_term = AcademicTerm(
         school_id=test_school.id,
         name="Term 2",
@@ -1209,6 +1232,8 @@ def test_student_rescue_agent_does_not_flag_tuition_just_after_reopening_without
 
 
 def test_student_rescue_agent_returns_prioritized_actions(client, app, test_school, test_proprietor):
+    _enable_ai_pack_for_school(test_school.id)
+
     rescue_student = Student(
         school_id=test_school.id,
         first_name="Efua",
@@ -1335,6 +1360,8 @@ def test_descriptive_analysis_includes_diagnostic_mock_and_pathway_guidance(clie
 
 
 def test_teacher_academic_guidance_is_limited_to_assigned_subjects(client, app, test_school, test_teacher):
+    _enable_ai_pack_for_school(test_school.id)
+
     student = Student(
         school_id=test_school.id,
         first_name="Mawuli",
@@ -1386,6 +1413,8 @@ def test_teacher_academic_guidance_is_limited_to_assigned_subjects(client, app, 
 
 
 def test_homeroom_academic_guidance_is_limited_to_assigned_class(client, app, test_school):
+    _enable_ai_pack_for_school(test_school.id)
+
     homeroom = User(
         username="homeroom1",
         school_id=test_school.id,
@@ -1663,6 +1692,8 @@ def test_analytics_preset_history_restore_and_download(client, app, test_school,
 
 
 def test_student_rescue_outcome_logging_returns_recent_history(client, app, test_school, test_proprietor):
+    _enable_ai_pack_for_school(test_school.id)
+
     rescue_student = Student(
         school_id=test_school.id,
         first_name="Abena",
@@ -1718,7 +1749,7 @@ def test_basic_plan_blocks_student_rescue_agent_routes(client, app, test_school,
     assert response.status_code == 403
     payload = response.get_json()
     assert payload["current_plan"] == "Basic"
-    assert payload["required_plan"] == "Premium"
+    assert payload["required_plan"] == "School OS + AI Pack"
 
 
 def test_basic_plan_blocks_academic_guidance_routes(client, app, test_school, test_teacher):
@@ -1731,7 +1762,7 @@ def test_basic_plan_blocks_academic_guidance_routes(client, app, test_school, te
     assert response.status_code == 403
     payload = response.get_json()
     assert payload["current_plan"] == "Basic"
-    assert payload["required_plan"] == "Premium"
+    assert payload["required_plan"] == "School OS + AI Pack"
 
 
 def test_basic_plan_report_builder_response_omits_academic_guidance(client, app, test_school, test_proprietor):
@@ -1785,10 +1816,12 @@ def test_basic_plan_blocks_advanced_analytics_routes(client, app, test_school, t
     assert response.status_code == 403
     payload = response.get_json()
     assert payload["current_plan"] == "Basic"
-    assert payload["required_plan"] == "Premium"
+    assert payload["required_plan"] == "School OS Plus"
 
 
 def test_student_rescue_email_send_logs_outcome(client, app, test_school, test_proprietor, monkeypatch):
+    _enable_ai_pack_for_school(test_school.id)
+
     sent_messages = []
 
     def fake_email(to_email, subject, body, attachments=None):
@@ -1831,6 +1864,8 @@ def test_student_rescue_email_send_logs_outcome(client, app, test_school, test_p
 
 
 def test_student_rescue_report_groups_open_in_progress_and_resolved_cases(client, app, test_school, test_proprietor):
+    _enable_ai_pack_for_school(test_school.id)
+
     open_case = Student(
         school_id=test_school.id,
         first_name="Kojo",
@@ -1900,6 +1935,8 @@ def test_student_rescue_report_groups_open_in_progress_and_resolved_cases(client
 
 
 def test_headmaster_can_access_and_update_student_rescue_cases(client, app, test_school, test_headmaster):
+    _enable_ai_pack_for_school(test_school.id)
+
     rescue_student = Student(
         school_id=test_school.id,
         first_name="Selorm",
@@ -2321,6 +2358,8 @@ def test_legacy_consent_evidence_upload_list_and_download(client, app, test_scho
 
 
 def test_exam_intelligence_import_requires_ready_compliance_flags(client, app, test_school, test_proprietor, tmp_path):
+    _enable_ai_pack_for_school(test_school.id)
+
     app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
     multipart_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
@@ -2341,6 +2380,8 @@ def test_exam_intelligence_import_requires_ready_compliance_flags(client, app, t
 
 
 def test_exam_intelligence_import_and_dashboard_summary(client, app, test_school, test_proprietor, tmp_path):
+    _enable_ai_pack_for_school(test_school.id)
+
     app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
 
@@ -2418,6 +2459,8 @@ def test_exam_intelligence_import_and_dashboard_summary(client, app, test_school
 
 
 def test_exam_intelligence_parses_text_based_pdf_automatically(client, app, test_school, test_proprietor, tmp_path):
+    _enable_ai_pack_for_school(test_school.id)
+
     app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
 
@@ -2466,6 +2509,8 @@ def test_exam_intelligence_parses_text_based_pdf_automatically(client, app, test
 
 def test_teacher_receives_restricted_subject_level_exam_summary(client, app, test_school, test_proprietor, test_teacher, tmp_path):
     from backend.api.models import TeacherAssignment
+
+    _enable_ai_pack_for_school(test_school.id)
 
     app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
     proprietor_headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
@@ -2541,6 +2586,8 @@ def test_teacher_receives_restricted_subject_level_exam_summary(client, app, tes
 
 def test_teacher_receives_class_level_exam_summary_when_setting_enabled(client, app, test_school, test_proprietor, test_teacher, tmp_path):
     from backend.api.models import TeacherAssignment
+
+    _enable_ai_pack_for_school(test_school.id)
 
     app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-imports")
     proprietor_headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
@@ -2631,6 +2678,8 @@ def test_teacher_receives_class_level_exam_summary_when_setting_enabled(client, 
 
 
 def test_teacher_demo_exam_summary_and_academic_guidance_payloads_are_populated(client, app, test_school, test_proprietor, test_teacher, tmp_path):
+    _enable_ai_pack_for_school(test_school.id)
+
     app.config["EXAM_INTELLIGENCE_STORAGE_DIR"] = str(tmp_path / "exam-intelligence")
 
     proprietor_headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
