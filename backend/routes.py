@@ -7432,6 +7432,15 @@ def create_student_payment_virtual_account(student_id, reference_code):
     intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, selected_code)
     if error:
         db.session.rollback()
+        if _looks_like_provider_error(error):
+            logger.error(
+                "Tracked transfer account generation failed for school %s student %s ref %s: %s",
+                g.school_id,
+                student.id,
+                reference_code,
+                error,
+            )
+            return jsonify({"message": _public_tracked_transfer_failure_message()}), 502
         return jsonify({"message": error}), 400
 
     route_payload = _build_payment_collection_intent_payload(intent)
@@ -9373,6 +9382,58 @@ def _provision_school_paystack_subaccount(school, settings, provider_settings):
     }, None
 
 
+def _school_bank_details_ready_for_paystack(school):
+    return bool(
+        sanitize_string(getattr(school, "bank_name", "") or "")
+        and sanitize_string(getattr(school, "bank_account", "") or "")
+        and sanitize_string(getattr(school, "bank_account_name", "") or "")
+    )
+
+
+def _public_payment_setup_failure_message():
+    return (
+        "EduPulse could not connect to the payment provider right now. "
+        "Please try again shortly or use the school office for manual assistance."
+    )
+
+
+def _tenant_email_delivery_failure_message():
+    return "Invite created, but the welcome email could not be delivered right now."
+
+
+def _public_tracked_transfer_failure_message():
+    return (
+        "EduPulse could not prepare the tracked transfer account right now. "
+        "Please try again shortly or use the school office for manual assistance."
+    )
+
+
+def _looks_like_provider_error(message):
+    normalized = (sanitize_string(message or "") or "").lower()
+    if not normalized:
+        return False
+    if normalized.startswith("school settlement is not ready yet"):
+        return False
+    provider_markers = [
+        "paystack",
+        "unauthorized",
+        "dedicated-account",
+        "dedicated account",
+        "transfer account",
+        "customer creation",
+        "customer for this payment route",
+        "bank directory",
+        "bank account with paystack",
+        "split code",
+        "provider",
+        "401",
+        "403",
+        "404",
+        "500",
+    ]
+    return any(marker in normalized for marker in provider_markers)
+
+
 def _build_intent_customer_email(base_email, school_id, reference_code):
     email = sanitize_string(base_email or "") or ""
     safe_ref = re.sub(r"[^a-z0-9]+", "-", (reference_code or "").lower()).strip("-") or "payment"
@@ -10019,7 +10080,7 @@ def initialize_paystack_payment():
     
     if error:
         logger.error(f"Paystack initialization failed: {error}")
-        return jsonify({"error": f"Payment initialization failed: {error}"}), 500
+        return jsonify({"message": _public_payment_setup_failure_message()}), 502
     
     return jsonify({
         "status": "success",
@@ -10088,7 +10149,7 @@ def initialize_parent_admission_fee_payment(school_id, status_token):
     result, error = _call_paystack_api("/transaction/initialize", method="POST", data=paystack_payload)
     if error:
         logger.error(f"Parent admission payment initialization failed: {error}")
-        return jsonify({"message": f"Payment initialization failed: {error}"}), 500
+        return jsonify({"message": _public_payment_setup_failure_message()}), 502
 
     initiated_summary = _normalize_parent_admission_payment_summary(
         {
@@ -15774,7 +15835,7 @@ def add_staff():
     if email_sent:
         status_message += " Welcome email sent with login credentials."
     else:
-        status_message += " Failed to send welcome email. Please verify SMTP configuration."
+        status_message += f" {_tenant_email_delivery_failure_message()}"
 
     return jsonify(
         {
@@ -15826,7 +15887,7 @@ def resend_staff_invite(user_id):
     if email_sent:
         status_message += " A fresh temporary password was emailed to the staff member."
     else:
-        status_message += " Failed to send welcome email. Please verify SMTP configuration."
+        status_message += f" {_tenant_email_delivery_failure_message()}"
 
     return jsonify(
         {
@@ -18542,13 +18603,30 @@ def update_school_settings():
     manual_subaccount_override = bool(
         sanitize_string(data.get("paystack_subaccount_code") or "")
     ) if "paystack_subaccount_code" in data else False
-    should_provision_subaccount = bool(bank_fields_changed) and not manual_subaccount_override
+    missing_subaccount_with_ready_bank_details = (
+        not manual_subaccount_override
+        and not sanitize_string(provider_settings.get("paystack_subaccount_code") or "")
+        and _school_bank_details_ready_for_paystack(school)
+    )
+    should_provision_subaccount = not manual_subaccount_override and (
+        bool(bank_fields_changed) or missing_subaccount_with_ready_bank_details
+    )
     if should_provision_subaccount:
         provider_settings = _get_payment_provider_settings(settings)
         paystack_subaccount_result, provision_error = _provision_school_paystack_subaccount(school, settings, provider_settings)
         if provision_error:
+            logger.error(
+                "Paystack subaccount provisioning failed for school %s: %s",
+                g.school_id,
+                provision_error,
+            )
             db.session.rollback()
-            return jsonify({"message": provision_error}), 400
+            return jsonify(
+                {
+                    "message": "EduPulse could not connect the school's Paystack settlement account right now. Confirm the bank details and try saving again.",
+                    "error": "payment_settlement_setup_unavailable",
+                }
+            ), 502
         changed_fields.extend([
             "paystack_bank_code",
             "paystack_resolved_account_name",

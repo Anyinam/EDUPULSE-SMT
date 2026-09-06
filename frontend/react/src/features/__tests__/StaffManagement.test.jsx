@@ -45,10 +45,10 @@ describe('StaffManagement', () => {
     localStorage.clear();
   });
 
-  it('shows backend email delivery details when resend invite cannot send email', async () => {
+  it('shows a tenant-safe resend invite message when email delivery fails', async () => {
     axios.post.mockResolvedValue({
       data: {
-        message: 'Staff invite resent successfully. Failed to send welcome email. Please verify SMTP configuration.',
+        message: 'Staff invite resent successfully. Invite created, but the welcome email could not be delivered right now.',
         email_sent: false,
         email_error: 'SMTPAuthenticationError: 535 Authentication failed',
       },
@@ -68,7 +68,7 @@ describe('StaffManagement', () => {
 
     expect(window.confirm).toHaveBeenCalled();
     expect(window.alert).toHaveBeenCalledWith(
-      'Staff invite resent successfully. Failed to send welcome email. Please verify SMTP configuration.\n\nEmail delivery error: SMTPAuthenticationError: 535 Authentication failed'
+      'Staff invite resent successfully. Invite created, but the welcome email could not be delivered right now.'
     );
   });
 });

@@ -314,18 +314,18 @@ export default function SettingsPanel() {
     ? {
         tone: 'border-emerald-200 bg-emerald-50 text-emerald-900',
         label: 'Connected',
-        message: 'EduPulse has already created the Paystack settlement subaccount for this school.',
+        message: 'EduPulse has already connected the Paystack settlement account needed for tracked transfer payments.',
       }
     : bankDetailsReadyForProvisioning
       ? {
           tone: 'border-amber-200 bg-amber-50 text-amber-900',
-          label: 'Ready On Save',
-          message: 'Save these bank details and EduPulse will create or refresh the Paystack settlement subaccount automatically.',
+          label: 'Connection Needed',
+          message: 'Bank details are saved, but EduPulse has not connected the Paystack settlement account yet. Save settings to complete tracked transfer setup.',
         }
       : {
           tone: 'border-slate-200 bg-slate-50 text-slate-700',
           label: 'Bank Details Needed',
-          message: 'Enter the bank name, account number, and account holder name so EduPulse can create the Paystack settlement subaccount.',
+          message: 'Enter the bank name, account number, and account holder name so EduPulse can connect tracked transfer settlement for this school.',
         };
 
   // Color palette options for easy tenant selection
@@ -1536,7 +1536,7 @@ export default function SettingsPanel() {
         {/* Payment Account Details Section */}
         <div className="border-t pt-6 mt-8">
           <h3 className="text-lg font-bold text-slate-800 mb-4">💳 Payment Account Details</h3>
-          <p className="text-sm text-slate-600 mb-6">Parents pay using the learner payment identity plus structured references. Bank account details below are hidden after save and require password re-entry to view again.</p>
+          <p className="text-sm text-slate-600 mb-6">Tracked transfer payments depend on this settlement account. Bank details are hidden after save and require password re-entry to view again.</p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Bank Transfer Section */}
@@ -1555,7 +1555,7 @@ export default function SettingsPanel() {
                 )}
               </div>
               <div className="mb-3 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
-                EduPulse now tracks school-fee transactions with the learner payment identity plus structured references. Keep this bank account accurate because it remains the school's official receiving account for bank-transfer instructions, office-guided payments, and reconciliation review.
+                EduPulse uses these bank details to connect the school's Paystack settlement account for tracked transfer payments. Keep them accurate because they also remain the school's official account for direct transfers and office confirmation.
               </div>
               <div className="space-y-3">
                 <div>
@@ -1607,7 +1607,7 @@ export default function SettingsPanel() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-bold text-slate-700">Paystack Settlement Status</label>
+                  <label className="text-sm font-bold text-slate-700">Tracked Transfer Settlement Status</label>
                   <div className={`mt-1 rounded border p-3 text-xs ${paystackProvisioningState.tone}`}>
                     <p className="font-bold uppercase tracking-wide">{paystackProvisioningState.label}</p>
                     <p className="mt-1">{paystackProvisioningState.message}</p>
@@ -1615,7 +1615,7 @@ export default function SettingsPanel() {
                     {settings.paystack_bank_code ? <p className="mt-1">Verified Paystack bank code: {settings.paystack_bank_code}</p> : null}
                     {settings.paystack_resolved_account_name ? <p className="mt-1">Verified account name: {settings.paystack_resolved_account_name}</p> : null}
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">Schools only enter their bank details here. EduPulse creates and maintains the Paystack subaccount in the background.</p>
+                  <p className="mt-2 text-xs text-slate-500">Schools only enter their bank details here. EduPulse creates and maintains the Paystack settlement subaccount in the background.</p>
                 </div>
               </div>
             </div>
@@ -1906,9 +1906,11 @@ export default function SettingsPanel() {
           )}
 
           <div className="space-y-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Parent Response Templates</h4>
-              <p className="mt-1 text-sm text-slate-600">These messages are used when the school marks an application as approved, rejected, needing correction, online-test ready, or school-visit required.</p>
+            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <summary className="cursor-pointer list-none text-sm font-bold uppercase tracking-wide text-slate-700">
+                Advanced Parent Messages (Optional)
+              </summary>
+              <p className="mt-3 text-sm text-slate-600">These messages are used when the school marks an application as approved, rejected, needing correction, online-test ready, or school-visit required. Leave them as they are unless your school needs custom wording.</p>
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Approval Message</label>
@@ -1932,7 +1934,7 @@ export default function SettingsPanel() {
                   <p className="text-xs text-slate-500 mt-2">Available placeholders: {'{student_name}'}, {'{school_name}'}, {'{class_assigned}'}, {'{visit_date}'}, {'{visit_time}'}, {'{visit_location}'}, {'{visit_contact_person}'}, {'{visit_contact_phone}'}.</p>
                 </div>
               </div>
-            </div>
+            </details>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">School Visit Defaults</h4>

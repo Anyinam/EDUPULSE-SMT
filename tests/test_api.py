@@ -411,6 +411,36 @@ class TestPaymentReferenceResolution:
             assert payment.payment_category.get("reference_code") == "S001"
             assert payment.payment_category.get("import_mode") == "parent_notice"
 
+    def test_initialize_paystack_payment_hides_provider_error_details(self, client, monkeypatch):
+        token = self._login_as(client, monkeypatch, "proprietor1")
+
+        monkeypatch.setattr(
+            "backend.routes._call_paystack_api",
+            lambda endpoint, method="GET", data=None: (None, "401 Client Error: Unauthorized for url: https://api.paystack.co/transaction/initialize"),
+        )
+
+        response = client.post(
+            "/api/finance/paystack/initialize-payment",
+            json={
+                "student_id": 1,
+                "reference_code": "S001",
+                "payment_type": "Tuition",
+                "amount": 150,
+            },
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-School-ID": "TEST-001",
+            },
+        )
+
+        assert response.status_code == 502
+        payload = json.loads(response.data)
+        assert payload["message"] == (
+            "EduPulse could not connect to the payment provider right now. "
+            "Please try again shortly or use the school office for manual assistance."
+        )
+        assert "Unauthorized" not in payload["message"]
+
     def test_register_welcome_email_uses_frontend_origin_when_frontend_url_missing(self, client, mocker, monkeypatch):
         """Registration emails should use the deployed frontend origin when FRONTEND_URL is unset."""
         monkeypatch.delenv("FRONTEND_URL", raising=False)
