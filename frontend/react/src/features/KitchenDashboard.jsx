@@ -39,6 +39,8 @@ export default function KitchenDashboard() {
   if (!stats) return <div className="p-8">Loading Kitchen Data...</div>;
 
   const attendanceInProgress = Boolean(stats.summary.attendance_partial);
+  const coveredStudentMeals = stats.summary.covered_student_meals ?? stats.summary.total_feeding_paid ?? 0;
+  const staffMeals = stats.summary.total_staff_meals ?? stats.summary.total_teachers ?? 0;
 
   return (
     <div className="p-8 bg-orange-50 min-h-screen font-sans">
@@ -62,20 +64,28 @@ export default function KitchenDashboard() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-blue-500">
           <p className="text-gray-500 text-xs font-bold uppercase">Total Students Present</p>
           <p className="text-3xl font-black text-gray-800">{stats.summary.total_students_present}</p>
         </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-emerald-500">
+          <p className="text-gray-500 text-xs font-bold uppercase">Covered Student Meals</p>
+          <p className="text-3xl font-black text-emerald-600">{coveredStudentMeals}</p>
+        </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-purple-500">
           <p className="text-gray-500 text-xs font-bold uppercase">Staff Meals</p>
-          <p className="text-3xl font-black text-purple-600">{stats.summary.total_teachers}</p>
+          <p className="text-3xl font-black text-purple-600">{staffMeals}</p>
         </div>
         <div className="bg-orange-600 text-white p-6 rounded-2xl shadow-lg">
           <p className="text-orange-100 text-xs font-bold uppercase">Total Meals Needed</p>
           <p className="text-4xl font-black">{stats.summary.total_meals_needed}</p>
         </div>
       </div>
+
+      <p className="mb-6 text-sm font-medium text-orange-800">
+        Meals needed = covered student meals + staff meals for active kitchen-serving staff.
+      </p>
 
       {/* Class Breakdown */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-orange-100">

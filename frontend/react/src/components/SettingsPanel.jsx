@@ -266,6 +266,7 @@ export default function SettingsPanel() {
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
+    tuition_convenience_fee_percentage: 1.95,
     feeding_fee: 0,
     feeding_daily_fee: 0,
     feeding_weekly_fee: 0,
@@ -485,6 +486,7 @@ export default function SettingsPanel() {
         const res = await axios.get('/api/school/fees', { headers });
         setFees({
           tuition_fee: res.data.tuition_fee || 0,
+          tuition_convenience_fee_percentage: res.data.tuition_convenience_fee_percentage ?? 1.95,
           feeding_fee: res.data.feeding_fee || 0,
           feeding_daily_fee: res.data.feeding_daily_fee || 0,
           feeding_weekly_fee: res.data.feeding_weekly_fee || 0,
@@ -1279,6 +1281,7 @@ export default function SettingsPanel() {
       // Save fees separately
       await axios.post('/api/school/fees', {
         tuition_fee: fees.tuition_fee,
+        tuition_convenience_fee_percentage: fees.tuition_convenience_fee_percentage,
         feeding_fee: fees.feeding_fee,
         feeding_daily_fee: fees.feeding_daily_fee,
         feeding_weekly_fee: fees.feeding_weekly_fee,
@@ -1689,6 +1692,23 @@ export default function SettingsPanel() {
             </div>
 
             <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Tuition Convenience Fee (%)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={fees.tuition_convenience_fee_percentage}
+                  onChange={(e) => setFees((prev) => ({ ...prev, tuition_convenience_fee_percentage: parseFloat(e.target.value) || 0 }))}
+                  className="flex-1 p-3 border rounded-lg bg-slate-50"
+                  placeholder="1.95"
+                  step="0.01"
+                  min="0"
+                />
+                <span className="text-slate-600 font-semibold">%</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Parents pay this extra percentage only on tuition tracked through the EduPulse transfer account.</p>
+            </div>
+
+            <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Feeding Fee (Daily Plan)</label>
               <div className="flex items-center gap-2">
                 <span className="text-slate-600 font-semibold">GH₵</span>
@@ -1904,6 +1924,10 @@ export default function SettingsPanel() {
               <div>
                 <p className="text-slate-600">Tuition</p>
                 <p className="text-lg font-bold text-slate-800">GH₵ {fees.tuition_fee.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-slate-600">Tuition Convenience</p>
+                <p className="text-lg font-bold text-slate-800">{fees.tuition_convenience_fee_percentage.toFixed(2)}%</p>
               </div>
               <div>
                 <p className="text-slate-600">Feeding Daily</p>

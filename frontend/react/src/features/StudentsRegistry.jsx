@@ -118,7 +118,7 @@ export default function StudentsRegistry() {
       setLoading(true);
       try {
         const headers = getAuthHeaders();
-        const res = await axios.get('/api/students', { headers });
+        const res = await axios.get('/api/students?include_inactive=true', { headers });
         setStudents(res.data || []);
       } catch (err) {
         console.error('Failed to load students registry', err);
@@ -389,6 +389,8 @@ export default function StudentsRegistry() {
       'Name',
       'Student Code',
       'Class',
+      'Class Status',
+      'Enrollment Status',
       'Date of Birth',
       'Age',
       'Gender',
@@ -404,6 +406,8 @@ export default function StudentsRegistry() {
       student.name,
       student.student_code,
       student.current_class,
+      student.class_status || student.current_class || '',
+      student.status || 'Active',
       student.date_of_birth || '',
       student.age ?? '',
       student.gender || '',
@@ -476,6 +480,7 @@ export default function StudentsRegistry() {
                 <th className="p-3 font-semibold">Name</th>
                 <th className="p-3 font-semibold">Student Code</th>
                 <th className="p-3 font-semibold">Class</th>
+                <th className="p-3 font-semibold">Class Status</th>
                 <th className="p-3 font-semibold">DOB</th>
                 <th className="p-3 font-semibold">Age</th>
                 <th className="p-3 font-semibold">Gender</th>
@@ -491,7 +496,7 @@ export default function StudentsRegistry() {
             <tbody>
               {!loading && filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="p-6 text-center text-slate-400">No students found.</td>
+                  <td colSpan={14} className="p-6 text-center text-slate-400">No students found.</td>
                 </tr>
               )}
               {filteredStudents.map((student, index) => (
@@ -511,6 +516,7 @@ export default function StudentsRegistry() {
                   <td className="p-3 font-medium text-slate-800">{student.name}</td>
                   <td className="p-3 text-slate-600">{student.student_code}</td>
                   <td className="p-3 text-slate-600">{student.current_class}</td>
+                  <td className="p-3 text-slate-600">{student.class_status || student.status || student.current_class || '-'}</td>
                   <td className="p-3 text-slate-600">{student.date_of_birth || '-'}</td>
                   <td className="p-3 text-slate-600">{student.age ?? '-'}</td>
                   <td className="p-3 text-slate-600">{student.gender || '-'}</td>

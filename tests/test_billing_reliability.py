@@ -1282,6 +1282,104 @@ def test_paystack_reconciliation_recovers_finance_payment_after_injected_failure
     assert student.total_tuition_owed == 0.0
 
 
+def test_paystack_recover_reference_recovers_tracked_transfer_payment(
+    client,
+    db,
+    test_school,
+    test_proprietor,
+    proprietor_headers,
+    monkeypatch,
+):
+    from backend.api.models import Payment, PaymentCollectionIntent, Student
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Abena",
+        surname="Appiah",
+        name="Abena Appiah",
+        student_code="DADD00291",
+        current_class="JHS 2",
+        total_tuition_owed=20.0,
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    intent = PaymentCollectionIntent(
+        school_id=test_school.id,
+        student_id=student.id,
+        provider="paystack",
+        collection_channel="dedicated_virtual_account",
+        intent_status="assigned",
+        reference_code=f"{student.student_code}-TUIT",
+        payment_type="Tuition",
+        payment_category={"fee_type": "Tuition", "term": "Term 1"},
+        base_amount=20.0,
+        convenience_fee_amount=0.39,
+        estimated_provider_fee_amount=0.2,
+        platform_fee_amount=0.19,
+        total_amount=20.39,
+        provider_customer_code="CUS_ROUTE_TRANSFER_001",
+        provider_dedicated_account_id="9700",
+        provider_bank_slug="titan-paystack",
+        provider_bank_name="Paystack-Titan",
+        provider_account_name="EDUPULSE / ABENA APPIAH",
+        provider_account_number="7003000470298",
+        provider_subaccount_code="SUB_school001",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        meta={
+            "split_config": {
+                "split_code": "SPLIT_school001_2000",
+                "settlement_mode": "paystack_flat_split",
+                "school_settlement_amount": 20.0,
+                "platform_settlement_amount": 0.39,
+            }
+        },
+    )
+    db.session.add(intent)
+    db.session.commit()
+
+    def fake_verify_payment(reference):
+        assert reference == "6a9d6f5523744a1df06a6143"
+        return {
+            "id": 6532040480,
+            "reference": reference,
+            "status": "success",
+            "channel": "transfer",
+            "amount": 2039,
+            "customer": {"customer_code": "CUS_ROUTE_TRANSFER_001"},
+            "authorization": {
+                "channel": "transfer",
+                "sender_name": "DANIEL ANYINAM ASARE",
+                "sender_bank": "MTN (GH)",
+                "receiver_account_number": "7003000470298",
+            },
+        }
+
+    monkeypatch.setattr("backend.paystack_integration.verify_payment", fake_verify_payment)
+
+    response = client.post(
+        "/api/finance/paystack/recover-reference",
+        headers=proprietor_headers,
+        data=json.dumps({"reference": "6a9d6f5523744a1df06a6143"}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "recorded"
+    assert payload["reference"] == "6a9d6f5523744a1df06a6143"
+
+    payment = Payment.query.filter_by(reference_id="6a9d6f5523744a1df06a6143").first()
+    assert payment is not None
+    assert payment.student_id == student.id
+    assert payment.amount == 20.0
+
+    db.session.refresh(student)
+    assert student.total_tuition_owed == 0.0
+
+    db.session.refresh(intent)
+    assert intent.intent_status == "paid"
+
+
 def test_paystack_reconciliation_recovers_subscription_after_injected_failure(
     client,
     app,

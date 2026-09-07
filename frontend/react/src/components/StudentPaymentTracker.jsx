@@ -9,16 +9,22 @@ export default function StudentPaymentTracker() {
   const [studentPayments, setStudentPayments] = useState([]);
   const [paymentCodes, setPaymentCodes] = useState(null);
   const [paymentCodesError, setPaymentCodesError] = useState(null);
-  const [linkLoadingCode, setLinkLoadingCode] = useState('');
-  const [generatedLinks, setGeneratedLinks] = useState({});
-  const [transferRouteLoadingCode, setTransferRouteLoadingCode] = useState('');
-  const [generatedVirtualRoutes, setGeneratedVirtualRoutes] = useState({});
   const [bulkPrintLoading, setBulkPrintLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // all, paid, pending, overdue
+  const [recoveryReference, setRecoveryReference] = useState('');
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryResult, setRecoveryResult] = useState(null);
   const { branding } = useBranding();
+
+  const getAuthHeaders = () => ({
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'X-School-ID': localStorage.getItem('school_id')
+    }
+  });
 
   useEffect(() => {
     fetchStudents();
@@ -27,11 +33,7 @@ export default function StudentPaymentTracker() {
 
   const fetchStudents = async () => {
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
-      const res = await axios.get('/api/students', { headers });
+      const res = await axios.get('/api/students', getAuthHeaders());
       const studentList = Array.isArray(res.data) ? res.data : res.data?.students || [];
       setStudents(studentList);
     } catch (err) {
@@ -41,11 +43,7 @@ export default function StudentPaymentTracker() {
 
   const fetchSchoolFees = async () => {
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
-      const res = await axios.get('/api/school/fees', { headers });
+      const res = await axios.get('/api/school/fees', getAuthHeaders());
       setSchoolFees(res.data);
     } catch (err) {
       console.error('Failed to load school fees');
@@ -55,11 +53,7 @@ export default function StudentPaymentTracker() {
   const fetchStudentPayments = async (studentId) => {
     try {
       setLoading(true);
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
-      const res = await axios.get(`/api/students/${studentId}/payments`, { headers });
+      const res = await axios.get(`/api/students/${studentId}/payments`, getAuthHeaders());
       setStudentPayments(Array.isArray(res.data) ? res.data : res.data?.payments || []);
     } catch (err) {
       if (err.response?.data?.error !== 'school_verification_required' && err.response?.data?.error !== 'payment_collection_blocked') {
@@ -79,18 +73,15 @@ export default function StudentPaymentTracker() {
   };
 
   const fetchPaymentCodesData = async (studentId) => {
-    const headers = {
-      'Authorization': `Bearer ${localStorage.getItem('token')}`,
-      'X-School-ID': localStorage.getItem('school_id')
-    };
-    const res = await axios.get(`/api/students/${studentId}/payment-codes`, { headers });
+    const res = await axios.get(`/api/students/${studentId}/payment-codes`, getAuthHeaders());
     return res.data;
   };
 
   const fetchPaymentCodes = async (studentId) => {
     try {
       const result = await fetchPaymentCodesData(studentId);
-      setPaymentCodes(result);
+      const preparedResult = await ensureTrackedTransferRoutes(studentId, result);
+      setPaymentCodes(preparedResult);
       setPaymentCodesError(null);
     } catch (err) {
       const responseData = err.response?.data || null;
@@ -106,101 +97,10 @@ export default function StudentPaymentTracker() {
     }
   };
 
-  const generateTrackedPaymentLink = async (paymentCode) => {
-    if (!selectedStudent || !paymentCode?.reference_code) {
-      return;
-    }
-
-    try {
-      setLinkLoadingCode(paymentCode.reference_code);
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
-      const callbackUrl = `${window.location.origin}/payment-callback`;
-      const res = await axios.post('/api/finance/paystack/initialize-payment', {
-        student_id: selectedStudent.id,
-        reference_code: paymentCode.reference_code,
-        payment_type: paymentCode.payment_category?.fee_type || paymentCode.fee_type,
-        amount: Number(paymentCode.base_amount || paymentCode.amount || 0),
-        payment_category: paymentCode.payment_category || {},
-        callback_url: callbackUrl,
-      }, { headers });
-
-      const checkoutUrl = res.data?.authorization_url;
-      if (!checkoutUrl) {
-        alert(res.data?.message || 'Unable to generate tracked payment link.');
-        return;
-      }
-
-      setGeneratedLinks((current) => ({
-        ...current,
-        [paymentCode.reference_code]: checkoutUrl,
-      }));
-      window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Unable to generate tracked payment link right now.');
-    } finally {
-      setLinkLoadingCode('');
-    }
-  };
-
-  const generateTrackedTransferRoute = async (paymentCode) => {
-    if (!selectedStudent || !paymentCode?.reference_code) {
-      return;
-    }
-
-    try {
-      setTransferRouteLoadingCode(paymentCode.reference_code);
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
-      const res = await axios.post(
-        `/api/students/${selectedStudent.id}/payment-codes/${encodeURIComponent(paymentCode.reference_code)}/virtual-account`,
-        {},
-        { headers }
-      );
-
-      const route = res.data?.virtual_route;
-      if (!route?.account_number) {
-        alert(res.data?.message || 'Unable to generate a tracked transfer account.');
-        return;
-      }
-
-      setGeneratedVirtualRoutes((current) => ({
-        ...current,
-        [paymentCode.reference_code]: route,
-      }));
-      setPaymentCodes((current) => {
-        if (!current?.payment_codes) {
-          return current;
-        }
-        return {
-          ...current,
-          payment_codes: current.payment_codes.map((code) => (
-            (code.reference_code || code.code) === paymentCode.reference_code
-              ? (res.data?.payment_code || code)
-              : code
-          )),
-        };
-      });
-    } catch (err) {
-      alert(err.response?.data?.message || 'Unable to generate a tracked transfer account right now.');
-    } finally {
-      setTransferRouteLoadingCode('');
-    }
-  };
-
   const ensureTrackedTransferRoutes = async (studentId, codesRecord) => {
     if (!codesRecord?.payment_identity?.supports_fee_route_dvas || !Array.isArray(codesRecord.payment_codes) || codesRecord.payment_codes.length === 0) {
       return codesRecord;
     }
-
-    const headers = {
-      'Authorization': `Bearer ${localStorage.getItem('token')}`,
-      'X-School-ID': localStorage.getItem('school_id')
-    };
 
     const updatedPaymentCodes = await Promise.all(
       codesRecord.payment_codes.map(async (code) => {
@@ -212,7 +112,7 @@ export default function StudentPaymentTracker() {
           const res = await axios.post(
             `/api/students/${studentId}/payment-codes/${encodeURIComponent(code.reference_code || code.code)}/virtual-account`,
             {},
-            { headers }
+            getAuthHeaders()
           );
           return res.data?.payment_code || {
             ...code,
@@ -234,13 +134,61 @@ export default function StudentPaymentTracker() {
     };
   };
 
+  const handleRecoverReference = async () => {
+    const normalizedReference = recoveryReference.trim();
+    if (!normalizedReference) {
+      setRecoveryResult({
+        tone: 'warning',
+        message: 'Enter the exact Paystack transaction reference before running recovery.',
+      });
+      return;
+    }
+
+    try {
+      setRecoveryLoading(true);
+      setRecoveryResult(null);
+      const res = await axios.post(
+        '/api/finance/paystack/recover-reference',
+        { reference: normalizedReference },
+        getAuthHeaders()
+      );
+      const status = res.data?.status || 'recorded';
+      const tone = status === 'recorded' || status === 'duplicate' ? 'success' : status === 'unmapped' ? 'warning' : 'info';
+      const messageMap = {
+        recorded: 'Paystack transaction recovered and recorded successfully.',
+        duplicate: 'This Paystack transaction was already recorded earlier.',
+        blocked: 'Payment was recovered but is currently blocked pending subscription or verification rules.',
+        unmapped: 'Paystack confirmed the transaction, but EduPulse could not map it to a student payment route yet.',
+        ignored: 'The transaction did not match this school or did not require finance recovery.',
+      };
+      setRecoveryResult({
+        tone,
+        message: messageMap[status] || 'Recovery request completed.',
+        reference: res.data?.reference || normalizedReference,
+      });
+      if (['recorded', 'duplicate', 'blocked'].includes(status)) {
+        fetchStudents();
+        if (selectedStudent?.id) {
+          fetchStudentPayments(selectedStudent.id);
+          fetchPaymentCodes(selectedStudent.id);
+        }
+      }
+    } catch (err) {
+      const responseData = err.response?.data || {};
+      setRecoveryResult({
+        tone: 'error',
+        message: responseData.message || 'Unable to recover the Paystack transaction right now.',
+        reference: responseData.reference || normalizedReference,
+      });
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
   const printPaymentInstructions = async () => {
     if (!paymentCodes) return;
-
-    const preparedCodes = await ensureTrackedTransferRoutes(selectedStudent?.id, paymentCodes);
-    setPaymentCodes(preparedCodes);
-    const html = buildPaymentInstructionsHtml(preparedCodes);
-    openInstructionPrintWindow(`Payment Instructions & Reference Guide - ${preparedCodes.student_name}`, html);
+    const html = buildPaymentInstructionsHtml(paymentCodes);
+    openInstructionPrintWindow(`Payment Instructions & Reference Guide - ${paymentCodes.student_name}`, html);
   };
 
   const openInstructionPrintWindow = (title, content) => {
@@ -453,22 +401,20 @@ export default function StudentPaymentTracker() {
 
   const buildPaymentInstructionsHtml = (codesRecord) => {
     const schoolName = branding.school_name || branding.name || 'School';
+    const schoolMotto = branding.school_motto || branding.motto || '';
+    const schoolLogo = branding.logo_url || branding.logo || '';
     const schoolEmail = branding.school_email || branding.email || '';
     const schoolPhone = branding.school_phone || branding.phone || '';
     const schoolAddress = branding.school_address || branding.address || '';
     const themeColor = branding.theme_color || '#3b82f6';
-    const schoolPaymentAccount = codesRecord.school_payment_account || {};
-    const bankName = schoolPaymentAccount.bank_name || '';
-    const bankAccount = schoolPaymentAccount.bank_account || '';
-    const bankAccountName = schoolPaymentAccount.bank_account_name || '';
-    const bankBranch = schoolPaymentAccount.bank_branch || '';
-    const hasBankDetails = Boolean(bankName || bankAccount || bankAccountName || bankBranch);
-    const totalCashAmount = (codesRecord.payment_codes || []).reduce((sum, code) => sum + Number(code.base_amount || code.cash_amount || 0), 0);
+    const totalTrackedAmount = (codesRecord.payment_codes || []).reduce((sum, code) => sum + Number(code.virtual_route?.total_amount || code.total_amount || 0), 0);
 
     return `
       <div class="container">
         <div class="header">
+          ${schoolLogo ? `<div style="margin-bottom:12px;"><img src="${schoolLogo}" alt="${schoolName} logo" style="max-height:72px; max-width:96px; object-fit:contain;" /></div>` : ''}
           <div class="school-name">${schoolName}</div>
+          ${schoolMotto ? `<div style="font-size:13px; color:${themeColor}; font-style:italic; margin-bottom:6px;">${schoolMotto}</div>` : ''}
           <div class="school-contact">
             ${schoolAddress ? `<div>${schoolAddress}</div>` : ''}
             ${schoolPhone ? `<div>📞 ${schoolPhone}</div>` : ''}
@@ -485,26 +431,12 @@ export default function StudentPaymentTracker() {
           ${codesRecord.parent_phone ? `<p><span class="info-label">Parent/Guardian:</span> ${codesRecord.parent_name || ''} (${codesRecord.parent_phone})</p>` : ''}
         </div>
 
-        ${hasBankDetails ? `
         <div class="section">
-          <div class="section-title">🏦 School Bank Account</div>
-          <div class="payment-method">
-            <div class="payment-method-content">
-              <p><strong>Bank Name:</strong> ${bankName}</p>
-              <p><strong>Account Number:</strong> ${bankAccount}</p>
-              ${bankAccountName ? `<p><strong>Account Name:</strong> ${bankAccountName}</p>` : ''}
-              ${bankBranch ? `<p><strong>Branch:</strong> ${bankBranch}</p>` : ''}
-              <p style="margin-top: 8px;"><strong>Use this only when the school has asked for a direct bank transfer or office-confirmed payment.</strong></p>
-            </div>
-          </div>
-        </div>` : ''}
-
-        <div class="section">
-          <div class="section-title">💳 Fee References And Tracked Transfer Accounts</div>
+          <div class="section-title">💳 Tuition Reference And Tracked Transfer Account</div>
           <table class="payment-codes-table">
             <thead>
               <tr>
-                <th>Fee Type</th>
+                <th>Charge</th>
                 <th>Preferred Reference</th>
                 <th>Payment Channel</th>
                 <th class="amount-column">Amount</th>
@@ -515,8 +447,8 @@ export default function StudentPaymentTracker() {
                 <tr>
                   <td><strong>${code.fee_type}</strong></td>
                   <td><span class="code-column">${code.reference_code || code.code}</span></td>
-                  <td><span style="color:#475569;">Use the tracked transfer account shown for this exact fee whenever it is available</span></td>
-                  <td class="amount-column">GH₵ ${Number(code.base_amount || 0).toFixed(2)}</td>
+                  <td><span style="color:#475569;">Use the automatically prepared EduPulse tracked transfer account only</span></td>
+                  <td class="amount-column">GH₵ ${Number(code.virtual_route?.total_amount || code.total_amount || 0).toFixed(2)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -524,7 +456,7 @@ export default function StudentPaymentTracker() {
         </div>
 
         <div class="important">
-          <strong>⚠️ Important:</strong> Best option: use the tracked transfer account created for the exact fee. That keeps the learner and fee purpose attached automatically.
+          <strong>⚠️ Important:</strong> Parents should use only the EduPulse tracked transfer account shown for tuition. The school's direct bank account is intentionally excluded from this instruction sheet.
         </div>
 
         <div class="section">
@@ -537,18 +469,18 @@ export default function StudentPaymentTracker() {
                 ${code.virtual_route?.account_number ? `<p><strong>Tracked Transfer Bank:</strong> ${code.virtual_route.bank_name || 'Paystack transfer account'}</p>` : ''}
                 ${code.virtual_route?.account_number ? `<p><strong>Tracked Transfer Account Number:</strong> ${code.virtual_route.account_number}</p>` : ''}
                 ${code.virtual_route?.account_name ? `<p><strong>Tracked Transfer Account Name:</strong> ${code.virtual_route.account_name}</p>` : ''}
-                ${code.virtual_route?.account_number ? `<p><strong>Best Option:</strong> Pay into this tracked transfer account for this fee.</p>` : `<p><strong>Best Option:</strong> Ask the school to generate the tracked transfer account for this fee.</p>`}
+                ${code.virtual_route?.account_number ? `<p><strong>Payment Route:</strong> Pay into this tracked transfer account for tuition.</p>` : `<p><strong>Payment Route:</strong> The school must reconnect Paystack tracked transfer before parents can pay.</p>`}
+                <p><strong>School Tuition:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                 ${Number(code.virtual_route?.convenience_fee_amount || 0) > 0 ? `<p><strong>Convenience Fee:</strong> GH₵ ${Number(code.virtual_route.convenience_fee_amount || 0).toFixed(2)}</p>` : ''}
                 ${code.virtual_route?.total_amount ? `<p><strong>Transfer Total:</strong> GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)}</p>` : ''}
-                ${hasBankDetails ? `<p><strong>School Bank Account:</strong> ${[bankName, bankAccount, bankAccountName].filter(Boolean).join(' • ')}${bankBranch ? ` • ${bankBranch}` : ''}</p>` : ''}
                 <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> Use it when the school asks for bank narration or office confirmation.</p>
-                <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
+                <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.virtual_route?.total_amount || code.total_amount || 0).toFixed(2)}</p>
                 <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
                 <p style="margin-top: 8px;"><strong>Payment Flow:</strong></p>
-                <p style="margin-left: 12px;">1) ${code.virtual_route?.account_number ? 'Use the tracked transfer bank name and account number shown above for this exact fee.' : 'Ask the school for the tracked transfer account for this exact fee.'}</p>
-                <p style="margin-left: 12px;">2) ${code.virtual_route?.total_amount ? `Transfer GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)} to match the tracked amount for this fee.` : `If the school instead gives a normal bank account, enter GH₵ ${Number(code.base_amount || 0).toFixed(2)} for this fee.`}</p>
+                <p style="margin-left: 12px;">1) ${code.virtual_route?.account_number ? 'Use the tracked transfer bank name and account number shown above for tuition.' : 'Ask the school to reconnect the tracked transfer account for tuition.'}</p>
+                <p style="margin-left: 12px;">2) ${code.virtual_route?.total_amount ? `Transfer GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)} exactly so EduPulse can match it immediately.` : `Wait for the tracked transfer account to become available before collecting this tuition payment.`}</p>
                 <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration or present it at the school office.</p>
-                <p style="margin-left: 12px;">4) The school records the payment under this learner and fee purpose.</p>
+                <p style="margin-left: 12px;">4) EduPulse records the tuition payment under this learner and updates the student balance as soon as Paystack confirms it.</p>
                 ${code.tracked_transfer_error ? `<p style="margin-top: 8px; color:#b45309;"><strong>Tracked transfer note:</strong> ${code.tracked_transfer_error}</p>` : ''}
               </div>
             </div>
@@ -561,11 +493,11 @@ export default function StudentPaymentTracker() {
             <div class="instructions-title">Per-Fee Instructions:</div>
             <div class="instruction-text">
               ${(codesRecord.payment_codes || []).map(code =>
-                `• <strong>${code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.base_amount || 0).toFixed(2)}` : `Pay GH₵ ${Number(code.base_amount || 0).toFixed(2)} using the tracked transfer account the school provides`} for reference <strong>${code.reference_code || code.code}</strong>. If the school asks for direct transfer, keep the same reference in the narration.`
+                `• <strong>${code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)}` : `Wait for the tracked transfer account before collecting tuition`} for reference <strong>${code.reference_code || code.code}</strong>.`
               ).join('<br>')}
             </div>
             <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
-              Total amount due across these references: GH₵ ${totalCashAmount.toFixed(2)}
+              Total amount due across these references: GH₵ ${totalTrackedAmount.toFixed(2)}
             </div>
           </div>
         </div>
@@ -641,6 +573,8 @@ export default function StudentPaymentTracker() {
     if (!student || !payment) return;
 
     const schoolName = branding.school_name || branding.name || 'School';
+    const schoolMotto = branding.school_motto || branding.motto || '';
+    const schoolLogo = branding.logo_url || branding.logo || '';
     const schoolEmail = branding.school_email || branding.email || '';
     const schoolPhone = branding.school_phone || branding.phone || '';
     const schoolAddress = branding.school_address || branding.address || '';
@@ -769,7 +703,9 @@ export default function StudentPaymentTracker() {
       <body>
         <div class="container">
           <div class="header">
+            ${schoolLogo ? `<div style="margin-bottom:12px;"><img src="${schoolLogo}" alt="${schoolName} logo" style="max-height:72px; max-width:96px; object-fit:contain;" /></div>` : ''}
             <div class="school-name">${schoolName}</div>
+            ${schoolMotto ? `<div style="font-size:13px; color:${themeColor}; font-style:italic; margin-bottom:6px;">${schoolMotto}</div>` : ''}
             <div class="contact">
               ${schoolAddress ? `${schoolAddress}<br>` : ''}
               ${schoolPhone ? `📞 ${schoolPhone} ` : ''}
@@ -843,8 +779,7 @@ export default function StudentPaymentTracker() {
 
     let requiredAmount = 0;
     if (paymentType === 'Tuition' && schoolFees?.tuition_fee) {
-      // Combine tuition and terminal report fees
-      requiredAmount = schoolFees.tuition_fee + (schoolFees.terminal_report_fee || 0);
+      requiredAmount = schoolFees.tuition_fee;
     } else if (paymentType === 'Feeding' && schoolFees?.feeding_fee) {
       requiredAmount = schoolFees.feeding_fee;
     } else if (paymentType === 'Uniform' && schoolFees?.uniform_fee) {
@@ -889,7 +824,7 @@ export default function StudentPaymentTracker() {
     
     if (filterStatus === 'all') return true;
     
-    const feeTypes = ['Tuition', 'Feeding', 'Uniform', 'Transport'];
+    const feeTypes = ['Tuition'];
     const paymentStatus = feeTypes.map(type => calculatePaymentSummary(student, type));
 
     if (filterStatus === 'paid') {
@@ -901,11 +836,10 @@ export default function StudentPaymentTracker() {
     return true;
   });
 
-  const feeTypes = ['Tuition', 'Feeding', 'Uniform', 'Transport'];
+  const feeTypes = ['Tuition'];
 
-  // Helper function to display fee type label (includes terminal report for tuition)
   const getFeeTypeLabel = (feeType) => {
-    return feeType === 'Tuition' ? 'Tuition + Terminal Report' : feeType;
+    return feeType;
   };
 
   const latestReceiptPayment = [...studentPayments]
@@ -925,6 +859,54 @@ export default function StudentPaymentTracker() {
         >
           {bulkPrintLoading ? 'Preparing Batch Print...' : `🖨️ Print ${Math.min(filteredStudents.length, 100)} Filtered Instruction${Math.min(filteredStudents.length, 100) === 1 ? '' : 's'}`}
         </button>
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-700">Paystack Reconciliation</p>
+            <h3 className="mt-2 text-lg font-black text-slate-900">Recover a successful tracked transfer by exact reference</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              Use this when Paystack shows a successful transfer but the student payment has not appeared yet in EduPulse. This runs the backend recovery flow without bringing back the old reconciliation dashboard card.
+            </p>
+          </div>
+          <div className="w-full max-w-xl">
+            <label htmlFor="paystack-recovery-reference" className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-cyan-800">
+              Transaction Reference
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                id="paystack-recovery-reference"
+                type="text"
+                value={recoveryReference}
+                onChange={(event) => setRecoveryReference(event.target.value)}
+                placeholder="e.g. 6a9d6f5523744a1df06a6143"
+                className="flex-1 rounded-xl border border-cyan-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-cyan-400"
+              />
+              <button
+                onClick={handleRecoverReference}
+                disabled={recoveryLoading}
+                className="rounded-xl bg-cyan-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-cyan-300"
+              >
+                {recoveryLoading ? 'Recovering...' : 'Recover Paystack Payment'}
+              </button>
+            </div>
+            {recoveryResult ? (
+              <div className={`mt-3 rounded-xl border px-3 py-3 text-sm ${
+                recoveryResult.tone === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  : recoveryResult.tone === 'warning'
+                    ? 'border-amber-200 bg-amber-50 text-amber-900'
+                    : recoveryResult.tone === 'error'
+                      ? 'border-rose-200 bg-rose-50 text-rose-900'
+                      : 'border-slate-200 bg-white text-slate-800'
+              }`}>
+                <p className="font-semibold">{recoveryResult.message}</p>
+                {recoveryResult.reference ? <p className="mt-1 text-xs opacity-80">Reference: {recoveryResult.reference}</p> : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
       
       {/* Search & Filter */}
@@ -1033,21 +1015,6 @@ export default function StudentPaymentTracker() {
                 </div>
               </div>
 
-              {paymentCodes?.school_payment_account && (
-                (paymentCodes.school_payment_account.bank_name || paymentCodes.school_payment_account.bank_account || paymentCodes.school_payment_account.bank_account_name || paymentCodes.school_payment_account.bank_branch) ? (
-                  <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-slate-900 shadow-sm">
-                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-700">School Bank Account</p>
-                    <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                      {paymentCodes.school_payment_account.bank_name ? <p><strong>Bank:</strong> {paymentCodes.school_payment_account.bank_name}</p> : null}
-                      {paymentCodes.school_payment_account.bank_account ? <p><strong>Account Number:</strong> {paymentCodes.school_payment_account.bank_account}</p> : null}
-                      {paymentCodes.school_payment_account.bank_account_name ? <p><strong>Account Name:</strong> {paymentCodes.school_payment_account.bank_account_name}</p> : null}
-                      {paymentCodes.school_payment_account.bank_branch ? <p><strong>Branch:</strong> {paymentCodes.school_payment_account.bank_branch}</p> : null}
-                    </div>
-                    <p className="mt-2 text-xs text-cyan-800">Use this only for direct bank transfer or office-confirmed payment. For automatic tracking, print the fee instructions with the tracked transfer account or generate a tracked transfer account below.</p>
-                  </div>
-                ) : null
-              )}
-
               {/* Payment Routes Section */}
               {paymentCodesError ? (
                 <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
@@ -1094,18 +1061,14 @@ export default function StudentPaymentTracker() {
                         onClick={() => {
                           const codesText = paymentCodes.payment_codes
                             .map(c => {
-                              const virtualRoute = generatedVirtualRoutes[c.reference_code || c.code] || c.virtual_route;
+                              const virtualRoute = c.virtual_route;
                               if (virtualRoute?.account_number) {
                                 return `${c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer bank: ${virtualRoute.bank_name || 'Paystack transfer account'} | Account: ${virtualRoute.account_number} | Transfer total GH₵ ${Number(virtualRoute.total_amount || c.base_amount || 0).toFixed(2)}`;
                               }
-                              return `${c.fee_type}: Ref ${c.reference_code || c.code} | Direct transfer amount GH₵ ${Number(c.base_amount || 0).toFixed(2)} | Use school bank account or approved MoMo destination and keep the same reference`;
+                              return `${c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer account is temporarily unavailable. Reconnect Paystack settlement in system settings before sharing this instruction.`;
                             })
                             .join('\n');
-                          const schoolPaymentAccount = paymentCodes.school_payment_account || {};
-                          const bankLines = (schoolPaymentAccount.bank_name || schoolPaymentAccount.bank_account || schoolPaymentAccount.bank_account_name || schoolPaymentAccount.bank_branch)
-                            ? `School Bank Account:\n${schoolPaymentAccount.bank_name ? `- Bank: ${schoolPaymentAccount.bank_name}\n` : ''}${schoolPaymentAccount.bank_account ? `- Account Number: ${schoolPaymentAccount.bank_account}\n` : ''}${schoolPaymentAccount.bank_account_name ? `- Account Name: ${schoolPaymentAccount.bank_account_name}\n` : ''}${schoolPaymentAccount.bank_branch ? `- Branch: ${schoolPaymentAccount.bank_branch}\n` : ''}\n`
-                            : '';
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${bankLines}${codesText}\n\nHow to pay:\n1. If a tracked transfer account is listed for a fee, pay the exact transfer total into that account.\n2. If no tracked transfer account is listed, use the school's normal bank account or approved MoMo destination and enter the exact reference shown.\n3. Keep the same reference when sharing proof at the school office.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nHow to pay:\n1. Use the EduPulse tracked transfer account shown for tuition.\n2. Pay the exact tracked total with the exact tuition reference.\n3. Keep the same reference when sharing proof at the school office.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -1122,20 +1085,12 @@ export default function StudentPaymentTracker() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    {(paymentCodes.school_payment_account?.bank_name || paymentCodes.school_payment_account?.bank_account || paymentCodes.school_payment_account?.bank_account_name || paymentCodes.school_payment_account?.bank_branch) && (
-                      <div className="rounded-lg border border-amber-200 bg-white p-3 text-sm text-slate-700">
-                        <p className="font-semibold text-slate-800">School Bank Account</p>
-                        {paymentCodes.school_payment_account.bank_name && <p className="mt-1 text-xs text-slate-600">Bank: {paymentCodes.school_payment_account.bank_name}</p>}
-                        {paymentCodes.school_payment_account.bank_account && <p className="text-xs text-slate-600">Account Number: {paymentCodes.school_payment_account.bank_account}</p>}
-                        {paymentCodes.school_payment_account.bank_account_name && (
-                          <p className="text-xs text-slate-600">Account Name: {paymentCodes.school_payment_account.bank_account_name}</p>
-                        )}
-                        {paymentCodes.school_payment_account.bank_branch && (
-                          <p className="text-xs text-slate-600">Branch: {paymentCodes.school_payment_account.bank_branch}</p>
-                        )}
-                        <p className="mt-2 text-xs text-amber-800">Use this only when the school wants a direct bank transfer or office-confirmed payment. For automatic tracking, use the tracked transfer account shown on the printed instructions or generate one below.</p>
+                    {paymentCodes.fees_configuration?.terminal_report_fee > 0 ? (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                        <p className="font-semibold text-slate-800">Separate report-card fee</p>
+                        <p className="mt-1">Report-card printing remains configured separately at GH₵ {Number(paymentCodes.fees_configuration.terminal_report_fee || 0).toFixed(2)} and is no longer merged into tuition tracking.</p>
                       </div>
-                    )}
+                    ) : null}
                     {paymentCodes.payment_identity?.tracked_transfer_readiness_note ? (
                       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
                         <p className="font-semibold text-slate-800">Tracked transfer account setup</p>
@@ -1145,7 +1100,7 @@ export default function StudentPaymentTracker() {
                     {paymentCodes.payment_codes.map((code, idx) => (
                       (() => {
                         const referenceKey = code.reference_code || code.code;
-                        const virtualRoute = generatedVirtualRoutes[referenceKey] || code.virtual_route;
+                        const virtualRoute = code.virtual_route;
                         return (
                       <div
                         key={idx}
@@ -1153,21 +1108,18 @@ export default function StudentPaymentTracker() {
                       >
                         <div className="flex-1">
                           <p className="font-semibold text-slate-800">{code.fee_type}</p>
-                          <p className="text-xs text-slate-600">Amount: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
+                          <p className="text-xs text-slate-600">School tuition: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
-                          <p className="text-xs text-slate-700">Best option: use the tracked transfer account for this exact fee so EduPulse records the learner and purpose automatically.</p>
+                          <p className="text-xs text-slate-700">Parents should use the automatically prepared tracked transfer account so EduPulse records the learner and purpose immediately.</p>
 
                           <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
-                          {generatedLinks[referenceKey] ? (
-                            <p className="mt-2 break-all text-xs text-emerald-700">Tracked link ready: {generatedLinks[referenceKey]}</p>
-                          ) : null}
                           {virtualRoute ? (
                             <div className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 p-2 text-xs text-cyan-900">
                               <p className="font-semibold">Tracked transfer account ready</p>
                               <p className="mt-1">Bank: {virtualRoute.bank_name || 'Paystack transfer account'}</p>
                               <p>Account number: {virtualRoute.account_number}</p>
                               {virtualRoute.account_name ? <p>Account name: {virtualRoute.account_name}</p> : null}
-                              <p className="mt-1">Base fee: GH₵ {Number(virtualRoute.base_amount || 0).toFixed(2)}</p>
+                              <p className="mt-1">School tuition: GH₵ {Number(virtualRoute.base_amount || 0).toFixed(2)}</p>
                               {Number(virtualRoute.convenience_fee_amount || 0) > 0 ? (
                                 <p>Convenience fee: GH₵ {Number(virtualRoute.convenience_fee_amount || 0).toFixed(2)}</p>
                               ) : null}
@@ -1188,34 +1140,11 @@ export default function StudentPaymentTracker() {
                           >
                             📋 Copy
                           </button>
-                          {paymentCodes.payment_identity?.supports_fee_route_dvas ? (
-                            <button
-                              onClick={() => generateTrackedTransferRoute(code)}
-                              disabled={transferRouteLoadingCode === referenceKey}
-                              className="px-2 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors text-xs font-bold disabled:bg-cyan-300"
-                            >
-                              {transferRouteLoadingCode === referenceKey ? 'Creating...' : 'Tracked Transfer'}
-                            </button>
-                          ) : null}
-                          <button
-                            onClick={() => generateTrackedPaymentLink(code)}
-                            disabled={linkLoadingCode === referenceKey}
-                            className="px-2 py-2 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors text-xs font-semibold disabled:bg-slate-100 disabled:text-slate-400"
-                            title="Optional online checkout link"
-                          >
-                            {linkLoadingCode === referenceKey ? 'Generating...' : 'Online Checkout Link'}
-                          </button>
-                          {generatedLinks[referenceKey] ? (
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(generatedLinks[referenceKey]);
-                                alert('Tracked payment link copied!');
-                              }}
-                              className="px-2 py-2 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors text-xs font-bold"
-                            >
-                              Copy Link
-                            </button>
-                          ) : null}
+                          {virtualRoute?.account_number ? null : (
+                            <span className="rounded bg-amber-100 px-2 py-2 text-xs font-semibold text-amber-900">
+                              Paystack setup needed
+                            </span>
+                          )}
                         </div>
                       </div>
                         );
@@ -1223,10 +1152,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Preferred instruction: "If EduPulse shows a tracked transfer account for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong>, pay the exact tracked total into that account. Otherwise use the school's normal bank account or approved MoMo destination and keep the same reference." 
-                  </p>
-                  <p className="text-xs text-slate-500 mt-2">
-                    Online checkout link is optional and mainly for cases where the school wants card or web checkout instead of bank transfer.
+                    💬 Preferred instruction: "Use the EduPulse tracked transfer account for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong> and pay the exact tracked total shown there." 
                   </p>
                 </div>
               )}

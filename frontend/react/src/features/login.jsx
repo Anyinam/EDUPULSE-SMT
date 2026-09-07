@@ -4,6 +4,7 @@ import { Logo } from '../components/Logo';
 import TermsModal from '../components/TermsModal';
 import PrivacyModal from '../components/PrivacyModal';
 import DataRetentionModal from '../components/DataRetentionModal';
+import { getAuthToken, validateTokenExpiry } from '../utils/authUtils';
 
 const DEFAULT_PUBLIC_CONTENT = {
   faqs: [
@@ -71,6 +72,12 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
+    if (getAuthToken() && validateTokenExpiry()) {
+      sessionStorage.removeItem('session_expired_message');
+      window.location.replace(localStorage.getItem('post_login_target') || '/proprietor');
+      return;
+    }
+
     const expiredMessage = sessionStorage.getItem('session_expired_message');
     if (!expiredMessage) {
       return;
@@ -191,6 +198,7 @@ export default function Login() {
   };
 
   const persistAuthAndRedirect = (authData) => {
+    sessionStorage.removeItem('session_expired_message');
     localStorage.setItem('token', authData.token);
     localStorage.setItem('school_id', authData.school_id);
     const roles = Array.isArray(authData.roles) ? authData.roles : [authData.role].filter(Boolean);

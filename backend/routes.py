@@ -7298,6 +7298,23 @@ def get_student_payment_codes(student_id):
     except (TypeError, ValueError):
         actor_id = None
     payload = _build_student_payment_instruction_payload(student, g.school_id)
+    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
+
+    if payload.get("payment_identity", {}).get("supports_fee_route_dvas"):
+        for code in payload.get("payment_codes") or []:
+            if code.get("has_virtual_route"):
+                continue
+            intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, code)
+            if error:
+                code["tracked_transfer_error"] = public_tracked_transfer_failure_message() if looks_like_provider_error(error, sanitize_string) else error
+                continue
+            route_payload = _build_payment_collection_intent_payload(intent)
+            code["virtual_route"] = route_payload
+            code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
+            code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
+            code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
+            code["has_virtual_route"] = bool(route_payload)
+            code["preferred_payment_model"] = "virtual_account_ready" if route_payload else code.get("preferred_payment_model")
 
     log_action(
         actor_id,
@@ -7316,6 +7333,7 @@ def get_student_payment_codes(student_id):
             }
         ),
     )
+    db.session.commit()
     return jsonify(payload)
 
 
@@ -7407,9 +7425,11 @@ def create_student_payment_virtual_account(student_id, reference_code):
 def get_students():
     """Fetch all students - accessible by proprietor, finance, and teaching staff."""
     try:
-        students = (
-            Student.query.filter_by(school_id=g.school_id).order_by(Student.name).all()
-        )
+        include_inactive = str(request.args.get("include_inactive") or "").strip().lower() in {"1", "true", "yes", "all"}
+        query = Student.query.filter_by(school_id=g.school_id)
+        if not include_inactive:
+            query = query.filter(Student.status.in_(["Active", "active"]))
+        students = query.order_by(Student.name).all()
         feeding_status_details = _get_feeding_status_details_for_students(students, g.school_id)
         response = jsonify(
             [
@@ -7432,6 +7452,8 @@ def get_students():
                     "scholarship_covers_feeding": bool(s.scholarship_covers_feeding),
                     "scholarship_notes": s.scholarship_notes,
                     "total_tuition_owed": s.total_tuition_owed,
+                    "status": s.status or "Active",
+                    "class_status": s.current_class if (s.status or "Active") == "Active" else (s.status or "Active"),
                 }
                 for s in students
             ]
@@ -9502,6 +9524,13 @@ def _recover_paystack_transaction(transaction, school_id_scope=None):
         )
         return "recovered"
 
+    if _is_paystack_dedicated_account_charge(transaction):
+        result, _status_code = _record_paystack_virtual_account_payment(
+            transaction,
+            event="charge.success.reconciled",
+        ) or ({"status": "ignored"}, 200)
+        return result.get("status") or "ignored"
+
     result, _status_code = _record_paystack_finance_payment(
         transaction,
         event="charge.success.reconciled",
@@ -9599,8 +9628,7 @@ def paystack_webhook():
 
     try:
         metadata = payload.get("metadata") or {}
-        authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
-        if (authorization.get("channel") or payload.get("channel") or "").lower() == "dedicated_nuban":
+        if _is_paystack_dedicated_account_charge(payload):
             virtual_account_result = _record_paystack_virtual_account_payment(payload, event=event)
             if virtual_account_result:
                 body, status_code = virtual_account_result
@@ -9982,6 +10010,21 @@ def _record_paystack_virtual_account_payment(payload, event="charge.success"):
         _record_paystack_finance_payment,
         db.session,
     )
+
+
+def _is_paystack_dedicated_account_charge(payload):
+    authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
+    normalized_channels = {
+        (sanitize_string(authorization.get("channel") or "") or "").lower(),
+        (sanitize_string(payload.get("channel") or "") or "").lower(),
+    }
+    if normalized_channels & {"dedicated_nuban", "dedicated_account"}:
+        return True
+
+    identifiers = _extract_paystack_virtual_account_identifiers(payload)
+    has_virtual_account_target = bool(identifiers.get("account_number") or identifiers.get("dedicated_account_id"))
+    has_paystack_route_identity = bool(identifiers.get("customer_code") or identifiers.get("reference_code"))
+    return has_virtual_account_target and has_paystack_route_identity
 
 
 def _record_paystack_parent_admission_payment(payload, event="charge.success"):
@@ -13835,6 +13878,12 @@ def bulk_update_student_status():
         class_filter = data.get("class")  # Class to filter (e.g., "JHS 3")
         current_status = data.get("current_status", "Active")  # Only update students with this status
         reason = data.get("reason", "")  # Reason for bulk update
+        select_all_class = bool(data.get("select_all_class"))
+        student_ids = [
+            int(student_id)
+            for student_id in (data.get("student_ids") or [])
+            if str(student_id).isdigit()
+        ]
         
         valid_statuses = ['Active', 'Graduated', 'Withdrawn', 'Transferred', 'Suspended', 'Inactive']
         
@@ -13843,21 +13892,34 @@ def bulk_update_student_status():
                 "message": f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
             }), 400
         
-        if not class_filter:
-            return jsonify({"message": "class is required for bulk update"}), 400
+        if not class_filter and not student_ids:
+            return jsonify({"message": "Select a class or at least one student for bulk update"}), 400
         
         # Build query to find students to update
         query = Student.query.filter_by(
             school_id=g.school_id,
-            current_class=class_filter,
             status=current_status
         )
+        if class_filter:
+            query = query.filter_by(current_class=class_filter)
+        if student_ids and not select_all_class:
+            query = query.filter(Student.id.in_(student_ids))
         
         students_to_update = query.all()
         
+        if student_ids and not select_all_class:
+            requested_ids = set(student_ids)
+            matched_ids = {student.id for student in students_to_update}
+            missing_ids = requested_ids - matched_ids
+            if missing_ids:
+                return jsonify({
+                    "message": "Some selected students are no longer eligible for this update.",
+                    "missing_student_ids": sorted(missing_ids),
+                }), 409
+
         if not students_to_update:
             return jsonify({
-                "message": f"No students found with status '{current_status}' in class '{class_filter}'",
+                "message": f"No students found with status '{current_status}' for the selected bulk update.",
                 "updated_count": 0
             }), 404
         
@@ -13892,6 +13954,7 @@ def bulk_update_student_status():
             "message": f"Successfully updated {updated_count} students",
             "updated_count": updated_count,
             "class": class_filter,
+            "select_all_class": select_all_class,
             "previous_status": current_status,
             "new_status": new_status,
             "reason": reason,
@@ -14091,8 +14154,10 @@ def get_admission_statistics():
                 "transferred": total_transferred,
                 "suspended": total_suspended,
                 "inactive": total_inactive,
-                "total": (total_active + total_graduated + total_withdrawn + 
-                         total_transferred + total_suspended + total_inactive)
+                "current_enrollment": total_active,
+                "historical_total": (total_active + total_graduated + total_withdrawn + 
+                         total_transferred + total_suspended + total_inactive),
+                "total": total_active,
             },
             "class_distribution": class_distribution,
             "gender_distribution": gender_distribution,
@@ -14803,18 +14868,19 @@ def kitchen_dashboard():
                     500,
                 )
 
-        # Count Teachers (All teaching staff who also need meals)
+        # Count active staff profiles that need meals alongside covered students.
         try:
-            teacher_count = (
+            staff_roles = ["teacher", "homeroom", "headmaster", "proprietor", "finance", "inventory_manager", "kitchen"]
+            staff_count = (
                 User.query.filter_by(school_id=g.school_id)
-                .filter(User.role.in_(["teacher", "homeroom", "headmaster"]))
+                .filter(User.role.in_(staff_roles))
                 .count()
             )
         except Exception as e:
             return jsonify({"message": "Error counting teachers", "error": str(e)}), 500
 
-        # Calculate total meals: students who PAID for feeding + all available teachers
-        total_meals_needed = total_feeding_paid + teacher_count
+        # Calculate total meals fresh from current attendance + feeding coverage + active staff count.
+        total_meals_needed = total_feeding_paid + staff_count
         if is_holiday:
             stats = [
                 {**row, "meals_needed": 0}
@@ -14828,8 +14894,10 @@ def kitchen_dashboard():
                 "classes": stats,
                 "summary": {
                     "total_students_present": total_students_present,
+                    "covered_student_meals": total_feeding_paid,
                     "total_feeding_paid": total_feeding_paid,
-                    "total_teachers": teacher_count,
+                    "total_staff_meals": staff_count,
+                    "total_teachers": staff_count,
                     "total_meals_needed": total_meals_needed,
                     "attendance_taken_today": attendance_taken_today,
                     "attendance_partial": attendance_snapshot.get("has_any_submission", False) and not attendance_taken_today,
@@ -14847,7 +14915,7 @@ def kitchen_dashboard():
                     "is_holiday": is_holiday,
                     "holiday_name": holiday_name,
                     "holiday_date": today.isoformat(),
-                    "note": "Kitchen should prepare meals for: paying students + all available teachers",
+                    "note": "Kitchen should prepare meals for: students present with active feeding coverage plus all active staff profiles.",
                 },
             }
         )
@@ -15079,7 +15147,10 @@ def get_my_lesson_notes():
 @role_required("headmaster", "proprietor")
 def get_attendance_summary():
     """Headmaster view of daily attendance."""
-    total_students = Student.query.filter_by(school_id=g.school_id).count()
+    total_students = Student.query.filter(
+        Student.school_id == g.school_id,
+        Student.status.in_(["Active", "active"]),
+    ).count()
     attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
     attendance_taken_today = attendance_snapshot.get("is_complete", False)
     present_students_list = _get_present_students_for_today(g.school_id)
@@ -15088,7 +15159,7 @@ def get_attendance_summary():
     class_breakdown = []
     for grade in VALID_GRADES:
         total_in_class = Student.query.filter_by(
-            school_id=g.school_id, current_class=grade
+            school_id=g.school_id, current_class=grade, status="Active"
         ).count()
         present_in_class = 0
         if attendance_taken_today:
@@ -15296,7 +15367,7 @@ def get_canteen_count():
     )
     staff_meals = (
         User.query.filter_by(school_id=g.school_id)
-        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor"]))
+        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor", "finance", "inventory_manager", "kitchen"]))
         .count()
     )
     attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
@@ -18690,6 +18761,40 @@ def recover_subscription_reconciliation_gaps():
     except Exception as exc:
         db.session.rollback()
         return jsonify({"message": "Paystack reconciliation failed", "error": str(exc)}), 500
+
+
+@api.route("/finance/paystack/recover-reference", methods=["POST"])
+@multi_tenant_guard
+@jwt_required()
+@role_required("proprietor", "finance")
+def recover_finance_paystack_reference():
+    """Recover one Paystack transaction reference without relying on the removed reconciliation card."""
+    payload = request.get_json(silent=True) or {}
+    reference = sanitize_string(payload.get("reference") or "") or ""
+    if not reference:
+        return jsonify({"message": "Transaction reference is required."}), 400
+
+    from backend.paystack_integration import verify_payment, PaystackError
+
+    try:
+        transaction = verify_payment(reference)
+    except PaystackError as exc:
+        return jsonify({"message": "Unable to verify the Paystack transaction.", "error": str(exc)}), 502
+
+    if sanitize_string(transaction.get("status") or "").lower() != "success":
+        return jsonify({
+            "status": "not_completed",
+            "reference": reference,
+            "message": "The Paystack transaction is not yet marked successful.",
+        }), 409
+
+    try:
+        outcome = _recover_paystack_transaction(transaction, school_id_scope=g.school_id)
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"message": "Paystack recovery failed", "error": str(exc), "reference": reference}), 500
+
+    return jsonify({"status": outcome, "reference": reference}), 200
 
 
 @api.route("/school/subscription/statement/download", methods=["GET"])

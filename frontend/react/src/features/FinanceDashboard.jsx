@@ -147,7 +147,7 @@ export default function FinanceDashboard() {
       </div>
 
       {/* Finance Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-blue-500">
           <p className="text-gray-500 text-xs font-bold uppercase">Total Collected</p>
           <p className="text-3xl font-black text-blue-600">₵{stats.total_collected?.toFixed(2) || '0.00'}</p>
@@ -155,14 +155,6 @@ export default function FinanceDashboard() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-yellow-500">
           <p className="text-gray-500 text-xs font-bold uppercase">Outstanding</p>
           <p className="text-3xl font-black text-yellow-600">₵{stats.outstanding_balance?.toFixed(2) || '0.00'}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-green-500">
-          <p className="text-gray-500 text-xs font-bold uppercase">Paid Students</p>
-          <p className="text-3xl font-black text-green-600">{stats.paid_count || 0}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-red-500">
-          <p className="text-gray-500 text-xs font-bold uppercase">Unpaid Students</p>
-          <p className="text-3xl font-black text-red-600">{stats.unpaid_count || 0}</p>
         </div>
       </div>
 

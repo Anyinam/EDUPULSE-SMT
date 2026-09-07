@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { getAuthToken, validateTokenExpiry } from './utils/authUtils';
 const Layout = lazy(() => import('./components/Layout'));
 const Login = lazy(() => import('./features/login'));
 const AdminLogin = lazy(() => import('./features/AdminLogin'));
@@ -38,12 +39,49 @@ function RouteFallback() {
   );
 }
 
+function getStoredPostLoginTarget() {
+  return localStorage.getItem('post_login_target') || '/login';
+}
+
+function isActiveSession() {
+  return Boolean(getAuthToken()) && validateTokenExpiry() && Boolean(localStorage.getItem('school_id'));
+}
+
+function getStoredRoles() {
+  try {
+    const parsedRoles = JSON.parse(localStorage.getItem('roles') || '[]');
+    return Array.isArray(parsedRoles) ? parsedRoles : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function isKitchenPrimarySession() {
+  const primaryRole = localStorage.getItem('role');
+  if (primaryRole === 'kitchen') {
+    return true;
+  }
+  return getStoredRoles().includes('kitchen') && !getStoredRoles().some((role) => ['teacher', 'homeroom', 'headmaster', 'proprietor'].includes(role));
+}
+
+function SubjectTeachingRoute() {
+  return isKitchenPrimarySession() ? <Navigate to="/kitchen" replace /> : <TeacherDashboard />;
+}
+
+function LoginRoute() {
+  return isActiveSession() ? <Navigate to={getStoredPostLoginTarget()} replace /> : <Login />;
+}
+
+function RootRoute() {
+  return <Navigate to={isActiveSession() ? getStoredPostLoginTarget() : '/login'} replace />;
+}
+
 export default function App() {
   return (
     <Router>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<LoginRoute />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/logout" element={<Logout />} />
           <Route path="/register" element={<Register />} />
@@ -67,7 +105,7 @@ export default function App() {
             <Route path="finance" element={<FinanceDashboard />} />
             <Route path="homeroom" element={<HomeroomDashboard />} />
             <Route path="teacher" element={<TeacherDashboard />} />
-            <Route path="subject-teaching" element={<TeacherDashboard />} />
+            <Route path="subject-teaching" element={<SubjectTeachingRoute />} />
             <Route path="report-builder" element={<ReportBuilder />} />
             <Route path="profile" element={<ProfileSettings />} />
             <Route path="settings" element={<SettingsPanel />} />
@@ -76,9 +114,9 @@ export default function App() {
             <Route path="inventory" element={<InventoryManager />} />
             <Route path="help" element={<HelpCenter />} />
             <Route path="admin/support" element={<AdminSupport />} />
-            <Route index element={<Navigate to="/login" replace />} />
+            <Route index element={<RootRoute />} />
           </Route>
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<RootRoute />} />
         </Routes>
       </Suspense>
     </Router>

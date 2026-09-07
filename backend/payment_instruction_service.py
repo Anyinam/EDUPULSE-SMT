@@ -1,6 +1,17 @@
 from datetime import datetime, timezone
 
 
+TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
+
+
+def _get_tuition_convenience_fee_percentage(settings):
+    other_fees = settings.other_fees if settings and isinstance(settings.other_fees, dict) else {}
+    try:
+        return round(max(0.0, float(other_fees.get(TUITION_CONVENIENCE_FEE_KEY, 1.95) or 0.0)), 2)
+    except (TypeError, ValueError):
+        return 1.95
+
+
 def build_payment_collection_intent_payload(intent, sanitize_string):
     if not intent:
         return None
@@ -94,6 +105,7 @@ def build_student_payment_instruction_payload(
     other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
     feeding_plan_fees = get_feeding_plan_fees(settings)
     admission_fee = get_school_admission_fee_config(settings)
+    tuition_convenience_fee_percentage = _get_tuition_convenience_fee_percentage(settings)
 
     fees_config = {
         "tuition_fee": settings.tuition_fee if settings else 0.0,
@@ -107,42 +119,24 @@ def build_student_payment_instruction_payload(
     payment_codes = generate_all_payment_codes(student.student_code, fees_config)
 
     codes_list = []
-    for fee_type, code in payment_codes.items():
-        if fee_type == "Feeding" and feeding_plan_fees["has_explicit_plans"]:
-            continue
-
-        if fee_type == "Tuition":
-            base_amount = fees_config["tuition_fee"] + fees_config["terminal_report_fee"]
-            display_name = "Tuition + Terminal Report"
-        elif fee_type == "Feeding":
-            base_amount = fees_config["feeding_fee"]
-            display_name = fee_type
-        elif fee_type == "Uniform":
-            base_amount = fees_config["uniform_fee"]
-            display_name = fee_type
-        elif fee_type == "Transport":
-            base_amount = fees_config["transport_fee"]
-            display_name = fee_type
-        else:
-            base_amount = fees_config["other_fees"].get(fee_type, 0.0)
-            display_name = fee_type
-
-        if student.is_on_scholarship:
-            if fee_type == "Tuition" and student.scholarship_covers_tuition:
-                base_amount = 0.0
-            if fee_type == "Feeding" and student.scholarship_covers_feeding:
-                base_amount = 0.0
+    tuition_reference = payment_codes.get("Tuition")
+    if tuition_reference:
+        base_amount = fees_config["tuition_fee"]
+        if student.is_on_scholarship and student.scholarship_covers_tuition:
+            base_amount = 0.0
+        convenience_fee_amount = round(base_amount * (tuition_convenience_fee_percentage / 100.0), 2)
+        total_amount = round(base_amount + convenience_fee_amount, 2)
 
         codes_list.append({
-            "fee_type": display_name,
-            "code": code,
-            "reference_code": code,
+            "fee_type": "Tuition",
+            "code": tuition_reference,
+            "reference_code": tuition_reference,
             "payment_identity_base": student.student_code,
-            "payment_category": {"fee_type": fee_type},
+            "payment_category": {"fee_type": "Tuition"},
             "base_amount": round(base_amount, 2),
             "cash_amount": round(base_amount, 2),
-            "total_amount": round(base_amount, 2),
-            "amount": round(base_amount, 2),
+            "total_amount": total_amount,
+            "amount": total_amount,
             "virtual_bank_account": None,
             "virtual_bank_name": None,
             "momo_shortcode": None,
@@ -150,55 +144,20 @@ def build_student_payment_instruction_payload(
             "has_virtual_route": False,
             "preferred_payment_model": "reference_first",
             "virtual_route": None,
-            "is_scholarship_fee": bool(
-                (fee_type == "Tuition" and student.scholarship_covers_tuition)
-                or (fee_type == "Feeding" and student.scholarship_covers_feeding)
-            ),
+            "is_scholarship_fee": bool(student.scholarship_covers_tuition),
+            "pricing_override": {
+                "estimated_provider_fee_rate_pct": tuition_convenience_fee_percentage,
+                "estimated_provider_fee_flat": 0.0,
+                "platform_fee_flat": 0.0,
+                "charge_parent_convenience_fee": True,
+                "platform_fee_label": "Convenience Fee",
+            },
             "instructions": (
-                f"Preferred option: use the EduPulse tracked transfer account for reference {code} when it is available. "
-                + f"If the school shares only its normal bank account or approved MoMo destination, pay GH₵ {base_amount:.2f} and enter reference {code} exactly as shown. "
-                + f"Keep learner code {student.student_code} and present the same reference at the school office if proof or manual confirmation is needed."
+                f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
+                + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
+                + f"The school tuition amount remains GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
             ),
         })
-
-    if feeding_plan_fees["has_explicit_plans"]:
-        frequency_specs = [
-            ("Daily", "DAY", feeding_plan_fees["daily"]),
-            ("Weekly", "WEK", feeding_plan_fees["weekly"]),
-            ("Monthly", "MON", feeding_plan_fees["monthly"]),
-        ]
-
-        for frequency_label, frequency_code, configured_amount in frequency_specs:
-            if configured_amount <= 0:
-                continue
-
-            base_amount = 0.0 if student.is_on_scholarship and student.scholarship_covers_feeding else configured_amount
-            reference_code = f"{student.student_code}-FEED-{frequency_code}"
-
-            codes_list.append({
-                "fee_type": f"Feeding ({frequency_label})",
-                "code": reference_code,
-                "reference_code": reference_code,
-                "payment_identity_base": student.student_code,
-                "payment_category": {"fee_type": "Feeding", "frequency": frequency_label},
-                "base_amount": round(base_amount, 2),
-                "cash_amount": round(base_amount, 2),
-                "total_amount": round(base_amount, 2),
-                "amount": round(base_amount, 2),
-                "virtual_bank_account": None,
-                "virtual_bank_name": None,
-                "momo_shortcode": None,
-                "subaccount_code": None,
-                "has_virtual_route": False,
-                "preferred_payment_model": "reference_first",
-                "virtual_route": None,
-                "is_scholarship_fee": bool(student.is_on_scholarship and student.scholarship_covers_feeding),
-                "instructions": (
-                    f"Preferred option: use the EduPulse tracked transfer account for the {frequency_label.lower()} feeding reference {reference_code} when it is available. "
-                    + f"If the school shares only its normal bank account or approved MoMo destination, pay GH₵ {base_amount:.2f} and enter reference {reference_code} exactly as shown. "
-                    + "Use the same reference at the school office when the payment is being confirmed manually."
-                ),
-            })
 
     attach_virtual_routes_to_payment_codes_fn(student, codes_list)
     provider_settings = get_payment_provider_settings(settings)
@@ -230,17 +189,22 @@ def build_student_payment_instruction_payload(
                 if country_supports_dvas
                 else "Tracked transfer accounts are not available for this school country yet."
             ),
-            "supported_rails": ["bank_app", "ussd_or_shortcode", "school_office_manual"],
+            "supported_rails": ["bank_app", "ussd_or_shortcode"],
             "recommended_examples": [item["reference_code"] for item in codes_list[:3]],
         },
         "admission_fee": admission_fee,
         "payment_collection_pricing": get_payment_collection_pricing(),
         "school_payment_account": {
-            "bank_name": school.bank_name if school else None,
-            "bank_account": school.bank_account if school else None,
-            "bank_account_name": school.bank_account_name if school else None,
-            "bank_branch": school.bank_branch if school else None,
+            "bank_name": None,
+            "bank_account": None,
+            "bank_account_name": None,
+            "bank_branch": None,
+        },
+        "fees_configuration": {
+            "tuition_fee": round(float(fees_config["tuition_fee"] or 0.0), 2),
+            "terminal_report_fee": round(float(fees_config["terminal_report_fee"] or 0.0), 2),
+            "tuition_convenience_fee_percentage": tuition_convenience_fee_percentage,
         },
         "payment_codes": codes_list,
-        "note": "Preferred model: use the EduPulse tracked transfer account for each fee whenever it appears. If the school gives only a normal bank or approved MoMo destination, keep the exact reference in the narration and in any proof shown at the school office.",
+        "note": "Tuition collection now uses the EduPulse tracked transfer account only. The school tuition amount stays separate from the report-card fee, and the school bank account is intentionally hidden from parent-facing instructions.",
     }

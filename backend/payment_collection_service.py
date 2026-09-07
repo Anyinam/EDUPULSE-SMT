@@ -221,7 +221,10 @@ def create_or_reuse_student_virtual_account_intent(
     if base_amount <= 0:
         return None, "This fee route does not currently require payment."
 
-    pricing_breakdown = calculate_payment_collection_breakdown_fn(base_amount, get_payment_collection_pricing())
+    pricing = dict(get_payment_collection_pricing() or {})
+    if isinstance(payment_code.get("pricing_override"), dict):
+        pricing.update(payment_code["pricing_override"])
+    pricing_breakdown = calculate_payment_collection_breakdown_fn(base_amount, pricing)
     provider_settings = get_payment_provider_settings(settings)
     split_config, error = get_or_create_paystack_transfer_split_fn(
         school,

@@ -1,3 +1,24 @@
+TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
+
+
+def _normalize_visible_other_fees(raw_other_fees):
+    if not isinstance(raw_other_fees, dict):
+        return {}
+    return {
+        fee_name: amount
+        for fee_name, amount in raw_other_fees.items()
+        if fee_name != TUITION_CONVENIENCE_FEE_KEY
+    }
+
+
+def _read_tuition_convenience_fee_percentage(settings):
+    other_fees = settings.other_fees if settings and isinstance(settings.other_fees, dict) else {}
+    try:
+        return round(float(other_fees.get(TUITION_CONVENIENCE_FEE_KEY, 1.95) or 0.0), 2)
+    except (TypeError, ValueError):
+        return 1.95
+
+
 def update_school_fees(
     data,
     school_id,
@@ -33,14 +54,24 @@ def update_school_fees(
         settings.admission_fee_enabled = bool(data.get("admission_fee_enabled"))
     if "admission_fee_amount" in data:
         settings.admission_fee_amount = float(data["admission_fee_amount"]) if data["admission_fee_amount"] else 0.0
-    if "other_fees" in data:
-        settings.other_fees = data["other_fees"] if isinstance(data["other_fees"], dict) else {}
+    other_fees_payload = _normalize_visible_other_fees(data.get("other_fees", settings.other_fees or {}))
+    tuition_convenience_fee_percentage = data.get("tuition_convenience_fee_percentage")
+    if tuition_convenience_fee_percentage in (None, ""):
+        tuition_convenience_fee_percentage = _read_tuition_convenience_fee_percentage(settings)
+    try:
+        tuition_convenience_fee_percentage = round(max(0.0, float(tuition_convenience_fee_percentage or 0.0)), 2)
+    except (TypeError, ValueError):
+        tuition_convenience_fee_percentage = 1.95
+    settings.other_fees = {
+        **other_fees_payload,
+        TUITION_CONVENIENCE_FEE_KEY: tuition_convenience_fee_percentage,
+    }
 
     log_action(
         actor_id,
         school_id,
         "FEES_UPDATE",
-        f"Updated school fees: Tuition={settings.tuition_fee}, Feeding={settings.feeding_fee}, Transport={settings.transport_fee}",
+        f"Updated school fees: Tuition={settings.tuition_fee}, Feeding={settings.feeding_fee}, Transport={settings.transport_fee}, Tuition convenience fee={tuition_convenience_fee_percentage}%",
     )
     db_session.commit()
     return {"message": "Fees updated successfully."}
@@ -51,6 +82,7 @@ def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_pla
     if not settings:
         return {
             "tuition_fee": 0.0,
+            "tuition_convenience_fee_percentage": 1.95,
             "feeding_fee": 0.0,
             "feeding_daily_fee": 0.0,
             "feeding_weekly_fee": 0.0,
@@ -64,8 +96,10 @@ def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_pla
         }
 
     feeding_plan_fees = get_feeding_plan_fees(settings)
+    visible_other_fees = _normalize_visible_other_fees(settings.other_fees or {})
     return {
         "tuition_fee": settings.tuition_fee or 0.0,
+        "tuition_convenience_fee_percentage": _read_tuition_convenience_fee_percentage(settings),
         "feeding_fee": feeding_plan_fees["primary"],
         "feeding_daily_fee": feeding_plan_fees["daily"],
         "feeding_weekly_fee": feeding_plan_fees["weekly"],
@@ -75,7 +109,7 @@ def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_pla
         "terminal_report_fee": settings.terminal_report_fee or 0.0,
         "admission_fee_enabled": bool(settings.admission_fee_enabled),
         "admission_fee_amount": settings.admission_fee_amount or 0.0,
-        "other_fees": settings.other_fees or {},
+        "other_fees": visible_other_fees,
     }
 
 

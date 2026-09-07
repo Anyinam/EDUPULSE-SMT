@@ -31,6 +31,7 @@ export default function Layout() {
   const assignedClass = localStorage.getItem('assigned_class');
 
   const hasRole = (r) => roles.includes(r) || role === r;
+  const shouldHideTeachingMenus = hasRole('kitchen');
 
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
@@ -200,7 +201,7 @@ export default function Layout() {
               <li><Link to="/headmaster/admissions" className="hover:text-blue-200 pl-3 transition-colors">🎓 Admissions</Link></li>
               {hasRole('homeroom') && <li><Link to="/report-builder" className="hover:text-blue-200 pl-3 transition-colors">📝 Report Builder</Link></li>}
               {hasRole('homeroom') && <li><Link to="/homeroom" className="hover:text-blue-200 pl-3 transition-colors">🏠 Homeroom Dashboard</Link></li>}
-              {hasRole('teacher') && <li><Link to="/subject-teaching" className="hover:text-blue-200 pl-3 transition-colors">🎓 Subject Teaching</Link></li>}
+              {hasRole('teacher') && !shouldHideTeachingMenus && <li><Link to="/subject-teaching" className="hover:text-blue-200 pl-3 transition-colors">🎓 Subject Teaching</Link></li>}
             </>
           )}
 
@@ -236,7 +237,7 @@ export default function Layout() {
           )}
 
           {/* Teachers */}
-          {(hasRole('teacher') || hasRole('homeroom')) && !hasRole('headmaster') && (
+          {(hasRole('teacher') || hasRole('homeroom')) && !hasRole('headmaster') && !shouldHideTeachingMenus && (
             <>
               {(assignedClass || hasRole('homeroom')) && <li><Link to="/homeroom" className="hover:text-blue-200 pl-3 transition-colors">🏠 Homeroom Dashboard</Link></li>}
               {(assignedClass || hasRole('homeroom')) && <li><Link to="/report-builder" className="hover:text-blue-200 pl-3 transition-colors">📝 Report Builder</Link></li>}

@@ -330,18 +330,14 @@ describe('StudentPaymentTracker', () => {
     fireEvent.click(screen.getByText('Ama Mensah'));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Tracked Transfer' })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Tracked Transfer' }));
-
-    await waitFor(() => {
       expect(screen.getByText(/tracked transfer account ready/i)).toBeInTheDocument();
     });
 
     expect(screen.getByText(/Paystack-Titan/i)).toBeInTheDocument();
     expect(screen.getByText(/0192837465/i)).toBeInTheDocument();
     expect(screen.getByText(/Transfer total: GH₵ 106.00/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /tracked transfer/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /online checkout link/i })).not.toBeInTheDocument();
     expect(axios.post).toHaveBeenCalledWith(
       '/api/students/1/payment-codes/S001-T1/virtual-account',
       {},
@@ -538,5 +534,92 @@ describe('StudentPaymentTracker', () => {
     expect(printWindow.document.write.mock.calls[0][0]).toContain('Yaw Owusu');
     expect(printWindow.document.write.mock.calls[0][0]).toContain('1111111111');
     expect(printWindow.document.write.mock.calls[0][0]).toContain('2222222222');
+  });
+
+  it('recovers a Paystack payment by exact reference from the tracker card', async () => {
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              name: 'Ama Mensah',
+              student_code: 'S001',
+              current_class: 'JHS 1',
+              parent_name: 'Kojo Mensah',
+              parent_phone: '0240000000',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/school/fees') {
+        return Promise.resolve({
+          data: {
+            tuition_fee: 120,
+            terminal_report_fee: 10,
+            feeding_fee: 0,
+            uniform_fee: 0,
+            transport_fee: 0,
+          },
+        });
+      }
+
+      if (url === '/api/students/1/payments') {
+        return Promise.resolve({ data: [] });
+      }
+
+      if (url === '/api/students/1/payment-codes') {
+        return Promise.resolve({
+          data: {
+            student_name: 'Ama Mensah',
+            student_code: 'S001',
+            payment_identity: {
+              supports_fee_route_dvas: false,
+            },
+            payment_codes: [],
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    axios.post.mockImplementation((url) => {
+      if (url === '/api/finance/paystack/recover-reference') {
+        return Promise.resolve({
+          data: {
+            status: 'recorded',
+            reference: '6a9d6f5523744a1df06a6143',
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    render(<StudentPaymentTracker />);
+
+    const referenceInput = await screen.findByLabelText(/transaction reference/i);
+    fireEvent.change(referenceInput, {
+      target: { value: '6a9d6f5523744a1df06a6143' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /recover paystack payment/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/recovered and recorded successfully/i)).toBeInTheDocument();
+    });
+
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/finance/paystack/recover-reference',
+      { reference: '6a9d6f5523744a1df06a6143' },
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token-1',
+          'X-School-ID': 'TEST-001',
+        }),
+      })
+    );
   });
 });

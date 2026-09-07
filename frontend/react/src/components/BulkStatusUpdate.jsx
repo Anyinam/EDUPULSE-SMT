@@ -10,6 +10,9 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [loadingStudents, setLoadingStudents] = useState(false);
   const { classes } = useSchoolClasses();
 
   useEffect(() => {
@@ -21,6 +24,42 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
       setSelectedClass(classes[0]);
     }
   }, [classes, selectedClass]);
+
+  useEffect(() => {
+    if (!showModal) {
+      return;
+    }
+
+    const fetchStudents = async () => {
+      try {
+        setLoadingStudents(true);
+        const token = localStorage.getItem('token');
+        const schoolId = localStorage.getItem('school_id');
+        const response = await axios.get('/api/students?include_inactive=true', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-School-ID': schoolId,
+          },
+        });
+        setStudents(Array.isArray(response.data) ? response.data : []);
+      } catch (error) {
+        setStudents([]);
+      } finally {
+        setLoadingStudents(false);
+      }
+    };
+
+    fetchStudents();
+  }, [showModal]);
+
+  useEffect(() => {
+    setSelectedStudentIds([]);
+  }, [selectedClass, newStatus]);
+
+  const visibleStudents = students.filter((student) => (
+    student.current_class === selectedClass && (student.status || 'Active') === 'Active'
+  ));
+  const allVisibleSelected = visibleStudents.length > 0 && visibleStudents.every((student) => selectedStudentIds.includes(student.id));
 
   const validStatuses = ['Graduated', 'Withdrawn', 'Transferred', 'Suspended', 'Inactive'];
 
@@ -34,6 +73,7 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
       setLoading(true);
       const token = localStorage.getItem('token');
       const schoolId = localStorage.getItem('school_id');
+      const selectAllClass = selectedStudentIds.length === 0 || allVisibleSelected;
       
       const response = await axios.post(
         '/api/admissions/students/bulk-update-status',
@@ -41,7 +81,9 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
           class: selectedClass,
           status: newStatus,
           current_status: 'Active',
-          reason: reason
+          reason: reason,
+          select_all_class: selectAllClass,
+          student_ids: selectAllClass ? [] : selectedStudentIds,
         },
         {
           headers: {
@@ -67,6 +109,22 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleStudentSelection = (studentId) => {
+    setSelectedStudentIds((current) => (
+      current.includes(studentId)
+        ? current.filter((id) => id !== studentId)
+        : [...current, studentId]
+    ));
+  };
+
+  const toggleAllVisibleStudents = () => {
+    if (allVisibleSelected) {
+      setSelectedStudentIds([]);
+      return;
+    }
+    setSelectedStudentIds(visibleStudents.map((student) => student.id));
   };
 
   if (trigger === 'modal') {
@@ -112,6 +170,48 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
                       <p className="text-xs text-gray-500 mt-1">Only Active students will be updated</p>
                     </div>
 
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Student selection</p>
+                          <p className="text-xs text-slate-500">Leave all selected to update the whole class, or pick specific students below.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={toggleAllVisibleStudents}
+                          disabled={visibleStudents.length === 0}
+                          className={`rounded-lg px-3 py-2 text-xs font-bold transition ${allVisibleSelected ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 border border-slate-300'}`}
+                        >
+                          {allVisibleSelected ? 'Selected Entire Class' : 'Select Entire Class'}
+                        </button>
+                      </div>
+
+                      <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                        {loadingStudents ? <p className="text-xs text-slate-500">Loading students...</p> : null}
+                        {!loadingStudents && visibleStudents.length === 0 ? <p className="text-xs text-slate-500">No active students found in this class.</p> : null}
+                        {visibleStudents.map((student) => {
+                          const checked = selectedStudentIds.includes(student.id);
+                          return (
+                            <label
+                              key={student.id}
+                              className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${checked ? 'border-blue-500 bg-blue-50 text-blue-900' : 'border-slate-200 bg-white text-slate-700'}`}
+                            >
+                              <span>
+                                <span className="font-semibold">{student.name}</span>
+                                <span className="ml-2 text-xs text-slate-500">{student.student_code} • {student.current_class}</span>
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleStudentSelection(student.id)}
+                                className="h-4 w-4"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         New Status
@@ -145,7 +245,7 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
                     </div>
 
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
-                      ⚠️ This will update all <strong>Active</strong> students in {selectedClass} to <strong>{newStatus}</strong>
+                      ⚠️ This will update <strong>{selectedStudentIds.length > 0 && !allVisibleSelected ? `${selectedStudentIds.length} selected` : 'all active'}</strong> students in {selectedClass} to <strong>{newStatus}</strong>
                     </div>
 
                     <div className="flex gap-3 pt-4">
@@ -168,7 +268,7 @@ const BulkStatusUpdate = ({ trigger = 'button' }) => {
                         ) : (
                           <>
                             <Check className="w-4 h-4" />
-                            Update {selectedClass}
+                            Update {selectedStudentIds.length > 0 && !allVisibleSelected ? 'Selected Students' : selectedClass}
                           </>
                         )}
                       </button>
