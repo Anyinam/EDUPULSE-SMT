@@ -66,7 +66,10 @@ def get_student_payment_collection_intents(student, payment_collection_intent_mo
             continue
         if intent.intent_status == "deactivated":
             continue
-        if intent.expires_at and intent.expires_at < now and intent.intent_status == "assigned" and not intent.paid_at:
+        expires_at = intent.expires_at
+        if expires_at and getattr(expires_at, "tzinfo", None) is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at and expires_at < now and intent.intent_status == "assigned" and not intent.paid_at:
             intent.intent_status = "expired"
             continue
         latest_by_reference[intent.reference_code] = intent
@@ -119,6 +122,32 @@ def build_student_payment_instruction_payload(
     payment_codes = generate_all_payment_codes(student.student_code, fees_config)
 
     codes_list = []
+
+    def append_standard_code(fee_type, reference_code, base_amount, payment_category, instructions, *, amount=None, pricing_override=None):
+        normalized_base_amount = round(float(base_amount or 0.0), 2)
+        normalized_total_amount = round(float(amount if amount is not None else normalized_base_amount), 2)
+        codes_list.append({
+            "fee_type": fee_type,
+            "code": reference_code,
+            "reference_code": reference_code,
+            "payment_identity_base": student.student_code,
+            "payment_category": payment_category,
+            "base_amount": normalized_base_amount,
+            "cash_amount": normalized_base_amount,
+            "total_amount": normalized_total_amount,
+            "amount": normalized_total_amount,
+            "virtual_bank_account": None,
+            "virtual_bank_name": None,
+            "momo_shortcode": None,
+            "subaccount_code": None,
+            "has_virtual_route": False,
+            "preferred_payment_model": "reference_first",
+            "virtual_route": None,
+            "is_scholarship_fee": False,
+            "pricing_override": pricing_override,
+            "instructions": instructions,
+        })
+
     tuition_reference = payment_codes.get("Tuition")
     if tuition_reference:
         base_amount = fees_config["tuition_fee"]
@@ -127,37 +156,89 @@ def build_student_payment_instruction_payload(
         convenience_fee_amount = round(base_amount * (tuition_convenience_fee_percentage / 100.0), 2)
         total_amount = round(base_amount + convenience_fee_amount, 2)
 
-        codes_list.append({
-            "fee_type": "Tuition",
-            "code": tuition_reference,
-            "reference_code": tuition_reference,
-            "payment_identity_base": student.student_code,
-            "payment_category": {"fee_type": "Tuition"},
-            "base_amount": round(base_amount, 2),
-            "cash_amount": round(base_amount, 2),
-            "total_amount": total_amount,
-            "amount": total_amount,
-            "virtual_bank_account": None,
-            "virtual_bank_name": None,
-            "momo_shortcode": None,
-            "subaccount_code": None,
-            "has_virtual_route": False,
-            "preferred_payment_model": "reference_first",
-            "virtual_route": None,
-            "is_scholarship_fee": bool(student.scholarship_covers_tuition),
-            "pricing_override": {
+        append_standard_code(
+            "Tuition",
+            tuition_reference,
+            base_amount,
+            {"fee_type": "Tuition"},
+            (
+                f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
+                + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
+                + f"The school tuition amount remains GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
+            ),
+            amount=total_amount,
+            pricing_override={
                 "estimated_provider_fee_rate_pct": tuition_convenience_fee_percentage,
                 "estimated_provider_fee_flat": 0.0,
                 "platform_fee_flat": 0.0,
                 "charge_parent_convenience_fee": True,
                 "platform_fee_label": "Convenience Fee",
             },
-            "instructions": (
-                f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
-                + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
-                + f"The school tuition amount remains GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
-            ),
-        })
+        )
+        codes_list[-1]["is_scholarship_fee"] = bool(student.scholarship_covers_tuition)
+
+    feeding_plan_entries = [
+        ("Daily", "DAY", round(float(feeding_plan_fees.get("daily") or 0.0), 2)),
+        ("Weekly", "WEK", round(float(feeding_plan_fees.get("weekly") or 0.0), 2)),
+        ("Monthly", "MON", round(float(feeding_plan_fees.get("monthly") or 0.0), 2)),
+    ]
+    has_explicit_feeding_plans = any(amount > 0 for _frequency, _suffix, amount in feeding_plan_entries)
+    if has_explicit_feeding_plans:
+        for frequency, suffix, amount in feeding_plan_entries:
+            if amount <= 0:
+                continue
+            reference_code = f"{student.student_code}-FEED-{suffix}"
+            append_standard_code(
+                f"Feeding ({frequency})",
+                reference_code,
+                amount,
+                {"fee_type": "Feeding", "frequency": frequency},
+                f"Use reference {reference_code} when recording or confirming the {frequency.lower()} feeding payment for this learner.",
+            )
+    else:
+        feeding_reference = payment_codes.get("Feeding")
+        if feeding_reference and feeding_plan_fees.get("primary"):
+            append_standard_code(
+                "Feeding",
+                feeding_reference,
+                feeding_plan_fees.get("primary") or 0.0,
+                {"fee_type": "Feeding", "frequency": "Monthly"},
+                f"Use reference {feeding_reference} when recording or confirming feeding payment for this learner.",
+            )
+
+    uniform_reference = payment_codes.get("Uniform")
+    if uniform_reference and fees_config.get("uniform_fee"):
+        append_standard_code(
+            "Uniform",
+            uniform_reference,
+            fees_config.get("uniform_fee") or 0.0,
+            {"fee_type": "Uniform"},
+            f"Use reference {uniform_reference} when recording or confirming the uniform payment for this learner.",
+        )
+
+    transport_reference = payment_codes.get("Transport")
+    if transport_reference and fees_config.get("transport_fee"):
+        append_standard_code(
+            "Transport",
+            transport_reference,
+            fees_config.get("transport_fee") or 0.0,
+            {"fee_type": "Transport"},
+            f"Use reference {transport_reference} when recording or confirming the transport payment for this learner.",
+        )
+
+    for fee_name, amount in other_fees.items():
+        if fee_name == TUITION_CONVENIENCE_FEE_KEY:
+            continue
+        reference_code = payment_codes.get(fee_name)
+        if not reference_code or float(amount or 0.0) <= 0:
+            continue
+        append_standard_code(
+            fee_name,
+            reference_code,
+            amount,
+            {"fee_type": fee_name},
+            f"Use reference {reference_code} when recording or confirming the {fee_name.lower()} payment for this learner.",
+        )
 
     attach_virtual_routes_to_payment_codes_fn(student, codes_list)
     provider_settings = get_payment_provider_settings(settings)

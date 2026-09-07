@@ -210,11 +210,14 @@ def create_or_reuse_student_virtual_account_intent(
         .order_by(payment_collection_intent_model.id.desc())
         .first()
     )
-    if existing and existing.intent_status == "assigned" and (not existing.expires_at or existing.expires_at >= now):
+    existing_expires_at = existing.expires_at if existing else None
+    if existing_expires_at and getattr(existing_expires_at, "tzinfo", None) is None:
+        existing_expires_at = existing_expires_at.replace(tzinfo=timezone.utc)
+    if existing and existing.intent_status == "assigned" and (not existing_expires_at or existing_expires_at >= now):
         return existing, None
     if existing and existing.intent_status == "paid":
         return existing, None
-    if existing and existing.intent_status == "assigned" and existing.expires_at and existing.expires_at < now:
+    if existing and existing.intent_status == "assigned" and existing_expires_at and existing_expires_at < now:
         existing.intent_status = "expired"
 
     base_amount = round(float(payment_code.get("base_amount") or payment_code.get("amount") or 0.0), 2)

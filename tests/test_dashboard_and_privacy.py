@@ -987,6 +987,10 @@ def test_students_by_class_expires_daily_feeding_once_coverage_is_used(client, a
             }
         }
     }
+    previous_instruction_day = datetime.now(timezone.utc).date() - timedelta(days=1)
+    while previous_instruction_day.weekday() >= 5:
+        previous_instruction_day -= timedelta(days=1)
+
     db.session.add(
         Payment(
             student_id=student.id,
@@ -997,7 +1001,7 @@ def test_students_by_class_expires_daily_feeding_once_coverage_is_used(client, a
             method="Bank_Auto",
             status="Confirmed",
             payment_category={"frequency": "Daily"},
-            date_paid=datetime.now(timezone.utc) - timedelta(days=1),
+            date_paid=datetime.combine(previous_instruction_day, datetime.min.time(), tzinfo=timezone.utc),
         )
     )
     db.session.commit()
@@ -3301,17 +3305,17 @@ def test_payment_codes_return_reference_first_amounts_without_convenience_fee(cl
 
     assert response.status_code == 200
     payload = response.get_json()
-    tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition + Terminal Report")
+    tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
     assert tuition_code["base_amount"] == 100.0
     assert tuition_code["cash_amount"] == 100.0
-    assert tuition_code["total_amount"] == 100.0
-    assert tuition_code["amount"] == 100.0
-    assert payload["school_payment_account"]["bank_name"] == "Fidelity Bank Ghana"
-    assert payload["school_payment_account"]["bank_account"] == "1234567890"
-    assert payload["school_payment_account"]["bank_account_name"] == "EduPulse School Account"
-    assert payload["school_payment_account"]["bank_branch"] == "Kumasi Main"
-    assert "pay gh₵ 100.00 and enter reference s0011 exactly as shown" in tuition_code["instructions"].lower()
-    assert "keep the exact reference" in payload["note"].lower()
+    assert tuition_code["total_amount"] == 101.95
+    assert tuition_code["amount"] == 101.95
+    assert payload["school_payment_account"]["bank_name"] is None
+    assert payload["school_payment_account"]["bank_account"] is None
+    assert payload["school_payment_account"]["bank_account_name"] is None
+    assert payload["school_payment_account"]["bank_branch"] is None
+    assert "tracked transfer account" in tuition_code["instructions"].lower()
+    assert "school bank account is intentionally hidden" in payload["note"].lower()
 
 
 def test_student_payment_code_can_generate_tracked_transfer_account(client, app, test_school, test_proprietor, test_students, monkeypatch):
@@ -3368,7 +3372,7 @@ def test_student_payment_code_can_generate_tracked_transfer_account(client, app,
 
     codes_response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
     assert codes_response.status_code == 200
-    tuition_code = next(item for item in codes_response.get_json()["payment_codes"] if item["fee_type"] == "Tuition + Terminal Report")
+    tuition_code = next(item for item in codes_response.get_json()["payment_codes"] if item["fee_type"] == "Tuition")
 
     response = client.post(
         f"/api/students/{student.id}/payment-codes/{tuition_code['reference_code']}/virtual-account",
@@ -3381,12 +3385,12 @@ def test_student_payment_code_can_generate_tracked_transfer_account(client, app,
     assert payload["virtual_route"]["account_number"] == "0192837465"
     assert payload["virtual_route"]["bank_name"] == "Paystack-Titan"
     assert payload["virtual_route"]["base_amount"] == 100.0
-    assert payload["virtual_route"]["convenience_fee_amount"] == 6.0
-    assert payload["virtual_route"]["total_amount"] == 106.0
+    assert payload["virtual_route"]["convenience_fee_amount"] == 1.95
+    assert payload["virtual_route"]["total_amount"] == 101.95
     assert payload["virtual_route"]["split_code"] == "SPLIT_school001_10000"
     assert payload["virtual_route"]["settlement_mode"] == "paystack_flat_split"
     assert payload["virtual_route"]["school_settlement_amount"] == 100.0
-    assert payload["virtual_route"]["platform_settlement_amount"] == 6.0
+    assert payload["virtual_route"]["platform_settlement_amount"] == 1.95
 
     intent = PaymentCollectionIntent.query.filter_by(student_id=student.id, reference_code=tuition_code["reference_code"]).first()
     assert intent is not None
@@ -3416,7 +3420,7 @@ def test_student_payment_code_requires_school_settlement_before_tracked_transfer
     student = test_students[0]
     codes_response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
     assert codes_response.status_code == 200
-    tuition_code = next(item for item in codes_response.get_json()["payment_codes"] if item["fee_type"] == "Tuition + Terminal Report")
+    tuition_code = next(item for item in codes_response.get_json()["payment_codes"] if item["fee_type"] == "Tuition")
 
     response = client.post(
         f"/api/students/{student.id}/payment-codes/{tuition_code['reference_code']}/virtual-account",

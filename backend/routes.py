@@ -7302,6 +7302,8 @@ def get_student_payment_codes(student_id):
 
     if payload.get("payment_identity", {}).get("supports_fee_route_dvas"):
         for code in payload.get("payment_codes") or []:
+            if sanitize_string((code.get("payment_category") or {}).get("fee_type") or code.get("fee_type") or "") != "Tuition":
+                continue
             if code.get("has_virtual_route"):
                 continue
             intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, code)
@@ -7362,6 +7364,8 @@ def create_student_payment_virtual_account(student_id, reference_code):
     )
     if not selected_code:
         return jsonify({"message": "Payment reference not found for this student."}), 404
+    if sanitize_string((selected_code.get("payment_category") or {}).get("fee_type") or selected_code.get("fee_type") or "") != "Tuition":
+        return jsonify({"message": "Tracked transfer accounts are available for tuition references only."}), 400
 
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, selected_code)

@@ -19,6 +19,10 @@ export default function StudentPaymentTracker() {
   const [recoveryResult, setRecoveryResult] = useState(null);
   const { branding } = useBranding();
 
+  const getTrackerPaymentCodes = (codesRecord) => (codesRecord?.payment_codes || []).filter(
+    (code) => (code?.payment_category?.fee_type || code?.fee_type) === 'Tuition'
+  );
+
   const getAuthHeaders = () => ({
     headers: {
       'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -104,6 +108,9 @@ export default function StudentPaymentTracker() {
 
     const updatedPaymentCodes = await Promise.all(
       codesRecord.payment_codes.map(async (code) => {
+        if ((code?.payment_category?.fee_type || code?.fee_type) !== 'Tuition') {
+          return code;
+        }
         if (code.virtual_route?.account_number || code.has_virtual_route) {
           return code;
         }
@@ -400,6 +407,7 @@ export default function StudentPaymentTracker() {
   };
 
   const buildPaymentInstructionsHtml = (codesRecord) => {
+    const trackerPaymentCodes = getTrackerPaymentCodes(codesRecord);
     const schoolName = branding.school_name || branding.name || 'School';
     const schoolMotto = branding.school_motto || branding.motto || '';
     const schoolLogo = branding.logo_url || branding.logo || '';
@@ -407,7 +415,7 @@ export default function StudentPaymentTracker() {
     const schoolPhone = branding.school_phone || branding.phone || '';
     const schoolAddress = branding.school_address || branding.address || '';
     const themeColor = branding.theme_color || '#3b82f6';
-    const totalTrackedAmount = (codesRecord.payment_codes || []).reduce((sum, code) => sum + Number(code.virtual_route?.total_amount || code.total_amount || 0), 0);
+    const totalTrackedAmount = trackerPaymentCodes.reduce((sum, code) => sum + Number(code.virtual_route?.total_amount || code.total_amount || 0), 0);
 
     return `
       <div class="container">
@@ -443,7 +451,7 @@ export default function StudentPaymentTracker() {
               </tr>
             </thead>
             <tbody>
-              ${(codesRecord.payment_codes || []).map(code => `
+              ${trackerPaymentCodes.map(code => `
                 <tr>
                   <td><strong>${code.fee_type}</strong></td>
                   <td><span class="code-column">${code.reference_code || code.code}</span></td>
@@ -461,7 +469,7 @@ export default function StudentPaymentTracker() {
 
         <div class="section">
           <div class="section-title">💰 How to Pay</div>
-          ${(codesRecord.payment_codes || []).map(code => `
+          ${trackerPaymentCodes.map(code => `
             <div class="payment-method">
               <div class="payment-method-title">${code.fee_type}</div>
               <div class="payment-method-content">
@@ -492,7 +500,7 @@ export default function StudentPaymentTracker() {
           <div class="instructions">
             <div class="instructions-title">Per-Fee Instructions:</div>
             <div class="instruction-text">
-              ${(codesRecord.payment_codes || []).map(code =>
+              ${trackerPaymentCodes.map(code =>
                 `• <strong>${code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)}` : `Wait for the tracked transfer account before collecting tuition`} for reference <strong>${code.reference_code || code.code}</strong>.`
               ).join('<br>')}
             </div>
@@ -837,6 +845,7 @@ export default function StudentPaymentTracker() {
   });
 
   const feeTypes = ['Tuition'];
+  const trackerPaymentCodes = getTrackerPaymentCodes(paymentCodes);
 
   const getFeeTypeLabel = (feeType) => {
     return feeType;
@@ -1050,7 +1059,7 @@ export default function StudentPaymentTracker() {
                 </div>
               ) : null}
 
-              {paymentCodes && paymentCodes.payment_codes && paymentCodes.payment_codes.length > 0 && (
+              {paymentCodes && trackerPaymentCodes.length > 0 && (
                 <div className="bg-amber-50 border-l-4 border-l-amber-600 p-4 rounded-lg">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-bold text-amber-900 flex items-center gap-2">
@@ -1059,7 +1068,7 @@ export default function StudentPaymentTracker() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          const codesText = paymentCodes.payment_codes
+                          const codesText = trackerPaymentCodes
                             .map(c => {
                               const virtualRoute = c.virtual_route;
                               if (virtualRoute?.account_number) {
@@ -1097,7 +1106,7 @@ export default function StudentPaymentTracker() {
                         <p className="mt-1">{paymentCodes.payment_identity.tracked_transfer_readiness_note}</p>
                       </div>
                     ) : null}
-                    {paymentCodes.payment_codes.map((code, idx) => (
+                    {trackerPaymentCodes.map((code, idx) => (
                       (() => {
                         const referenceKey = code.reference_code || code.code;
                         const virtualRoute = code.virtual_route;
@@ -1152,7 +1161,7 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Preferred instruction: "Use the EduPulse tracked transfer account for reference <strong>{paymentCodes.payment_codes[0]?.reference_code || paymentCodes.payment_codes[0]?.code || 'S001-T1'}</strong> and pay the exact tracked total shown there." 
+                    💬 Preferred instruction: "Use the EduPulse tracked transfer account for reference <strong>{trackerPaymentCodes[0]?.reference_code || trackerPaymentCodes[0]?.code || 'S001-T1'}</strong> and pay the exact tracked total shown there." 
                   </p>
                 </div>
               )}
