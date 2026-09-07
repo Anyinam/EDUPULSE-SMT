@@ -1336,6 +1336,87 @@ def test_canteen_count_includes_homeroom_staff_meals(client, app, test_school, t
     assert payload["total_meals"] == staff_meals + 1
 
 
+def test_proprietor_live_feed_uses_same_meal_breakdown_as_kitchen(client, app, test_school, test_proprietor, monkeypatch):
+    from backend.routes import _mark_attendance_activity
+
+    monkeypatch.setattr("backend.routes._is_school_instruction_day", lambda _school_id, _target_date: True)
+
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    if settings is None:
+        settings = SchoolSettings(school_id=test_school.id)
+        db.session.add(settings)
+        db.session.flush()
+
+    finance_user = User(
+        username="finance_meals_case",
+        school_id=test_school.id,
+        role="finance",
+        roles=["finance"],
+        email="finance-meals@test.edu",
+    )
+    kitchen_user = User(
+        username="kitchen_meals_case",
+        school_id=test_school.id,
+        role="kitchen",
+        roles=["kitchen"],
+        email="kitchen-meals@test.edu",
+    )
+    finance_user.set_password("FinancePass123")
+    kitchen_user.set_password("KitchenPass123")
+    db.session.add_all([finance_user, kitchen_user])
+    db.session.flush()
+
+    covered_student = Student(
+        school_id=test_school.id,
+        first_name="Akosua",
+        surname="Meals",
+        name="Akosua Meals",
+        student_code="S954",
+        current_class="Primary 2",
+        is_present=True,
+        feeding_paid=False,
+    )
+    db.session.add(covered_student)
+    db.session.flush()
+
+    settings.report_template_config = {
+        "payment_plan_settings": {
+            "feeding": {
+                "daily": 5.0,
+            }
+        }
+    }
+    db.session.add(
+        Payment(
+            student_id=covered_student.id,
+            school_id=test_school.id,
+            created_by_user_id=test_proprietor.id,
+            amount=5.0,
+            payment_type="Feeding",
+            method="Cash",
+            status="Confirmed",
+            payment_category={"frequency": "Daily"},
+            date_paid=datetime.now(timezone.utc),
+        )
+    )
+    db.session.commit()
+    _mark_attendance_activity(test_school.id, submitted_classes=["Primary 2"])
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/proprietor/live-feed", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    expected_staff_meals = (
+        User.query.filter_by(school_id=test_school.id)
+        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor", "finance", "inventory_manager"]))
+        .count()
+    )
+    assert payload["stats"]["student_meals"] == 1
+    assert payload["stats"]["staff_meals"] == expected_staff_meals
+    assert payload["stats"]["canteen_count"] == expected_staff_meals + 1
+
+
 def test_canteen_count_ignores_stale_present_flags_until_attendance_is_marked_today(client, app, db, test_school, test_proprietor):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     if settings is None:

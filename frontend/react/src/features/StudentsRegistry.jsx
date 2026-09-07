@@ -90,6 +90,7 @@ export default function StudentsRegistry() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [classFilter, setClassFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
   const [editingStudent, setEditingStudent] = useState(null);
   const [editData, setEditData] = useState({});
   const [profileStudent, setProfileStudent] = useState(null);
@@ -149,10 +150,37 @@ export default function StudentsRegistry() {
     ].filter(Boolean))).sort()
   ), [schoolClasses, students, editData.current_class]);
 
+  const studentStatusCounts = useMemo(() => {
+    return students.reduce((summary, student) => {
+      const status = student.status || 'Active';
+      summary.all += 1;
+      if (status === 'Graduated') {
+        summary.graduated += 1;
+      } else if (status === 'Active') {
+        summary.active += 1;
+      } else {
+        summary.archive += 1;
+      }
+      return summary;
+    }, {
+      all: 0,
+      active: 0,
+      graduated: 0,
+      archive: 0,
+    });
+  }, [students]);
+
   const filteredStudents = useMemo(() => {
     return students.filter((student) => {
       const matchesClass = classFilter === 'All' || student.current_class === classFilter;
       if (!matchesClass) return false;
+
+      const studentStatus = student.status || 'Active';
+      const matchesStatus = statusFilter === 'All'
+        || (statusFilter === 'Active' && studentStatus === 'Active')
+        || (statusFilter === 'Graduated' && studentStatus === 'Graduated')
+        || (statusFilter === 'Archive' && !['Active', 'Graduated'].includes(studentStatus));
+      if (!matchesStatus) return false;
 
       return (
         filterText(student.name, normalizedQuery) ||
@@ -161,10 +189,11 @@ export default function StudentsRegistry() {
         filterText(student.is_on_scholarship ? (student.scholarship_covers_feeding ? 'tuition feeding scholarship' : 'tuition scholarship') : 'none', normalizedQuery) ||
         filterText(student.guardian_name, normalizedQuery) ||
         filterText(student.parent_email, normalizedQuery) ||
-        filterText(student.parent_phone, normalizedQuery)
+        filterText(student.parent_phone, normalizedQuery) ||
+        filterText(student.status, normalizedQuery)
       );
     });
-  }, [students, classFilter, normalizedQuery]);
+  }, [students, classFilter, normalizedQuery, statusFilter]);
 
   const handleDelete = async (student) => {
     if (!window.confirm(`Are you sure you want to delete ${student.name} (${student.student_code})? This cannot be undone.`)) {
@@ -467,8 +496,43 @@ export default function StudentsRegistry() {
         </div>
       </div>
 
+      <div className="mb-6 grid gap-3 md:grid-cols-4">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('All')}
+          className={`rounded-2xl border px-4 py-3 text-left transition ${statusFilter === 'All' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300'}`}
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70">Full Registry</p>
+          <p className="mt-2 text-2xl font-black">{studentStatusCounts.all}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('Active')}
+          className={`rounded-2xl border px-4 py-3 text-left transition ${statusFilter === 'Active' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-300'}`}
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70">Active</p>
+          <p className="mt-2 text-2xl font-black">{studentStatusCounts.active}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('Graduated')}
+          className={`rounded-2xl border px-4 py-3 text-left transition ${statusFilter === 'Graduated' ? 'border-blue-600 bg-blue-600 text-white' : 'border-blue-200 bg-blue-50 text-blue-900 hover:border-blue-300'}`}
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70">Graduates</p>
+          <p className="mt-2 text-2xl font-black">{studentStatusCounts.graduated}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('Archive')}
+          className={`rounded-2xl border px-4 py-3 text-left transition ${statusFilter === 'Archive' ? 'border-amber-600 bg-amber-600 text-white' : 'border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-300'}`}
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70">Other Inactive</p>
+          <p className="mt-2 text-2xl font-black">{studentStatusCounts.archive}</p>
+        </button>
+      </div>
+
       <div className="flex items-center justify-between text-xs text-slate-500 mb-3">
-        <span>Showing {filteredStudents.length} of {students.length} students</span>
+        <span>Showing {filteredStudents.length} of {students.length} students{statusFilter === 'Graduated' ? ' in Graduates' : statusFilter === 'Archive' ? ' in Other Inactive' : statusFilter === 'Active' ? ' in Active' : ''}</span>
         {loading && <span>Loading registry...</span>}
       </div>
 

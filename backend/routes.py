@@ -9019,6 +9019,40 @@ def _get_feeding_status_details_for_students(students, school_id, as_of_date=Non
     return details
 
 
+def _get_daily_meal_breakdown(school_id):
+    present_students = _get_present_students_for_today(school_id)
+    feeding_status_details = _get_feeding_status_details_for_students(
+        present_students,
+        school_id,
+    )
+    covered_student_meals = sum(
+        1
+        for student in present_students
+        if feeding_status_details.get(student.id, {}).get("covered")
+    )
+    staff_roles = [
+        "teacher",
+        "homeroom",
+        "headmaster",
+        "proprietor",
+        "finance",
+        "inventory_manager",
+    ]
+    total_staff_meals = (
+        User.query.filter_by(school_id=school_id)
+        .filter(User.role.in_(staff_roles))
+        .count()
+    )
+    return {
+        "present_students": present_students,
+        "feeding_status_details": feeding_status_details,
+        "total_students_present": len(present_students),
+        "covered_student_meals": covered_student_meals,
+        "total_staff_meals": total_staff_meals,
+        "total_meals_needed": covered_student_meals + total_staff_meals,
+    }
+
+
 def _summarize_live_feed_details(action, details):
     text = details if isinstance(details, str) else ""
     if not text:
@@ -11929,7 +11963,8 @@ def get_live_feed():
         critical_list = rescue_payload["students"]
         attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
         attendance_taken_today = attendance_snapshot.get("is_complete", False)
-        present_students = _get_present_students_for_today(g.school_id)
+        meal_breakdown = _get_daily_meal_breakdown(g.school_id)
+        present_students = meal_breakdown["present_students"]
 
         # Fetch pending payments recorded by teachers
         pending_payments = (
@@ -11946,21 +11981,9 @@ def get_live_feed():
         pending_groups = _group_pending_payments_by_class(pending_list)
 
         # Canteen Stats for Proprietor Oversight
-        feeding_status_details = _get_feeding_status_details_for_students(
-            present_students,
-            g.school_id,
-        )
-        student_meals = sum(
-            1
-            for student in present_students
-            if feeding_status_details.get(student.id, {}).get("covered")
-        )
-        staff_meals = (
-            User.query.filter_by(school_id=g.school_id)
-            .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor"]))
-            .count()
-        )
-        canteen_count = student_meals + staff_meals
+        student_meals = meal_breakdown["covered_student_meals"]
+        staff_meals = meal_breakdown["total_staff_meals"]
+        canteen_count = meal_breakdown["total_meals_needed"]
 
         recent_payments = (
             db.session.query(Payment, Student.name)
@@ -14829,9 +14852,10 @@ def kitchen_dashboard():
         students = Student.query.filter_by(school_id=g.school_id).all()
         attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
         attendance_taken_today = attendance_snapshot.get("is_complete", False)
-        present_students_today = _get_present_students_for_today(g.school_id)
+        meal_breakdown = _get_daily_meal_breakdown(g.school_id)
+        present_students_today = meal_breakdown["present_students"]
         present_student_ids = {student.id for student in present_students_today}
-        feeding_status_details = _get_feeding_status_details_for_students(present_students_today, g.school_id)
+        feeding_status_details = meal_breakdown["feeding_status_details"]
         students_by_class = {}
         for student in students:
             students_by_class.setdefault(student.current_class or "Unassigned", []).append(student)
@@ -14874,12 +14898,7 @@ def kitchen_dashboard():
 
         # Count active staff profiles that need meals alongside covered students.
         try:
-            staff_roles = ["teacher", "homeroom", "headmaster", "proprietor", "finance", "inventory_manager", "kitchen"]
-            staff_count = (
-                User.query.filter_by(school_id=g.school_id)
-                .filter(User.role.in_(staff_roles))
-                .count()
-            )
+            staff_count = meal_breakdown["total_staff_meals"]
         except Exception as e:
             return jsonify({"message": "Error counting teachers", "error": str(e)}), 500
 
@@ -15364,20 +15383,11 @@ def log_academic_work():
 @jwt_required()
 def get_canteen_count():
     """Zero-waste logic for daily meals."""
-    present_students = _get_present_students_for_today(g.school_id)
-    feeding_status_details = _get_feeding_status_details_for_students(present_students, g.school_id)
-    student_meals = sum(
-        1 for student in present_students if feeding_status_details.get(student.id, {}).get("covered")
-    )
-    staff_meals = (
-        User.query.filter_by(school_id=g.school_id)
-        .filter(User.role.in_(["teacher", "homeroom", "headmaster", "proprietor", "finance", "inventory_manager", "kitchen"]))
-        .count()
-    )
+    meal_breakdown = _get_daily_meal_breakdown(g.school_id)
     attendance_snapshot = _get_attendance_submission_snapshot(g.school_id)
     return jsonify(
         {
-            "total_meals": student_meals + staff_meals,
+            "total_meals": meal_breakdown["total_meals_needed"],
             "attendance_taken_today": attendance_snapshot.get("is_complete", False),
             "attendance_partial": attendance_snapshot.get("has_any_submission", False) and not attendance_snapshot.get("is_complete", False),
             "submitted_classes_count": attendance_snapshot.get("submitted_classes_count", 0),

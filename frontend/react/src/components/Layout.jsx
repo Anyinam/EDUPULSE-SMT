@@ -14,6 +14,7 @@ export default function Layout() {
   const { hasFeature } = useSubscription();
   const canAccessExamIntelligence = hasFeature('exam_intelligence');
   const canAccessRescueActivity = hasFeature('student_rescue_agent');
+  const normalizeRoleValue = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
   const safeJsonParse = (rawValue, fallback) => {
     try {
       if (rawValue === null || rawValue === undefined || rawValue === '' || rawValue === 'undefined') {
@@ -25,12 +26,18 @@ export default function Layout() {
     }
   };
 
-  const roles = safeJsonParse(localStorage.getItem('roles'), []);
+  const rawRoles = safeJsonParse(localStorage.getItem('roles'), []);
+  const roles = Array.isArray(rawRoles) ? rawRoles : [rawRoles];
+  const normalizedRole = normalizeRoleValue(role);
+  const normalizedRoles = roles.map(normalizeRoleValue).filter(Boolean);
   const { branding } = useBranding({ refreshOnMount: true });
   const modules = safeJsonParse(localStorage.getItem('enabled_modules'), null) || { canteen: true, admissions: true, finance: true, hr: true, inventory: true };
   const assignedClass = localStorage.getItem('assigned_class');
 
-  const hasRole = (r) => roles.includes(r) || role === r;
+  const hasRole = (targetRole) => {
+    const normalizedTargetRole = normalizeRoleValue(targetRole);
+    return normalizedRoles.includes(normalizedTargetRole) || normalizedRole === normalizedTargetRole;
+  };
   const shouldHideTeachingMenus = hasRole('kitchen');
 
   const [notifications, setNotifications] = useState([]);

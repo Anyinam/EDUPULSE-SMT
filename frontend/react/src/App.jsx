@@ -47,21 +47,27 @@ function isActiveSession() {
   return Boolean(getAuthToken()) && validateTokenExpiry() && Boolean(localStorage.getItem('school_id'));
 }
 
+function normalizeRoleValue(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
 function getStoredRoles() {
   try {
     const parsedRoles = JSON.parse(localStorage.getItem('roles') || '[]');
-    return Array.isArray(parsedRoles) ? parsedRoles : [];
+    const roleList = Array.isArray(parsedRoles) ? parsedRoles : [parsedRoles];
+    return roleList.map(normalizeRoleValue).filter(Boolean);
   } catch (err) {
     return [];
   }
 }
 
 function isKitchenPrimarySession() {
-  const primaryRole = localStorage.getItem('role');
+  const primaryRole = normalizeRoleValue(localStorage.getItem('role'));
+  const roles = getStoredRoles();
   if (primaryRole === 'kitchen') {
     return true;
   }
-  return getStoredRoles().includes('kitchen') && !getStoredRoles().some((role) => ['teacher', 'homeroom', 'headmaster', 'proprietor'].includes(role));
+  return roles.includes('kitchen') && !roles.some((role) => ['teacher', 'homeroom', 'headmaster', 'proprietor'].includes(role));
 }
 
 function SubjectTeachingRoute() {

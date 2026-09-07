@@ -302,6 +302,9 @@ export default function SettingsPanel() {
   const [subscriptionTrial, setSubscriptionTrial] = useState({ active: false, plan: '', end_date: null });
   const [bankDetailsVisible, setBankDetailsVisible] = useState(false);
   const [isReconnectingPaystackSettlement, setIsReconnectingPaystackSettlement] = useState(false);
+    const tuitionConvenienceAmount = Number(((Number(fees.tuition_fee || 0) * Number(fees.tuition_convenience_fee_percentage || 0)) / 100).toFixed(2));
+    const tuitionTransferTotal = Number((Number(fees.tuition_fee || 0) + tuitionConvenienceAmount).toFixed(2));
+
   const [maskedBankSnapshot, setMaskedBankSnapshot] = useState({
     bank_name: '',
     bank_account: '',
@@ -1706,6 +1709,11 @@ export default function SettingsPanel() {
                 <span className="text-slate-600 font-semibold">%</span>
               </div>
               <p className="mt-1 text-xs text-slate-500">Parents pay this extra percentage only on tuition tracked through the EduPulse transfer account.</p>
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                <p className="font-semibold">Tracked tuition preview</p>
+                <p className="mt-1">Convenience fee to add: {fees.tuition_convenience_fee_percentage.toFixed(2)}% of GH₵ {Number(fees.tuition_fee || 0).toFixed(2)} = GH₵ {tuitionConvenienceAmount.toFixed(2)}</p>
+                <p className="mt-1">Parent tracked-transfer total for tuition: GH₵ {tuitionTransferTotal.toFixed(2)}</p>
+              </div>
             </div>
 
             <div>
@@ -1928,6 +1936,14 @@ export default function SettingsPanel() {
               <div>
                 <p className="text-slate-600">Tuition Convenience</p>
                 <p className="text-lg font-bold text-slate-800">{fees.tuition_convenience_fee_percentage.toFixed(2)}%</p>
+              </div>
+              <div>
+                <p className="text-slate-600">Convenience Amount</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {tuitionConvenienceAmount.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-slate-600">Tracked Tuition Total</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {tuitionTransferTotal.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Feeding Daily</p>

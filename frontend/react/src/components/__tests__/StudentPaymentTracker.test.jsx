@@ -247,6 +247,7 @@ describe('StudentPaymentTracker', () => {
         return Promise.resolve({
           data: {
             tuition_fee: 100,
+            tuition_convenience_fee_percentage: 1.95,
             terminal_report_fee: 0,
             feeding_fee: 0,
             uniform_fee: 0,
@@ -302,8 +303,8 @@ describe('StudentPaymentTracker', () => {
                 account_number: '0192837465',
                 account_name: 'EDUPULSE / AMA MENSAH',
                 base_amount: 100,
-                convenience_fee_amount: 6,
-                total_amount: 106,
+                convenience_fee_amount: 1.95,
+                total_amount: 101.95,
               },
             },
             virtual_route: {
@@ -311,8 +312,8 @@ describe('StudentPaymentTracker', () => {
               account_number: '0192837465',
               account_name: 'EDUPULSE / AMA MENSAH',
               base_amount: 100,
-              convenience_fee_amount: 6,
-              total_amount: 106,
+              convenience_fee_amount: 1.95,
+              total_amount: 101.95,
             },
           },
         });
@@ -335,7 +336,8 @@ describe('StudentPaymentTracker', () => {
 
     expect(screen.getByText(/Paystack-Titan/i)).toBeInTheDocument();
     expect(screen.getByText(/0192837465/i)).toBeInTheDocument();
-    expect(screen.getByText(/Transfer total: GH₵ 106.00/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Convenience fee: 1.95% = GH₵ 1.95/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Transfer total: GH₵ 101.95/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /tracked transfer/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /online checkout link/i })).not.toBeInTheDocument();
     expect(axios.post).toHaveBeenCalledWith(

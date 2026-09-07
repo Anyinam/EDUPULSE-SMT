@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
+const normalizeRoleValue = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
+
 const resolveDashboardTarget = () => {
-  const role = localStorage.getItem('role');
-  const roles = JSON.parse(localStorage.getItem('roles') || '[]');
+  const role = normalizeRoleValue(localStorage.getItem('role'));
+  const parsedRoles = JSON.parse(localStorage.getItem('roles') || '[]');
+  const roles = (Array.isArray(parsedRoles) ? parsedRoles : [parsedRoles]).map(normalizeRoleValue).filter(Boolean);
   const assignedClass = localStorage.getItem('assigned_class') || '';
 
   if (roles.includes('proprietor') || role === 'proprietor') return '/proprietor';
