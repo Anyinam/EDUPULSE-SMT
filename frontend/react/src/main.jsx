@@ -17,6 +17,7 @@ const AUTH_EXEMPT_PATH_PREFIXES = [
 const isPublicRoute = (pathname = window.location.pathname) => (
   pathname === '/login'
   || pathname === '/admin/login'
+  || pathname === '/platform-console'
   || pathname === '/register'
   || pathname === '/pricing'
   || pathname === '/pricing-comparison'
