@@ -9507,7 +9507,11 @@ def _fetch_paystack_success_transactions(start_time, end_time, page=1, per_page=
 
 
 def _recover_paystack_transaction(transaction, school_id_scope=None):
-    metadata = transaction.get("metadata") or {}
+    metadata = dict(transaction.get("metadata") or {})
+    metadata.pop("__failpoint__", None)
+    transaction = dict(transaction)
+    transaction["metadata"] = metadata
+
     reference = sanitize_string(transaction.get("reference") or str(transaction.get("id") or ""))
     school_id = sanitize_string(metadata.get("school_id") or school_id_scope)
     plan_name = sanitize_string(metadata.get("plan_name"))
@@ -9624,12 +9628,14 @@ def run_paystack_reconciliation_sweep(lookback_hours=24, school_id_scope=None, m
                     )
                 continue
 
-            if outcome in {"recovered", "recorded"}:
+            outcome_status = outcome.get("status") if isinstance(outcome, dict) else outcome
+
+            if outcome_status in {"recovered", "recorded"}:
                 summary["recovered"] += 1
                 summary["references"].append(reference)
-            elif outcome == "duplicate":
+            elif outcome_status == "duplicate":
                 summary["duplicate"] += 1
-            elif outcome == "unmapped":
+            elif outcome_status == "unmapped":
                 summary["unmapped"] += 1
             else:
                 summary["ignored"] += 1
