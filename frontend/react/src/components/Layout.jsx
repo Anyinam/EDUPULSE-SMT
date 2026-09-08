@@ -11,6 +11,8 @@ export default function Layout() {
   const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
   const location = useLocation();
   const role = localStorage.getItem('role');
+  const schoolId = localStorage.getItem('school_id') || '';
+  const dismissedAlertStorageKey = schoolId ? `dismissed_system_alert:${schoolId}` : 'dismissed_system_alert';
   const { hasFeature } = useSubscription();
   const canAccessExamIntelligence = hasFeature('exam_intelligence');
   const canAccessRescueActivity = hasFeature('student_rescue_agent');
@@ -43,9 +45,16 @@ export default function Layout() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
-  const [dismissedSystemAlert, setDismissedSystemAlert] = useState('');
+  const [dismissedSystemAlert, setDismissedSystemAlert] = useState(() => localStorage.getItem(dismissedAlertStorageKey) || '');
   const [expandedMenus, setExpandedMenus] = useState({}); // Track expanded menu sections
-  const currentSystemAlert = notifications.find((notification) => notification.isSystem);
+  const visibleNotifications = notifications.filter((notification) => {
+    if (!notification.isSystem) {
+      return true;
+    }
+    const alertId = notification.id ? String(notification.id) : '';
+    return !dismissedSystemAlert || dismissedSystemAlert !== alertId;
+  });
+  const currentSystemAlert = visibleNotifications.find((notification) => notification.isSystem);
   const inactivityTimerRef = useRef(null);
 
   // Developer-only access check
@@ -97,6 +106,10 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
+    setDismissedSystemAlert(localStorage.getItem(dismissedAlertStorageKey) || '');
+  }, [dismissedAlertStorageKey]);
+
+  useEffect(() => {
     const fetchNotifications = async () => {
       try {
         const res = await axios.get('/api/staff/notifications', {
@@ -114,7 +127,14 @@ export default function Layout() {
             newNotifs.push(res.data.latest_notice);
         }
         setNotifications(newNotifs);
-        setHasUnread(newNotifs.length > 0);
+        const activeNotifications = newNotifs.filter((notification) => {
+          if (!notification.isSystem) {
+            return true;
+          }
+          const alertId = notification.id ? String(notification.id) : '';
+          return !dismissedSystemAlert || dismissedSystemAlert !== alertId;
+        });
+        setHasUnread(activeNotifications.length > 0);
       } catch (err) {
         console.error("Failed to fetch notifications");
       }
@@ -123,19 +143,22 @@ export default function Layout() {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 60000); // Poll every minute
     return () => clearInterval(interval);
-  }, []);
+  }, [dismissedSystemAlert]);
 
-  useEffect(() => {
-    if (!currentSystemAlert) {
-      setDismissedSystemAlert('');
+  const dismissCurrentSystemAlert = () => {
+    if (!currentSystemAlert?.id) {
       return;
     }
-
-    const currentAlertMessage = currentSystemAlert.message || '';
-    if (currentAlertMessage !== dismissedSystemAlert) {
-      return;
-    }
-  }, [currentSystemAlert, dismissedSystemAlert]);
+    const nextDismissedAlert = String(currentSystemAlert.id);
+    setDismissedSystemAlert(nextDismissedAlert);
+    localStorage.setItem(dismissedAlertStorageKey, nextDismissedAlert);
+    setHasUnread(visibleNotifications.filter((notification) => {
+      if (!notification.isSystem) {
+        return true;
+      }
+      return String(notification.id || '') !== nextDismissedAlert;
+    }).length > 0);
+  };
 
   // Keyboard shortcut for dev mode toggle (Ctrl+Shift+D)
   useEffect(() => {
@@ -286,10 +309,10 @@ export default function Layout() {
                             <h3 className="font-bold text-slate-700 text-sm">Notifications</h3>
                         </div>
                         <div className="max-h-64 overflow-y-auto">
-                            {notifications.length === 0 ? (
+                            {visibleNotifications.length === 0 ? (
                                 <div className="p-4 text-center text-slate-400 text-xs">No new notifications</div>
                             ) : (
-                                notifications.map((n, i) => (
+                              visibleNotifications.map((n, i) => (
                                     <div key={i} className="p-4 border-b border-slate-50 hover:bg-blue-50 transition-colors">
                                         {n.isSystem ? (
                                             <p className="text-xs font-bold text-red-600 uppercase mb-1">🚨 System Alert</p>
@@ -307,7 +330,7 @@ export default function Layout() {
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {currentSystemAlert && dismissedSystemAlert !== (currentSystemAlert.message || '') && (
+          {currentSystemAlert && (
             <div className="border-b border-amber-200 bg-amber-50 px-8 py-4">
               <div className="flex items-start justify-between gap-4 rounded-2xl border border-amber-300 bg-white/70 px-4 py-3 shadow-sm">
                 <div>
@@ -316,7 +339,7 @@ export default function Layout() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setDismissedSystemAlert(currentSystemAlert.message || '')}
+                  onClick={dismissCurrentSystemAlert}
                   className="shrink-0 rounded-lg border border-amber-300 px-3 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
                 >
                   Dismiss

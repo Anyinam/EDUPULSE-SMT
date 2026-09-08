@@ -13079,7 +13079,12 @@ def get_staff_notifications():
                 {"details": latest_notice.details} if latest_notice else None
             ),
             "system_alert": (
-                {"message": system_alert.message, "type": system_alert.type}
+                {
+                    "id": system_alert.id,
+                    "message": system_alert.message,
+                    "type": system_alert.type,
+                    "created_at": system_alert.created_at.isoformat() if system_alert.created_at else None,
+                }
                 if system_alert
                 else None
             ),

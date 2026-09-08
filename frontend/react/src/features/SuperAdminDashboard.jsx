@@ -206,11 +206,7 @@ export default function SuperAdminDashboard({ tokenStorageKey = 'token', embedde
 
       {/* Global Analytics Widget */}
       {analytics && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-linear-to-br from-blue-900 to-slate-900 p-6 rounded-2xl border border-blue-700 shadow-lg">
-            <p className="text-blue-300 text-xs font-bold uppercase mb-2">Total Revenue Processed</p>
-            <p className="text-4xl font-black text-white">GH₵ {analytics.total_revenue.toLocaleString()}</p>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
             <p className="text-slate-400 text-xs font-bold uppercase mb-2">Total Schools</p>
             <p className="text-3xl font-black text-white">{analytics.total_schools}</p>
