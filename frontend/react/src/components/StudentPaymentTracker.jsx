@@ -14,9 +14,6 @@ export default function StudentPaymentTracker() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // all, paid, pending, overdue
-  const [recoveryReference, setRecoveryReference] = useState('');
-  const [recoveryLoading, setRecoveryLoading] = useState(false);
-  const [recoveryResult, setRecoveryResult] = useState(null);
   const { branding } = useBranding();
 
   const getTuitionConvenienceDetails = (code, codesRecord = paymentCodes) => {
@@ -152,57 +149,6 @@ export default function StudentPaymentTracker() {
       ...codesRecord,
       payment_codes: updatedPaymentCodes,
     };
-  };
-
-  const handleRecoverReference = async () => {
-    const normalizedReference = recoveryReference.trim();
-    if (!normalizedReference) {
-      setRecoveryResult({
-        tone: 'warning',
-        message: 'Enter the exact Paystack transaction reference before running recovery.',
-      });
-      return;
-    }
-
-    try {
-      setRecoveryLoading(true);
-      setRecoveryResult(null);
-      const res = await axios.post(
-        '/api/finance/paystack/recover-reference',
-        { reference: normalizedReference },
-        getAuthHeaders()
-      );
-      const status = res.data?.status || 'recorded';
-      const tone = status === 'recorded' || status === 'duplicate' ? 'success' : status === 'unmapped' ? 'warning' : 'info';
-      const messageMap = {
-        recorded: 'Paystack transaction recovered and recorded successfully.',
-        duplicate: 'This Paystack transaction was already recorded earlier.',
-        blocked: 'Payment was recovered but is currently blocked pending subscription or verification rules.',
-        unmapped: 'Paystack confirmed the transaction, but EduPulse could not map it to a student payment route yet.',
-        ignored: 'The transaction did not match this school or did not require finance recovery.',
-      };
-      setRecoveryResult({
-        tone,
-        message: messageMap[status] || 'Recovery request completed.',
-        reference: res.data?.reference || normalizedReference,
-      });
-      if (['recorded', 'duplicate', 'blocked'].includes(status)) {
-        fetchStudents();
-        if (selectedStudent?.id) {
-          fetchStudentPayments(selectedStudent.id);
-          fetchPaymentCodes(selectedStudent.id);
-        }
-      }
-    } catch (err) {
-      const responseData = err.response?.data || {};
-      setRecoveryResult({
-        tone: 'error',
-        message: responseData.message || 'Unable to recover the Paystack transaction right now.',
-        reference: responseData.reference || normalizedReference,
-      });
-    } finally {
-      setRecoveryLoading(false);
-    }
   };
 
   const printPaymentInstructions = async () => {
@@ -610,8 +556,8 @@ export default function StudentPaymentTracker() {
     const themeColor = branding.theme_color || '#3b82f6';
 
     const receiptNumber = `RCPT-${payment.id}`;
-    const paidAmount = Number(payment.amount || 0);
-    const baseAmount = Number(payment.base_amount || paidAmount);
+    const paidAmount = Number(payment.display_amount || payment.total_amount || payment.amount || 0);
+    const baseAmount = Number(payment.applied_amount || payment.base_amount || payment.amount || 0);
     const isConfirmed = payment.status === 'Verified' || payment.status === 'Confirmed';
 
     const printWindow = window.open('', '', 'width=900,height=1100');
@@ -775,8 +721,8 @@ export default function StudentPaymentTracker() {
           </div>
 
           <div class="summary">
-            <div class="summary-row"><span>Amount Paid</span><strong>GH₵ ${baseAmount.toFixed(2)}</strong></div>
-            <div class="summary-row total"><span>Total Recorded</span><strong>GH₵ ${paidAmount.toFixed(2)}</strong></div>
+            <div class="summary-row"><span>Applied To ${getFeeTypeLabel(payment.payment_type || '')}</span><strong>GH₵ ${baseAmount.toFixed(2)}</strong></div>
+            <div class="summary-row total"><span>Total Transfer Received</span><strong>GH₵ ${paidAmount.toFixed(2)}</strong></div>
           </div>
 
           <div class="summary">
@@ -891,54 +837,6 @@ export default function StudentPaymentTracker() {
         </button>
       </div>
 
-      <div className="mb-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-700">Paystack Reconciliation</p>
-            <h3 className="mt-2 text-lg font-black text-slate-900">Recover a successful tracked transfer by exact reference</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              Use this when Paystack shows a successful transfer but the student payment has not appeared yet in EduPulse. This runs the backend recovery flow without bringing back the old reconciliation dashboard card.
-            </p>
-          </div>
-          <div className="w-full max-w-xl">
-            <label htmlFor="paystack-recovery-reference" className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-cyan-800">
-              Transaction Reference
-            </label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                id="paystack-recovery-reference"
-                type="text"
-                value={recoveryReference}
-                onChange={(event) => setRecoveryReference(event.target.value)}
-                placeholder="e.g. 6a9d6f5523744a1df06a6143"
-                className="flex-1 rounded-xl border border-cyan-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-cyan-400"
-              />
-              <button
-                onClick={handleRecoverReference}
-                disabled={recoveryLoading}
-                className="rounded-xl bg-cyan-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-cyan-300"
-              >
-                {recoveryLoading ? 'Recovering...' : 'Recover Paystack Payment'}
-              </button>
-            </div>
-            {recoveryResult ? (
-              <div className={`mt-3 rounded-xl border px-3 py-3 text-sm ${
-                recoveryResult.tone === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                  : recoveryResult.tone === 'warning'
-                    ? 'border-amber-200 bg-amber-50 text-amber-900'
-                    : recoveryResult.tone === 'error'
-                      ? 'border-rose-200 bg-rose-50 text-rose-900'
-                      : 'border-slate-200 bg-white text-slate-800'
-              }`}>
-                <p className="font-semibold">{recoveryResult.message}</p>
-                {recoveryResult.reference ? <p className="mt-1 text-xs opacity-80">Reference: {recoveryResult.reference}</p> : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-      
       {/* Search & Filter */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div>
@@ -1267,7 +1165,7 @@ export default function StudentPaymentTracker() {
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <span className={(payment.status === 'Verified' || payment.status === 'Confirmed') ? 'text-green-700 font-bold' : 'text-yellow-700'}>
-                                      GH₵ {payment.amount.toFixed(2)}
+                                      GH₵ {Number(payment.display_amount || payment.amount || 0).toFixed(2)}
                                     </span>
                                     <button
                                       onClick={() => printPaymentReceipt(selectedStudent, payment, summary)}

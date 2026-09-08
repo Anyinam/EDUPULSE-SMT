@@ -538,7 +538,7 @@ describe('StudentPaymentTracker', () => {
     expect(printWindow.document.write.mock.calls[0][0]).toContain('2222222222');
   });
 
-  it('recovers a Paystack payment by exact reference from the tracker card', async () => {
+  it('does not show the paystack reconciliation card in the tenant tracker', async () => {
     axios.get.mockImplementation((url) => {
       if (url === '/api/students') {
         return Promise.resolve({
@@ -587,41 +587,14 @@ describe('StudentPaymentTracker', () => {
       return Promise.reject(new Error(`Unexpected URL: ${url}`));
     });
 
-    axios.post.mockImplementation((url) => {
-      if (url === '/api/finance/paystack/recover-reference') {
-        return Promise.resolve({
-          data: {
-            status: 'recorded',
-            reference: '6a9d6f5523744a1df06a6143',
-          },
-        });
-      }
-
-      return Promise.reject(new Error(`Unexpected URL: ${url}`));
-    });
-
     render(<StudentPaymentTracker />);
 
-    const referenceInput = await screen.findByLabelText(/transaction reference/i);
-    fireEvent.change(referenceInput, {
-      target: { value: '6a9d6f5523744a1df06a6143' },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /recover paystack payment/i }));
-
     await waitFor(() => {
-      expect(screen.getByText(/recovered and recorded successfully/i)).toBeInTheDocument();
+      expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
     });
 
-    expect(axios.post).toHaveBeenCalledWith(
-      '/api/finance/paystack/recover-reference',
-      { reference: '6a9d6f5523744a1df06a6143' },
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer token-1',
-          'X-School-ID': 'TEST-001',
-        }),
-      })
-    );
+    expect(screen.queryByText(/recover a successful tracked transfer by exact reference/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/transaction reference/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /recover paystack payment/i })).not.toBeInTheDocument();
   });
 });

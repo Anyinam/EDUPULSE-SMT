@@ -31,7 +31,7 @@ export default function TransactionHistory() {
       t.type,
       `"${getPaymentFrequency(t)}"`,
       t.method,
-      t.amount,
+      t.display_amount ?? t.amount,
       t.status
     ]);
 
@@ -84,7 +84,12 @@ export default function TransactionHistory() {
                 <td className="p-4 text-sm">{t.type}</td>
                 <td className="p-4 text-sm text-slate-600">{getPaymentFrequency(t)}</td>
                 <td className="p-4 text-sm">{t.method}</td>
-                <td className="p-4 font-mono font-bold text-green-600">GH₵ {t.amount}</td>
+                <td className="p-4 font-mono font-bold text-green-600">
+                  GH₵ {(t.display_amount ?? t.amount)?.toFixed ? (t.display_amount ?? t.amount).toFixed(2) : t.display_amount ?? t.amount}
+                  {t.display_amount !== undefined && t.applied_amount !== undefined && Number(t.display_amount) !== Number(t.applied_amount) ? (
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">Applied to {t.type}: GH₵ {Number(t.applied_amount).toFixed(2)}</p>
+                  ) : null}
+                </td>
                 <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${t.status === 'Confirmed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{t.status}</span></td>
               </tr>
             ))}

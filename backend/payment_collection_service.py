@@ -199,6 +199,15 @@ def create_or_reuse_student_virtual_account_intent(
     if not reference_code:
         return None, "A payment reference is required before a transfer route can be created."
 
+    base_amount = round(float(payment_code.get("base_amount") or payment_code.get("amount") or 0.0), 2)
+    if base_amount <= 0:
+        return None, "This fee route does not currently require payment."
+
+    pricing = dict(get_payment_collection_pricing() or {})
+    if isinstance(payment_code.get("pricing_override"), dict):
+        pricing.update(payment_code["pricing_override"])
+    pricing_breakdown = calculate_payment_collection_breakdown_fn(base_amount, pricing)
+
     existing = (
         payment_collection_intent_model.query.filter_by(
             school_id=student.school_id,
@@ -213,21 +222,23 @@ def create_or_reuse_student_virtual_account_intent(
     existing_expires_at = existing.expires_at if existing else None
     if existing_expires_at and getattr(existing_expires_at, "tzinfo", None) is None:
         existing_expires_at = existing_expires_at.replace(tzinfo=timezone.utc)
+
+    pricing_matches_existing = bool(
+        existing
+        and round(float(existing.base_amount or 0.0), 2) == pricing_breakdown["base_amount"]
+        and round(float(existing.total_amount or 0.0), 2) == pricing_breakdown["total_amount"]
+        and round(float(existing.convenience_fee_amount or 0.0), 2) == pricing_breakdown["convenience_fee_amount"]
+    )
+
     if existing and existing.intent_status == "assigned" and (not existing_expires_at or existing_expires_at >= now):
-        return existing, None
+        if pricing_matches_existing:
+            return existing, None
+        existing.intent_status = "deactivated"
     if existing and existing.intent_status == "paid":
         return existing, None
     if existing and existing.intent_status == "assigned" and existing_expires_at and existing_expires_at < now:
         existing.intent_status = "expired"
 
-    base_amount = round(float(payment_code.get("base_amount") or payment_code.get("amount") or 0.0), 2)
-    if base_amount <= 0:
-        return None, "This fee route does not currently require payment."
-
-    pricing = dict(get_payment_collection_pricing() or {})
-    if isinstance(payment_code.get("pricing_override"), dict):
-        pricing.update(payment_code["pricing_override"])
-    pricing_breakdown = calculate_payment_collection_breakdown_fn(base_amount, pricing)
     provider_settings = get_payment_provider_settings(settings)
     split_config, error = get_or_create_paystack_transfer_split_fn(
         school,
@@ -421,9 +432,23 @@ def record_paystack_virtual_account_payment(
     if intent.provider_reference and intent.provider_reference == tx_ref and intent.intent_status == "paid":
         return {"status": "duplicate", "reference": tx_ref, "intent_id": intent.id}, 200
 
+    try:
+        gross_amount_paid = round(float(payload.get("amount") or 0) / 100.0, 2)
+    except Exception:
+        gross_amount_paid = 0.0
+
+    applied_school_fee_amount = round(
+        min(max(gross_amount_paid, 0.0), float(intent.base_amount or 0.0)),
+        2,
+    )
+    collected_convenience_fee_amount = round(
+        max(0.0, gross_amount_paid - applied_school_fee_amount),
+        2,
+    )
+
     adjusted_payload = {
         **payload,
-        "amount": int(round(float(intent.base_amount or 0.0) * 100)),
+        "amount": int(round(applied_school_fee_amount * 100)),
         "metadata": {
             "school_id": intent.school_id,
             "student_id": intent.student_id,
@@ -434,7 +459,11 @@ def record_paystack_virtual_account_payment(
                 "collection_channel": intent.collection_channel,
                 "payment_collection_intent_id": intent.id,
                 "transfer_total_amount": round(float(intent.total_amount or 0.0), 2),
+                "gross_amount_paid": gross_amount_paid,
+                "charged_total_amount": gross_amount_paid,
+                "applied_school_fee_amount": applied_school_fee_amount,
                 "convenience_fee_amount": round(float(intent.convenience_fee_amount or 0.0), 2),
+                "collected_convenience_fee_amount": collected_convenience_fee_amount,
                 "platform_fee_amount": round(float(intent.platform_fee_amount or 0.0), 2),
                 "estimated_provider_fee_amount": round(float(intent.estimated_provider_fee_amount or 0.0), 2),
                 "settlement_mode": sanitize_string(split_config.get("settlement_mode") or "reference_first") or "reference_first",
@@ -468,10 +497,13 @@ def record_paystack_virtual_account_payment(
     db_session.commit()
     return {
         **body,
-        "intent_id": intent.id,
+        "payment_collection_intent_id": intent.id,
         "transfer_total_amount": round(float(intent.total_amount or 0.0), 2),
+        "gross_amount_paid": gross_amount_paid,
+        "applied_school_fee_amount": applied_school_fee_amount,
+        "provider_account_number": intent.provider_account_number,
+        "provider_bank_name": intent.provider_bank_name,
     }, status_code
-
 
 def record_paystack_parent_admission_payment(
     payload,

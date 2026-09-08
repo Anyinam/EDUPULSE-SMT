@@ -7643,19 +7643,24 @@ def get_student_payments(student_id):
 
         payment_list = []
         for payment in payments:
-            gross_amount = float(payment.amount or 0)
+            payment_category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
+            applied_amount = round(float(payment_category.get("applied_school_fee_amount") or payment.amount or 0), 2)
+            gross_amount = round(float(payment_category.get("gross_amount_paid") or payment_category.get("charged_total_amount") or payment.amount or 0), 2)
 
             payment_list.append(
                 {
                     "id": payment.id,
-                    "amount": payment.amount,
-                    "base_amount": gross_amount,
+                    "amount": applied_amount,
+                    "display_amount": gross_amount,
+                    "applied_amount": applied_amount,
+                    "base_amount": applied_amount,
                     "total_amount": gross_amount,
                     "payment_type": payment.payment_type,
                     "method": payment.method,
                     "status": payment.status,
                     "date_paid": payment.date_paid.strftime("%Y-%m-%d %H:%M"),
                     "reference_id": payment.reference_id,
+                    "payment_category": payment_category,
                     "verified_at": (
                         payment.verified_at.strftime("%Y-%m-%d %H:%M")
                         if payment.verified_at
@@ -9567,14 +9572,14 @@ def _recover_paystack_transaction(transaction, school_id_scope=None):
             transaction,
             event="charge.success.reconciled",
         ) or ({"status": "ignored"}, 200)
-        return result.get("status") or "ignored"
+        return result or {"status": "ignored"}
 
     result, _status_code = _record_paystack_finance_payment(
         transaction,
         event="charge.success.reconciled",
         school_id_scope=school_id_scope,
     )
-    return result.get("status") or "ignored"
+    return result or {"status": "ignored"}
 
 
 def run_paystack_reconciliation_sweep(lookback_hours=24, school_id_scope=None, max_pages=4, per_page=50):
@@ -18807,6 +18812,12 @@ def recover_finance_paystack_reference():
     except Exception as exc:
         db.session.rollback()
         return jsonify({"message": "Paystack recovery failed", "error": str(exc), "reference": reference}), 500
+
+    if isinstance(outcome, dict):
+        return jsonify({
+            **outcome,
+            "reference": outcome.get("reference") or reference,
+        }), 200
 
     return jsonify({"status": outcome, "reference": reference}), 200
 

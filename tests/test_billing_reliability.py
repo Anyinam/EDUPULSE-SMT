@@ -1450,6 +1450,105 @@ def test_paystack_reconciliation_recovers_subscription_after_injected_failure(
     assert LedgerEntry.query.filter_by(tx_ref="PAY-REC-SUB-001").first() is not None
 
 
+def test_paystack_recover_reference_records_partial_dedicated_account_amount_without_overstating_tuition(
+    client,
+    app,
+    db,
+    test_school,
+    test_proprietor,
+    proprietor_headers,
+    monkeypatch,
+):
+    from backend.api.models import Payment, PaymentCollectionIntent, Student
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Adwoa",
+        surname="Appiah",
+        name="Adwoa Appiah",
+        student_code="DADD0004",
+        current_class="JHS 2",
+        total_tuition_owed=100.0,
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    intent = PaymentCollectionIntent(
+        school_id=test_school.id,
+        student_id=student.id,
+        provider="paystack",
+        collection_channel="dedicated_virtual_account",
+        intent_status="assigned",
+        reference_code=f"{student.student_code}1",
+        payment_type="Tuition",
+        payment_category={"fee_type": "Tuition"},
+        base_amount=100.0,
+        convenience_fee_amount=0.0,
+        estimated_provider_fee_amount=0.0,
+        platform_fee_amount=0.0,
+        total_amount=100.0,
+        provider_customer_code="CUS_PARTIAL_ROUTE_001",
+        provider_dedicated_account_id="9801",
+        provider_bank_slug="titan-paystack",
+        provider_bank_name="Affinity Ghana Savings And Loans",
+        provider_account_name="EDUPULSE / ADWOA APPIAH",
+        provider_account_number="7003000470330",
+        provider_subaccount_code="SUB_school001",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        meta={
+            "split_config": {
+                "split_code": "SPLIT_school001_10000",
+                "settlement_mode": "paystack_flat_split",
+                "school_settlement_amount": 100.0,
+                "platform_settlement_amount": 0.0,
+            }
+        },
+    )
+    db.session.add(intent)
+    db.session.commit()
+
+    def fake_verify_payment(reference):
+        assert reference == "6a9f87df190c011168af33e2"
+        return {
+            "id": 6536733129,
+            "reference": reference,
+            "status": "success",
+            "channel": "dedicated_account",
+            "amount": 2100,
+            "customer": {"customer_code": "CUS_PARTIAL_ROUTE_001"},
+            "authorization": {
+                "channel": "dedicated_account",
+                "sender_name": "DANIEL ANYINAM ASARE",
+                "sender_bank": "MTN (GH)",
+                "receiver_account_number": "7003000470330",
+            },
+        }
+
+    monkeypatch.setattr("backend.paystack_integration.verify_payment", fake_verify_payment)
+
+    response = client.post(
+        "/api/finance/paystack/recover-reference",
+        headers=proprietor_headers,
+        data=json.dumps({"reference": "6a9f87df190c011168af33e2"}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "recorded"
+    assert payload["gross_amount_paid"] == 21.0
+    assert payload["applied_school_fee_amount"] == 21.0
+
+    payment = Payment.query.filter_by(reference_id="6a9f87df190c011168af33e2").first()
+    assert payment is not None
+    assert payment.student_id == student.id
+    assert payment.amount == 21.0
+    assert payment.payment_category["gross_amount_paid"] == 21.0
+    assert payment.payment_category["applied_school_fee_amount"] == 21.0
+
+    db.session.refresh(student)
+    assert student.total_tuition_owed == 79.0
+
+
 def test_admission_blocks_when_actual_active_count_hits_limit_even_if_meter_is_stale(
     client,
     db,
