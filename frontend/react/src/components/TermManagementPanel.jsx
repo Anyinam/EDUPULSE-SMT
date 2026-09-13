@@ -1,22 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-const buildActivationMessage = (payload) => {
-  if (!payload) {
-    return 'Failed to activate term';
-  }
-
-  if (payload.error === 'billing_payment_required') {
-    return `${payload.message}\n\nPayment link ready: ${payload.payment_link}\nReference: ${payload.reference}\n\nThe term will activate after payment is completed.`;
-  }
-
-  if (payload.error === 'billing_charge_failed' || payload.error === 'billing_processing_failed' || payload.error === 'billing_precheck_failed') {
-    return `${payload.message}\n\nThe term remains inactive until billing is resolved.`;
-  }
-
-  return payload.message || 'Failed to activate term';
-};
-
 const fallbackAcademicYear = () => {
   const today = new Date();
   const year = today.getFullYear();
@@ -36,6 +20,7 @@ const DEFAULT_FORM = {
 export default function TermManagementPanel() {
   const [terms, setTerms] = useState([]);
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [editingTermId, setEditingTermId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -50,6 +35,14 @@ export default function TermManagementPanel() {
       'X-School-ID': localStorage.getItem('school_id')
     }
   });
+
+  const resetForm = () => {
+    setForm((current) => ({
+      ...DEFAULT_FORM,
+      academic_year: current.academic_year || DEFAULT_FORM.academic_year
+    }));
+    setEditingTermId(null);
+  };
 
   const fetchTerms = async () => {
     try {
@@ -102,20 +95,24 @@ export default function TermManagementPanel() {
     try {
       setSaving(true);
       setMessage('');
-      await axios.post(
-        '/api/school/terms',
-        {
-          name: form.name,
-          academic_year: form.academic_year,
-          start_date: form.start_date,
-          end_date: form.end_date,
-          billing_due_date: form.reopening_date || null,
-          is_active: form.is_active
-        },
-        getAuthHeaders()
-      );
-      setMessage('Academic term saved successfully');
-      setForm(DEFAULT_FORM);
+      const payload = {
+        name: form.name,
+        academic_year: form.academic_year,
+        start_date: form.start_date,
+        end_date: form.end_date,
+        billing_due_date: form.reopening_date || null,
+        is_active: form.is_active
+      };
+
+      if (editingTermId) {
+        await axios.put(`/api/school/terms/${editingTermId}`, payload, getAuthHeaders());
+        setMessage('Academic term updated successfully');
+      } else {
+        await axios.post('/api/school/terms', payload, getAuthHeaders());
+        setMessage('Academic term saved successfully');
+      }
+
+      resetForm();
       fetchTerms();
     } catch (err) {
       setMessage(err.response?.data?.message || 'Failed to save term');
@@ -124,31 +121,26 @@ export default function TermManagementPanel() {
     }
   };
 
+  const handleEditTerm = (term) => {
+    setEditingTermId(term.id);
+    setMessage('');
+    setForm({
+      name: term.name || DEFAULT_FORM.name,
+      academic_year: term.academic_year || DEFAULT_FORM.academic_year,
+      start_date: term.start_date || '',
+      end_date: term.end_date || '',
+      reopening_date: term.billing_due_date || '',
+      is_active: Boolean(term.is_active)
+    });
+  };
+
   const handleActivate = async (termId) => {
     try {
       const res = await axios.post(`/api/school/terms/${termId}/activate`, {}, getAuthHeaders());
-      
-      if (res.data.billing_initiated && res.data.payment_link) {
-        setMessage(`✅ ${res.data.message}\n\n💳 ${res.data.billing_message}\n\nCheck your email for payment details.`);
-        
-        // Optional: Ask if they want to pay now
-        if (window.confirm('Payment link generated. Open payment page now?')) {
-          window.open(res.data.payment_link, '_blank');
-        }
-      } else {
-        setMessage(`✅ ${res.data.message}`);
-      }
-      
+      setMessage(res.data?.message || 'Academic term activated successfully');
       fetchTerms();
     } catch (err) {
-      const payload = err?.response?.data || {};
-      setMessage(buildActivationMessage(payload));
-
-      if (payload.error === 'billing_payment_required' && payload.payment_link) {
-        if (window.confirm('Payment is required before activation. Open the payment page now?')) {
-          window.open(payload.payment_link, '_blank', 'noopener,noreferrer');
-        }
-      }
+      setMessage(err.response?.data?.message || 'Failed to activate term');
     }
   };
 
@@ -186,6 +178,9 @@ export default function TermManagementPanel() {
       <p className="text-sm text-slate-600 mb-4">
         Schools can enter dates manually or import the published GES academic calendar, then edit any school-specific changes.
       </p>
+      <p className="text-sm text-slate-600 mb-4">
+        Term setup and activation are free. It is still recommended to keep the calendar accurate so prorated subscription charges can use your school dates; otherwise EduPulse falls back to the default national term calendar.
+      </p>
 
       {!loading && terms.length === 0 && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -201,8 +196,9 @@ export default function TermManagementPanel() {
 
       <form onSubmit={handleCreateTerm} className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
         <div>
-          <label className="block text-xs font-bold text-slate-500 mb-1">Term Name</label>
+          <label htmlFor="term-name" className="block text-xs font-bold text-slate-500 mb-1">Term Name</label>
           <select
+            id="term-name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="w-full p-2 border rounded-lg bg-white"
@@ -214,8 +210,9 @@ export default function TermManagementPanel() {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-500 mb-1">Academic Year</label>
+          <label htmlFor="academic-year" className="block text-xs font-bold text-slate-500 mb-1">Academic Year</label>
           <input
+            id="academic-year"
             value={form.academic_year}
             onChange={(e) => setForm({ ...form, academic_year: e.target.value })}
             className="w-full p-2 border rounded-lg bg-white"
@@ -235,8 +232,9 @@ export default function TermManagementPanel() {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-500 mb-1">Term Start Date</label>
+          <label htmlFor="term-start-date" className="block text-xs font-bold text-slate-500 mb-1">Term Start Date</label>
           <input
+            id="term-start-date"
             type="date"
             value={form.start_date}
             onChange={(e) => setForm({ ...form, start_date: e.target.value })}
@@ -245,8 +243,9 @@ export default function TermManagementPanel() {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-500 mb-1">Vacation Day</label>
+          <label htmlFor="term-end-date" className="block text-xs font-bold text-slate-500 mb-1">Vacation Day</label>
           <input
+            id="term-end-date"
             type="date"
             value={form.end_date}
             onChange={(e) => setForm({ ...form, end_date: e.target.value })}
@@ -255,8 +254,9 @@ export default function TermManagementPanel() {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-500 mb-1">Reopening Date</label>
+          <label htmlFor="reopening-date" className="block text-xs font-bold text-slate-500 mb-1">Reopening Date</label>
           <input
+            id="reopening-date"
             type="date"
             value={form.reopening_date}
             onChange={(e) => setForm({ ...form, reopening_date: e.target.value })}
@@ -271,8 +271,18 @@ export default function TermManagementPanel() {
               disabled={saving || importing}
               className="px-5 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50"
             >
-              {saving ? 'Saving...' : 'Save Term Calendar'}
+              {saving ? 'Saving...' : editingTermId ? 'Update Term Calendar' : 'Save Term Calendar'}
             </button>
+            {editingTermId && (
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={saving || importing}
+                className="px-5 py-2 bg-white text-slate-700 border border-slate-300 rounded-lg font-bold hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel Edit
+              </button>
+            )}
             <button
               type="button"
               onClick={handleImportGesCalendar}
@@ -317,14 +327,22 @@ export default function TermManagementPanel() {
                     )}
                   </td>
                   <td className="p-3 text-right">
-                    {!term.is_active && (
+                    <div className="flex justify-end gap-3">
                       <button
-                        onClick={() => handleActivate(term.id)}
-                        className="text-xs font-bold text-blue-600 hover:text-blue-800"
+                        onClick={() => handleEditTerm(term)}
+                        className="text-xs font-bold text-slate-600 hover:text-slate-800"
                       >
-                        Set Active
+                        Edit
                       </button>
-                    )}
+                      {!term.is_active && (
+                        <button
+                          onClick={() => handleActivate(term.id)}
+                          className="text-xs font-bold text-blue-600 hover:text-blue-800"
+                        >
+                          Set Active
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))

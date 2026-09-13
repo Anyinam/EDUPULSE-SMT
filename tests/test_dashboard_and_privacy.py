@@ -3616,6 +3616,100 @@ def test_student_payment_code_refreshes_stale_tracked_transfer_amounts_when_tuit
     assert refreshed_intent.total_amount == 101.95
 
 
+def test_student_payment_code_get_refreshes_stale_tracked_transfer_amounts_when_tuition_pricing_changes(client, app, test_school, test_proprietor, test_students, monkeypatch):
+    from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
+
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    settings.other_fees = {"__tuition_convenience_fee_percentage__": 1.95}
+    settings.report_template_config = {
+        GLOBAL_REPORT_SETTINGS_KEY: {
+            PAYMENT_PROVIDER_SETTINGS_KEY: {
+                "paystack_subaccount_code": "SUB_school001",
+                "paystack_bank_code": "070100",
+                "paystack_resolved_account_name": "EduPulse School Account",
+            }
+        }
+    }
+
+    student = test_students[1]
+    stale_intent = PaymentCollectionIntent(
+        school_id=test_school.id,
+        student_id=student.id,
+        provider="paystack",
+        collection_channel="dedicated_virtual_account",
+        intent_status="assigned",
+        reference_code=f"{student.student_code}1",
+        payment_type="Tuition",
+        payment_category={"fee_type": "Tuition"},
+        base_amount=100.0,
+        convenience_fee_amount=0.0,
+        estimated_provider_fee_amount=0.0,
+        platform_fee_amount=0.0,
+        total_amount=100.0,
+        provider_customer_code="CUS_ROUTE_STALE_002",
+        provider_dedicated_account_id="9011",
+        provider_bank_slug="titan-paystack",
+        provider_bank_name="Paystack-Titan",
+        provider_account_name="EDUPULSE / STALE",
+        provider_account_number="0001112224",
+        provider_subaccount_code="SUB_school001",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        meta={
+            "split_config": {
+                "split_code": "SPLIT_school001_10000",
+                "settlement_mode": "paystack_flat_split",
+                "school_settlement_amount": 100.0,
+                "platform_settlement_amount": 0.0,
+            }
+        },
+    )
+    db.session.add(stale_intent)
+    db.session.commit()
+
+    captured = []
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        captured.append((endpoint, method, data))
+        if endpoint == "/split" and method == "POST":
+            return ({"id": 503, "split_code": "SPLIT_school001_10000"}, None)
+        if endpoint == "/dedicated_account/available_providers" and method == "GET":
+            return ([{"provider_slug": "titan-paystack", "bank_name": "Paystack-Titan"}], None)
+        if endpoint == "/customer" and method == "POST":
+            return ({"customer_code": "CUS_ROUTE_REFRESH_002"}, None)
+        if endpoint == "/dedicated_account" and method == "POST":
+            return ({
+                "id": 917,
+                "account_name": "EDUPULSE / REFRESH",
+                "account_number": "0192837001",
+                "bank": {"name": "Paystack-Titan", "slug": "titan-paystack"},
+            }, None)
+        raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(
+        f"/api/students/{student.id}/payment-codes",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
+    assert tuition_code["virtual_route"]["convenience_fee_amount"] == 1.95
+    assert tuition_code["virtual_route"]["total_amount"] == 101.95
+
+    db.session.refresh(stale_intent)
+    assert stale_intent.intent_status == "deactivated"
+
+    refreshed_intent = PaymentCollectionIntent.query.filter_by(student_id=student.id, reference_code=f"{student.student_code}1", intent_status="assigned").order_by(PaymentCollectionIntent.id.desc()).first()
+    assert refreshed_intent is not None
+    assert refreshed_intent.id != stale_intent.id
+    assert refreshed_intent.total_amount == 101.95
+
+
 def test_paystack_dedicated_virtual_account_webhook_records_student_payment(client, app, test_school, test_proprietor, test_students):
     student = test_students[0]
     student.total_tuition_owed = 500.0

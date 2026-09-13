@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import axios from 'axios';
 
@@ -11,6 +11,7 @@ describe('TermManagementPanel', () => {
   beforeEach(() => {
     localStorage.setItem('token', 'token-1');
     localStorage.setItem('school_id', 'TEST-001');
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
     axios.get.mockResolvedValue({
       data: {
         terms: [],
@@ -55,8 +56,8 @@ describe('TermManagementPanel', () => {
     expect(localStorage.getItem('term_calendar_prompted:TEST-001:2026/2027')).toBe('true');
   });
 
-  it('keeps the term inactive and shows the payment link when activation requires billing first', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+  it('activates a term without a payment-required message', async () => {
+    localStorage.setItem('term_calendar_prompted:TEST-001:2026/2027', 'true');
 
     axios.get.mockResolvedValueOnce({
       data: {
@@ -66,27 +67,66 @@ describe('TermManagementPanel', () => {
         suggested_academic_year: '2026/2027',
       },
     });
-    axios.post.mockRejectedValueOnce({
-      response: {
-        data: {
-          error: 'billing_payment_required',
-          message: 'Payment is required before activating Term 1 2026/2027.',
-          payment_link: 'https://paystack.test/authorize',
-          reference: 'TERM-PAY-001',
-        },
+    axios.post.mockResolvedValueOnce({
+      data: {
+        message: 'Activated Term 1 2026/2027',
       },
     });
 
     render(<TermManagementPanel />);
 
     const activateButton = await screen.findByRole('button', { name: /set active/i });
-    activateButton.click();
+    fireEvent.click(activateButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/payment is required before activating term 1 2026\/2027/i)).toBeInTheDocument();
+      expect(screen.getByText(/activated term 1 2026\/2027/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/payment link ready: https:\/\/paystack.test\/authorize/i)).toBeInTheDocument();
-    expect(screen.getByText(/the term will activate after payment is completed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/payment is required before activating/i)).not.toBeInTheDocument();
+  });
+
+  it('loads an existing term into the form and updates its reopening date', async () => {
+    localStorage.setItem('term_calendar_prompted:TEST-001:2026/2027', 'true');
+
+    axios.get.mockResolvedValueOnce({
+      data: {
+        terms: [
+          {
+            id: 9,
+            name: 'Term 3',
+            academic_year: '2026/2027',
+            start_date: '2027-04-20',
+            end_date: '2027-07-22',
+            billing_due_date: null,
+            is_active: false,
+          },
+        ],
+        suggested_academic_year: '2026/2027',
+      },
+    });
+    axios.put.mockResolvedValueOnce({
+      data: {
+        message: 'Term updated successfully',
+      },
+    });
+
+    render(<TermManagementPanel />);
+
+  fireEvent.click(await screen.findByRole('button', { name: /edit/i }));
+
+    const reopeningDate = screen.getByLabelText(/reopening date/i);
+  fireEvent.change(reopeningDate, { target: { value: '2027-09-07' } });
+  fireEvent.click(screen.getByRole('button', { name: /update term calendar/i }));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        '/api/school/terms/9',
+        expect.objectContaining({
+          billing_due_date: '2027-09-07',
+          name: 'Term 3',
+        }),
+        expect.any(Object)
+      );
+    });
   });
 });

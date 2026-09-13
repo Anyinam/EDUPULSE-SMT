@@ -304,7 +304,7 @@ def test_remove_last_saved_card_blocks_when_school_is_above_included_students(
     assert payload["reason"] == "payment_method_required"
 
 
-def test_paid_term_activation_requires_payment_before_activation(
+def test_paid_term_activation_is_free(
     client,
     app,
     db,
@@ -341,37 +341,22 @@ def test_paid_term_activation_requires_payment_before_activation(
     )
     db.session.commit()
 
-    monkeypatch.setattr(
-        "backend.routes.send_email_notification",
-        lambda *args, **kwargs: True,
-    )
-    monkeypatch.setattr(
-        "backend.paystack_integration.initialize_termly_payment",
-        lambda email, plan_name, school_id, num_students, academic_term_id: {
-            "status": "success",
-            "authorization_url": "https://paystack.test/authorize",
-            "reference": "TERM-PAY-001",
-        },
-    )
-
     response = client.post(
         f"/api/school/terms/{term.id}/activate",
         headers=proprietor_headers,
     )
 
-    assert response.status_code == 402
+    assert response.status_code == 200
     payload = response.get_json()
-    assert payload["error"] == "billing_payment_required"
-    assert payload["reference"] == "TERM-PAY-001"
-    assert payload["payment_link"] == "https://paystack.test/authorize"
+    assert payload["message"] == "Activated Term 1 2026/2027"
+    assert payload["billing_initiated"] is False
 
     with app.app_context():
         refreshed_term = AcademicTerm.query.get(term.id)
-        assert refreshed_term.is_active is False
+        assert refreshed_term.is_active is True
 
         entry = LedgerEntry.query.filter_by(tx_ref="TERM-PAY-001", tx_type="subscription").first()
-        assert entry is not None
-        assert (entry.meta or {}).get("status") == "Pending"
+        assert entry is None
 
 
 def test_paystack_initialize_prorates_post_trial_free_tier_conversion(
