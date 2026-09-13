@@ -1168,6 +1168,17 @@ export default function SettingsPanel() {
     }
   };
 
+  const handleHideBankDetails = () => {
+    setSettings((prev) => ({
+      ...prev,
+      bank_name: maskedBankSnapshot.bank_name || prev.bank_name,
+      bank_account: maskedBankSnapshot.bank_account || prev.bank_account,
+      bank_account_name: maskedBankSnapshot.bank_account_name || prev.bank_account_name,
+      bank_branch: maskedBankSnapshot.bank_branch || prev.bank_branch,
+    }));
+    setBankDetailsVisible(false);
+  };
+
   const handleChange = (e) => {
     setSettings({ ...settings, [e.target.name]: e.target.value });
   };
@@ -1584,13 +1595,21 @@ export default function SettingsPanel() {
               <h4 className="font-bold text-slate-800 mb-3">🏦 Bank Account</h4>
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="max-w-sm text-xs text-slate-600">Saved bank details stay masked by default. Use the secure reveal action and confirm your password to view the full account information.</p>
-                {!bankDetailsVisible && (
+                {!bankDetailsVisible ? (
                   <button
                     type="button"
                     onClick={handleViewBankDetails}
                     className="inline-flex min-w-40 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     Reveal Bank Details
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleHideBankDetails}
+                    className="inline-flex min-w-40 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-100"
+                  >
+                    Close Bank Details
                   </button>
                 )}
               </div>
@@ -1654,14 +1673,18 @@ export default function SettingsPanel() {
                     {settings.paystack_subaccount_code ? <p className="mt-2">Generated subaccount code: {settings.paystack_subaccount_code}</p> : null}
                     {settings.paystack_bank_code ? <p className="mt-1">Verified Paystack bank code: {settings.paystack_bank_code}</p> : null}
                     {settings.paystack_resolved_account_name ? <p className="mt-1">Verified account name: {settings.paystack_resolved_account_name}</p> : null}
-                    {!settings.paystack_subaccount_code && bankDetailsReadyForProvisioning ? (
+                    {bankDetailsReadyForProvisioning ? (
                       <button
                         type="button"
                         onClick={handleReconnectPaystackSettlement}
                         disabled={isReconnectingPaystackSettlement}
                         className="mt-3 inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                       >
-                        {isReconnectingPaystackSettlement ? 'Connecting...' : 'Reconnect Settlement Account'}
+                        {isReconnectingPaystackSettlement
+                          ? 'Connecting...'
+                          : settings.paystack_subaccount_code
+                            ? 'Refresh Settlement Account'
+                            : 'Reconnect Settlement Account'}
                       </button>
                     ) : null}
                   </div>

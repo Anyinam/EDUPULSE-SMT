@@ -2438,6 +2438,8 @@ def test_school_settings_auto_create_paystack_subaccount_from_bank_details(clien
         if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
             return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
         if endpoint == "/subaccount" and method == "POST":
+            assert data["business_name"] == "EDUPULSE SCHOOL ACCOUNT"
+            assert data["primary_contact_name"] == "EDUPULSE SCHOOL ACCOUNT"
             assert data["bank_code"] == "070100"
             assert data["account_number"] == "1234567890"
             return ({"subaccount_code": "SUB_test123"}, None)
@@ -2499,6 +2501,8 @@ def test_school_settings_save_can_create_missing_paystack_subaccount_from_existi
         if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
             return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
         if endpoint == "/subaccount" and method == "POST":
+            assert data["business_name"] == "EDUPULSE SCHOOL ACCOUNT"
+            assert data["primary_contact_name"] == "EDUPULSE SCHOOL ACCOUNT"
             return ({"subaccount_code": "SUB_existing123"}, None)
         raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
 
@@ -2544,6 +2548,8 @@ def test_school_settings_can_reconnect_missing_paystack_subaccount_without_full_
         if endpoint == "/bank/resolve?account_number=1234567890&bank_code=070100" and method == "GET":
             return ({"account_name": "EDUPULSE SCHOOL ACCOUNT", "account_number": "1234567890"}, None)
         if endpoint == "/subaccount" and method == "POST":
+            assert data["business_name"] == "EDUPULSE SCHOOL ACCOUNT"
+            assert data["primary_contact_name"] == "EDUPULSE SCHOOL ACCOUNT"
             return ({"subaccount_code": "SUB_retry123"}, None)
         raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
 
@@ -2594,6 +2600,8 @@ def test_school_settings_reconnect_retries_without_optional_contact_fields_when_
         if endpoint == "/subaccount" and method == "POST":
             if data.get("primary_contact_email"):
                 return (None, "Invalid value for primary_contact_email")
+            assert data["business_name"] == "EDUPULSE SCHOOL ACCOUNT"
+            assert data["primary_contact_name"] == "EDUPULSE SCHOOL ACCOUNT"
             assert "primary_contact_email" not in data
             assert "primary_contact_phone" not in data
             return ({"subaccount_code": "SUB_retry_no_optional"}, None)
@@ -2631,7 +2639,8 @@ def test_school_settings_subaccount_creation_omits_blank_optional_contact_fields
         if endpoint == "/subaccount" and method == "POST":
             assert "primary_contact_email" not in data
             assert "primary_contact_phone" not in data
-            assert data["primary_contact_name"] == "EduPulse School Account"
+            assert data["business_name"] == "EDUPULSE SCHOOL ACCOUNT"
+            assert data["primary_contact_name"] == "EDUPULSE SCHOOL ACCOUNT"
             return ({"subaccount_code": "SUB_optional001"}, None)
         raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
 

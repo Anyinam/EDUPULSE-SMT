@@ -9889,13 +9889,15 @@ def _provision_school_paystack_subaccount(school, settings, provider_settings):
     if error:
         return None, error
 
+    paystack_account_name = sanitize_string(resolved_account_name or account_name or school.name) or school.name
+
     payload = {
-        "business_name": school.name,
+        "business_name": paystack_account_name,
         "bank_code": bank_match["bank_code"],
         "account_number": bank_account,
         "percentage_charge": 0,
         "description": f"EduPulse settlement account for {school.name}",
-        "primary_contact_name": account_name,
+        "primary_contact_name": paystack_account_name,
     }
     if _is_valid_paystack_contact_email(contact_email):
         payload["primary_contact_email"] = contact_email
