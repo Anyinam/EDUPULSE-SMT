@@ -3522,6 +3522,44 @@ def test_student_payment_code_requires_school_settlement_before_tracked_transfer
     assert "save verified bank details first" in response.get_json()["message"].lower()
 
 
+def test_student_payment_codes_auto_generate_missing_student_code(client, app, db, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    student = test_students[0]
+    student.student_code = None
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+
+    db.session.refresh(student)
+    assert student.student_code is not None
+    assert student.student_code.startswith(test_school.id.replace('-', '')[:12])
+    assert payload["student_code"] == student.student_code
+    assert any(item["reference_code"].startswith(student.student_code) for item in payload["payment_codes"])
+
+
+def test_student_payment_code_defaults_zero_tuition_convenience_percentage(client, app, db, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    settings.other_fees = {"__tuition_convenience_fee_percentage__": 0}
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(f"/api/students/{test_students[0].id}/payment-codes", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
+    assert payload["fees_configuration"]["tuition_convenience_fee_percentage"] == 1.95
+    assert tuition_code["total_amount"] == 101.95
+
+
 def test_student_payment_code_refreshes_stale_tracked_transfer_amounts_when_tuition_pricing_changes(client, app, test_school, test_proprietor, test_students, monkeypatch):
     from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
 

@@ -1973,6 +1973,25 @@ def generate_student_code(prefix, index):
     return f"{prefix}{index:04d}"
 
 
+def _ensure_student_payment_identity(student):
+    if not student:
+        return None
+
+    existing_code = sanitize_string(getattr(student, "student_code", "") or "")
+    if existing_code:
+        return existing_code
+
+    prefix = normalize_student_code_prefix(student.school_id)
+    next_index = Student.query.filter_by(school_id=student.school_id).count() + 1
+    while True:
+        candidate = generate_student_code(prefix, next_index)
+        if not Student.query.filter_by(student_code=candidate, school_id=student.school_id).first():
+            student.student_code = candidate
+            db.session.flush()
+            return candidate
+        next_index += 1
+
+
 def _generate_parent_admission_code(school_id):
     prefix = normalize_student_code_prefix(school_id)[:6]
     return f"ADM-{prefix}-{get_utc_now().strftime('%Y%m%d%H%M%S')}"
@@ -7285,12 +7304,7 @@ def get_student_payment_codes(student_id):
         id=student_id, school_id=g.school_id
     ).first_or_404()
     school = School.query.get(g.school_id)
-    if not sanitize_string(student.student_code or ""):
-        return jsonify({
-            "error": "student_payment_identity_missing",
-            "message": "This student does not have a payment identity yet. Add or repair the student ID before sharing parent payment instructions.",
-            "student_id": student.id,
-        }), 409
+    _ensure_student_payment_identity(student)
     verification_restriction = _payment_records_verification_block_response(school)
     if verification_restriction:
         return verification_restriction
@@ -7349,12 +7363,7 @@ def get_student_payment_codes(student_id):
 def create_student_payment_virtual_account(student_id, reference_code):
     student = Student.query.filter_by(id=student_id, school_id=g.school_id).first_or_404()
     school = School.query.get(g.school_id)
-    if not sanitize_string(student.student_code or ""):
-        return jsonify({
-            "error": "student_payment_identity_missing",
-            "message": "This student does not have a payment identity yet. Add or repair the student ID before creating a tracked transfer account.",
-            "student_id": student.id,
-        }), 409
+    _ensure_student_payment_identity(student)
     verification_restriction = _payment_records_verification_block_response(school)
     if verification_restriction:
         return verification_restriction

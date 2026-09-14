@@ -7,7 +7,10 @@ TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
 def _get_tuition_convenience_fee_percentage(settings):
     other_fees = settings.other_fees if settings and isinstance(settings.other_fees, dict) else {}
     try:
-        return round(max(0.0, float(other_fees.get(TUITION_CONVENIENCE_FEE_KEY, 1.95) or 0.0)), 2)
+        configured = float(other_fees.get(TUITION_CONVENIENCE_FEE_KEY, 1.95) or 0.0)
+        if configured <= 0:
+            return 1.95
+        return round(configured, 2)
     except (TypeError, ValueError):
         return 1.95
 
