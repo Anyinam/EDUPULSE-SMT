@@ -13185,6 +13185,17 @@ def get_public_school_classes(school_id):
     if not school:
         return jsonify({"message": "School not found"}), 404
 
+    classes = (
+        AcademicClass.query.filter_by(school_id=school_id)
+        .order_by(AcademicClass.name)
+        .all()
+    )
+    if classes:
+        return jsonify([
+            {"id": class_item.id, "name": class_item.name, "class_name": class_item.name}
+            for class_item in classes
+        ]), 200
+
     class_names = _get_public_school_class_names(school_id)
     return jsonify([{"name": class_name, "class_name": class_name} for class_name in class_names]), 200
 
