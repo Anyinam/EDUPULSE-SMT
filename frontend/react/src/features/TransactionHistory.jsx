@@ -6,6 +6,36 @@ function getPaymentFrequency(transaction) {
   return transaction.feeding_frequency || transaction.payment_category?.frequency || 'Inferred on approval';
 }
 
+function getTrackedTransferDetails(transaction) {
+  const category = transaction.payment_category && typeof transaction.payment_category === 'object'
+    ? transaction.payment_category
+    : {};
+
+  const hasTrackedTransfer = Boolean(
+    category.collection_channel === 'dedicated_virtual_account'
+    || category.payment_collection_intent_id
+    || category.split_code
+    || category.transfer_total_amount
+  );
+
+  if (!hasTrackedTransfer) {
+    return null;
+  }
+
+  return {
+    intentId: category.payment_collection_intent_id || null,
+    splitCode: category.split_code || null,
+    settlementMode: category.settlement_mode || null,
+    referenceCode: category.reference_code || null,
+    transferTotalAmount: Number(category.transfer_total_amount || transaction.display_amount || 0),
+    appliedSchoolFeeAmount: Number(category.applied_school_fee_amount || transaction.applied_amount || transaction.amount || 0),
+    convenienceFeeAmount: Number(category.collected_convenience_fee_amount || category.convenience_fee_amount || 0),
+    schoolSettlementAmount: Number(category.school_settlement_amount || 0),
+    platformSettlementAmount: Number(category.platform_settlement_amount || 0),
+    providerAccountNumber: category.provider_account_number || null,
+  };
+}
+
 export default function TransactionHistory() {
   const [transactions, setTransactions] = useState([]);
 
@@ -24,7 +54,23 @@ export default function TransactionHistory() {
   const downloadCSV = () => {
     if (!transactions.length) return alert("No transactions to export.");
 
-    const headers = ["Date", "Student Name", "Type", "Frequency", "Method", "Amount", "Status"];
+    const headers = [
+      "Date",
+      "Student Name",
+      "Type",
+      "Frequency",
+      "Method",
+      "Amount",
+      "Applied Amount",
+      "Status",
+      "Tracked Transfer Ref",
+      "Split Code",
+      "Settlement Mode",
+      "School Settlement",
+      "Platform Settlement",
+      "Convenience Fee",
+      "Intent ID",
+    ];
     const rows = transactions.map(t => [
       t.date,
       `"${t.student_name}"`,
@@ -32,7 +78,15 @@ export default function TransactionHistory() {
       `"${getPaymentFrequency(t)}"`,
       t.method,
       t.display_amount ?? t.amount,
-      t.status
+      t.applied_amount ?? t.amount,
+      t.status,
+      getTrackedTransferDetails(t)?.referenceCode || '',
+      getTrackedTransferDetails(t)?.splitCode || '',
+      getTrackedTransferDetails(t)?.settlementMode || '',
+      getTrackedTransferDetails(t)?.schoolSettlementAmount ?? '',
+      getTrackedTransferDetails(t)?.platformSettlementAmount ?? '',
+      getTrackedTransferDetails(t)?.convenienceFeeAmount ?? '',
+      getTrackedTransferDetails(t)?.intentId ?? '',
     ]);
 
     const csvContent = [
@@ -73,12 +127,15 @@ export default function TransactionHistory() {
               <th className="p-4">Frequency</th>
               <th className="p-4">Method</th>
               <th className="p-4">Amount</th>
+              <th className="p-4">Audit</th>
               <th className="p-4">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {transactions.map(t => (
-              <tr key={t.id} className="hover:bg-slate-50">
+            {transactions.map(t => {
+              const trackedTransfer = getTrackedTransferDetails(t);
+              return (
+              <tr key={t.id} className="hover:bg-slate-50 align-top">
                 <td className="p-4 text-sm text-slate-600">{t.date}</td>
                 <td className="p-4 font-bold text-slate-800">{t.student_name}</td>
                 <td className="p-4 text-sm">{t.type}</td>
@@ -90,9 +147,25 @@ export default function TransactionHistory() {
                     <p className="mt-1 text-[11px] font-medium text-slate-500">Applied to {t.type}: GH₵ {Number(t.applied_amount).toFixed(2)}</p>
                   ) : null}
                 </td>
+                <td className="p-4 text-xs text-slate-600">
+                  {trackedTransfer ? (
+                    <div className="space-y-1">
+                      <p className="font-semibold uppercase tracking-[0.14em] text-emerald-700">Tracked transfer</p>
+                      {trackedTransfer.referenceCode ? <p>Ref: <span className="font-semibold text-slate-800">{trackedTransfer.referenceCode}</span></p> : null}
+                      {trackedTransfer.splitCode ? <p>Split: <span className="font-semibold text-slate-800">{trackedTransfer.splitCode}</span></p> : null}
+                      {trackedTransfer.providerAccountNumber ? <p>Account: <span className="font-semibold text-slate-800">{trackedTransfer.providerAccountNumber}</span></p> : null}
+                      {trackedTransfer.settlementMode ? <p>Mode: <span className="font-semibold text-slate-800">{trackedTransfer.settlementMode}</span></p> : null}
+                      <p>School settle: <span className="font-semibold text-slate-800">GH₵ {Number(trackedTransfer.schoolSettlementAmount || trackedTransfer.appliedSchoolFeeAmount || 0).toFixed(2)}</span></p>
+                      <p>Platform settle: <span className="font-semibold text-slate-800">GH₵ {Number(trackedTransfer.platformSettlementAmount || trackedTransfer.convenienceFeeAmount || 0).toFixed(2)}</span></p>
+                      {trackedTransfer.intentId ? <p>Intent: <span className="font-semibold text-slate-800">#{trackedTransfer.intentId}</span></p> : null}
+                    </div>
+                  ) : (
+                    <span className="text-slate-400">-</span>
+                  )}
+                </td>
                 <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${t.status === 'Confirmed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{t.status}</span></td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>

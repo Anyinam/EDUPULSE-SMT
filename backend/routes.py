@@ -10084,8 +10084,7 @@ def _is_paystack_dedicated_account_charge(payload):
 
     identifiers = _extract_paystack_virtual_account_identifiers(payload)
     has_virtual_account_target = bool(identifiers.get("account_number") or identifiers.get("dedicated_account_id"))
-    has_paystack_route_identity = bool(identifiers.get("customer_code") or identifiers.get("reference_code"))
-    return has_virtual_account_target and has_paystack_route_identity
+    return has_virtual_account_target
 
 
 def _record_paystack_parent_admission_payment(payload, event="charge.success"):
