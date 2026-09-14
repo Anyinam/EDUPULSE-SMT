@@ -104,6 +104,7 @@ export default function StudentPaymentTracker() {
       } else {
         console.error('Failed to load payment codes');
         setPaymentCodesError({
+          error: responseData?.error || 'payment_codes_load_failed',
           message: responseData?.message || 'Unable to load payment references right now.',
         });
       }
@@ -946,8 +947,20 @@ export default function StudentPaymentTracker() {
               {/* Payment Routes Section */}
               {paymentCodesError ? (
                 <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-700">Collection Paused</p>
-                  <h4 className="mt-2 text-lg font-black text-slate-950">Parent payment references are currently blocked.</h4>
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-700">
+                    {paymentCodesError.error === 'payment_collection_blocked'
+                      ? 'Collection Paused'
+                      : paymentCodesError.error === 'school_verification_required'
+                        ? 'Verification Required'
+                        : 'Payment References Unavailable'}
+                  </p>
+                  <h4 className="mt-2 text-lg font-black text-slate-950">
+                    {paymentCodesError.error === 'payment_collection_blocked'
+                      ? 'Parent payment references are currently blocked.'
+                      : paymentCodesError.error === 'school_verification_required'
+                        ? 'Payment access requires school verification.'
+                        : 'Unable to load payment references right now.'}
+                  </h4>
                   <p className="mt-2 text-sm leading-6 text-slate-700">{paymentCodesError.message}</p>
                   {paymentCodesError.error === 'payment_collection_blocked' ? (
                     <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -970,11 +983,21 @@ export default function StudentPaymentTracker() {
                       Submit and complete School Verification before sharing payment instructions or viewing parent-payment records.
                     </div>
                   ) : null}
-                  <p className="mt-3 text-xs font-semibold text-amber-800">
-                    {paymentCodesError.error === 'school_verification_required'
-                      ? 'Verification sits above subscription access for payment operations.'
-                      : 'Upgrade the school subscription or reduce active enrollment before sharing any new payment instruction with parents.'}
-                  </p>
+                  {paymentCodesError.error === 'school_verification_required' ? (
+                    <p className="mt-3 text-xs font-semibold text-amber-800">
+                      Verification sits above subscription access for payment operations.
+                    </p>
+                  ) : null}
+                  {paymentCodesError.error === 'payment_collection_blocked' ? (
+                    <p className="mt-3 text-xs font-semibold text-amber-800">
+                      Upgrade the school subscription or reduce active enrollment before sharing any new payment instruction with parents.
+                    </p>
+                  ) : null}
+                  {paymentCodesError.error !== 'school_verification_required' && paymentCodesError.error !== 'payment_collection_blocked' ? (
+                    <p className="mt-3 text-xs font-semibold text-amber-800">
+                      Retry shortly. If this keeps happening for only some students, inspect the student record and payment-route setup rather than the subscription plan.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 

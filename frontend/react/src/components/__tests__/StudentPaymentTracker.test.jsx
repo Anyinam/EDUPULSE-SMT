@@ -158,6 +158,69 @@ describe('StudentPaymentTracker', () => {
     expect(screen.getByText(/verification sits above subscription access for payment operations/i)).toBeInTheDocument();
   });
 
+  it('shows a generic unavailable message without upgrade guidance for non-plan payment-code errors', async () => {
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              name: 'Ama Mensah',
+              student_code: 'S001',
+              current_class: 'JHS 1',
+              parent_name: 'Kojo Mensah',
+              parent_phone: '0240000000',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/school/fees') {
+        return Promise.resolve({
+          data: {
+            tuition_fee: 120,
+            terminal_report_fee: 10,
+            feeding_fee: 0,
+            uniform_fee: 0,
+            transport_fee: 0,
+          },
+        });
+      }
+
+      if (url === '/api/students/1/payments') {
+        return Promise.resolve({ data: [] });
+      }
+
+      if (url === '/api/students/1/payment-codes') {
+        return Promise.reject({
+          response: {
+            data: {
+              error: 'student_payment_identity_missing',
+              message: 'This student does not have a payment identity yet. Add or repair the student ID before sharing parent payment instructions.',
+            },
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    render(<StudentPaymentTracker />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Ama Mensah'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/unable to load payment references right now/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/add or repair the student id before sharing parent payment instructions/i)).toBeInTheDocument();
+    expect(screen.queryByText(/upgrade the school subscription or reduce active enrollment/i)).not.toBeInTheDocument();
+  });
+
   it('filters the student list by class before selection', async () => {
     axios.get.mockImplementation((url) => {
       if (url === '/api/students') {

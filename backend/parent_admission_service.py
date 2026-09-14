@@ -10,7 +10,7 @@ def submit_parent_admission_application(
     school_model,
     school_settings_model,
     parent_admission_application_model,
-    valid_grades,
+    allowed_classes,
     consent_version,
     sanitize_string,
     extract_parent_admission_document_details,
@@ -45,8 +45,8 @@ def submit_parent_admission_application(
 
     if not first_name or not surname:
         return None, {"message": "first_name and surname are required"}, 400
-    if preferred_class not in valid_grades:
-        return None, {"message": f"preferred_class must be one of: {', '.join(valid_grades)}"}, 400
+    if preferred_class not in allowed_classes:
+        return None, {"message": f"preferred_class must be one of: {', '.join(allowed_classes)}"}, 400
     if not guardian_name:
         return None, {"message": "guardian_name is required"}, 400
     if not parent_email and not parent_phone:
@@ -174,7 +174,7 @@ def resubmit_parent_admission_application(
     documents,
     school_model,
     parent_admission_application_model,
-    valid_grades,
+    allowed_classes,
     sanitize_string,
     extract_parent_admission_document_details,
     store_parent_admission_document,
@@ -209,8 +209,8 @@ def resubmit_parent_admission_application(
         return None, {"message": "guardian_name is required"}, 400
     if not merged_payload["parent_email"] and not merged_payload["parent_phone"]:
         return None, {"message": "Provide at least parent_email or parent_phone"}, 400
-    if merged_payload["preferred_class"] not in valid_grades:
-        return None, {"message": f"preferred_class must be one of: {', '.join(valid_grades)}"}, 400
+    if merged_payload["preferred_class"] not in allowed_classes:
+        return None, {"message": f"preferred_class must be one of: {', '.join(allowed_classes)}"}, 400
 
     application.guardian_name = merged_payload["guardian_name"]
     application.parent_email = merged_payload["parent_email"] or None

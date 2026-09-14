@@ -7285,6 +7285,12 @@ def get_student_payment_codes(student_id):
         id=student_id, school_id=g.school_id
     ).first_or_404()
     school = School.query.get(g.school_id)
+    if not sanitize_string(student.student_code or ""):
+        return jsonify({
+            "error": "student_payment_identity_missing",
+            "message": "This student does not have a payment identity yet. Add or repair the student ID before sharing parent payment instructions.",
+            "student_id": student.id,
+        }), 409
     verification_restriction = _payment_records_verification_block_response(school)
     if verification_restriction:
         return verification_restriction
@@ -7343,6 +7349,12 @@ def get_student_payment_codes(student_id):
 def create_student_payment_virtual_account(student_id, reference_code):
     student = Student.query.filter_by(id=student_id, school_id=g.school_id).first_or_404()
     school = School.query.get(g.school_id)
+    if not sanitize_string(student.student_code or ""):
+        return jsonify({
+            "error": "student_payment_identity_missing",
+            "message": "This student does not have a payment identity yet. Add or repair the student ID before creating a tracked transfer account.",
+            "student_id": student.id,
+        }), 409
     verification_restriction = _payment_records_verification_block_response(school)
     if verification_restriction:
         return verification_restriction
@@ -13102,6 +13114,7 @@ def submit_parent_admission_application(school_id):
     if request.form:
         payload = request.form.to_dict(flat=True)
     passport_photo = request.files.get("passport_photo")
+    allowed_classes = _get_public_school_class_names(school_id)
     response_body, error, status_code = parent_admission_service.submit_parent_admission_application(
         school_id,
         payload,
@@ -13110,7 +13123,7 @@ def submit_parent_admission_application(school_id):
         School,
         SchoolSettings,
         ParentAdmissionApplication,
-        VALID_GRADES,
+        allowed_classes,
         PARENT_ADMISSION_CONSENT_VERSION,
         sanitize_string,
         _extract_parent_admission_document_details,
@@ -13143,22 +13156,14 @@ def get_public_school_profile(school_id):
     return jsonify(_get_public_school_profile_payload(school, settings))
 
 
-@api.route("/public/schools/<school_id>/classes", methods=["GET"])
-def get_public_school_classes(school_id):
-    school = School.query.filter_by(id=school_id, is_active=True).first()
-    if not school:
-        return jsonify({"message": "School not found"}), 404
-
+def _get_public_school_class_names(school_id):
     classes = (
         AcademicClass.query.filter_by(school_id=school_id)
         .order_by(AcademicClass.name)
         .all()
     )
     if classes:
-        return jsonify([
-            {"id": class_item.id, "name": class_item.name, "class_name": class_item.name}
-            for class_item in classes
-        ]), 200
+        return [class_item.name for class_item in classes if class_item.name]
 
     student_classes = (
         db.session.query(Student.current_class)
@@ -13168,6 +13173,19 @@ def get_public_school_classes(school_id):
         .all()
     )
     class_names = [row[0] for row in student_classes if row[0]]
+    if class_names:
+        return class_names
+
+    return list(VALID_GRADES)
+
+
+@api.route("/public/schools/<school_id>/classes", methods=["GET"])
+def get_public_school_classes(school_id):
+    school = School.query.filter_by(id=school_id, is_active=True).first()
+    if not school:
+        return jsonify({"message": "School not found"}), 404
+
+    class_names = _get_public_school_class_names(school_id)
     return jsonify([{"name": class_name, "class_name": class_name} for class_name in class_names]), 200
 
 
@@ -13244,6 +13262,7 @@ def resubmit_parent_admission_application(school_id, status_token):
     if request.form:
         payload = request.form.to_dict(flat=True)
     passport_photo = request.files.get("passport_photo")
+    allowed_classes = _get_public_school_class_names(school_id)
     response_body, error, status_code = parent_admission_service.resubmit_parent_admission_application(
         school_id,
         status_token,
@@ -13252,7 +13271,7 @@ def resubmit_parent_admission_application(school_id, status_token):
         request.files.getlist("documents"),
         School,
         ParentAdmissionApplication,
-        VALID_GRADES,
+        allowed_classes,
         sanitize_string,
         _extract_parent_admission_document_details,
         _store_parent_admission_document,

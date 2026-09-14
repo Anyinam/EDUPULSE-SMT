@@ -255,6 +255,21 @@ def test_public_school_classes_use_school_defined_or_student_classes(client, db,
     ]
 
 
+def test_parent_admission_accepts_school_defined_class_names(client, db, test_school):
+    db.session.add(AcademicClass(school_id=test_school.id, name="Creche A"))
+    db.session.commit()
+
+    response = _submit_parent_application(
+        client,
+        test_school.id,
+        preferred_class="Creche A",
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["application"]["preferred_class"] == "Creche A"
+
+
 def test_school_can_review_parent_application_and_admit_student(client, app, db, test_school, test_proprietor):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     settings.approval_pdf_enabled = True
