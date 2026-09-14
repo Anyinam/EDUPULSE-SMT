@@ -13393,7 +13393,7 @@ def download_parent_admission_document(application_id, document_id):
         return jsonify({"message": "Document not found"}), 404
 
     resolved_path = _resolve_existing_school_file(
-        _get_parent_admission_document_storage_root(),
+        _get_parent_admission_document_storage_root(school_id=application.school_id),
         matching_document.get("stored_filename"),
     )
     if not resolved_path:

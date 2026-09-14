@@ -58,7 +58,7 @@ export default function SuperAdminDashboard({ tokenStorageKey = 'token', embedde
   const fetchSchools = async () => {
     try {
       const res = await axios.get('/api/admin/schools', getAuthHeaders());
-      setSchools(res.data);
+      setSchools(Array.isArray(res.data?.schools) ? res.data.schools : []);
     } catch (err) {
       console.error("Failed to fetch schools");
     }
