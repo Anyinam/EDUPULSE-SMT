@@ -206,6 +206,29 @@ def test_platform_can_release_registration_email(client, app):
     assert "REGISTRATION_EMAIL_RELEASED" in actions
 
 
+def test_platform_admin_schools_endpoint_supports_platform_jwt(client, app):
+    platform_user = PlatformUser(username="tenant-admin", email="tenant-admin@example.com")
+    platform_user.set_password("secret123")
+    school = School(id="TEN-001", name="Tenant School")
+    proprietor = User(
+        username="tenant-owner",
+        school_id=school.id,
+        role="proprietor",
+        email="owner@tenant.edu",
+    )
+    proprietor.set_password("secret123")
+
+    db.session.add_all([platform_user, school, proprietor])
+    db.session.commit()
+
+    response = client.get("/api/admin/schools", headers=_platform_headers(app, platform_user.id))
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    listed_school = next(item for item in payload["schools"] if item["id"] == school.id)
+    assert listed_school["email"] == "owner@tenant.edu"
+
+
 def test_platform_release_allows_reregistration_with_original_email(client, app):
     platform_user = PlatformUser(username="reuse-admin", email="reuse-admin@example.com")
     platform_user.set_password("secret123")
@@ -3779,6 +3802,44 @@ def test_student_payment_codes_survive_unexpected_tracked_transfer_generation_er
     assert tuition_code["reference_code"]
     assert tuition_code["tracked_transfer_error"]
     assert tuition_code["virtual_route"] is None
+
+
+def test_virtual_account_endpoint_survives_unexpected_tracked_transfer_generation_error(client, app, test_school, test_proprietor, test_students, monkeypatch):
+    from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
+
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    settings.report_template_config = {
+        GLOBAL_REPORT_SETTINGS_KEY: {
+            PAYMENT_PROVIDER_SETTINGS_KEY: {
+                "paystack_subaccount_code": "SUB_school001",
+                "paystack_bank_code": "070100",
+                "paystack_resolved_account_name": "EduPulse School Account",
+            }
+        }
+    }
+    db.session.commit()
+
+    def fail_generation(*_args, **_kwargs):
+        raise RuntimeError("simulated tracked transfer failure")
+
+    monkeypatch.setattr("backend.routes._create_or_reuse_student_virtual_account_intent", fail_generation)
+
+    student = test_students[0]
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    codes_response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
+    assert codes_response.status_code == 200
+    tuition_code = next(item for item in codes_response.get_json()["payment_codes"] if item["fee_type"] == "Tuition")
+
+    response = client.post(
+        f"/api/students/{student.id}/payment-codes/{tuition_code['reference_code']}/virtual-account",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert response.status_code == 502
+    assert response.get_json()["message"] == "EduPulse could not prepare the tracked transfer account right now. Please try again shortly or use the school office for manual assistance."
 
 
 def test_paystack_dedicated_virtual_account_webhook_records_student_payment(client, app, test_school, test_proprietor, test_students):

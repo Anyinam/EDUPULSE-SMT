@@ -26,7 +26,7 @@ const intakeHighlights = [
 ];
 
 const submissionChecklist = [
-  'Use a phone number or email address the school can reach quickly.',
+  'Use a working parent email address so the tracking link and school updates can be delivered.',
   'Upload any available records such as a report card, birth certificate, or guardian ID.',
   'Choose the assessment option that best matches the learner’s internet access and travel plan.',
 ];
@@ -273,7 +273,7 @@ export default function ParentAdmissionsPortal() {
               <div className="mt-5 space-y-4">
                 <div className={cardClassName}>
                   <p className="text-sm font-semibold text-slate-950">Required for first review</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">Learner name, preferred class, guardian contact, and at least one working parent email or phone number.</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Learner name, preferred class, guardian contact, and a working parent email address.</p>
                 </div>
                 <div className={cardClassName}>
                   <p className="text-sm font-semibold text-slate-950">Review timeline</p>

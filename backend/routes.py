@@ -2119,7 +2119,7 @@ def _extract_latest_parent_admission_passport_photo(manifest, school_id):
     return None
 
 
-def _build_staff_parent_admission_document_entry(application_id, raw_entry):
+def _build_staff_parent_admission_document_entry(application_id, school_id, raw_entry):
     if not isinstance(raw_entry, dict):
         return None
 
@@ -2127,14 +2127,22 @@ def _build_staff_parent_admission_document_entry(application_id, raw_entry):
     document_id = sanitize_string(entry.get("document_id") or entry.get("id") or "") or None
     stored_filename = sanitize_string(entry.get("stored_filename") or "") or None
     original_filename = sanitize_string(entry.get("original_filename") or entry.get("filename") or "") or None
+    resolved_path = None
 
-    if document_id and stored_filename:
+    if stored_filename:
+        resolved_path = _resolve_existing_school_file(
+            _get_parent_admission_document_storage_root(school_id=school_id),
+            stored_filename,
+        )
+
+    if document_id and stored_filename and resolved_path:
         entry["document_id"] = document_id
         entry["original_filename"] = original_filename or entry.get("filename") or "document"
         entry["download_path"] = _build_parent_admission_document_download_path(application_id, document_id)
         entry["download_available"] = True
     else:
         entry["download_available"] = False
+        entry.pop("download_path", None)
 
     return entry
 
@@ -2270,7 +2278,7 @@ def _build_linked_student_admission_documents(student):
 
     entries = []
     for raw_entry in application.document_manifest or []:
-        entry = _build_staff_parent_admission_document_entry(application.id, raw_entry)
+        entry = _build_staff_parent_admission_document_entry(application.id, student.school_id, raw_entry)
         if not entry:
             continue
         entry["source"] = "parent_admission"
@@ -2285,7 +2293,7 @@ def _build_staff_parent_admission_payload(application, settings, school_id):
     payload["document_manifest"] = [
         item
         for item in (
-            _build_staff_parent_admission_document_entry(application.id, entry)
+            _build_staff_parent_admission_document_entry(application.id, school_id, entry)
             for entry in (payload.get("document_manifest") or [])
         )
         if item
@@ -7398,7 +7406,19 @@ def create_student_payment_virtual_account(student_id, reference_code):
         return jsonify({"message": "Tracked transfer accounts are available for tuition references only."}), 400
 
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-    intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, selected_code)
+    try:
+        intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, selected_code)
+    except Exception as exc:
+        db.session.rollback()
+        logger.error(
+            "Tracked transfer account generation crashed for school %s student %s ref %s: %s",
+            g.school_id,
+            student.id,
+            reference_code,
+            exc,
+        )
+        return jsonify({"message": public_tracked_transfer_failure_message()}), 502
+
     if error:
         db.session.rollback()
         if looks_like_provider_error(error, sanitize_string):
@@ -20075,7 +20095,10 @@ def get_all_schools():
             addon_key: school_has_addon(school, addon_key, effective_plan=effective_plan)
             for addon_key in ADDON_CATALOG.keys()
         }
-        proprietor = school.users.filter_by(role="proprietor").first()
+        proprietor = next(
+            (user for user in (school.users or []) if getattr(user, "role", None) == "proprietor"),
+            None,
+        )
         student_count = _count_active_students_for_billing(school.id)
         trial_active = bool(school.trial_plan and trial_end and get_utc_now() < trial_end)
 
@@ -20104,7 +20127,7 @@ def get_all_schools():
                 "subscription_status": school.subscription_status,
                 "is_active": school.is_active,
                 "student_count": student_count,
-                "created_at": school.created_at.isoformat() if school.created_at else None,
+                "created_at": school.created_at.isoformat() if getattr(school, "created_at", None) else None,
                 "trial": {
                     "active": trial_active,
                     "plan": school.trial_plan,

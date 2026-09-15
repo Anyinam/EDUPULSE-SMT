@@ -2,6 +2,7 @@ import io
 import json
 import hashlib
 import hmac
+import os
 
 import pytest
 from flask_jwt_extended import create_access_token
@@ -402,6 +403,32 @@ def test_school_review_actions_update_application_status(
     public_payload = status_response.get_json()
     assert public_payload["status"] == expected_status
     assert public_payload["reviewer_notes"] == f"Handled with {action}"
+
+
+def test_staff_admissions_list_hides_missing_document_downloads(client, app, tmp_path, test_school, test_proprietor):
+    app.config["PARENT_ADMISSION_DOCUMENT_STORAGE_DIR"] = str(tmp_path / "parent-admission-documents")
+
+    submit_response = _submit_parent_application(
+        client,
+        test_school.id,
+        documents=(io.BytesIO(b"report content"), "previous-report.pdf"),
+    )
+    application_id = submit_response.get_json()["application"]["id"]
+    application = ParentAdmissionApplication.query.get(application_id)
+    stored_filename = application.document_manifest[0]["stored_filename"]
+    stored_path = os.path.join(app.config["PARENT_ADMISSION_DOCUMENT_STORAGE_DIR"], test_school.id, stored_filename)
+    os.remove(stored_path)
+
+    response = client.get(
+        "/api/admissions/applications",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    listed_application = next(item for item in response.get_json()["applications"] if item["id"] == application_id)
+    document_entry = listed_application["document_manifest"][0]
+    assert document_entry["download_available"] is False
+    assert "download_path" not in document_entry
 
 
 def test_parent_admission_review_rejects_invalid_action(client, app, test_school, test_proprietor):
