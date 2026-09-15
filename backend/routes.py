@@ -7324,17 +7324,28 @@ def get_student_payment_codes(student_id):
         for code in payload.get("payment_codes") or []:
             if sanitize_string((code.get("payment_category") or {}).get("fee_type") or code.get("fee_type") or "") != "Tuition":
                 continue
-            intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, code)
-            if error:
-                code["tracked_transfer_error"] = public_tracked_transfer_failure_message() if looks_like_provider_error(error, sanitize_string) else error
-                continue
-            route_payload = _build_payment_collection_intent_payload(intent)
-            code["virtual_route"] = route_payload
-            code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
-            code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
-            code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
-            code["has_virtual_route"] = bool(route_payload)
-            code["preferred_payment_model"] = "virtual_account_ready" if route_payload else code.get("preferred_payment_model")
+            try:
+                intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, code)
+                if error:
+                    code["tracked_transfer_error"] = public_tracked_transfer_failure_message() if looks_like_provider_error(error, sanitize_string) else error
+                    continue
+                route_payload = _build_payment_collection_intent_payload(intent)
+                code["virtual_route"] = route_payload
+                code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
+                code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
+                code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
+                code["has_virtual_route"] = bool(route_payload)
+                code["preferred_payment_model"] = "virtual_account_ready" if route_payload else code.get("preferred_payment_model")
+            except Exception as exc:
+                db.session.rollback()
+                logger.error(
+                    "Tracked transfer account preparation failed for school %s student %s ref %s: %s",
+                    g.school_id,
+                    student.id,
+                    code.get("reference_code") or code.get("code"),
+                    exc,
+                )
+                code["tracked_transfer_error"] = public_tracked_transfer_failure_message()
 
     log_action(
         actor_id,
@@ -13317,16 +13328,29 @@ def list_parent_admission_applications():
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     applications = query.order_by(ParentAdmissionApplication.submitted_at.desc()).all()
     summary = {}
+    active_applications = []
+    archived_applications = []
+    archive_summary = {}
     workflow_config = _get_parent_admission_workflow_config(settings)
     for item in applications:
         summary[item.status] = summary.get(item.status, 0) + 1
+        if item.reviewed_at:
+            archived_applications.append(item)
+            archive_summary[item.status] = archive_summary.get(item.status, 0) + 1
+        else:
+            active_applications.append(item)
 
     return jsonify({
         "applications": [
             _build_staff_parent_admission_payload(item, settings, g.school_id)
-            for item in applications
+            for item in active_applications
+        ],
+        "archived_applications": [
+            _build_staff_parent_admission_payload(item, settings, g.school_id)
+            for item in archived_applications
         ],
         "summary": summary,
+        "archive_summary": archive_summary,
         "workflow_defaults": {
             "visit_location": workflow_config["visit_defaults"].get("location", ""),
             "visit_contact_person": workflow_config["visit_defaults"].get("contact_person", ""),

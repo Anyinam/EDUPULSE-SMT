@@ -38,7 +38,9 @@ export default function AdmissionsPanel() {
   });
   const [csvFile, setCsvFile] = useState(null);
   const [applications, setApplications] = useState([]);
+  const [archivedApplications, setArchivedApplications] = useState([]);
   const [applicationSummary, setApplicationSummary] = useState({});
+  const [archiveSummary, setArchiveSummary] = useState({});
   const [loadingApplications, setLoadingApplications] = useState(true);
   const [reviewNotes, setReviewNotes] = useState({});
   const [reviewClass, setReviewClass] = useState({});
@@ -99,7 +101,9 @@ export default function AdmissionsPanel() {
       setLoadingApplications(true);
       const res = await axios.get('/api/admissions/applications', { headers: getAuthHeaders() });
       setApplications(res.data.applications || []);
+      setArchivedApplications(res.data.archived_applications || []);
       setApplicationSummary(res.data.summary || {});
+      setArchiveSummary(res.data.archive_summary || {});
       setWorkflowDefaults(res.data.workflow_defaults || {
         visit_location: '',
         visit_contact_person: '',
@@ -403,7 +407,7 @@ export default function AdmissionsPanel() {
         {loadingApplications ? (
           <p className="mt-6 text-sm text-slate-500">Loading applications...</p>
         ) : applications.length === 0 ? (
-          <p className="mt-6 text-sm text-slate-500">No parent applications submitted yet.</p>
+          <p className="mt-6 text-sm text-slate-500">No active parent applications in the review queue.</p>
         ) : (
           <div className="mt-6 space-y-4">
             {applications.map((application) => (
@@ -560,6 +564,63 @@ export default function AdmissionsPanel() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {!loadingApplications && archivedApplications.length > 0 && (
+          <div className="mt-8 border-t border-slate-200 pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800">Admissions Archive</h3>
+                <p className="mt-1 text-sm text-slate-500">Reviewed applications move here after approval, rejection, correction requests, test routing, or visit scheduling.</p>
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs font-bold text-slate-600">
+                {Object.entries(archiveSummary).map(([status, count]) => (
+                  <span key={status} className="rounded-full bg-slate-100 px-3 py-2">{status}: {count}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {archivedApplications.map((application) => (
+                <div key={application.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-lg font-black text-slate-900">{application.first_name} {application.surname}</h4>
+                        <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">{application.status}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-500">{application.application_code} • Preferred Class: {application.preferred_class}</p>
+                      <p className="mt-2 text-sm text-slate-700">{application.ai_summary}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white px-4 py-3 text-right">
+                      <p className="text-xs font-bold uppercase text-slate-400">Reviewed</p>
+                      <p className="mt-1 text-sm font-black text-slate-900">{application.reviewed_at ? new Date(application.reviewed_at).toLocaleString() : 'Completed'}</p>
+                    </div>
+                  </div>
+
+                  {application.reviewer_notes && (
+                    <div className="mt-4 rounded-xl bg-white p-4">
+                      <p className="text-xs font-bold uppercase text-slate-400">Final Notes</p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{application.reviewer_notes}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {application.decision_document?.available && (
+                      <a
+                        href={application.decision_document.download_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-100"
+                      >
+                        Preview Decision PDF
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

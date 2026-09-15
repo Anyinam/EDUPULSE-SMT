@@ -505,7 +505,7 @@ export default function ParentAdmissionsPortal() {
               </div>
               <div>
                 <FieldLabel>Parent Email</FieldLabel>
-                <input name="parent_email" type="email" value={formData.parent_email} onChange={handleChange} className={inputClassName} />
+                <input name="parent_email" type="email" value={formData.parent_email} onChange={handleChange} required className={inputClassName} />
               </div>
               <div>
                 <FieldLabel>Parent Phone</FieldLabel>

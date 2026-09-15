@@ -3748,6 +3748,39 @@ def test_student_payment_code_get_refreshes_stale_tracked_transfer_amounts_when_
     assert refreshed_intent.total_amount == 101.95
 
 
+def test_student_payment_codes_survive_unexpected_tracked_transfer_generation_error(client, app, test_school, test_proprietor, test_students, monkeypatch):
+    from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
+
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    settings.report_template_config = {
+        GLOBAL_REPORT_SETTINGS_KEY: {
+            PAYMENT_PROVIDER_SETTINGS_KEY: {
+                "paystack_subaccount_code": "SUB_school001",
+                "paystack_bank_code": "070100",
+                "paystack_resolved_account_name": "EduPulse School Account",
+            }
+        }
+    }
+    db.session.commit()
+
+    def fail_generation(*_args, **_kwargs):
+        raise RuntimeError("simulated tracked transfer failure")
+
+    monkeypatch.setattr("backend.routes._create_or_reuse_student_virtual_account_intent", fail_generation)
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(f"/api/students/{test_students[0].id}/payment-codes", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
+    assert tuition_code["reference_code"]
+    assert tuition_code["tracked_transfer_error"]
+    assert tuition_code["virtual_route"] is None
+
+
 def test_paystack_dedicated_virtual_account_webhook_records_student_payment(client, app, test_school, test_proprietor, test_students):
     student = test_students[0]
     student.total_tuition_owed = 500.0

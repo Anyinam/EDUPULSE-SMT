@@ -49,8 +49,8 @@ def submit_parent_admission_application(
         return None, {"message": f"preferred_class must be one of: {', '.join(allowed_classes)}"}, 400
     if not guardian_name:
         return None, {"message": "guardian_name is required"}, 400
-    if not parent_email and not parent_phone:
-        return None, {"message": "Provide at least parent_email or parent_phone"}, 400
+    if not parent_email:
+        return None, {"message": "parent_email is required"}, 400
     if not consent_confirmed:
         return None, {"message": "Parent or guardian consent confirmation is required before submission."}, 400
 
@@ -197,18 +197,18 @@ def resubmit_parent_admission_application(
         return None, {"message": "This application can no longer be updated."}, 409
 
     merged_payload = {
-        "guardian_name": sanitize_string(payload.get("guardian_name") or application.guardian_name or ""),
-        "parent_email": sanitize_string(payload.get("parent_email") or application.parent_email or ""),
-        "parent_phone": sanitize_string(payload.get("parent_phone") or application.parent_phone or ""),
-        "preferred_class": sanitize_string(payload.get("preferred_class") or application.preferred_class or ""),
-        "desired_test_mode": sanitize_string(payload.get("desired_test_mode") or application.desired_test_mode or "either"),
-        "internet_quality": sanitize_string(payload.get("internet_quality") or application.internet_quality or "unknown"),
+        "guardian_name": sanitize_string(payload.get("guardian_name")) if "guardian_name" in payload else sanitize_string(application.guardian_name or ""),
+        "parent_email": sanitize_string(payload.get("parent_email")) if "parent_email" in payload else sanitize_string(application.parent_email or ""),
+        "parent_phone": sanitize_string(payload.get("parent_phone")) if "parent_phone" in payload else sanitize_string(application.parent_phone or ""),
+        "preferred_class": sanitize_string(payload.get("preferred_class")) if "preferred_class" in payload else sanitize_string(application.preferred_class or ""),
+        "desired_test_mode": sanitize_string(payload.get("desired_test_mode")) if "desired_test_mode" in payload else sanitize_string(application.desired_test_mode or "either"),
+        "internet_quality": sanitize_string(payload.get("internet_quality")) if "internet_quality" in payload else sanitize_string(application.internet_quality or "unknown"),
     }
 
     if not merged_payload["guardian_name"]:
         return None, {"message": "guardian_name is required"}, 400
-    if not merged_payload["parent_email"] and not merged_payload["parent_phone"]:
-        return None, {"message": "Provide at least parent_email or parent_phone"}, 400
+    if not merged_payload["parent_email"]:
+        return None, {"message": "parent_email is required"}, 400
     if merged_payload["preferred_class"] not in allowed_classes:
         return None, {"message": f"preferred_class must be one of: {', '.join(allowed_classes)}"}, 400
 

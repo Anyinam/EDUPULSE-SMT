@@ -317,7 +317,7 @@ export default function ParentAdmissionStatus() {
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <input name="guardian_name" value={resubmitForm.guardian_name} onChange={handleResubmitChange} placeholder="Guardian name" className="rounded-2xl border border-rose-200 bg-white px-4 py-3" />
-                  <input name="parent_email" value={resubmitForm.parent_email} onChange={handleResubmitChange} placeholder="Parent email" className="rounded-2xl border border-rose-200 bg-white px-4 py-3" />
+                  <input name="parent_email" type="email" value={resubmitForm.parent_email} onChange={handleResubmitChange} placeholder="Parent email" required className="rounded-2xl border border-rose-200 bg-white px-4 py-3" />
                   <input name="parent_phone" value={resubmitForm.parent_phone} onChange={handleResubmitChange} placeholder="Parent phone" className="rounded-2xl border border-rose-200 bg-white px-4 py-3" />
                   <input name="preferred_class" value={resubmitForm.preferred_class} onChange={handleResubmitChange} placeholder="Preferred class" className="rounded-2xl border border-rose-200 bg-white px-4 py-3" />
                   <select name="desired_test_mode" value={resubmitForm.desired_test_mode} onChange={handleResubmitChange} className="rounded-2xl border border-rose-200 bg-white px-4 py-3">

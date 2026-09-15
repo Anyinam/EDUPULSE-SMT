@@ -65,6 +65,18 @@ def test_parent_admission_application_submission_and_status_tracking(client, tes
     assert status_payload["status"] == "TestReady"
 
 
+def test_parent_admission_requires_parent_email(client, test_school):
+    response = _submit_parent_application(
+        client,
+        test_school.id,
+        parent_email='',
+        parent_phone='+233501234567',
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "parent_email is required"
+
+
 def test_parent_admission_fee_payment_initializes_from_public_status_token(client, db, test_school, monkeypatch):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     settings.admission_fee_enabled = True
@@ -323,9 +335,11 @@ def test_school_can_review_parent_application_and_admit_student(client, app, db,
 
     list_after_review_response = client.get("/api/admissions/applications", headers=headers)
     assert list_after_review_response.status_code == 200
+    list_after_review_payload = list_after_review_response.get_json()
+    assert all(item["id"] != application_id for item in list_after_review_payload["applications"])
     listed_application = next(
         item
-        for item in list_after_review_response.get_json()["applications"]
+        for item in list_after_review_payload["archived_applications"]
         if item["id"] == application_id
     )
     assert listed_application["decision_document"]["available"] is True
@@ -552,8 +566,6 @@ def test_parent_can_resubmit_missing_documents_and_application_reassesses(client
     submit_response = _submit_parent_application(
         client,
         test_school.id,
-        parent_email='',
-        parent_phone='+233501234567',
         desired_test_mode='either',
         internet_quality='unknown',
     )
@@ -589,6 +601,36 @@ def test_parent_can_resubmit_missing_documents_and_application_reassesses(client
     application = ParentAdmissionApplication.query.get(application_id)
     assert application.parent_email == "ama.parent@example.com"
     assert any(item.get("submitted_in_correction") for item in (application.document_manifest or []))
+
+
+def test_parent_resubmit_requires_parent_email(client, app, test_school, test_proprietor):
+    submit_response = _submit_parent_application(client, test_school.id)
+    status_token = submit_response.get_json()["status_token"]
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    application_id = submit_response.get_json()["application"]["id"]
+    review_response = client.post(
+        f"/api/admissions/applications/{application_id}/review",
+        headers=headers,
+        data=json.dumps({"action": "request_correction", "notes": "Please confirm the parent email."}),
+    )
+    assert review_response.status_code == 200
+
+    resubmit_response = client.post(
+        f"/api/public/schools/{test_school.id}/admissions/status/{status_token}/resubmit",
+        data={
+            "guardian_name": "Kojo Boadu",
+            "parent_email": "",
+            "parent_phone": "+233501234567",
+            "preferred_class": "JHS 1",
+            "desired_test_mode": "online",
+            "internet_quality": "stable",
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert resubmit_response.status_code == 400
+    assert resubmit_response.get_json()["message"] == "parent_email is required"
 
 
 def test_school_visit_plan_is_exposed_to_staff_and_parent_status(client, app, test_school, test_proprietor):
