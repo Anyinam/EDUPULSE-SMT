@@ -297,8 +297,6 @@ export default function SettingsPanel() {
   const [subscriptionTrial, setSubscriptionTrial] = useState({ active: false, plan: '', end_date: null });
   const [bankDetailsVisible, setBankDetailsVisible] = useState(false);
   const [isReconnectingPaystackSettlement, setIsReconnectingPaystackSettlement] = useState(false);
-    const tuitionConvenienceAmount = Number(((Number(fees.tuition_fee || 0) * Number(fees.tuition_convenience_fee_percentage || 0)) / 100).toFixed(2));
-    const tuitionTransferTotal = Number((Number(fees.tuition_fee || 0) + tuitionConvenienceAmount).toFixed(2));
 
   const [maskedBankSnapshot, setMaskedBankSnapshot] = useState({
     bank_name: '',
@@ -314,6 +312,7 @@ export default function SettingsPanel() {
   });
 
   const normalizeBankField = (value = '') => (typeof value === 'string' ? value.trim() : '');
+  const isMaskedBankValue = (value = '') => typeof value === 'string' && value.includes('***');
   const getComparableBankValue = (fieldName) => {
     const currentValue = settings[fieldName] || '';
     if (!bankDetailsVisible && isMaskedBankValue(currentValue)) {
@@ -401,7 +400,20 @@ export default function SettingsPanel() {
     }, {});
   };
 
-  const isMaskedBankValue = (value = '') => typeof value === 'string' && value.includes('***');
+  const normalizeFeeNumber = (value, fallback = 0) => {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : fallback;
+  };
+
+  const tuitionFee = normalizeFeeNumber(fees.tuition_fee);
+  const tuitionConvenienceFeePercentage = normalizeFeeNumber(fees.tuition_convenience_fee_percentage, 1.95);
+  const feedingDailyFee = normalizeFeeNumber(fees.feeding_daily_fee);
+  const feedingWeeklyFee = normalizeFeeNumber(fees.feeding_weekly_fee);
+  const feedingMonthlyFee = normalizeFeeNumber(fees.feeding_monthly_fee);
+  const transportFee = normalizeFeeNumber(fees.transport_fee);
+  const admissionFeeAmount = normalizeFeeNumber(fees.admission_fee_amount);
+  const tuitionConvenienceAmount = Number(((tuitionFee * tuitionConvenienceFeePercentage) / 100).toFixed(2));
+  const tuitionTransferTotal = Number((tuitionFee + tuitionConvenienceAmount).toFixed(2));
 
   const getAuthHeaders = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -524,16 +536,16 @@ export default function SettingsPanel() {
         };
         const res = await axios.get('/api/school/fees', { headers });
         setFees({
-          tuition_fee: res.data.tuition_fee || 0,
-          tuition_convenience_fee_percentage: res.data.tuition_convenience_fee_percentage ?? 1.95,
-          feeding_fee: res.data.feeding_fee || 0,
-          feeding_daily_fee: res.data.feeding_daily_fee || 0,
-          feeding_weekly_fee: res.data.feeding_weekly_fee || 0,
-          feeding_monthly_fee: res.data.feeding_monthly_fee || 0,
-          transport_fee: res.data.transport_fee || 0,
-          terminal_report_fee: res.data.terminal_report_fee || 0,
+          tuition_fee: normalizeFeeNumber(res.data.tuition_fee),
+          tuition_convenience_fee_percentage: normalizeFeeNumber(res.data.tuition_convenience_fee_percentage, 1.95),
+          feeding_fee: normalizeFeeNumber(res.data.feeding_fee),
+          feeding_daily_fee: normalizeFeeNumber(res.data.feeding_daily_fee),
+          feeding_weekly_fee: normalizeFeeNumber(res.data.feeding_weekly_fee),
+          feeding_monthly_fee: normalizeFeeNumber(res.data.feeding_monthly_fee),
+          transport_fee: normalizeFeeNumber(res.data.transport_fee),
+          terminal_report_fee: normalizeFeeNumber(res.data.terminal_report_fee),
           admission_fee_enabled: Boolean(res.data.admission_fee_enabled),
-          admission_fee_amount: res.data.admission_fee_amount || 0,
+          admission_fee_amount: normalizeFeeNumber(res.data.admission_fee_amount),
           other_fees: normalizeOtherFees(res.data.other_fees)
         });
       } catch (err) {
@@ -1783,7 +1795,7 @@ export default function SettingsPanel() {
               <p className="mt-1 text-xs text-slate-500">Parents pay this extra percentage only on tuition tracked through the EduPulse transfer account.</p>
               <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
                 <p className="font-semibold">Tracked tuition preview</p>
-                <p className="mt-1">Convenience fee to add: {fees.tuition_convenience_fee_percentage.toFixed(2)}% of GH₵ {Number(fees.tuition_fee || 0).toFixed(2)} = GH₵ {tuitionConvenienceAmount.toFixed(2)}</p>
+                <p className="mt-1">Convenience fee to add: {tuitionConvenienceFeePercentage.toFixed(2)}% of GH₵ {tuitionFee.toFixed(2)} = GH₵ {tuitionConvenienceAmount.toFixed(2)}</p>
                 <p className="mt-1">Parent tracked-transfer total for tuition: GH₵ {tuitionTransferTotal.toFixed(2)}</p>
               </div>
             </div>
@@ -2003,11 +2015,11 @@ export default function SettingsPanel() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
               <div>
                 <p className="text-slate-600">Tuition</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {fees.tuition_fee.toFixed(2)}</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {tuitionFee.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Tuition Convenience</p>
-                <p className="text-lg font-bold text-slate-800">{fees.tuition_convenience_fee_percentage.toFixed(2)}%</p>
+                <p className="text-lg font-bold text-slate-800">{tuitionConvenienceFeePercentage.toFixed(2)}%</p>
               </div>
               <div>
                 <p className="text-slate-600">Convenience Amount</p>
@@ -2019,24 +2031,24 @@ export default function SettingsPanel() {
               </div>
               <div>
                 <p className="text-slate-600">Feeding Daily</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_daily_fee.toFixed(2)}</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {feedingDailyFee.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Feeding Weekly</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_weekly_fee.toFixed(2)}</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {feedingWeeklyFee.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Feeding Monthly</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {fees.feeding_monthly_fee.toFixed(2)}</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {feedingMonthlyFee.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Transport</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {fees.transport_fee.toFixed(2)}</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {transportFee.toFixed(2)}</p>
               </div>
               {fees.admission_fee_enabled ? (
                 <div>
                   <p className="text-slate-600">Admission</p>
-                  <p className="text-lg font-bold text-slate-800">GH₵ {fees.admission_fee_amount.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-slate-800">GH₵ {admissionFeeAmount.toFixed(2)}</p>
                 </div>
               ) : null}
               {Object.entries(fees.other_fees || {}).map(([name, amount]) => (
