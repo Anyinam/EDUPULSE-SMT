@@ -311,9 +311,29 @@ export default function SettingsPanel() {
     bank_account_name: '',
     bank_branch: ''
   });
+  const [savedBankSnapshot, setSavedBankSnapshot] = useState({
+    bank_name: '',
+    bank_account: '',
+    bank_account_name: '',
+    bank_branch: ''
+  });
+
+  const normalizeBankField = (value = '') => (typeof value === 'string' ? value.trim() : '');
+  const getComparableBankValue = (fieldName) => {
+    const currentValue = settings[fieldName] || '';
+    if (!bankDetailsVisible && isMaskedBankValue(currentValue)) {
+      return normalizeBankField(savedBankSnapshot[fieldName] || '');
+    }
+    return normalizeBankField(currentValue);
+  };
+  const bankDetailsChangedSinceLastSave = ['bank_name', 'bank_account', 'bank_account_name', 'bank_branch'].some(
+    (fieldName) => getComparableBankValue(fieldName) !== normalizeBankField(savedBankSnapshot[fieldName] || '')
+  );
 
   const bankDetailsReadyForProvisioning = Boolean(
-    settings.bank_name && settings.bank_account && settings.bank_account_name
+    getComparableBankValue('bank_name')
+      && getComparableBankValue('bank_account')
+      && getComparableBankValue('bank_account_name')
   );
 
   const paystackProvisioningState = settings.paystack_subaccount_code
@@ -322,6 +342,12 @@ export default function SettingsPanel() {
         label: 'Connected',
         message: 'EduPulse has already connected the Paystack settlement account needed for tracked transfer payments.',
       }
+    : bankDetailsChangedSinceLastSave && bankDetailsReadyForProvisioning
+      ? {
+          tone: 'border-amber-200 bg-amber-50 text-amber-900',
+          label: 'Save Needed',
+          message: 'These bank details are not saved yet. Use Save and Connect Settlement Account so EduPulse can store them first and complete tracked transfer setup.',
+        }
     : bankDetailsReadyForProvisioning
       ? {
           tone: 'border-amber-200 bg-amber-50 text-amber-900',
@@ -367,6 +393,71 @@ export default function SettingsPanel() {
 
   const isMaskedBankValue = (value = '') => typeof value === 'string' && value.includes('***');
 
+  const getAuthHeaders = () => ({
+    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+    'X-School-ID': localStorage.getItem('school_id')
+  });
+
+  const loadSchoolSettings = async () => {
+    try {
+      const res = await axios.get('/api/school/settings', { headers: getAuthHeaders() });
+      const data = res.data || {};
+
+      setSettings((prev) => ({
+        ...prev,
+        school_name: data.name || prev.school_name,
+        school_motto: data.motto || prev.school_motto,
+        logo_url: data.logo_url || prev.logo_url,
+        primary_color: data.primary_color || prev.primary_color,
+        school_email: data.school_email || prev.school_email,
+        school_phone: data.school_phone || prev.school_phone,
+        school_address: data.school_address || prev.school_address,
+        school_website: data.school_website || prev.school_website,
+        bank_name: data.bank_name || '',
+        bank_account: data.bank_account || '',
+        bank_account_name: data.bank_account_name || '',
+        bank_branch: data.bank_branch || '',
+        paystack_subaccount_code: data.paystack_subaccount_code || '',
+        paystack_bank_code: data.paystack_bank_code || '',
+        paystack_resolved_account_name: data.paystack_resolved_account_name || '',
+        country_code: data.country_code || prev.country_code,
+        anniversary_date: data.anniversary_date || prev.anniversary_date,
+        next_term_reopen_date: data.next_term_reopen_date || '',
+        ai_registrar_enabled: Boolean(data.ai_registrar_enabled ?? data.ai_registrar_addon_enabled),
+        admissions_visit_location_default: data.admissions_visit_location_default || '',
+        admissions_visit_contact_person_default: data.admissions_visit_contact_person_default || '',
+        admissions_visit_contact_phone_default: data.admissions_visit_contact_phone_default || '',
+        admissions_approve_message_template: data.admissions_approve_message_template || '',
+        admissions_reject_message_template: data.admissions_reject_message_template || '',
+        admissions_correction_message_template: data.admissions_correction_message_template || '',
+        admissions_online_test_message_template: data.admissions_online_test_message_template || '',
+        admissions_visit_message_template: data.admissions_visit_message_template || '',
+        approval_pdf_enabled: Boolean(data.approval_pdf_enabled),
+        approval_pdf_delivery_mode: data.approval_pdf_delivery_mode || 'email_link',
+        approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
+        approval_pdf_include_required_items: data.approval_pdf_include_required_items !== false,
+        approval_pdf_required_items: data.approval_pdf_required_items || '',
+      }));
+
+      const nextMaskedBankSnapshot = {
+        bank_name: data.bank_name || '',
+        bank_account: data.bank_account || '',
+        bank_account_name: data.bank_account_name || '',
+        bank_branch: data.bank_branch || ''
+      };
+      setMaskedBankSnapshot(nextMaskedBankSnapshot);
+      setSavedBankSnapshot({
+        bank_name: isMaskedBankValue(nextMaskedBankSnapshot.bank_name) ? '' : nextMaskedBankSnapshot.bank_name,
+        bank_account: isMaskedBankValue(nextMaskedBankSnapshot.bank_account) ? '' : nextMaskedBankSnapshot.bank_account,
+        bank_account_name: isMaskedBankValue(nextMaskedBankSnapshot.bank_account_name) ? '' : nextMaskedBankSnapshot.bank_account_name,
+        bank_branch: isMaskedBankValue(nextMaskedBankSnapshot.bank_branch) ? '' : nextMaskedBankSnapshot.bank_branch,
+      });
+      setBankDetailsVisible(false);
+    } catch (err) {
+      console.error('Failed to load school settings:', err);
+    }
+  };
+
   useEffect(() => {
     const branding = safeJsonParse(localStorage.getItem('branding'), {});
     setSettings((prev) => ({
@@ -387,11 +478,7 @@ export default function SettingsPanel() {
     // Get subscription plan from backend to ensure it's always up-to-date
     const fetchSubscriptionPlan = async () => {
       try {
-        const headers = {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'X-School-ID': localStorage.getItem('school_id')
-        };
-        const res = await axios.get('/api/school/subscription/effective-plan', { headers });
+        const res = await axios.get('/api/school/subscription/effective-plan', { headers: getAuthHeaders() });
         const planFromServer = res.data.effective_plan || res.data.plan || localStorage.getItem('subscription_plan') || 'Free Tier';
         setSubscriptionPlan(planFromServer);
         setSubscriptionTrial(res.data.trial || { active: false, plan: '', end_date: null });
@@ -407,62 +494,6 @@ export default function SettingsPanel() {
     };
     
     fetchSubscriptionPlan();
-
-    const fetchSchoolSettings = async () => {
-      try {
-        const headers = {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'X-School-ID': localStorage.getItem('school_id')
-        };
-        const res = await axios.get('/api/school/settings', { headers });
-        const data = res.data || {};
-
-        setSettings((prev) => ({
-          ...prev,
-          school_name: data.name || prev.school_name,
-          school_motto: data.motto || prev.school_motto,
-          logo_url: data.logo_url || prev.logo_url,
-          primary_color: data.primary_color || prev.primary_color,
-          school_email: data.school_email || prev.school_email,
-          school_phone: data.school_phone || prev.school_phone,
-          school_address: data.school_address || prev.school_address,
-          school_website: data.school_website || prev.school_website,
-          bank_name: data.bank_name || '',
-          bank_account: data.bank_account || '',
-          bank_account_name: data.bank_account_name || '',
-          bank_branch: data.bank_branch || '',
-          paystack_subaccount_code: data.paystack_subaccount_code || '',
-          paystack_bank_code: data.paystack_bank_code || '',
-          paystack_resolved_account_name: data.paystack_resolved_account_name || '',
-          country_code: data.country_code || prev.country_code,
-          anniversary_date: data.anniversary_date || prev.anniversary_date,
-          next_term_reopen_date: data.next_term_reopen_date || '',
-          ai_registrar_enabled: Boolean(data.ai_registrar_enabled ?? data.ai_registrar_addon_enabled),
-          admissions_visit_location_default: data.admissions_visit_location_default || '',
-          admissions_visit_contact_person_default: data.admissions_visit_contact_person_default || '',
-          admissions_visit_contact_phone_default: data.admissions_visit_contact_phone_default || '',
-          admissions_approve_message_template: data.admissions_approve_message_template || '',
-          admissions_reject_message_template: data.admissions_reject_message_template || '',
-          admissions_correction_message_template: data.admissions_correction_message_template || '',
-          admissions_online_test_message_template: data.admissions_online_test_message_template || '',
-          admissions_visit_message_template: data.admissions_visit_message_template || '',
-          approval_pdf_enabled: Boolean(data.approval_pdf_enabled),
-          approval_pdf_delivery_mode: data.approval_pdf_delivery_mode || 'email_link',
-          approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
-          approval_pdf_include_required_items: data.approval_pdf_include_required_items !== false,
-          approval_pdf_required_items: data.approval_pdf_required_items || '',
-        }));
-        setMaskedBankSnapshot({
-          bank_name: data.bank_name || '',
-          bank_account: data.bank_account || '',
-          bank_account_name: data.bank_account_name || '',
-          bank_branch: data.bank_branch || ''
-        });
-        setBankDetailsVisible(false);
-      } catch (err) {
-        console.error('Failed to load school settings:', err);
-      }
-    };
 
 
     const fetchGradingScheme = async () => {
@@ -506,16 +537,11 @@ export default function SettingsPanel() {
     };
 
     
-    fetchSchoolSettings();
+    loadSchoolSettings();
     fetchGradingScheme();
     fetchFees();
     fetchActiveTemplate();
   }, []);
-
-  const getAuthHeaders = () => ({
-    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-    'X-School-ID': localStorage.getItem('school_id')
-  });
 
   const fetchActiveTemplate = async () => {
     try {
@@ -1152,13 +1178,15 @@ export default function SettingsPanel() {
     const pwd = prompt('Enter your password to view full bank details');
     if (!pwd) return;
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
-      const res = await axios.post('/api/school/branding/bank/view', { password: pwd }, { headers });
+      const res = await axios.post('/api/school/branding/bank/view', { password: pwd }, { headers: getAuthHeaders() });
       const data = res.data || {};
       setSettings((prev) => ({ ...prev, bank_name: data.bank_name, bank_account: data.bank_account, bank_account_name: data.bank_account_name, bank_branch: data.bank_branch }));
+      setSavedBankSnapshot({
+        bank_name: data.bank_name || '',
+        bank_account: data.bank_account || '',
+        bank_account_name: data.bank_account_name || '',
+        bank_branch: data.bank_branch || '',
+      });
       setBankDetailsVisible(true);
       setTemplateMessage('✅ Bank details revealed');
       setTimeout(() => setTemplateMessage(''), 3000);
@@ -1335,10 +1363,28 @@ export default function SettingsPanel() {
   const handleReconnectPaystackSettlement = async () => {
     setIsReconnectingPaystackSettlement(true);
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'X-School-ID': localStorage.getItem('school_id')
-      };
+      const headers = getAuthHeaders();
+
+      if (bankDetailsChangedSinceLastSave) {
+        const saveResponse = await axios.post('/api/school/settings', {
+          bank_name: settings.bank_name,
+          bank_account: settings.bank_account,
+          bank_account_name: settings.bank_account_name,
+          bank_branch: settings.bank_branch,
+        }, { headers });
+        const savePayload = saveResponse.data || {};
+        setSavedBankSnapshot({
+          bank_name: settings.bank_name || '',
+          bank_account: settings.bank_account || '',
+          bank_account_name: settings.bank_account_name || '',
+          bank_branch: settings.bank_branch || '',
+        });
+        if (savePayload.paystack_subaccount_code) {
+          await loadSchoolSettings();
+          alert(savePayload.message || 'Bank details saved and Paystack settlement account connected successfully.');
+          return;
+        }
+      }
 
       const response = await axios.post('/api/school/settings/paystack/reconnect', {}, { headers });
       const payload = response.data || {};
@@ -1348,6 +1394,7 @@ export default function SettingsPanel() {
         paystack_bank_code: payload.paystack_bank_code || prev.paystack_bank_code,
         paystack_resolved_account_name: payload.paystack_resolved_account_name || prev.paystack_resolved_account_name,
       }));
+      await loadSchoolSettings();
       alert(payload.message || 'Paystack settlement account connected successfully.');
     } catch (err) {
       const message = err.response?.data?.message || 'Failed to reconnect the Paystack settlement account.';
@@ -1682,6 +1729,8 @@ export default function SettingsPanel() {
                       >
                         {isReconnectingPaystackSettlement
                           ? 'Connecting...'
+                          : bankDetailsChangedSinceLastSave
+                            ? 'Save and Connect Settlement Account'
                           : settings.paystack_subaccount_code
                             ? 'Refresh Settlement Account'
                             : 'Reconnect Settlement Account'}
