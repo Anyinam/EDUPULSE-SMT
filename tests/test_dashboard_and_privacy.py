@@ -3583,6 +3583,29 @@ def test_student_payment_code_defaults_zero_tuition_convenience_percentage(clien
     assert tuition_code["total_amount"] == 101.95
 
 
+def test_school_fees_payload_normalizes_legacy_other_fee_amounts(client, app, db, test_school, test_proprietor):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.other_fees = {
+        "Sports": "15.5",
+        "Library": 8,
+        "Broken": "not-a-number",
+        "__tuition_convenience_fee_percentage__": 1.95,
+    }
+    db.session.commit()
+
+    response = client.get(
+        "/api/school/fees",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["other_fees"] == {
+        "Sports": 15.5,
+        "Library": 8.0,
+    }
+
+
 def test_student_payment_code_refreshes_stale_tracked_transfer_amounts_when_tuition_pricing_changes(client, app, test_school, test_proprietor, test_students, monkeypatch):
     from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
 

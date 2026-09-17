@@ -4,11 +4,15 @@ TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
 def _normalize_visible_other_fees(raw_other_fees):
     if not isinstance(raw_other_fees, dict):
         return {}
-    return {
-        fee_name: amount
-        for fee_name, amount in raw_other_fees.items()
-        if fee_name != TUITION_CONVENIENCE_FEE_KEY
-    }
+    normalized = {}
+    for fee_name, amount in raw_other_fees.items():
+        if fee_name == TUITION_CONVENIENCE_FEE_KEY:
+            continue
+        try:
+            normalized[fee_name] = round(float(amount), 2)
+        except (TypeError, ValueError):
+            continue
+    return normalized
 
 
 def _read_tuition_convenience_fee_percentage(settings):

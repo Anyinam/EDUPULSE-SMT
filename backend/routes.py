@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import tempfile
 import os
 import re
 import requests
@@ -3454,11 +3455,17 @@ def _build_parent_admission_response_message(action, application, school, workfl
     return _render_parent_admission_template(template, context)
 
 
-def _serialize_parent_admission_review_notes(reviewer_note, parent_response_message, follow_up_plan=None, class_assigned=None):
+def _serialize_parent_admission_review_notes(reviewer_note, parent_response_message, follow_up_plan=None, class_assigned=None, parent_email_subject=None, parent_email_attachment_names=None):
     meta = {
         "parent_response_message": sanitize_string(parent_response_message or "") or "",
         "follow_up_plan": follow_up_plan or None,
         "class_assigned": sanitize_string(class_assigned or "") or None,
+        "parent_email_subject": sanitize_string(parent_email_subject or "") or None,
+        "parent_email_attachment_names": [
+            sanitize_string(item or "")
+            for item in (parent_email_attachment_names or [])
+            if sanitize_string(item or "")
+        ],
     }
     note_body = sanitize_string(reviewer_note or "") or ""
     return f"{PARENT_ADMISSION_REVIEW_META_PREFIX}{json.dumps(meta, sort_keys=True)}\n{note_body}".rstrip()
@@ -3499,6 +3506,8 @@ def _parse_parent_admission_review_notes(raw_notes):
             "follow_up_plan": None,
             "class_assigned": None,
             "payment_summary": None,
+            "parent_email_subject": None,
+            "parent_email_attachment_names": [],
         }
 
     if not raw_notes.startswith(PARENT_ADMISSION_REVIEW_META_PREFIX):
@@ -3509,6 +3518,8 @@ def _parse_parent_admission_review_notes(raw_notes):
             "follow_up_plan": None,
             "class_assigned": None,
             "payment_summary": None,
+            "parent_email_subject": None,
+            "parent_email_attachment_names": [],
         }
 
     meta_line, _, note_body = raw_notes.partition("\n")
@@ -3524,6 +3535,12 @@ def _parse_parent_admission_review_notes(raw_notes):
         "follow_up_plan": meta.get("follow_up_plan") if isinstance(meta.get("follow_up_plan"), dict) else None,
         "class_assigned": sanitize_string(meta.get("class_assigned") or "") or None,
         "payment_summary": meta.get("payment_summary") if isinstance(meta.get("payment_summary"), dict) else None,
+        "parent_email_subject": sanitize_string(meta.get("parent_email_subject") or "") or None,
+        "parent_email_attachment_names": [
+            sanitize_string(item or "")
+            for item in (meta.get("parent_email_attachment_names") or [])
+            if sanitize_string(item or "")
+        ],
     }
 
 
@@ -3533,6 +3550,8 @@ def _apply_parent_admission_review_details(payload):
     enriched["reviewer_notes"] = parsed["reviewer_note"]
     enriched["parent_response_message"] = parsed["parent_response_message"]
     enriched["follow_up_plan"] = parsed["follow_up_plan"]
+    enriched["parent_email_subject"] = parsed["parent_email_subject"]
+    enriched["parent_email_attachment_names"] = parsed["parent_email_attachment_names"]
     if parsed["class_assigned"]:
         enriched["class_assigned"] = parsed["class_assigned"]
     enriched["payment_summary"] = parsed["payment_summary"]
@@ -3546,9 +3565,37 @@ def _set_parent_admission_payment_summary(application, payment_summary):
         "follow_up_plan": parsed.get("follow_up_plan") if isinstance(parsed.get("follow_up_plan"), dict) else None,
         "class_assigned": sanitize_string(parsed.get("class_assigned") or "") or None,
         "payment_summary": payment_summary if isinstance(payment_summary, dict) else None,
+        "parent_email_subject": sanitize_string(parsed.get("parent_email_subject") or "") or None,
+        "parent_email_attachment_names": [
+            sanitize_string(item or "")
+            for item in (parsed.get("parent_email_attachment_names") or [])
+            if sanitize_string(item or "")
+        ],
     }
     reviewer_note = sanitize_string(parsed.get("reviewer_note") or "") or ""
     application.reviewer_notes = f"{PARENT_ADMISSION_REVIEW_META_PREFIX}{json.dumps(meta, sort_keys=True)}\n{reviewer_note}".rstrip()
+
+
+def _extract_parent_admission_email_attachments(uploaded_files):
+    attachments = []
+    for uploaded in uploaded_files or []:
+        if not uploaded or not getattr(uploaded, "filename", None):
+            continue
+
+        original_filename = secure_filename(uploaded.filename or "") or f"admission_update_{secrets.token_hex(4)}.bin"
+        file_bytes = uploaded.read()
+        if not file_bytes:
+            return None, {"message": f"Attachment file {original_filename} is empty."}, 400
+        if len(file_bytes) > 10 * 1024 * 1024:
+            return None, {"message": f"Attachment {original_filename} must be 10MB or smaller."}, 400
+
+        attachments.append({
+            "filename": original_filename,
+            "content_type": uploaded.mimetype or "application/octet-stream",
+            "bytes": file_bytes,
+        })
+
+    return attachments, None, None
 
 
 def _get_parent_admission_payment_summary(application, settings):
@@ -3681,7 +3728,7 @@ def _build_parent_notification_sms(guardian_name, school_name, application_code,
     )
 
 
-def _send_parent_admission_update(application, school, next_step, payment_url=None):
+def _send_parent_admission_update(application, school, next_step, payment_url=None, subject_override=None, email_attachments=None):
     if not application.parent_email:
         return False
 
@@ -3700,14 +3747,35 @@ def _send_parent_admission_update(application, school, next_step, payment_url=No
         application_code=application.application_code,
         status_token=application.status_token,
         status=application.status,
-        summary=application.ai_summary or "Your application has been updated.",
+        summary=None,
         status_url=status_url,
         next_step=next_step,
         payment_url=payment_url,
     )
     if not subject or not body:
         return False
-    return send_email_notification(application.parent_email, subject, body)
+
+    resolved_subject = sanitize_string(subject_override or "") or subject
+    attachment_paths = []
+    try:
+        for attachment in email_attachments or []:
+            if not isinstance(attachment, dict) or not attachment.get("bytes"):
+                continue
+            safe_name = secure_filename(str(attachment.get("filename") or "")) or f"admission_update_{secrets.token_hex(4)}.bin"
+            _, file_ext = os.path.splitext(safe_name)
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext or ".bin", prefix="parent-admission-email-")
+            temp_file.write(attachment.get("bytes") or b"")
+            temp_file.flush()
+            temp_file.close()
+            attachment_paths.append(temp_file.name)
+
+        return send_email_notification(application.parent_email, resolved_subject, body, attachments=attachment_paths or None)
+    finally:
+        for path in attachment_paths:
+            try:
+                os.remove(path)
+            except OSError:
+                logger.warning("Failed to remove temporary parent admission attachment: %s", path)
 
 
 def _build_ai_registrar_assessment(payload, document_manifest):
@@ -13384,10 +13452,21 @@ def list_parent_admission_applications():
 @role_required("proprietor", "headmaster")
 @jwt_required()
 def review_parent_admission_application(application_id):
+    payload = request.get_json(silent=True) or {}
+    email_attachments = []
+    if request.form or request.files:
+        payload = dict(request.form or {})
+        uploaded_files = request.files.getlist("attachments") or []
+        if not uploaded_files and request.files.get("attachment"):
+            uploaded_files = [request.files.get("attachment")]
+        email_attachments, error, status_code = _extract_parent_admission_email_attachments(uploaded_files)
+        if error:
+            return jsonify(error), status_code
+
     response_body, error, status_code = parent_admission_service.review_parent_admission_application(
         application_id,
         g.school_id,
-        request.get_json(silent=True) or {},
+        payload,
         int(get_jwt_identity()),
         ParentAdmissionApplication,
         School,
@@ -13405,6 +13484,7 @@ def review_parent_admission_application(application_id):
         _build_staff_parent_admission_payload,
         _admit_student_from_payload,
         _send_parent_admission_update,
+        email_attachments,
         log_action,
         db.session,
     )

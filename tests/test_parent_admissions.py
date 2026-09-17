@@ -78,6 +78,75 @@ def test_parent_admission_requires_parent_email(client, test_school):
     assert response.get_json()["message"] == "parent_email is required"
 
 
+def test_parent_admission_submission_email_uses_plain_status_language(client, test_school, monkeypatch):
+    captured_emails = []
+
+    def capture_email(recipient, subject, body, **kwargs):
+        captured_emails.append({"recipient": recipient, "subject": subject, "body": body})
+        return True
+
+    monkeypatch.setattr("backend.routes.send_email_notification", capture_email)
+
+    response = _submit_parent_application(
+        client,
+        test_school.id,
+        desired_test_mode="either",
+        internet_quality="unknown",
+        documents=(io.BytesIO(b"report content"), "previous-report.pdf"),
+    )
+
+    assert response.status_code == 201
+    assert captured_emails
+    email_body = captured_emails[-1]["body"]
+    assert "Current status: Under review" in email_body
+    assert "AI-generated guidance" not in email_body
+    assert "AI Registrar" not in email_body
+    assert "If the school has shared admission-fee payment instructions" not in email_body
+
+
+def test_parent_admission_approved_email_uses_decision_language(client, app, test_school, test_proprietor, monkeypatch):
+    captured_emails = []
+
+    def capture_email(recipient, subject, body, **kwargs):
+        captured_emails.append({"recipient": recipient, "subject": subject, "body": body})
+        return True
+
+    monkeypatch.setattr("backend.routes.send_email_notification", capture_email)
+
+    submit_response = _submit_parent_application(
+        client,
+        test_school.id,
+        first_name="Yaw",
+        surname="Mensah",
+        preferred_class="JHS 2",
+        guardian_name="Esi Mensah",
+        desired_test_mode="either",
+        internet_quality="unknown",
+        documents=(io.BytesIO(b"report content"), "previous-report.pdf"),
+    )
+    application_id = submit_response.get_json()["application"]["id"]
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    review_response = client.post(
+        f"/api/admissions/applications/{application_id}/review",
+        headers=headers,
+        data=json.dumps({
+            "action": "approve",
+            "class_assigned": "JHS 2",
+            "notes": "Approved after final admissions review.",
+        }),
+    )
+
+    assert review_response.status_code == 200
+    assert len(captured_emails) >= 2
+    email_body = captured_emails[-1]["body"]
+    assert "Current status: Approved" in email_body
+    assert "The school has approved this application." in email_body
+    assert "AI-generated guidance" not in email_body
+    assert "AI Registrar" not in email_body
+    assert "Contact the school directly for any approved charges" in email_body
+
+
 def test_parent_admission_fee_payment_initializes_from_public_status_token(client, db, test_school, monkeypatch):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     settings.admission_fee_enabled = True
@@ -197,6 +266,56 @@ def test_parent_admission_review_preserves_payment_summary(client, app, db, test
     payment_summary = status_response.get_json()["payment_summary"]
     assert payment_summary["status"] == "initiated"
     assert payment_summary["reference"] == "PADM-INIT-1111"
+
+
+def test_parent_admission_review_accepts_custom_message_subject_and_attachments(client, app, test_school, test_proprietor, monkeypatch):
+        captured = {}
+
+        def capture_email(recipient, subject, body, attachments=None, **kwargs):
+            captured["recipient"] = recipient
+            captured["subject"] = subject
+            captured["body"] = body
+            captured["attachments"] = list(attachments or [])
+            captured["attachment_bytes"] = []
+            for attachment_path in attachments or []:
+                with open(attachment_path, "rb") as file_handle:
+                    captured["attachment_bytes"].append(file_handle.read())
+            return True
+
+        monkeypatch.setattr("backend.routes.send_email_notification", capture_email)
+
+        submit_response = _submit_parent_application(client, test_school.id)
+        application = ParentAdmissionApplication.query.get(submit_response.get_json()["application"]["id"])
+
+        response = client.post(
+            f"/api/admissions/applications/{application.id}/review",
+            headers={
+                "Authorization": _proprietor_headers(app, test_school.id, test_proprietor.id)["Authorization"],
+                "X-School-ID": test_school.id,
+            },
+            data={
+                "action": "request_correction",
+                "message_subject": "More information needed for this application",
+                "parent_message": "Please upload the learner's birth certificate and resend the updated file.",
+                "notes": "Waiting on official birth certificate.",
+                "attachments": [
+                    (io.BytesIO(b"admission-checklist"), "admission-checklist.pdf"),
+                    (io.BytesIO(b"birth-certificate-sample"), "birth-certificate-sample.pdf"),
+                ],
+            },
+            content_type="multipart/form-data",
+        )
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["application"]["status"] == "NeedsCorrection"
+        assert payload["application"]["parent_response_message"] == "Please upload the learner's birth certificate and resend the updated file."
+        assert payload["application"]["parent_email_subject"] == "More information needed for this application"
+        assert payload["application"]["parent_email_attachment_names"] == ["admission-checklist.pdf", "birth-certificate-sample.pdf"]
+        assert captured["subject"] == "More information needed for this application"
+        assert "Please upload the learner's birth certificate and resend the updated file." in captured["body"]
+        assert len(captured["attachments"]) == 2
+        assert captured["attachment_bytes"] == [b"admission-checklist", b"birth-certificate-sample"]
 
 
 def test_parent_admission_accepts_more_than_two_supporting_documents(client, test_school):

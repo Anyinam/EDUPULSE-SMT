@@ -303,6 +303,7 @@ def review_parent_admission_application(
     build_staff_parent_admission_payload,
     admit_student_from_payload,
     send_parent_admission_update,
+    email_attachments,
     log_action,
     db_session,
 ):
@@ -315,6 +316,8 @@ def review_parent_admission_application(
 
     action = sanitize_string(payload.get("action") or "").lower()
     reviewer_notes = sanitize_string(payload.get("notes") or "")
+    custom_parent_message = sanitize_string(payload.get("parent_message") or "")
+    custom_parent_subject = sanitize_string(payload.get("message_subject") or "")
 
     action_map = {
         "approve": "Approved",
@@ -352,11 +355,22 @@ def review_parent_admission_application(
         class_assigned=class_assigned,
         follow_up_plan=follow_up_plan,
     )
+    if custom_parent_message:
+        parent_response_message = custom_parent_message
+
+    attachment_names = [
+        attachment.get("filename")
+        for attachment in (email_attachments or [])
+        if isinstance(attachment, dict) and attachment.get("filename")
+    ]
+
     application.reviewer_notes = serialize_parent_admission_review_notes(
         reviewer_notes,
         parent_response_message,
         follow_up_plan=follow_up_plan,
         class_assigned=class_assigned if action == "approve" else None,
+        parent_email_subject=custom_parent_subject or None,
+        parent_email_attachment_names=attachment_names,
     )
     if existing_payment_summary:
         set_parent_admission_payment_summary(
@@ -415,7 +429,9 @@ def review_parent_admission_application(
         send_parent_admission_update(
             application,
             school,
-            next_step=parent_response_message + " Contact the school directly for any approved charges, including admission fee if your school applies one.",
+            next_step=parent_response_message if custom_parent_message else parent_response_message + " Contact the school directly for any approved charges, including admission fee if your school applies one.",
+            subject_override=custom_parent_subject or None,
+            email_attachments=email_attachments or None,
         )
     else:
         db_session.commit()
@@ -426,6 +442,8 @@ def review_parent_admission_application(
             application,
             school,
             next_step=next_step,
+            subject_override=custom_parent_subject or None,
+            email_attachments=email_attachments or None,
         )
 
     log_action(

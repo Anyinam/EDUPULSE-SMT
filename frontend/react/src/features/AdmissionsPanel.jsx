@@ -45,6 +45,10 @@ export default function AdmissionsPanel() {
   const [reviewNotes, setReviewNotes] = useState({});
   const [reviewClass, setReviewClass] = useState({});
   const [reviewFollowUp, setReviewFollowUp] = useState({});
+  const [reviewAction, setReviewAction] = useState({});
+  const [reviewMessageSubject, setReviewMessageSubject] = useState({});
+  const [reviewParentMessage, setReviewParentMessage] = useState({});
+  const [reviewAttachments, setReviewAttachments] = useState({});
   const [workflowDefaults, setWorkflowDefaults] = useState({
     visit_location: '',
     visit_contact_person: '',
@@ -241,33 +245,49 @@ export default function AdmissionsPanel() {
     }
   };
 
-  const handleReviewApplication = async (application, action) => {
+  const getSelectedReviewAction = (application) => reviewAction[application.id] || '';
+
+  const handleReviewApplication = async (application) => {
     try {
       setReviewingId(application.id);
-      const payload = {
-        action,
-        notes: reviewNotes[application.id] || '',
-      };
+      const action = getSelectedReviewAction(application);
+      if (!action) {
+        alert('Select an admissions decision before sending the update.');
+        setReviewingId(null);
+        return;
+      }
+
+      const payload = new FormData();
+      payload.append('action', action);
+      payload.append('notes', reviewNotes[application.id] || '');
+      payload.append('message_subject', reviewMessageSubject[application.id] || '');
+      payload.append('parent_message', reviewParentMessage[application.id] || '');
+
       if (action === 'approve') {
-        payload.class_assigned = reviewClass[application.id] || (schoolClasses.includes(application.preferred_class) ? application.preferred_class : '');
-        if (!payload.class_assigned) {
+        const classAssigned = reviewClass[application.id] || (schoolClasses.includes(application.preferred_class) ? application.preferred_class : '');
+        if (!classAssigned) {
           alert('Select a valid school class before approving this application.');
           setReviewingId(null);
           return;
         }
+        payload.append('class_assigned', classAssigned);
       }
       if (action === 'schedule_visit') {
         const followUp = reviewFollowUp[application.id] || {};
-        payload.visit_date = followUp.visit_date || '';
-        payload.visit_time = followUp.visit_time || '';
-        payload.visit_location = followUp.visit_location || '';
-        payload.visit_contact_person = followUp.visit_contact_person || '';
-        payload.visit_contact_phone = followUp.visit_contact_phone || '';
+        payload.append('visit_date', followUp.visit_date || '');
+        payload.append('visit_time', followUp.visit_time || '');
+        payload.append('visit_location', followUp.visit_location || '');
+        payload.append('visit_contact_person', followUp.visit_contact_person || '');
+        payload.append('visit_contact_phone', followUp.visit_contact_phone || '');
+      }
+      for (const attachment of reviewAttachments[application.id] || []) {
+        payload.append('attachments', attachment);
       }
       const res = await axios.post(`/api/admissions/applications/${application.id}/review`, payload, {
         headers: getAuthHeaders()
       });
       alert(res.data.message);
+      setReviewAttachments((current) => ({ ...current, [application.id]: [] }));
       fetchApplications();
     } catch (err) {
       alert(err.response?.data?.message || 'Review action failed.');
@@ -456,14 +476,55 @@ export default function AdmissionsPanel() {
                   </div>
                   <div className="rounded-xl bg-white p-4">
                     <p className="text-xs font-bold uppercase text-slate-400">Reviewer Notes</p>
-                    <p className="mt-1 text-xs text-slate-500">These notes appear on the parent's status page. Use them for visit instructions, test guidance, approval context, or rejection reasons.</p>
-                    <textarea
-                      value={reviewNotes[application.id] || ''}
-                      onChange={(event) => setReviewNotes((current) => ({ ...current, [application.id]: event.target.value }))}
-                      rows={3}
-                      className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      placeholder="Add school review notes or parent follow-up guidance"
+                    <p className="mt-1 text-xs text-slate-500">Choose the decision here, write the parent-facing topic and message, and attach a file if the school needs to send one.</p>
+                    <select
+                      value={getSelectedReviewAction(application)}
+                      onChange={(event) => setReviewAction((current) => ({ ...current, [application.id]: event.target.value }))}
+                      className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    >
+                      <option value="">Select admission decision</option>
+                      <option value="approve">Approve and admit student</option>
+                      <option value="request_correction">More information needed</option>
+                      <option value="reject">Reject application</option>
+                      <option value="invite_test">Mark online test path</option>
+                      <option value="schedule_visit">Mark school visit required</option>
+                    </select>
+                    <input
+                      value={reviewMessageSubject[application.id] || application.parent_email_subject || ''}
+                      onChange={(event) => setReviewMessageSubject((current) => ({ ...current, [application.id]: event.target.value }))}
+                      className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Subject / topic for the parent update"
                     />
+                    <textarea
+                      value={reviewParentMessage[application.id] || application.parent_response_message || ''}
+                      onChange={(event) => setReviewParentMessage((current) => ({ ...current, [application.id]: event.target.value }))}
+                      rows={4}
+                      className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Write the message the parent should receive"
+                    />
+                    <textarea
+                      value={reviewNotes[application.id] || application.reviewer_notes || ''}
+                      onChange={(event) => setReviewNotes((current) => ({ ...current, [application.id]: event.target.value }))}
+                      rows={2}
+                      className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Optional extra school note for the status record"
+                    />
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-bold uppercase text-slate-500">Optional Attachments</p>
+                      <p className="mt-1 text-xs text-slate-500">Attach one or more files such as a memo, checklist, or school letter.</p>
+                      <input
+                        type="file"
+                        multiple
+                        onChange={(event) => setReviewAttachments((current) => ({ ...current, [application.id]: Array.from(event.target.files || []) }))}
+                        className="mt-3 block w-full text-sm text-slate-500 file:mr-4 file:rounded-full file:border-0 file:bg-slate-200 file:px-4 file:py-2 file:font-semibold file:text-slate-700 hover:file:bg-slate-300"
+                      />
+                      {(reviewAttachments[application.id] || []).length > 0 && (
+                        <p className="mt-2 text-xs text-slate-600">Selected: {(reviewAttachments[application.id] || []).map((file) => file.name).join(', ')}</p>
+                      )}
+                      {(!(reviewAttachments[application.id] || []).length) && (application.parent_email_attachment_names || []).length > 0 && (
+                        <p className="mt-2 text-xs text-slate-600">Last sent attachments: {application.parent_email_attachment_names.join(', ')}</p>
+                      )}
+                    </div>
                     <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="text-xs font-bold uppercase text-slate-500">Visit Plan Details</p>
                       <p className="mt-1 text-xs text-slate-500">Used when you mark School Visit Required. Parents will see these details on their status page and in the review update.</p>
@@ -546,11 +607,7 @@ export default function AdmissionsPanel() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button onClick={() => handleReviewApplication(application, 'approve')} disabled={reviewingId === application.id} className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60">Approve & Admit</button>
-                  <button onClick={() => handleReviewApplication(application, 'invite_test')} disabled={reviewingId === application.id} className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">Mark Online Test Path</button>
-                  <button onClick={() => handleReviewApplication(application, 'schedule_visit')} disabled={reviewingId === application.id} className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-60">Mark School Visit Required</button>
-                  <button onClick={() => handleReviewApplication(application, 'request_correction')} disabled={reviewingId === application.id} className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60">Request Correction</button>
-                  <button onClick={() => handleReviewApplication(application, 'reject')} disabled={reviewingId === application.id} className="rounded-xl border border-red-300 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-60">Reject</button>
+                  <button onClick={() => handleReviewApplication(application)} disabled={reviewingId === application.id} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-60">{reviewingId === application.id ? 'Sending...' : 'Send Review Update'}</button>
                   {application.decision_document?.available && (
                     <a
                       href={application.decision_document.download_url}
@@ -603,6 +660,17 @@ export default function AdmissionsPanel() {
                     <div className="mt-4 rounded-xl bg-white p-4">
                       <p className="text-xs font-bold uppercase text-slate-400">Final Notes</p>
                       <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{application.reviewer_notes}</p>
+                    </div>
+                  )}
+
+                  {application.parent_response_message && (
+                    <div className="mt-4 rounded-xl bg-white p-4">
+                      <p className="text-xs font-bold uppercase text-slate-400">Parent Update Sent</p>
+                      {application.parent_email_subject && <p className="mt-2 text-sm font-semibold text-slate-800">Subject: {application.parent_email_subject}</p>}
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{application.parent_response_message}</p>
+                      {(application.parent_email_attachment_names || []).length > 0 && (
+                        <p className="mt-2 text-xs text-slate-500">Attachment: {application.parent_email_attachment_names.join(', ')}</p>
+                      )}
                     </div>
                   )}
 

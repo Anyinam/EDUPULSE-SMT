@@ -6,6 +6,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+PARENT_ADMISSION_STATUS_LABELS = {
+    'ReviewReady': 'Under review',
+    'TestReady': 'Ready for test',
+    'NeedsCorrection': 'Action needed',
+    'VisitRequired': 'School visit required',
+    'Approved': 'Approved',
+    'Rejected': 'Not approved',
+}
+
+
+PARENT_ADMISSION_STATUS_SUMMARIES = {
+    'ReviewReady': 'The application has been received and is now waiting for school review.',
+    'TestReady': 'The application has been received and is ready for the next admissions test step.',
+    'NeedsCorrection': 'The school needs a few updates before a final decision can be made.',
+    'VisitRequired': 'The school requires an in-person visit or meeting before the application can move forward.',
+    'Approved': 'The school has approved this application.',
+    'Rejected': 'The school has completed its review of this application.',
+}
+
+
 def load_email_template(template_name):
     """Load an email template from the templates directory.
     
@@ -334,16 +354,51 @@ def get_parent_admission_status_email(
     payment_url=None,
 ):
     """Generate parent admission status notification email."""
-    variables = {
-        'guardian_name': guardian_name,
-        'school_name': school_name,
-        'student_name': student_name,
-        'application_code': application_code,
-        'status_token': status_token,
-        'status': status,
-        'summary': summary,
-        'status_url': status_url,
-        'next_step': next_step,
-        'payment_url': payment_url or '',
-    }
-    return render_email_template('parent_admission_status_email', variables)
+    resolved_status = PARENT_ADMISSION_STATUS_LABELS.get(status, status or 'Updated')
+    resolved_summary = (summary or '').strip() or PARENT_ADMISSION_STATUS_SUMMARIES.get(status) or 'Your application has been updated.'
+    resolved_guardian_name = guardian_name or 'Parent/Guardian'
+    resolved_next_step = (next_step or '').strip()
+    resolved_status_url = (status_url or '').strip()
+    resolved_payment_url = (payment_url or '').strip()
+
+    subject = f"{school_name} admission update for {student_name}"
+    body_lines = [
+        f"Hello {resolved_guardian_name},",
+        "",
+        f"This is an update from {school_name} regarding the admission request for {student_name}.",
+        "",
+        f"Application code: {application_code}",
+        f"Tracking token: {status_token}",
+        f"Current status: {resolved_status}",
+        "",
+        "Summary:",
+        resolved_summary,
+    ]
+
+    if resolved_next_step:
+        body_lines.extend([
+            "",
+            "Next step:",
+            resolved_next_step,
+        ])
+
+    if resolved_status_url:
+        body_lines.extend([
+            "",
+            "Track the application here:",
+            resolved_status_url,
+        ])
+
+    if resolved_payment_url:
+        body_lines.extend([
+            "",
+            "If the school has shared admission-fee payment instructions, view them here:",
+            resolved_payment_url,
+        ])
+
+    body_lines.extend([
+        "",
+        "Regards,",
+        school_name,
+    ])
+    return subject, '\n'.join(body_lines)

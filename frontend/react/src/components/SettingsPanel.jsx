@@ -253,11 +253,6 @@ export default function SettingsPanel() {
     admissions_visit_location_default: '',
     admissions_visit_contact_person_default: '',
     admissions_visit_contact_phone_default: '',
-    admissions_approve_message_template: '',
-    admissions_reject_message_template: '',
-    admissions_correction_message_template: '',
-    admissions_online_test_message_template: '',
-    admissions_visit_message_template: '',
     approval_pdf_enabled: false,
     approval_pdf_delivery_mode: 'email_link',
     approval_pdf_include_payment_summary: true,
@@ -391,6 +386,21 @@ export default function SettingsPanel() {
     }
   };
 
+  const normalizeOtherFees = (rawFees) => {
+    if (!rawFees || typeof rawFees !== 'object' || Array.isArray(rawFees)) {
+      return {};
+    }
+
+    return Object.entries(rawFees).reduce((result, [feeName, amount]) => {
+      const numericAmount = Number(amount);
+      if (!Number.isFinite(numericAmount)) {
+        return result;
+      }
+      result[feeName] = numericAmount;
+      return result;
+    }, {});
+  };
+
   const isMaskedBankValue = (value = '') => typeof value === 'string' && value.includes('***');
 
   const getAuthHeaders = () => ({
@@ -427,11 +437,6 @@ export default function SettingsPanel() {
         admissions_visit_location_default: data.admissions_visit_location_default || '',
         admissions_visit_contact_person_default: data.admissions_visit_contact_person_default || '',
         admissions_visit_contact_phone_default: data.admissions_visit_contact_phone_default || '',
-        admissions_approve_message_template: data.admissions_approve_message_template || '',
-        admissions_reject_message_template: data.admissions_reject_message_template || '',
-        admissions_correction_message_template: data.admissions_correction_message_template || '',
-        admissions_online_test_message_template: data.admissions_online_test_message_template || '',
-        admissions_visit_message_template: data.admissions_visit_message_template || '',
         approval_pdf_enabled: Boolean(data.approval_pdf_enabled),
         approval_pdf_delivery_mode: data.approval_pdf_delivery_mode || 'email_link',
         approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
@@ -529,7 +534,7 @@ export default function SettingsPanel() {
           terminal_report_fee: res.data.terminal_report_fee || 0,
           admission_fee_enabled: Boolean(res.data.admission_fee_enabled),
           admission_fee_amount: res.data.admission_fee_amount || 0,
-          other_fees: res.data.other_fees || {}
+          other_fees: normalizeOtherFees(res.data.other_fees)
         });
       } catch (err) {
         console.error('Failed to load fees');
@@ -1286,11 +1291,6 @@ export default function SettingsPanel() {
         admissions_visit_location_default: settings.admissions_visit_location_default,
         admissions_visit_contact_person_default: settings.admissions_visit_contact_person_default,
         admissions_visit_contact_phone_default: settings.admissions_visit_contact_phone_default,
-        admissions_approve_message_template: settings.admissions_approve_message_template,
-        admissions_reject_message_template: settings.admissions_reject_message_template,
-        admissions_correction_message_template: settings.admissions_correction_message_template,
-        admissions_online_test_message_template: settings.admissions_online_test_message_template,
-        admissions_visit_message_template: settings.admissions_visit_message_template,
         approval_pdf_enabled: settings.ai_registrar_enabled ? settings.approval_pdf_enabled : false,
         approval_pdf_delivery_mode: settings.approval_pdf_delivery_mode,
         approval_pdf_include_payment_summary: settings.ai_registrar_enabled ? settings.approval_pdf_include_payment_summary : false,
@@ -1927,7 +1927,7 @@ export default function SettingsPanel() {
           <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
             <p className="text-sm font-bold text-slate-700 mb-3">📌 Additional Fees (e.g., Sports, Library, Activities)</p>
             <div className="space-y-3">
-              {Object.entries(fees.other_fees).map(([feeName, amount]) => (
+              {Object.entries(fees.other_fees || {}).map(([feeName, amount]) => (
                 <div key={feeName} className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-slate-700 flex-1">{feeName}:</span>
                   <span className="text-slate-600 font-semibold">GH₵</span>
@@ -2039,10 +2039,10 @@ export default function SettingsPanel() {
                   <p className="text-lg font-bold text-slate-800">GH₵ {fees.admission_fee_amount.toFixed(2)}</p>
                 </div>
               ) : null}
-              {Object.entries(fees.other_fees).map(([name, amount]) => (
+              {Object.entries(fees.other_fees || {}).map(([name, amount]) => (
                 <div key={name}>
                   <p className="text-slate-600">{name}</p>
-                  <p className="text-lg font-bold text-slate-800">GH₵ {amount.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-slate-800">GH₵ {Number(amount || 0).toFixed(2)}</p>
                 </div>
               ))}
             </div>
@@ -2064,39 +2064,9 @@ export default function SettingsPanel() {
           )}
 
           <div className="space-y-5">
-            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <summary className="cursor-pointer list-none text-sm font-bold uppercase tracking-wide text-slate-700">
-                Advanced Parent Messages (Optional)
-              </summary>
-              <p className="mt-3 text-sm text-slate-600">These messages are used when the school marks an application as approved, rejected, needing correction, online-test ready, or school-visit required. Leave them as they are unless your school needs custom wording.</p>
-              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Approval Message</label>
-                  <textarea name="admissions_approve_message_template" value={settings.admissions_approve_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Rejection Message</label>
-                  <textarea name="admissions_reject_message_template" value={settings.admissions_reject_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Correction Request Message</label>
-                  <textarea name="admissions_correction_message_template" value={settings.admissions_correction_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Online Test Message</label>
-                  <textarea name="admissions_online_test_message_template" value={settings.admissions_online_test_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-slate-700 mb-2">School Visit Message</label>
-                  <textarea name="admissions_visit_message_template" value={settings.admissions_visit_message_template} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg bg-white" />
-                  <p className="text-xs text-slate-500 mt-2">Available placeholders: {'{student_name}'}, {'{school_name}'}, {'{class_assigned}'}, {'{visit_date}'}, {'{visit_time}'}, {'{visit_location}'}, {'{visit_contact_person}'}, {'{visit_contact_phone}'}.</p>
-                </div>
-              </div>
-            </details>
-
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">School Visit Defaults</h4>
-              <p className="mt-1 text-sm text-slate-600">These defaults prefill the review queue when staff marks an application as requiring a school visit.</p>
+              <p className="mt-1 text-sm text-slate-600">These defaults prefill the admissions review queue when staff selects School Visit Required and sends the review update from the application itself.</p>
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Visit Location</label>
