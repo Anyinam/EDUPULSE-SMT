@@ -250,14 +250,6 @@ export default function SettingsPanel() {
     anniversary_date: '',
     next_term_reopen_date: '',
     ai_registrar_enabled: false,
-    admissions_visit_location_default: '',
-    admissions_visit_contact_person_default: '',
-    admissions_visit_contact_phone_default: '',
-    approval_pdf_enabled: false,
-    approval_pdf_delivery_mode: 'email_link',
-    approval_pdf_include_payment_summary: true,
-    approval_pdf_include_required_items: true,
-    approval_pdf_required_items: '',
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
@@ -446,14 +438,6 @@ export default function SettingsPanel() {
         anniversary_date: data.anniversary_date || prev.anniversary_date,
         next_term_reopen_date: data.next_term_reopen_date || '',
         ai_registrar_enabled: Boolean(data.ai_registrar_enabled ?? data.ai_registrar_addon_enabled),
-        admissions_visit_location_default: data.admissions_visit_location_default || '',
-        admissions_visit_contact_person_default: data.admissions_visit_contact_person_default || '',
-        admissions_visit_contact_phone_default: data.admissions_visit_contact_phone_default || '',
-        approval_pdf_enabled: Boolean(data.approval_pdf_enabled),
-        approval_pdf_delivery_mode: data.approval_pdf_delivery_mode || 'email_link',
-        approval_pdf_include_payment_summary: data.approval_pdf_include_payment_summary !== false,
-        approval_pdf_include_required_items: data.approval_pdf_include_required_items !== false,
-        approval_pdf_required_items: data.approval_pdf_required_items || '',
       }));
 
       const nextMaskedBankSnapshot = {
@@ -1300,14 +1284,6 @@ export default function SettingsPanel() {
         country_code: settings.country_code,
         anniversary_date: settings.anniversary_date,
         next_term_reopen_date: settings.next_term_reopen_date,
-        admissions_visit_location_default: settings.admissions_visit_location_default,
-        admissions_visit_contact_person_default: settings.admissions_visit_contact_person_default,
-        admissions_visit_contact_phone_default: settings.admissions_visit_contact_phone_default,
-        approval_pdf_enabled: settings.ai_registrar_enabled ? settings.approval_pdf_enabled : false,
-        approval_pdf_delivery_mode: settings.approval_pdf_delivery_mode,
-        approval_pdf_include_payment_summary: settings.ai_registrar_enabled ? settings.approval_pdf_include_payment_summary : false,
-        approval_pdf_include_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_include_required_items : false,
-        approval_pdf_required_items: settings.ai_registrar_enabled ? settings.approval_pdf_required_items : '',
       };
 
       if (bankDetailsVisible || settings.bank_name !== maskedBankSnapshot.bank_name) {
@@ -2061,130 +2037,6 @@ export default function SettingsPanel() {
           </div>
         </div>
 
-        <div className="border-t pt-6 mt-8">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">🎓 Admissions Configuration</h3>
-          <p className="text-sm text-slate-600 mb-4">
-            Configure the parent-facing admissions responses, school-visit defaults, and the approval letter for accepted applicants.
-          </p>
-
-          {!settings.ai_registrar_enabled && (
-            <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              {subscriptionTrial.active
-                ? `This school has an active ${subscriptionTrial.plan || subscriptionPlan} trial, but AI Registrar access is still not enabled. Refresh this page, and if the message remains, contact support because the trial entitlement should unlock the approval letter workflow.`
-                : 'AI Registrar workflow automation is available on Basic, Premium, or an active eligible trial. Free Tier schools can still review applications, but the approval letter stays locked.'}
-            </div>
-          )}
-
-          <div className="space-y-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">School Visit Defaults</h4>
-              <p className="mt-1 text-sm text-slate-600">These defaults prefill the admissions review queue when staff selects School Visit Required and sends the review update from the application itself.</p>
-              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Visit Location</label>
-                  <input name="admissions_visit_location_default" value={settings.admissions_visit_location_default} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" placeholder="Admissions office / campus gate" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Contact Person</label>
-                  <input name="admissions_visit_contact_person_default" value={settings.admissions_visit_contact_person_default} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" placeholder="Admissions Officer" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Contact Phone</label>
-                  <input name="admissions_visit_contact_phone_default" value={settings.admissions_visit_contact_phone_default} onChange={handleChange} className="w-full p-3 border rounded-lg bg-white" placeholder="+233..." />
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-5">
-              <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">Approved Admission Letter</h4>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Enable Admission Letter</label>
-                  <p className="text-sm text-slate-600">
-                    When enabled, approved applications can expose a downloadable admission letter through the secure parent status page.
-                  </p>
-                </div>
-                <label className="inline-flex items-center gap-3 text-sm font-bold text-slate-700 whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={settings.approval_pdf_enabled}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_enabled: e.target.checked }))}
-                    className="h-4 w-4 rounded border-slate-300"
-                    disabled={!settings.ai_registrar_enabled}
-                  />
-                  Enable Letter
-                </label>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Letter Delivery</label>
-                  <select
-                    name="approval_pdf_delivery_mode"
-                    value={settings.approval_pdf_delivery_mode}
-                    onChange={handleChange}
-                    className="w-full p-3 border rounded-lg bg-white"
-                    disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
-                  >
-                    <option value="status_page_only">Status Page Only</option>
-                    <option value="email_link">Email Link + Status Page</option>
-                    <option value="email_attachment">Email Attachment</option>
-                  </select>
-                  <p className="text-xs text-slate-500 mt-2">
-                    Parents can always use the secure status page. Email-link mode also adds the letter link to approval emails.
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                    <input
-                      type="checkbox"
-                      checked={settings.approval_pdf_include_payment_summary}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_payment_summary: e.target.checked }))}
-                      className="mt-1 h-4 w-4 rounded border-slate-300"
-                      disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
-                    />
-                    <span>
-                      <span className="block text-sm font-bold text-slate-700">Include Payment Instructions</span>
-                      <span className="block text-xs text-slate-500">Adds the payment link and school-configured admission fee summary when relevant.</span>
-                    </span>
-                  </label>
-
-                  <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                    <input
-                      type="checkbox"
-                      checked={settings.approval_pdf_include_required_items}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, approval_pdf_include_required_items: e.target.checked }))}
-                      className="mt-1 h-4 w-4 rounded border-slate-300"
-                      disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled}
-                    />
-                    <span>
-                      <span className="block text-sm font-bold text-slate-700">Include Required Items</span>
-                      <span className="block text-xs text-slate-500">Adds the list of documents or items parents should bring after approval.</span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Required Items Text</label>
-                <textarea
-                  name="approval_pdf_required_items"
-                  value={settings.approval_pdf_required_items}
-                  onChange={handleChange}
-                  rows={5}
-                  className="w-full p-3 border rounded-lg bg-white"
-                  disabled={!settings.ai_registrar_enabled || !settings.approval_pdf_enabled || !settings.approval_pdf_include_required_items}
-                  placeholder={'Examples:\n- Bring two passport photographs\n- Bring prior report card\n- Report to the admissions office on reopening day'}
-                />
-                <p className="text-xs text-slate-500 mt-2">
-                  This is school-controlled content for approved applicants only. Rejection and correction responses do not generate an approval letter.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Save Settings Button */}
         <div className="pt-6 border-t border-slate-200">
           <button
@@ -2194,7 +2046,7 @@ export default function SettingsPanel() {
             💾 Save Settings
           </button>
           <p className="text-xs text-slate-500 mt-3">
-            This will save school branding, admissions configuration, contact details, and fee configuration. The page will reload to apply changes.
+            This will save school branding, contact details, and fee configuration. The page will reload to apply changes.
           </p>
         </div>
       </form>

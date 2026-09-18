@@ -49,11 +49,6 @@ export default function AdmissionsPanel() {
   const [reviewMessageSubject, setReviewMessageSubject] = useState({});
   const [reviewParentMessage, setReviewParentMessage] = useState({});
   const [reviewAttachments, setReviewAttachments] = useState({});
-  const [workflowDefaults, setWorkflowDefaults] = useState({
-    visit_location: '',
-    visit_contact_person: '',
-    visit_contact_phone: ''
-  });
   const [reviewingId, setReviewingId] = useState(null);
 
   // Promotion state
@@ -108,11 +103,6 @@ export default function AdmissionsPanel() {
       setArchivedApplications(res.data.archived_applications || []);
       setApplicationSummary(res.data.summary || {});
       setArchiveSummary(res.data.archive_summary || {});
-      setWorkflowDefaults(res.data.workflow_defaults || {
-        visit_location: '',
-        visit_contact_person: '',
-        visit_contact_phone: ''
-      });
     } catch (err) {
       console.error('Failed to fetch parent applications', err);
     } finally {
@@ -555,7 +545,7 @@ export default function AdmissionsPanel() {
                         />
                         <input
                           type="text"
-                          value={reviewFollowUp[application.id]?.visit_location ?? application.follow_up_plan?.location ?? workflowDefaults.visit_location ?? ''}
+                          value={reviewFollowUp[application.id]?.visit_location ?? application.follow_up_plan?.location ?? ''}
                           onChange={(event) => setReviewFollowUp((current) => ({
                             ...current,
                             [application.id]: {
@@ -568,7 +558,7 @@ export default function AdmissionsPanel() {
                         />
                         <input
                           type="text"
-                          value={reviewFollowUp[application.id]?.visit_contact_person ?? application.follow_up_plan?.contact_person ?? workflowDefaults.visit_contact_person ?? ''}
+                          value={reviewFollowUp[application.id]?.visit_contact_person ?? application.follow_up_plan?.contact_person ?? ''}
                           onChange={(event) => setReviewFollowUp((current) => ({
                             ...current,
                             [application.id]: {
@@ -581,7 +571,7 @@ export default function AdmissionsPanel() {
                         />
                         <input
                           type="text"
-                          value={reviewFollowUp[application.id]?.visit_contact_phone ?? application.follow_up_plan?.contact_phone ?? workflowDefaults.visit_contact_phone ?? ''}
+                          value={reviewFollowUp[application.id]?.visit_contact_phone ?? application.follow_up_plan?.contact_phone ?? ''}
                           onChange={(event) => setReviewFollowUp((current) => ({
                             ...current,
                             [application.id]: {

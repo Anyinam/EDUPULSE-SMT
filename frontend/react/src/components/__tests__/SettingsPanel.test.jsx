@@ -108,5 +108,6 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('1.95%')).toBeInTheDocument();
     expect(screen.getByText('GH₵ 19.50')).toBeInTheDocument();
     expect(screen.getByText('GH₵ 1019.50')).toBeInTheDocument();
+    expect(screen.queryByText(/admissions configuration/i)).not.toBeInTheDocument();
   });
 });
