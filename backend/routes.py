@@ -238,6 +238,10 @@ def _is_placeholder_school_verification(verification):
     if not verification:
         return False
 
+    status = (verification.status or "pending").strip().lower()
+    if status != "pending":
+        return False
+
     return not any(
         [
             verification.submitted_by_user_id is not None,
