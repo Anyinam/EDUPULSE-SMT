@@ -8789,7 +8789,10 @@ def _should_inject_failpoint(metadata, failpoint_name):
 def _apply_auto_payment_effects(student, payment_type, amount, payment_category):
     """Apply payment side effects to student and inventory."""
     if payment_type == "Tuition":
-        student.total_tuition_owed = max(0, (student.total_tuition_owed or 0) - amount)
+        student.total_tuition_owed = round(
+            max(0, float(student.total_tuition_owed or 0) - float(amount or 0)),
+            2,
+        )
         return None
 
     if payment_type == "Feeding":
@@ -9337,7 +9340,10 @@ def _serialize_feeding_status_detail(feeding_status):
 def _apply_confirmed_payment_effects(payment, student, actor_id, *, actor_label="system", extra_metadata=None):
     applied_amount = _get_payment_applied_school_fee_amount(payment)
     if payment.payment_type == "Tuition":
-        student.total_tuition_owed = max(0, float(student.total_tuition_owed or 0) - applied_amount)
+        student.total_tuition_owed = round(
+            max(0, float(student.total_tuition_owed or 0) - applied_amount),
+            2,
+        )
     elif payment.payment_type == "Feeding":
         student.feeding_paid = True
 
