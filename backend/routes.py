@@ -4049,6 +4049,7 @@ def _build_student_payment_instruction_payload(student, school_id):
         school_id,
         School,
         SchoolSettings,
+        Payment,
         generate_all_payment_codes,
         _get_school_admission_fee_config,
         _get_feeding_plan_fees,
@@ -18320,8 +18321,8 @@ def download_legacy_consent_evidence_artifact(artifact_id):
 @jwt_required()
 def update_school_fees():
     """Updates school fee configuration (tuition, feeding, uniform, transport, etc.)."""
-    return jsonify(
-        school_configuration_service.update_school_fees(
+    try:
+        payload = school_configuration_service.update_school_fees(
             request.json,
             g.school_id,
             int(get_jwt_identity()),
@@ -18330,7 +18331,9 @@ def update_school_fees():
             log_action=log_action,
             db_session=db.session,
         )
-    )
+    except school_configuration_service.TuitionInstallmentPlanValidationError as exc:
+        return jsonify({"message": str(exc)}), 400
+    return jsonify(payload)
 
 
 @api.route("/school/fees", methods=["GET"])

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import axios from 'axios';
 
@@ -53,6 +53,26 @@ describe('SettingsPanel', () => {
           data: {
             tuition_fee: '1000',
             tuition_convenience_fee_percentage: '1.95',
+            tuition_installment_plan: {
+              enabled: true,
+              installment_count: 2,
+              schedule: [
+                {
+                  installment_number: 1,
+                  label: 'Installment 1',
+                  amount: '500',
+                  start_date: '2026-10-01',
+                  due_date: '2026-10-31',
+                },
+                {
+                  installment_number: 2,
+                  label: 'Installment 2',
+                  amount: '500',
+                  start_date: '2026-11-01',
+                  due_date: '2026-11-30',
+                },
+              ],
+            },
             feeding_fee: '450',
             feeding_daily_fee: '15',
             feeding_weekly_fee: '75',
@@ -109,5 +129,41 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('GH₵ 19.50')).toBeInTheDocument();
     expect(screen.getByText('GH₵ 1019.50')).toBeInTheDocument();
     expect(screen.queryByText(/admissions configuration/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the saved tuition installment schedule', async () => {
+    render(<SettingsPanel />);
+
+    expect(await screen.findByText(/tuition installment plan/i)).toBeInTheDocument();
+    expect(screen.getByText(/current schedule uses 2 installments/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Installment 1')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Installment 2')).toBeInTheDocument();
+    expect(screen.getByText(/installment total: gh₵ 1000.00/i)).toBeInTheDocument();
+    expect(screen.getByText(/2026-10-01/i)).toBeInTheDocument();
+    expect(screen.getByText(/2026-11-30/i)).toBeInTheDocument();
+  });
+
+  it('supports 2, 3, and custom installment presets and shows total mismatch warnings', async () => {
+    render(<SettingsPanel />);
+
+    expect(await screen.findByText(/tuition installment plan/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /3 installments/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/current schedule uses 3 installments/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^custom$/i }));
+    const customCountInput = screen.getByDisplayValue('3');
+    fireEvent.change(customCountInput, { target: { value: '4' } });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('4')).toBeInTheDocument();
+    });
+
+    const amountInputs = screen.getAllByDisplayValue('250');
+    fireEvent.change(amountInputs[0], { target: { value: '300' } });
+
+    expect(screen.getByText(/before this schedule can be saved/i)).toBeInTheDocument();
   });
 });

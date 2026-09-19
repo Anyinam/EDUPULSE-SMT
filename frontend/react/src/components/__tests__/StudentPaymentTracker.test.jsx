@@ -775,4 +775,124 @@ describe('StudentPaymentTracker', () => {
       })
     );
   });
+
+  it('shows tuition installments with their own status and deadlines', async () => {
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              name: 'Ama Mensah',
+              student_code: 'S001',
+              current_class: 'JHS 1',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/school/fees') {
+        return Promise.resolve({
+          data: {
+            tuition_fee: 1000,
+            tuition_convenience_fee_percentage: 1.95,
+            terminal_report_fee: 0,
+            feeding_fee: 0,
+            uniform_fee: 0,
+            transport_fee: 0,
+          },
+        });
+      }
+
+      if (url === '/api/students/1/payments') {
+        return Promise.resolve({ data: [] });
+      }
+
+      if (url === '/api/students/1/payment-codes') {
+        return Promise.resolve({
+          data: {
+            student_name: 'Ama Mensah',
+            student_code: 'S001',
+            payment_identity: {
+              supports_fee_route_dvas: true,
+              tuition_installments_enabled: true,
+            },
+            payment_codes: [
+              {
+                fee_type: 'Tuition',
+                code: 'S001-TUIT-I1',
+                reference_code: 'S001-TUIT-I1',
+                base_amount: 500,
+                total_amount: 509.75,
+                has_virtual_route: true,
+                virtual_route: {
+                  bank_name: 'Paystack-Titan',
+                  account_number: '1111111111',
+                  account_name: 'EDUPULSE / AMA MENSAH',
+                  base_amount: 500,
+                  convenience_fee_amount: 9.75,
+                  total_amount: 509.75,
+                },
+                payment_category: {
+                  fee_type: 'Tuition',
+                  installment_number: 1,
+                  installment_label: 'Installment 1',
+                  installment_status: 'open',
+                  installment_start_date: '2026-10-01',
+                  installment_due_date: '2026-10-31',
+                  installment_paid_amount: 0,
+                  installment_outstanding_amount: 500,
+                },
+              },
+              {
+                fee_type: 'Tuition',
+                code: 'S001-TUIT-I2',
+                reference_code: 'S001-TUIT-I2',
+                base_amount: 500,
+                total_amount: 509.75,
+                has_virtual_route: true,
+                virtual_route: {
+                  bank_name: 'Paystack-Titan',
+                  account_number: '2222222222',
+                  account_name: 'EDUPULSE / AMA MENSAH',
+                  base_amount: 500,
+                  convenience_fee_amount: 9.75,
+                  total_amount: 509.75,
+                },
+                payment_category: {
+                  fee_type: 'Tuition',
+                  installment_number: 2,
+                  installment_label: 'Installment 2',
+                  installment_status: 'upcoming',
+                  installment_start_date: '2026-11-01',
+                  installment_due_date: '2026-11-30',
+                  installment_paid_amount: 0,
+                  installment_outstanding_amount: 500,
+                },
+              },
+            ],
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    render(<StudentPaymentTracker />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Ama Mensah'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Installment 1')).toBeInTheDocument();
+      expect(screen.getByText('Installment 2')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/open • opens 2026-10-01 • due 2026-10-31/i)).toBeInTheDocument();
+    expect(screen.getByText(/upcoming • opens 2026-11-01 • due 2026-11-30/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/paid so far on this installment: gh₵ 0.00 • remaining: gh₵ 500.00/i)).toHaveLength(2);
+  });
 });

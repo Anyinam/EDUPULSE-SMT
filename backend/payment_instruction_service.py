@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 
 TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
+TUITION_INSTALLMENT_PLAN_KEY = "__tuition_installment_plan__"
 
 
 def _get_tuition_convenience_fee_percentage(settings):
@@ -13,6 +14,67 @@ def _get_tuition_convenience_fee_percentage(settings):
         return round(configured, 2)
     except (TypeError, ValueError):
         return 1.95
+
+
+def _read_tuition_installment_plan(settings):
+    other_fees = settings.other_fees if settings and isinstance(settings.other_fees, dict) else {}
+    raw_plan = other_fees.get(TUITION_INSTALLMENT_PLAN_KEY)
+    if not isinstance(raw_plan, dict):
+        return {"enabled": False, "installment_count": 1, "schedule": []}
+
+    enabled = bool(raw_plan.get("enabled"))
+    try:
+        installment_count = max(1, int(raw_plan.get("installment_count") or 1))
+    except (TypeError, ValueError):
+        installment_count = 1
+
+    normalized_schedule = []
+    for index, item in enumerate(raw_plan.get("schedule") or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        try:
+            amount = round(max(0.0, float(item.get("amount") or 0.0)), 2)
+        except (TypeError, ValueError):
+            amount = 0.0
+        if amount <= 0:
+            continue
+        normalized_schedule.append(
+            {
+                "installment_number": int(item.get("installment_number") or index),
+                "label": item.get("label") or f"Installment {index}",
+                "amount": amount,
+                "start_date": (item.get("start_date") or "").strip() or None,
+                "due_date": (item.get("due_date") or "").strip() or None,
+            }
+        )
+
+    return {
+        "enabled": enabled and installment_count > 1 and len(normalized_schedule) >= 2,
+        "installment_count": installment_count,
+        "schedule": normalized_schedule,
+    }
+
+
+def _parse_schedule_date(raw_value):
+    try:
+        return datetime.fromisoformat(str(raw_value)).date() if raw_value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_confirmed_tuition_payments(student, payment_model):
+    if not student or not payment_model:
+        return []
+    payments = (
+        payment_model.query.filter_by(
+            school_id=student.school_id,
+            student_id=student.id,
+            payment_type="Tuition",
+        )
+        .order_by(payment_model.date_paid.asc(), payment_model.id.asc())
+        .all()
+    )
+    return [payment for payment in payments if payment.status in {"Verified", "Confirmed"}]
 
 
 def build_payment_collection_intent_payload(intent, sanitize_string):
@@ -97,6 +159,7 @@ def build_student_payment_instruction_payload(
     school_id,
     school_model,
     school_settings_model,
+    payment_model,
     generate_all_payment_codes,
     get_school_admission_fee_config,
     get_feeding_plan_fees,
@@ -112,6 +175,7 @@ def build_student_payment_instruction_payload(
     feeding_plan_fees = get_feeding_plan_fees(settings)
     admission_fee = get_school_admission_fee_config(settings)
     tuition_convenience_fee_percentage = _get_tuition_convenience_fee_percentage(settings)
+    tuition_installment_plan = _read_tuition_installment_plan(settings)
 
     fees_config = {
         "tuition_fee": settings.tuition_fee if settings else 0.0,
@@ -157,29 +221,100 @@ def build_student_payment_instruction_payload(
         base_amount = outstanding_tuition_amount if outstanding_tuition_amount > 0 else fees_config["tuition_fee"]
         if student.is_on_scholarship and student.scholarship_covers_tuition:
             base_amount = 0.0
-        convenience_fee_amount = round(base_amount * (tuition_convenience_fee_percentage / 100.0), 2)
-        total_amount = round(base_amount + convenience_fee_amount, 2)
+        confirmed_tuition_payments = _get_confirmed_tuition_payments(student, payment_model)
+        tuition_paid_amount = round(sum(float(payment.amount or 0.0) for payment in confirmed_tuition_payments), 2)
 
-        append_standard_code(
-            "Tuition",
-            tuition_reference,
-            base_amount,
-            {"fee_type": "Tuition"},
-            (
-                f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
-                + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
-                + f"The current tuition balance for this learner is GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
-            ),
-            amount=total_amount,
-            pricing_override={
-                "estimated_provider_fee_rate_pct": tuition_convenience_fee_percentage,
-                "estimated_provider_fee_flat": 0.0,
-                "platform_fee_flat": 0.0,
-                "charge_parent_convenience_fee": True,
-                "platform_fee_label": "Convenience Fee",
-            },
-        )
-        codes_list[-1]["is_scholarship_fee"] = bool(student.scholarship_covers_tuition)
+        if tuition_installment_plan.get("enabled") and not student.scholarship_covers_tuition:
+            remaining_credit = max(0.0, tuition_paid_amount)
+            today = datetime.now(timezone.utc).date()
+            for installment in tuition_installment_plan.get("schedule") or []:
+                installment_amount = round(float(installment.get("amount") or 0.0), 2)
+                if installment_amount <= 0:
+                    continue
+                installment_number = int(installment.get("installment_number") or 1)
+                applied_amount = round(min(installment_amount, remaining_credit), 2)
+                remaining_credit = round(max(0.0, remaining_credit - applied_amount), 2)
+                outstanding_amount = round(max(0.0, installment_amount - applied_amount), 2)
+                start_date = _parse_schedule_date(installment.get("start_date"))
+                due_date = _parse_schedule_date(installment.get("due_date"))
+                if outstanding_amount <= 0.009:
+                    installment_status = "paid"
+                elif applied_amount > 0:
+                    installment_status = "partial"
+                elif start_date and today < start_date:
+                    installment_status = "upcoming"
+                elif due_date and today > due_date:
+                    installment_status = "overdue"
+                else:
+                    installment_status = "open"
+
+                convenience_fee_amount = round(installment_amount * (tuition_convenience_fee_percentage / 100.0), 2)
+                total_amount = round(installment_amount + convenience_fee_amount, 2)
+                reference_code = f"{student.student_code}-TUIT-I{installment_number}"
+                schedule_window = []
+                if installment.get("start_date"):
+                    schedule_window.append(f"opens {installment['start_date']}")
+                if installment.get("due_date"):
+                    schedule_window.append(f"due {installment['due_date']}")
+                schedule_window_text = f" ({', '.join(schedule_window)})" if schedule_window else ""
+                append_standard_code(
+                    "Tuition",
+                    reference_code,
+                    installment_amount,
+                    {
+                        "fee_type": "Tuition",
+                        "installment_number": installment_number,
+                        "installment_label": installment.get("label") or f"Installment {installment_number}",
+                        "installment_status": installment_status,
+                        "installment_start_date": installment.get("start_date"),
+                        "installment_due_date": installment.get("due_date"),
+                        "installment_paid_amount": applied_amount,
+                        "installment_outstanding_amount": outstanding_amount,
+                    },
+                    (
+                        f"EduPulse automatically prepares a tracked transfer account for {installment.get('label') or f'Installment {installment_number}'}{schedule_window_text}. "
+                        + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {reference_code}. "
+                        + f"The installment base amount is GH₵ {installment_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
+                    ),
+                    amount=total_amount,
+                    pricing_override={
+                        "estimated_provider_fee_rate_pct": tuition_convenience_fee_percentage,
+                        "estimated_provider_fee_flat": 0.0,
+                        "platform_fee_flat": 0.0,
+                        "charge_parent_convenience_fee": True,
+                        "platform_fee_label": "Convenience Fee",
+                    },
+                )
+                codes_list[-1]["is_tuition_installment"] = True
+                codes_list[-1]["is_scholarship_fee"] = False
+            tuition_credit_balance = round(max(0.0, remaining_credit), 2)
+        else:
+            convenience_fee_amount = round(base_amount * (tuition_convenience_fee_percentage / 100.0), 2)
+            total_amount = round(base_amount + convenience_fee_amount, 2)
+
+            append_standard_code(
+                "Tuition",
+                tuition_reference,
+                base_amount,
+                {"fee_type": "Tuition"},
+                (
+                    f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
+                    + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
+                    + f"The current tuition balance for this learner is GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
+                ),
+                amount=total_amount,
+                pricing_override={
+                    "estimated_provider_fee_rate_pct": tuition_convenience_fee_percentage,
+                    "estimated_provider_fee_flat": 0.0,
+                    "platform_fee_flat": 0.0,
+                    "charge_parent_convenience_fee": True,
+                    "platform_fee_label": "Convenience Fee",
+                },
+            )
+            codes_list[-1]["is_scholarship_fee"] = bool(student.scholarship_covers_tuition)
+            tuition_credit_balance = 0.0
+    else:
+        tuition_credit_balance = 0.0
 
     feeding_plan_entries = [
         ("Daily", "DAY", round(float(feeding_plan_fees.get("daily") or 0.0), 2)),
@@ -231,7 +366,7 @@ def build_student_payment_instruction_payload(
         )
 
     for fee_name, amount in other_fees.items():
-        if fee_name == TUITION_CONVENIENCE_FEE_KEY:
+        if fee_name in {TUITION_CONVENIENCE_FEE_KEY, TUITION_INSTALLMENT_PLAN_KEY}:
             continue
         reference_code = payment_codes.get(fee_name)
         if not reference_code or float(amount or 0.0) <= 0:
@@ -262,7 +397,7 @@ def build_student_payment_instruction_payload(
         "parent_phone": student.parent_phone,
         "parent_email": student.parent_email,
         "payment_identity": {
-            "model": "reference_first",
+            "model": "installment_reference_first" if tuition_installment_plan.get("enabled") else "reference_first",
             "student_code": student.student_code,
             "stable_payment_identity": student.student_code,
             "supports_structured_references": True,
@@ -276,6 +411,8 @@ def build_student_payment_instruction_payload(
             ),
             "supported_rails": ["bank_app", "ussd_or_shortcode"],
             "recommended_examples": [item["reference_code"] for item in codes_list[:3]],
+            "tuition_installments_enabled": bool(tuition_installment_plan.get("enabled")),
+            "tuition_credit_balance": tuition_credit_balance,
         },
         "admission_fee": admission_fee,
         "payment_collection_pricing": get_payment_collection_pricing(),
@@ -290,6 +427,7 @@ def build_student_payment_instruction_payload(
             "terminal_report_fee": round(float(fees_config["terminal_report_fee"] or 0.0), 2),
             "tuition_convenience_fee_percentage": tuition_convenience_fee_percentage,
         },
+        "tuition_installment_plan": tuition_installment_plan,
         "payment_codes": codes_list,
         "note": "Tuition collection now uses the EduPulse tracked transfer account only. The school tuition amount stays separate from the report-card fee, and the school bank account is intentionally hidden from parent-facing instructions.",
     }

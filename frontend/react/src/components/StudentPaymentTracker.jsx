@@ -36,6 +36,37 @@ export default function StudentPaymentTracker() {
     (code) => (code?.payment_category?.fee_type || code?.fee_type) === 'Tuition'
   );
 
+  const getInstallmentMeta = (code) => {
+    const category = code?.payment_category || {};
+    return {
+      isInstallment: Boolean(category.installment_number),
+      label: category.installment_label || (category.installment_number ? `Installment ${category.installment_number}` : null),
+      number: category.installment_number || null,
+      status: category.installment_status || null,
+      startDate: category.installment_start_date || null,
+      dueDate: category.installment_due_date || null,
+      paidAmount: Number(category.installment_paid_amount || 0),
+      outstandingAmount: Number(category.installment_outstanding_amount || 0),
+    };
+  };
+
+  const formatInstallmentStatus = (status) => {
+    switch (status) {
+      case 'paid':
+        return 'Paid';
+      case 'partial':
+        return 'Partially paid';
+      case 'overdue':
+        return 'Overdue';
+      case 'upcoming':
+        return 'Upcoming';
+      case 'open':
+        return 'Open';
+      default:
+        return 'Open';
+    }
+  };
+
   const getAuthHeaders = () => ({
     headers: {
       'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -452,9 +483,10 @@ export default function StudentPaymentTracker() {
             <tbody>
               ${trackerPaymentCodes.map(code => {
                 const convenience = getTuitionConvenienceDetails(code, codesRecord);
+                const installmentMeta = getInstallmentMeta(code);
                 return `
                 <tr>
-                  <td><strong>${code.fee_type}</strong></td>
+                  <td><strong>${installmentMeta.label || code.fee_type}</strong>${installmentMeta.isInstallment ? `<div style="font-size:11px; color:#64748b; margin-top:4px;">${formatInstallmentStatus(installmentMeta.status)}${installmentMeta.dueDate ? ` • Due ${installmentMeta.dueDate}` : ''}</div>` : ''}</td>
                   <td><span class="code-column">${code.reference_code || code.code}</span></td>
                   <td><span style="color:#475569;">Use the automatically prepared EduPulse tracked transfer account only</span></td>
                   <td class="amount-column">GH₵ ${Number(code.virtual_route?.total_amount || code.total_amount || 0).toFixed(2)}</td>
@@ -474,10 +506,14 @@ export default function StudentPaymentTracker() {
           <div class="section-title">💰 How to Pay</div>
           ${trackerPaymentCodes.map(code => {
             const convenience = getTuitionConvenienceDetails(code, codesRecord);
+            const installmentMeta = getInstallmentMeta(code);
             return `
             <div class="payment-method">
-              <div class="payment-method-title">${code.fee_type}</div>
+              <div class="payment-method-title">${installmentMeta.label || code.fee_type}</div>
               <div class="payment-method-content">
+                ${installmentMeta.isInstallment ? `<p><strong>Status:</strong> ${formatInstallmentStatus(installmentMeta.status)}</p>` : ''}
+                ${installmentMeta.startDate ? `<p><strong>Opens:</strong> ${installmentMeta.startDate}</p>` : ''}
+                ${installmentMeta.dueDate ? `<p><strong>Deadline:</strong> ${installmentMeta.dueDate}</p>` : ''}
                 <p><strong>Preferred Reference:</strong> ${code.reference_code || code.code}</p>
                 ${code.virtual_route?.account_number ? `<p><strong>Tracked Transfer Bank:</strong> ${code.virtual_route.bank_name || 'Paystack transfer account'}</p>` : ''}
                 ${code.virtual_route?.account_number ? `<p><strong>Tracked Transfer Account Number:</strong> ${code.virtual_route.account_number}</p>` : ''}
@@ -508,7 +544,8 @@ export default function StudentPaymentTracker() {
             <div class="instruction-text">
               ${trackerPaymentCodes.map(code => {
                 const convenience = getTuitionConvenienceDetails(code, codesRecord);
-                return `• <strong>${code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` (includes ${convenience.percentage.toFixed(2)}% convenience fee of GH₵ ${convenience.amount.toFixed(2)})` : ''}` : `Wait for the tracked transfer account before collecting tuition`}. EduPulse should track it automatically from that route. Preferred support reference: <strong>${code.reference_code || code.code}</strong>.`;
+                const installmentMeta = getInstallmentMeta(code);
+                return `• <strong>${installmentMeta.label || code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` (includes ${convenience.percentage.toFixed(2)}% convenience fee of GH₵ ${convenience.amount.toFixed(2)})` : ''}` : `Wait for the tracked transfer account before collecting tuition`}. EduPulse should track it automatically from that route. Preferred support reference: <strong>${code.reference_code || code.code}</strong>${installmentMeta.dueDate ? ` (deadline ${installmentMeta.dueDate})` : ''}.`;
               }).join('<br>')}
             </div>
             <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
@@ -1054,10 +1091,11 @@ export default function StudentPaymentTracker() {
                             .map(c => {
                               const virtualRoute = c.virtual_route;
                               const convenience = getTuitionConvenienceDetails(c, paymentCodes);
+                              const installmentMeta = getInstallmentMeta(c);
                               if (virtualRoute?.account_number) {
-                                return `${c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer bank: ${virtualRoute.bank_name || 'Paystack transfer account'} | Account: ${virtualRoute.account_number} | School tuition GH₵ ${Number(c.base_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` | Convenience fee ${convenience.percentage.toFixed(2)}% = GH₵ ${convenience.amount.toFixed(2)}` : ''} | Transfer total GH₵ ${Number(virtualRoute.total_amount || c.base_amount || 0).toFixed(2)}`;
+                                return `${installmentMeta.label || c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer bank: ${virtualRoute.bank_name || 'Paystack transfer account'} | Account: ${virtualRoute.account_number} | School tuition GH₵ ${Number(c.base_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` | Convenience fee ${convenience.percentage.toFixed(2)}% = GH₵ ${convenience.amount.toFixed(2)}` : ''} | Transfer total GH₵ ${Number(virtualRoute.total_amount || c.base_amount || 0).toFixed(2)}${installmentMeta.dueDate ? ` | Deadline ${installmentMeta.dueDate}` : ''}`;
                               }
-                              return `${c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer account is temporarily unavailable. Reconnect Paystack settlement in system settings before sharing this instruction.`;
+                              return `${installmentMeta.label || c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer account is temporarily unavailable. Reconnect Paystack settlement in system settings before sharing this instruction.`;
                             })
                             .join('\n');
                           const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nHow to pay:\n1. Use the EduPulse tracked transfer account shown for tuition.\n2. Pay the exact tracked total into that account.\n3. EduPulse should track the payment automatically from that route.\n4. The reference is a preferred support hint for office follow-up, not the normal tracking requirement.`;
@@ -1091,22 +1129,28 @@ export default function StudentPaymentTracker() {
                     ) : null}
                     {trackerPaymentCodes.map((code, idx) => (
                       (() => {
-                        const referenceKey = code.reference_code || code.code;
                         const virtualRoute = code.virtual_route;
                         const convenience = getTuitionConvenienceDetails(code, paymentCodes);
+                        const installmentMeta = getInstallmentMeta(code);
                         return (
                       <div
                         key={idx}
                         className="flex items-center justify-between p-3 bg-white rounded border border-amber-200 text-sm"
                       >
                         <div className="flex-1">
-                          <p className="font-semibold text-slate-800">{code.fee_type}</p>
+                          <p className="font-semibold text-slate-800">{installmentMeta.label || code.fee_type}</p>
+                          {installmentMeta.isInstallment ? (
+                            <p className="text-xs text-slate-600">{formatInstallmentStatus(installmentMeta.status)}{installmentMeta.startDate ? ` • Opens ${installmentMeta.startDate}` : ''}{installmentMeta.dueDate ? ` • Due ${installmentMeta.dueDate}` : ''}</p>
+                          ) : null}
                           <p className="text-xs text-slate-600">School tuition: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
                           {convenience.amount > 0 ? (
                             <p className="text-xs text-slate-600">Convenience fee: {convenience.percentage.toFixed(2)}% = GH₵ {convenience.amount.toFixed(2)}</p>
                           ) : null}
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
                           <p className="text-xs text-slate-700">Parents should use the automatically prepared tracked transfer account. EduPulse is expected to record the learner and purpose automatically from that route.</p>
+                          {installmentMeta.isInstallment ? (
+                            <p className="text-xs text-slate-600">Paid so far on this installment: GH₵ {installmentMeta.paidAmount.toFixed(2)} • Remaining: GH₵ {installmentMeta.outstandingAmount.toFixed(2)}</p>
+                          ) : null}
 
                           <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
                           {virtualRoute ? (
@@ -1186,6 +1230,11 @@ export default function StudentPaymentTracker() {
                   <p className="mt-3 text-xs font-semibold text-cyan-800">
                     Match target: {trackerPaymentCodes[0]?.virtual_route?.account_number || 'tracked transfer account'} for tuition on {selectedStudent.student_code || selectedStudent.name}.
                   </p>
+                  {paymentCodes?.payment_identity?.tuition_installments_enabled ? (
+                    <p className="mt-2 text-xs text-cyan-800">
+                      This recovery is fallback-only. Normal behavior is automatic tracking per installment route.
+                    </p>
+                  ) : null}
                   {reconciliationResult ? (
                     <div className={`mt-4 rounded-xl border px-3 py-3 text-sm ${
                       reconciliationResult.tone === 'success'

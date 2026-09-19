@@ -1,4 +1,122 @@
 TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
+TUITION_INSTALLMENT_PLAN_KEY = "__tuition_installment_plan__"
+
+
+class TuitionInstallmentPlanValidationError(ValueError):
+    pass
+
+
+def _build_equal_installment_amounts(total_amount, installment_count):
+    normalized_total = round(float(total_amount or 0.0), 2)
+    normalized_count = max(1, int(installment_count or 1))
+    if normalized_count == 1:
+        return [normalized_total]
+
+    total_minor = int(round(normalized_total * 100))
+    equal_minor = total_minor // normalized_count
+    remainder_minor = total_minor - (equal_minor * normalized_count)
+
+    amounts = []
+    for index in range(normalized_count):
+        amount_minor = equal_minor + (remainder_minor if index == normalized_count - 1 else 0)
+        amounts.append(round(amount_minor / 100.0, 2))
+    return amounts
+
+
+def _read_tuition_installment_plan(settings):
+    other_fees = settings.other_fees if settings and isinstance(settings.other_fees, dict) else {}
+    raw_plan = other_fees.get(TUITION_INSTALLMENT_PLAN_KEY)
+    if not isinstance(raw_plan, dict):
+        return {
+            "enabled": False,
+            "installment_count": 1,
+            "schedule": [],
+        }
+
+    enabled = bool(raw_plan.get("enabled"))
+    try:
+        installment_count = max(1, int(raw_plan.get("installment_count") or 1))
+    except (TypeError, ValueError):
+        installment_count = 1
+
+    normalized_schedule = []
+    for index, item in enumerate(raw_plan.get("schedule") or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        try:
+            amount = round(max(0.0, float(item.get("amount") or 0.0)), 2)
+        except (TypeError, ValueError):
+            amount = 0.0
+        normalized_schedule.append(
+            {
+                "installment_number": int(item.get("installment_number") or index),
+                "label": item.get("label") or f"Installment {index}",
+                "amount": amount,
+                "start_date": (item.get("start_date") or "").strip() or None,
+                "due_date": (item.get("due_date") or "").strip() or None,
+            }
+        )
+
+    return {
+        "enabled": enabled and installment_count > 1,
+        "installment_count": installment_count,
+        "schedule": normalized_schedule,
+    }
+
+
+def _normalize_tuition_installment_plan(plan_payload, tuition_fee):
+    if not isinstance(plan_payload, dict) or not bool(plan_payload.get("enabled")):
+        return {
+            "enabled": False,
+            "installment_count": 1,
+            "schedule": [],
+        }
+
+    try:
+        installment_count = max(2, int(plan_payload.get("installment_count") or 2))
+    except (TypeError, ValueError):
+        installment_count = 2
+
+    equal_amounts = _build_equal_installment_amounts(tuition_fee, installment_count)
+    raw_schedule = plan_payload.get("schedule") or []
+    normalized_schedule = []
+    total_minor = 0
+    tuition_total_minor = int(round(round(float(tuition_fee or 0.0), 2) * 100))
+
+    for index in range(installment_count):
+        raw_item = raw_schedule[index] if index < len(raw_schedule) and isinstance(raw_schedule[index], dict) else {}
+        fallback_amount = equal_amounts[index]
+        try:
+            raw_amount = raw_item.get("amount")
+            amount = round(max(0.0, float(raw_amount if raw_amount not in (None, "") else fallback_amount)), 2)
+        except (TypeError, ValueError):
+            amount = fallback_amount
+        amount_minor = int(round(amount * 100))
+        if amount_minor <= 0:
+            raise TuitionInstallmentPlanValidationError(
+                f"Installment {index + 1} must have an amount greater than zero."
+            )
+        total_minor += amount_minor
+        normalized_schedule.append(
+            {
+                "installment_number": index + 1,
+                "label": (raw_item.get("label") or f"Installment {index + 1}").strip() if isinstance(raw_item.get("label"), str) else f"Installment {index + 1}",
+                "amount": round(amount_minor / 100.0, 2),
+                "start_date": (raw_item.get("start_date") or "").strip() or None,
+                "due_date": (raw_item.get("due_date") or "").strip() or None,
+            }
+        )
+
+    if total_minor != tuition_total_minor:
+        raise TuitionInstallmentPlanValidationError(
+            "Installment amounts must add up exactly to the tuition fee."
+        )
+
+    return {
+        "enabled": True,
+        "installment_count": installment_count,
+        "schedule": normalized_schedule,
+    }
 
 
 def _normalize_visible_other_fees(raw_other_fees):
@@ -6,7 +124,7 @@ def _normalize_visible_other_fees(raw_other_fees):
         return {}
     normalized = {}
     for fee_name, amount in raw_other_fees.items():
-        if fee_name == TUITION_CONVENIENCE_FEE_KEY:
+        if fee_name in {TUITION_CONVENIENCE_FEE_KEY, TUITION_INSTALLMENT_PLAN_KEY}:
             continue
         try:
             normalized[fee_name] = round(float(amount), 2)
@@ -66,9 +184,14 @@ def update_school_fees(
         tuition_convenience_fee_percentage = round(max(0.0, float(tuition_convenience_fee_percentage or 0.0)), 2)
     except (TypeError, ValueError):
         tuition_convenience_fee_percentage = 1.95
+    normalized_installment_plan = _normalize_tuition_installment_plan(
+        data.get("tuition_installment_plan"),
+        settings.tuition_fee or 0.0,
+    )
     settings.other_fees = {
         **other_fees_payload,
         TUITION_CONVENIENCE_FEE_KEY: tuition_convenience_fee_percentage,
+        TUITION_INSTALLMENT_PLAN_KEY: normalized_installment_plan,
     }
 
     log_action(
@@ -87,6 +210,11 @@ def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_pla
         return {
             "tuition_fee": 0.0,
             "tuition_convenience_fee_percentage": 1.95,
+            "tuition_installment_plan": {
+                "enabled": False,
+                "installment_count": 1,
+                "schedule": [],
+            },
             "feeding_fee": 0.0,
             "feeding_daily_fee": 0.0,
             "feeding_weekly_fee": 0.0,
@@ -104,6 +232,7 @@ def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_pla
     return {
         "tuition_fee": settings.tuition_fee or 0.0,
         "tuition_convenience_fee_percentage": _read_tuition_convenience_fee_percentage(settings),
+        "tuition_installment_plan": _read_tuition_installment_plan(settings),
         "feeding_fee": feeding_plan_fees["primary"],
         "feeding_daily_fee": feeding_plan_fees["daily"],
         "feeding_weekly_fee": feeding_plan_fees["weekly"],

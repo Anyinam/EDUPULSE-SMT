@@ -230,6 +230,25 @@ function buildTemplateHistoryPreview(activeTemplateId, activeTemplateConfig, sna
 }
 
 export default function SettingsPanel() {
+  const buildEqualInstallmentSchedule = (totalAmount, installmentCount, existingSchedule = []) => {
+    const normalizedCount = Math.max(1, Number(installmentCount) || 1);
+    const totalMinor = Math.max(0, Math.round((Number(totalAmount) || 0) * 100));
+    const equalMinor = normalizedCount > 0 ? Math.floor(totalMinor / normalizedCount) : 0;
+    const remainderMinor = totalMinor - (equalMinor * normalizedCount);
+
+    return Array.from({ length: normalizedCount }, (_, index) => {
+      const amountMinor = equalMinor + (index === normalizedCount - 1 ? remainderMinor : 0);
+      const previous = existingSchedule[index] || {};
+      return {
+        installment_number: index + 1,
+        label: previous.label || `Installment ${index + 1}`,
+        amount: Number((amountMinor / 100).toFixed(2)),
+        start_date: previous.start_date || '',
+        due_date: previous.due_date || '',
+      };
+    });
+  };
+
   const [settings, setSettings] = useState({
     school_name: '',
     school_motto: '',
@@ -264,6 +283,12 @@ export default function SettingsPanel() {
     admission_fee_amount: 0,
     other_fees: {}
   });
+  const [tuitionInstallmentPlan, setTuitionInstallmentPlan] = useState({
+    enabled: false,
+    installment_count: 1,
+    schedule: [],
+  });
+  const [installmentPlanMode, setInstallmentPlanMode] = useState('2');
   const [otherFeeInput, setOtherFeeInput] = useState('');
   const [otherFeeAmount, setOtherFeeAmount] = useState('');
   const [classScoreMax, setClassScoreMax] = useState(30);
@@ -406,6 +431,10 @@ export default function SettingsPanel() {
   const admissionFeeAmount = normalizeFeeNumber(fees.admission_fee_amount);
   const tuitionConvenienceAmount = Number(((tuitionFee * tuitionConvenienceFeePercentage) / 100).toFixed(2));
   const tuitionTransferTotal = Number((tuitionFee + tuitionConvenienceAmount).toFixed(2));
+  const tuitionInstallmentTotal = (tuitionInstallmentPlan.schedule || []).reduce(
+    (sum, item) => sum + Number(item.amount || 0),
+    0,
+  );
 
   const getAuthHeaders = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -532,6 +561,25 @@ export default function SettingsPanel() {
           admission_fee_amount: normalizeFeeNumber(res.data.admission_fee_amount),
           other_fees: normalizeOtherFees(res.data.other_fees)
         });
+        const apiPlan = res.data.tuition_installment_plan;
+        if (apiPlan?.enabled && Number(apiPlan.installment_count) > 1) {
+          const nextInstallmentCount = Number(apiPlan.installment_count) || 2;
+          setTuitionInstallmentPlan({
+            enabled: true,
+            installment_count: nextInstallmentCount,
+            schedule: (apiPlan.schedule || []).map((item, index) => ({
+              installment_number: Number(item.installment_number) || index + 1,
+              label: item.label || `Installment ${index + 1}`,
+              amount: normalizeFeeNumber(item.amount),
+              start_date: item.start_date || '',
+              due_date: item.due_date || '',
+            })),
+          });
+          setInstallmentPlanMode(nextInstallmentCount === 2 ? '2' : nextInstallmentCount === 3 ? '3' : 'custom');
+        } else {
+          setTuitionInstallmentPlan({ enabled: false, installment_count: 1, schedule: [] });
+          setInstallmentPlanMode('2');
+        }
       } catch (err) {
         console.error('Failed to load fees');
       }
@@ -1312,6 +1360,7 @@ export default function SettingsPanel() {
       await axios.post('/api/school/fees', {
         tuition_fee: fees.tuition_fee,
         tuition_convenience_fee_percentage: fees.tuition_convenience_fee_percentage,
+        tuition_installment_plan: tuitionInstallmentPlan,
         feeding_fee: fees.feeding_fee,
         feeding_daily_fee: fees.feeding_daily_fee,
         feeding_weekly_fee: fees.feeding_weekly_fee,
@@ -1745,7 +1794,19 @@ export default function SettingsPanel() {
                 <input
                   type="number"
                   value={fees.tuition_fee}
-                  onChange={(e) => setFees((prev) => ({ ...prev, tuition_fee: parseFloat(e.target.value) || 0 }))}
+                  onChange={(e) => {
+                    const nextTuitionFee = parseFloat(e.target.value) || 0;
+                    setFees((prev) => ({ ...prev, tuition_fee: nextTuitionFee }));
+                    setTuitionInstallmentPlan((prev) => {
+                      if (!prev.enabled || prev.installment_count <= 1) {
+                        return prev;
+                      }
+                      return {
+                        ...prev,
+                        schedule: buildEqualInstallmentSchedule(nextTuitionFee, prev.installment_count, prev.schedule),
+                      };
+                    });
+                  }}
                   className="flex-1 p-3 border rounded-lg bg-slate-50"
                   placeholder="0.00"
                   step="0.01"
@@ -1774,6 +1835,160 @@ export default function SettingsPanel() {
                 <p className="mt-1">Convenience fee to add: {tuitionConvenienceFeePercentage.toFixed(2)}% of GH₵ {tuitionFee.toFixed(2)} = GH₵ {tuitionConvenienceAmount.toFixed(2)}</p>
                 <p className="mt-1">Parent tracked-transfer total for tuition: GH₵ {tuitionTransferTotal.toFixed(2)}</p>
               </div>
+            </div>
+
+            <div className="md:col-span-2 rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Tuition Installment Plan</label>
+                  <p className="text-sm text-slate-600">Split tuition into exact payable installments. Each installment gets its own payment route, amount, start date, and deadline.</p>
+                </div>
+                <label className="inline-flex items-center gap-3 text-sm font-bold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={tuitionInstallmentPlan.enabled}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setTuitionInstallmentPlan((prev) => ({
+                        enabled,
+                        installment_count: enabled ? Math.max(2, Number(prev.installment_count) || 2) : 1,
+                        schedule: enabled
+                          ? buildEqualInstallmentSchedule(tuitionFee, Math.max(2, Number(prev.installment_count) || 2), prev.schedule)
+                          : [],
+                      }));
+                      setInstallmentPlanMode((prev) => (enabled ? prev : '2'));
+                    }}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Enable tuition installments
+                </label>
+              </div>
+
+              {tuitionInstallmentPlan.enabled ? (
+                <div className="mt-4 space-y-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-[180px_1fr] md:items-end">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">Installment Count</label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { key: '2', label: '2 installments', count: 2 },
+                          { key: '3', label: '3 installments', count: 3 },
+                          { key: 'custom', label: 'Custom', count: null },
+                        ].map((option) => (
+                          <button
+                            key={option.key}
+                            type="button"
+                            onClick={() => {
+                              setInstallmentPlanMode(option.key);
+                              if (option.count) {
+                                setTuitionInstallmentPlan((prev) => ({
+                                  ...prev,
+                                  installment_count: option.count,
+                                  schedule: buildEqualInstallmentSchedule(tuitionFee, option.count, prev.schedule),
+                                }));
+                              }
+                            }}
+                            className={`rounded-full px-3 py-2 text-sm font-bold transition ${installmentPlanMode === option.key ? 'bg-cyan-700 text-white' : 'border border-cyan-200 bg-white text-cyan-800 hover:bg-cyan-100'}`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      {installmentPlanMode === 'custom' ? (
+                        <input
+                          type="number"
+                          min="2"
+                          max="12"
+                          value={tuitionInstallmentPlan.installment_count}
+                          onChange={(e) => {
+                            const nextCount = Math.max(2, parseInt(e.target.value, 10) || 2);
+                            setInstallmentPlanMode('custom');
+                            setTuitionInstallmentPlan((prev) => ({
+                              ...prev,
+                              installment_count: nextCount,
+                              schedule: buildEqualInstallmentSchedule(tuitionFee, nextCount, prev.schedule),
+                            }));
+                          }}
+                          className="mt-3 w-full p-3 border rounded-lg bg-white"
+                        />
+                      ) : (
+                        <p className="mt-3 text-sm text-slate-600">Current schedule uses {tuitionInstallmentPlan.installment_count} installments.</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-cyan-100 bg-white p-3 text-xs text-slate-600">
+                      EduPulse can auto-split tuition into 2, 3, or a custom number of installments. You can still edit each amount and date before saving, but the final installment schedule must add up exactly to the tuition fee.
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {tuitionInstallmentPlan.schedule.map((item, index) => (
+                      <div key={item.installment_number} className="grid grid-cols-1 gap-3 rounded-xl border border-cyan-100 bg-white p-3 md:grid-cols-[1.2fr_1fr_1fr_1fr] md:items-end">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Label</label>
+                          <input
+                            type="text"
+                            value={item.label}
+                            onChange={(e) => setTuitionInstallmentPlan((prev) => ({
+                              ...prev,
+                              schedule: prev.schedule.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: e.target.value } : entry),
+                            }))}
+                            className="w-full p-3 border rounded-lg bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Amount</label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-600 font-semibold">GH₵</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={item.amount}
+                              onChange={(e) => setTuitionInstallmentPlan((prev) => ({
+                                ...prev,
+                                schedule: prev.schedule.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: parseFloat(e.target.value) || 0 } : entry),
+                              }))}
+                              className="w-full p-3 border rounded-lg bg-white"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Start Date</label>
+                          <input
+                            type="date"
+                            value={item.start_date}
+                            onChange={(e) => setTuitionInstallmentPlan((prev) => ({
+                              ...prev,
+                              schedule: prev.schedule.map((entry, entryIndex) => entryIndex === index ? { ...entry, start_date: e.target.value } : entry),
+                            }))}
+                            className="w-full p-3 border rounded-lg bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Deadline</label>
+                          <input
+                            type="date"
+                            value={item.due_date}
+                            onChange={(e) => setTuitionInstallmentPlan((prev) => ({
+                              ...prev,
+                              schedule: prev.schedule.map((entry, entryIndex) => entryIndex === index ? { ...entry, due_date: e.target.value } : entry),
+                            }))}
+                            className="w-full p-3 border rounded-lg bg-white"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-lg border border-cyan-100 bg-white p-3 text-sm text-slate-700">
+                    <p className="font-semibold">Installment total: GH₵ {tuitionInstallmentTotal.toFixed(2)}</p>
+                    <p className="mt-1 text-xs text-slate-500">Target tuition total: GH₵ {tuitionFee.toFixed(2)}. Save this schedule so each installment gets its own exact tracked transfer route.</p>
+                    {Math.abs(tuitionInstallmentTotal - tuitionFee) > 0.001 ? (
+                      <p className="mt-2 text-xs font-semibold text-rose-700">The installment amounts must add up exactly to the tuition fee before this schedule can be saved.</p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div>
@@ -2005,6 +2220,12 @@ export default function SettingsPanel() {
                 <p className="text-slate-600">Tracked Tuition Total</p>
                 <p className="text-lg font-bold text-slate-800">GH₵ {tuitionTransferTotal.toFixed(2)}</p>
               </div>
+              {tuitionInstallmentPlan.enabled ? (
+                <div>
+                  <p className="text-slate-600">Installments</p>
+                  <p className="text-lg font-bold text-slate-800">{tuitionInstallmentPlan.installment_count}</p>
+                </div>
+              ) : null}
               <div>
                 <p className="text-slate-600">Feeding Daily</p>
                 <p className="text-lg font-bold text-slate-800">GH₵ {feedingDailyFee.toFixed(2)}</p>
@@ -2034,6 +2255,20 @@ export default function SettingsPanel() {
                 </div>
               ))}
             </div>
+            {tuitionInstallmentPlan.enabled ? (
+              <div className="mt-4 rounded-lg border border-blue-100 bg-white p-3 text-sm text-slate-700">
+                <p className="font-semibold text-slate-800 mb-2">Installment Schedule Preview</p>
+                <div className="space-y-2">
+                  {tuitionInstallmentPlan.schedule.map((item) => (
+                    <div key={item.installment_number} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 last:border-b-0 last:pb-0">
+                      <span>{item.label}</span>
+                      <span className="font-semibold">GH₵ {Number(item.amount || 0).toFixed(2)}</span>
+                      <span className="text-xs text-slate-500">{item.start_date || 'No start date'} → {item.due_date || 'No deadline'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 

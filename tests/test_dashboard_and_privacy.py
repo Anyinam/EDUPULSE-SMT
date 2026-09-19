@@ -3604,6 +3604,72 @@ def test_student_tracked_transfer_split_uses_live_outstanding_tuition_amount(cli
     assert captured[3][2]["split_code"] == "SPLIT_school001_2000"
 
 
+def test_student_payment_codes_build_tuition_installments_with_status_and_credit_carry_forward(client, app, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 1000.0
+    settings.terminal_report_fee = 0.0
+    settings.other_fees = {
+        "__tuition_convenience_fee_percentage__": 1.95,
+        "__tuition_installment_plan__": {
+            "enabled": True,
+            "installment_count": 2,
+            "schedule": [
+                {
+                    "installment_number": 1,
+                    "label": "Installment 1",
+                    "amount": 500.0,
+                    "start_date": "2026-09-01",
+                    "due_date": "2026-09-30",
+                },
+                {
+                    "installment_number": 2,
+                    "label": "Installment 2",
+                    "amount": 500.0,
+                    "start_date": "2026-10-01",
+                    "due_date": "2026-10-31",
+                },
+            ],
+        },
+    }
+    db.session.commit()
+
+    student = test_students[0]
+    student.total_tuition_owed = 499.8
+    db.session.add(
+        Payment(
+            student_id=student.id,
+            school_id=test_school.id,
+            amount=500.2,
+            payment_type="Tuition",
+            method="Bank",
+            reference_id="INSTALLMENT-001",
+            status="Confirmed",
+            payment_category={"fee_type": "Tuition", "reference_code": f"{student.student_code}-TUIT-I1"},
+        )
+    )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    tuition_codes = [item for item in payload["payment_codes"] if item["fee_type"] == "Tuition"]
+    assert [item["reference_code"] for item in tuition_codes] == [
+        f"{student.student_code}-TUIT-I1",
+        f"{student.student_code}-TUIT-I2",
+    ]
+    assert tuition_codes[0]["base_amount"] == 500.0
+    assert tuition_codes[0]["payment_category"]["installment_status"] == "paid"
+    assert tuition_codes[0]["payment_category"]["installment_outstanding_amount"] == 0.0
+    assert tuition_codes[1]["base_amount"] == 500.0
+    assert tuition_codes[1]["payment_category"]["installment_status"] == "partial"
+    assert tuition_codes[1]["payment_category"]["installment_paid_amount"] == 0.2
+    assert tuition_codes[1]["payment_category"]["installment_outstanding_amount"] == 499.8
+    assert payload["payment_identity"]["tuition_installments_enabled"] is True
+    assert payload["payment_identity"]["tuition_credit_balance"] == 0.0
+
+
 def test_student_payment_code_requires_school_settlement_before_tracked_transfer_account(client, app, test_school, test_proprietor, test_students):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     settings.tuition_fee = 100.0

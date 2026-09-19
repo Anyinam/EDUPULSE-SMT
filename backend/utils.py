@@ -482,6 +482,25 @@ def parse_payment_reference(reference_string):
                 "category": {"frequency": "Monthly"},  # Default to monthly
             }
 
+    # Tuition installment references: STUDENT-TUIT-I1
+    if category_code == "TUIT" and len(parts) >= 3:
+        installment_token = parts[2]
+        if installment_token.startswith("I"):
+            try:
+                installment_number = int(installment_token[1:])
+            except ValueError:
+                installment_number = None
+            if installment_number:
+                return {
+                    "student_code": student_code,
+                    "payment_type": "Tuition",
+                    "category": {
+                        "term": "General",
+                        "installment_number": installment_number,
+                        "fee_type": "Tuition",
+                    },
+                }
+
     # Uniform
     if category_code == "UNIF":
         return {
@@ -631,7 +650,11 @@ def generate_all_payment_codes(student_id, fees_config):
     if isinstance(other_fees, dict):
         custom_index = 5
         for fee_name, amount in other_fees.items():
-            if amount > 0:
+            try:
+                numeric_amount = float(amount)
+            except (TypeError, ValueError):
+                continue
+            if numeric_amount > 0:
                 codes[fee_name] = f"{student_id}{custom_index}"
                 custom_index += 1
 

@@ -723,18 +723,48 @@ class TestPaymentEndpoints:
             assert f"{student.student_code}-FEED-WEK" in feeding_refs
             assert f"{student.student_code}-FEED-MON" in feeding_refs
 
-            payment_response = client.post(
-                "/api/finance/receive-payment",
+    def test_school_fees_reject_installment_schedule_that_does_not_match_tuition_total(self, client, app):
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import User
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+            headers = {"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"}
+
+            response = client.post(
+                "/api/school/fees",
                 json={
-                    "reference_code": f"{student.student_code}-FEED-MON",
-                    "amount": 80.0,
-                    "method": "Cash",
+                    "tuition_fee": 1000,
+                    "tuition_installment_plan": {
+                        "enabled": True,
+                        "installment_count": 2,
+                        "schedule": [
+                            {
+                                "installment_number": 1,
+                                "label": "Installment 1",
+                                "amount": 400,
+                                "start_date": "2026-09-01",
+                                "due_date": "2026-09-30",
+                            },
+                            {
+                                "installment_number": 2,
+                                "label": "Installment 2",
+                                "amount": 500,
+                                "start_date": "2026-10-01",
+                                "due_date": "2026-10-31",
+                            },
+                        ],
+                    },
+                    "other_fees": {},
                 },
                 headers=headers,
             )
-            assert payment_response.status_code == 200
-            data = json.loads(payment_response.data)
-            assert "recorded" in data["message"]
+
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert "add up exactly to the tuition fee" in data["message"].lower()
 
     def test_school_classes_fall_back_to_student_current_class(self, client, app):
         with app.app_context():
