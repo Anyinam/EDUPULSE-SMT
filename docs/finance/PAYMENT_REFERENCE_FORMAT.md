@@ -2,202 +2,159 @@
 
 ## Purpose
 
-Structured references are still the core identifier for student-fee categorization in EduPulse SMT, even when the school uses a Paystack tracked transfer account.
+EduPulse uses payment references to answer two questions:
 
-The reference answers two questions:
 - which learner is this payment for?
-- what fee purpose is being paid?
+- what fee purpose or installment does the payment belong to?
 
-## Active Reference Pattern
+The system now uses a hybrid reference model. Some fees still use legacy compact references generated from `backend/utils.py`, while newer fee flows emit readable structured references directly from the payment-instruction layer.
 
-Pattern:
+## Current Reference Families
 
-`STUDENT_CODE-CATEGORY-[OPTIONAL_DETAIL]`
+### 1. Tuition installment references
+
+When a school enables tuition installments in Settings, EduPulse emits one tuition reference per installment:
+
+- `S001-TUIT-I1`
+- `S001-TUIT-I2`
+- `S001-TUIT-I3`
+
+Each installment reference is tied to:
+
+- an exact installment amount
+- a start date
+- a deadline
+- a live installment status such as `upcoming`, `open`, `partial`, `paid`, or `overdue`
+
+### 2. Structured feeding references
+
+When a school configures feeding by plan, EduPulse emits readable feeding references:
+
+- `S001-FEED-DAY`
+- `S001-FEED-WEK`
+- `S001-FEED-MON`
+
+These references tell EduPulse which feeding plan the payment belongs to.
+
+### 3. Legacy compact references
+
+Classic non-installment tuition, uniform, transport, and most custom fees still rely on the legacy compact code generator in `backend/utils.py`.
 
 Examples:
-- `S001-T1` for tuition term 1
-- `S001-T2` for tuition term 2
-- `S001-T3` for tuition term 3
-- `S001-FEED-DAY` for daily feeding
-- `S001-FEED-WEK` for weekly feeding
-- `S001-FEED-MON` for monthly feeding
-- `S001-UNIF` for uniform
-- `S001-TRANS-DAY` for daily transport
-- `S001-TRANS-MON` for monthly transport
 
-## Current Parent Payment Experience
+- `CFK011` for the learner's tuition route when the school is not using tuition installments
+- `CFK013` for uniform
+- `CFK014` for transport
 
-The school can share any of these references in 3 ways:
+Custom fees continue from the next numeric suffix.
 
-1. Printed instruction sheet with tracked transfer account details attached automatically when available
-2. Manual school-office or direct-bank instruction using the same reference
-3. Optional tracked online checkout link for cases where the school wants web checkout instead of bank transfer
+This means the payment-code payload a school sees today can contain both:
 
-When the school generates a tracked transfer account, the dedicated virtual account is bound to one reference. Parents do not need to understand Paystack. They only see a bank account to transfer to and the exact amount to pay.
+- structured references for newer fee models
+- compact references for older fee families that have not yet been migrated to readable suffixes
 
-## What The Reference Still Controls
+## What The Reference Controls
 
-EduPulse uses the reference to derive:
-- learner identity
-- payment type
-- fee category metadata such as `term` or `frequency`
+Regardless of format, the reference still drives EduPulse's categorization logic.
 
 Examples:
 
 | Reference | Meaning |
-|------|---------|
-| `S001-T1` | `Tuition` with `{"term": "Term 1"}` |
-| `S001-FEED-MON` | `Feeding` with `{"frequency": "Monthly"}` |
-| `S001-UNIF` | `Uniform` |
-| `S001-TRANS-MON` | `Transport` with `{"frequency": "Monthly"}` |
+|-----------|---------|
+| `S001-TUIT-I1` | Tuition installment 1 |
+| `S001-FEED-MON` | Feeding with `{"frequency": "Monthly"}` |
+| `CFK011` | Legacy tuition route for learner `CFK01` |
+| `CFK013` | Legacy uniform route for learner `CFK01` |
 
-## Important Distinction
+The reference can be used in two different ways:
 
-Reference alone does not guarantee automatic tracking if money is sent to the school’s ordinary bank account and the provider does not return the reference reliably.
+- as the main matching key for manual entry, office confirmation, and some webhook paths
+- as a support hint when a Paystack tracked transfer account already identifies the learner and fee route automatically
 
-For reliable automatic tracking, the school should use the tracked transfer account for that reference. EduPulse then stores a `PaymentCollectionIntent` that maps:
-- student
-- reference
-- Paystack customer
-- dedicated account number
-- settlement split
+## Current Parent Payment Experience
 
-## Convenience Fee With References
+EduPulse now prioritizes Paystack tracked transfer accounts for dependable automatic tuition tracking.
 
-The reference does not change the fee math. It only identifies the route.
+Parent instructions can be delivered in these modes:
 
-For a tracked transfer account, EduPulse can show:
-- base fee amount
-- convenience fee amount
-- total transfer amount
+1. Printed or copied tracked-transfer instructions with bank name, account number, exact amount, and the preferred reference
+2. Direct school-office or ordinary-bank instructions where the parent must include the reference manually
+3. Optional online checkout in flows that still use Paystack checkout, such as subscription billing or public admission payment flows
 
-Example:
-- reference: `S001-T1`
-- base fee: `GH₵100`
-- convenience fee: `GH₵6`
-- parent transfer amount: `GH₵106`
+When a tracked transfer account is available:
 
-The payment record will still categorize the fee under `S001-T1`, but only `GH₵100` is applied to the learner balance.
+- the dedicated virtual account is already bound to one learner fee route
+- EduPulse expects Paystack to identify the route automatically from the prepared account
+- the visible reference becomes a preferred support hint rather than the normal tracking requirement
 
-## Parent Instructions
+## Installment Logic
+
+Tuition installments are configured from the school Settings panel.
+
+Current rules:
+
+- the school chooses `2`, `3`, or a custom installment count
+- EduPulse can auto-split the tuition equally
+- staff can edit the label, amount, start date, and deadline of each installment
+- the saved schedule must add up exactly to the tuition fee
+- every installment gets its own payment route and reference
+- small overpayments can carry forward as credit into the next installment
+
+## Automatic Tracking Rules
+
+### Tracked transfer account path
+
+For reliable automation, the school should use the EduPulse-generated tracked transfer account.
+
+That path stores a `PaymentCollectionIntent` and lets EduPulse match incoming Paystack `charge.success` events by the prepared route rather than by narration alone.
+
+### Ordinary bank or manual path
+
+If parents pay into a normal school account, the reference is still important because matching depends on whatever narration or webhook data the upstream provider returns.
+
+## Example Payment-Code Payload
+
+```json
+{
+  "student_code": "S001",
+  "payment_identity": {
+    "model": "installment_reference_first",
+    "tuition_installments_enabled": true
+  },
+  "payment_codes": [
+    {
+      "fee_type": "Tuition",
+      "reference_code": "S001-TUIT-I1",
+      "base_amount": 500.0,
+      "payment_category": {
+        "installment_number": 1,
+        "installment_label": "Installment 1",
+        "installment_status": "open",
+        "installment_start_date": "2026-09-01",
+        "installment_due_date": "2026-09-30"
+      }
+    },
+    {
+      "fee_type": "Feeding (Monthly)",
+      "reference_code": "S001-FEED-MON",
+      "base_amount": 300.0
+    }
+  ]
+}
+```
+
+## Parent Instruction Rule
 
 Recommended wording:
 
-1. If a tracked transfer account appears on the printed instruction sheet, pay the exact total into that account.
-2. If the school shares only a normal bank or MoMo destination, include the reference exactly as shown.
-3. Keep the same reference when showing proof at the school office.
-
-## Error Rules
-
-| Reference | Outcome | Why |
-|-----------|---------|-----|
-| `S001-T1` | Valid | Learner and fee purpose are clear |
-| `S001-FEED-MON` | Valid | Learner and feeding frequency are clear |
-| `S001` | Limited fallback | Learner may be found, but fee purpose is less precise |
-| `S001-XYZ` | Weak | Unknown fee suffix, likely requires manual interpretation |
+1. If EduPulse shows a tracked transfer account, pay the exact amount into that account.
+2. Keep the displayed reference for school-office support even when payment should track automatically.
+3. If the school shares only a normal account or MoMo destination, include the reference exactly as shown.
 
 ## Related References
 
 - `docs/finance/PAYMENT_CATEGORIZATION.md`
+- `docs/finance/PAYMENT_REFERENCE_CODE_SYSTEM.md`
 - `docs/finance/BANK_TRANSFER_INTEGRATION.md`
+- `backend/payment_instruction_service.py`
 - `backend/utils.py`
-  "student_id": 1,
-  "payment_type": "Feeding",
-  "category": {"frequency": "Daily"}
-}
-```
-
----
-
-## How to Train Parents
-
-### Print & Display (Can post in school)
-```
-HOW TO PAY SCHOOL FEES
-
-1. Open your MoMo/Bank app
-2. Send money to: [SCHOOL PHONE/ACCOUNT]
-
-REFERENCE CODES (VERY IMPORTANT - Enter in reference field):
-
-For Tuition:
-- S001-T1 (Term 1)
-- S001-T2 (Term 2)
-- S001-T3 (Term 3)
-
-For Feeding:
-- S001-FEED-DAY (Daily)
-- S001-FEED-MON (Monthly)
-
-Replace S001 with your child's STUDENT CODE
-
-If your school uses a different stable learner identifier, use that exact identifier before the feeding plan suffix.
-
-Example:
-If Kofi (Code: S001) is paying Term 1:
-- Reference: S001-T1
-```
-
----
-
-## Error Scenarios
-
-| Reference | Outcome | Why |
-|-----------|---------|-----|
-| `S001-T1` | ✅ Recorded | Valid format, student exists |
-| `xyz-T1` | ❌ Not found | Student code doesn't exist |
-| `S001` | ❌ Error | Missing category code |
-| `S001-XYZ` | ⚠️ General | Unknown code, defaults to Tuition |
-| `S001-T4` | ⚠️ General | Invalid term (only T1-T3) |
-
----
-
-## Database Query Examples
-
-### Get all Term 1 revenue
-```python
-term1_payments = Payment.query.filter(
-    Payment.payment_type == 'Tuition',
-    Payment.payment_category['term'].astext == 'Term 1'
-).all()
-
-total = sum(p.amount for p in term1_payments)
-print(f"Term 1 Revenue: GH₵{total}")
-```
-
-### Get all monthly feeding payments
-```python
-monthly_feeding = Payment.query.filter(
-    Payment.payment_type == 'Feeding',
-    Payment.payment_category['frequency'].astext == 'Monthly'
-).all()
-
-print(f"Monthly Feeders: {len(monthly_feeding)}")
-```
-
-### Get daily feeding this week
-```python
-from datetime import datetime, timedelta
-
-week_ago = datetime.now() - timedelta(days=7)
-
-daily_this_week = Payment.query.filter(
-    Payment.payment_type == 'Feeding',
-    Payment.payment_category['frequency'].astext == 'Daily',
-    Payment.date_paid >= week_ago
-).all()
-
-print(f"Daily feeding payments this week: {len(daily_this_week)}")
-```
-
----
-
-## Summary
-
-✅ **No provider configuration needed** - Parents just include reference  
-✅ **Automatic parsing** - System extracts all categorization  
-✅ **Works with any MoMo/Bank** - Any provider that supports custom reference field  
-✅ **Zero manual data entry** - Reference parsing handles it all  
-✅ **Full audit trail** - Every transaction logged and categorized  
-
-**Parents only need one thing from the school: the student's identifier followed by the correct fee suffix, such as `S001-FEED-WEK`.**

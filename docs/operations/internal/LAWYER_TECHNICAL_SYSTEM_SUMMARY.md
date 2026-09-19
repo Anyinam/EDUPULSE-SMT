@@ -182,8 +182,9 @@ The relevant implementation concepts are:
 
 1. EduPulse uses a stable learner payment identity plus structured references as the active categorization model
 2. Tracked transfer accounts can be created on demand through Paystack dedicated virtual accounts
-3. Active tracked-transfer settlement uses Paystack split so the school subaccount receives the base fee amount and EduPulse retains the convenience-fee remainder in its main settlement account
-4. Legacy route records may still exist and store older routing identifiers for audit interpretation
+3. Active tracked-transfer settlement uses Paystack split so the school subaccount target remains the configured school-fee amount and EduPulse retains the convenience-fee remainder in its main settlement account
+4. For learner-balance accounting, the software records the applied school-fee amount as the net school portion after deducting the route convenience slice and any actual Paystack/provider fee returned on the transaction, capped by the route base amount
+5. Legacy route records may still exist and store older routing identifiers for audit interpretation
 
 This means the software preserves historical route metadata where it already exists, while current payment classification remains reference-driven and current reliable transfer collection uses intent-backed DVA routing.
 

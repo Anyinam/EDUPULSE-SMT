@@ -1,6 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+function formatMoney(value) {
+  return `GH₵ ${Number(value || 0).toFixed(2)}`;
+}
+
+function getTrackedTransferDetails(transaction) {
+  const category = transaction.payment_category && typeof transaction.payment_category === 'object'
+    ? transaction.payment_category
+    : {};
+
+  const hasTrackedTransfer = Boolean(
+    category.collection_channel === 'dedicated_virtual_account'
+    || category.payment_collection_intent_id
+    || category.split_code
+    || category.transfer_total_amount
+  );
+
+  if (!hasTrackedTransfer) {
+    return null;
+  }
+
+  return {
+    referenceCode: category.reference_code || null,
+    transferTotalAmount: Number(category.transfer_total_amount || transaction.display_amount || transaction.amount || 0),
+    appliedSchoolFeeAmount: Number(category.applied_school_fee_amount || transaction.applied_amount || transaction.amount || 0),
+    convenienceFeeAmount: Number(category.collected_convenience_fee_amount || category.convenience_fee_amount || 0),
+    providerFeeAmount: Number(category.actual_provider_fee_amount || category.estimated_provider_fee_amount || 0),
+    providerAccountNumber: category.provider_account_number || null,
+    settlementMode: category.settlement_mode || null,
+  };
+}
+
 export default function AuditReport() {
   const [summary, setSummary] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -173,12 +204,29 @@ export default function AuditReport() {
               )}
               {transactions.map((entry, idx) => (
                 <tr key={entry.id} className={`bg-white hover:bg-slate-50 ${idx % 2 === 0 ? 'bg-slate-25' : ''}`}>
+                  {(() => {
+                    const trackedTransfer = getTrackedTransferDetails(entry);
+                    return (
+                      <>
                   <td className="p-3 font-mono text-xs">{entry.date || 'N/A'}</td>
                   <td className="p-3">
                     <div className="font-semibold">{entry.student_name}</div>
                     <div className="text-xs text-slate-500">{entry.student_code || 'N/A'}</div>
                   </td>
-                  <td className="p-3 text-right font-bold">GH₵ {Number(entry.amount || 0).toFixed(2)}</td>
+                  <td className="p-3 text-right font-bold">
+                    {formatMoney(entry.display_amount ?? entry.amount ?? 0)}
+                    {entry.display_amount !== undefined && entry.applied_amount !== undefined && Number(entry.display_amount) !== Number(entry.applied_amount) ? (
+                      <div className="mt-1 text-[11px] font-medium text-slate-500">Applied to {entry.type}: {formatMoney(entry.applied_amount)}</div>
+                    ) : null}
+                    {trackedTransfer ? (
+                      <div className="mt-2 space-y-1 text-left text-[11px] font-medium text-slate-500">
+                        <div>Gross paid: {formatMoney(trackedTransfer.transferTotalAmount)}</div>
+                        <div>Convenience deducted: {formatMoney(trackedTransfer.convenienceFeeAmount)}</div>
+                        <div>Paystack fee deducted: {formatMoney(trackedTransfer.providerFeeAmount)}</div>
+                        <div className="font-semibold text-slate-700">Applied to school fee: {formatMoney(trackedTransfer.appliedSchoolFeeAmount)}</div>
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="p-3 capitalize">
                     <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-bold">
                       {entry.type}
@@ -186,13 +234,18 @@ export default function AuditReport() {
                   </td>
                   <td className="p-3 capitalize text-sm">{entry.method || 'N/A'}</td>
                   <td className="p-3 font-mono text-xs text-slate-600">
-                    {entry.reference_id || entry.payment_category?.reference_code || 'N/A'}
+                    <div>{entry.reference_id || entry.payment_category?.reference_code || 'N/A'}</div>
+                    {trackedTransfer?.providerAccountNumber ? <div className="mt-1 text-[11px] text-slate-500">Acct: {trackedTransfer.providerAccountNumber}</div> : null}
+                    {trackedTransfer?.settlementMode ? <div className="text-[11px] text-slate-500">Mode: {trackedTransfer.settlementMode}</div> : null}
                   </td>
                   <td className="p-3 text-center">
                     <span className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ${entry.status === 'Confirmed' ? 'bg-green-100 text-green-700' : entry.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                       {entry.status || 'Pending'}
                     </span>
                   </td>
+                      </>
+                    );
+                  })()}
                 </tr>
               ))}
             </tbody>

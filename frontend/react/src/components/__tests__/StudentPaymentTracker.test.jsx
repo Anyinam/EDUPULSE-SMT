@@ -601,6 +601,130 @@ describe('StudentPaymentTracker', () => {
     expect(printWindow.document.write.mock.calls[0][0]).toContain('2222222222');
   });
 
+  it('prints the tracked transfer receipt breakdown with net school fee recorded', async () => {
+    const printWindow = {
+      document: {
+        write: vi.fn(),
+        close: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+    };
+    vi.stubGlobal('open', vi.fn(() => printWindow));
+
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              name: 'Ama Mensah',
+              student_code: 'S001',
+              current_class: 'JHS 1',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/school/fees') {
+        return Promise.resolve({
+          data: {
+            tuition_fee: 120,
+            terminal_report_fee: 0,
+            feeding_fee: 0,
+            uniform_fee: 0,
+            transport_fee: 0,
+          },
+        });
+      }
+
+      if (url === '/api/students/1/payments') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 9,
+              payment_type: 'Tuition',
+              method: 'Paystack_Payment',
+              amount: 20.19,
+              display_amount: 21.0,
+              applied_amount: 20.19,
+              reference_id: '6aae84c407261e44077d06d6',
+              status: 'Confirmed',
+              date_paid: '2026-09-19T09:00:00Z',
+              payment_category: {
+                collection_channel: 'dedicated_virtual_account',
+                transfer_total_amount: 21.0,
+                collected_convenience_fee_amount: 0.4,
+                actual_provider_fee_amount: 0.41,
+                applied_school_fee_amount: 20.19,
+              },
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/students/1/payment-codes') {
+        return Promise.resolve({
+          data: {
+            student_name: 'Ama Mensah',
+            student_code: 'S001',
+            payment_identity: {
+              supports_fee_route_dvas: true,
+            },
+            payment_codes: [
+              {
+                fee_type: 'Tuition',
+                code: 'S001-T1',
+                reference_code: 'S001-T1',
+                base_amount: 120,
+                has_virtual_route: true,
+                virtual_route: {
+                  bank_name: 'Paystack-Titan',
+                  account_number: '1111111111',
+                  account_name: 'EDUPULSE / AMA MENSAH',
+                  base_amount: 120,
+                  convenience_fee_amount: 2.34,
+                  total_amount: 122.34,
+                },
+              },
+            ],
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    render(<StudentPaymentTracker />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Ama Mensah'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /print latest receipt/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /print latest receipt/i }));
+
+    await waitFor(() => {
+      expect(window.open).toHaveBeenCalled();
+    });
+
+    expect(printWindow.document.write).toHaveBeenCalled();
+    const printedHtml = printWindow.document.write.mock.calls[0][0];
+    expect(printedHtml).toContain('Gross Transfer Received');
+    expect(printedHtml).toContain('Convenience Fee Deducted');
+    expect(printedHtml).toContain('Paystack Fee Deducted');
+    expect(printedHtml).toContain('Net School Fee Recorded');
+    expect(printedHtml).toContain('GH₵ 21.00');
+    expect(printedHtml).toContain('GH₵ 0.40');
+    expect(printedHtml).toContain('GH₵ 0.41');
+    expect(printedHtml).toContain('GH₵ 20.19');
+  });
+
   it('does not show the paystack reconciliation card in the tenant tracker', async () => {
     axios.get.mockImplementation((url) => {
       if (url === '/api/students') {
@@ -736,6 +860,10 @@ describe('StudentPaymentTracker', () => {
             status: 'recorded',
             reference: '6aae84c407261e44077d06d6',
             message: 'Tracked transfer recovered and attached to the student.',
+            gross_amount_paid: 21,
+            collected_convenience_fee_amount: 0.4,
+            actual_provider_fee_amount: 0.41,
+            applied_school_fee_amount: 20.19,
           },
         });
       }
@@ -763,6 +891,11 @@ describe('StudentPaymentTracker', () => {
     await waitFor(() => {
       expect(screen.getByText(/tracked transfer recovered and attached to the student/i)).toBeInTheDocument();
     });
+
+    expect(screen.getByText('Gross paid: GH₵ 21.00')).toBeInTheDocument();
+    expect(screen.getByText('Convenience deducted: GH₵ 0.40')).toBeInTheDocument();
+    expect(screen.getByText('Paystack fee deducted: GH₵ 0.41')).toBeInTheDocument();
+    expect(screen.getByText('Applied to school fee: GH₵ 20.19')).toBeInTheDocument();
 
     expect(axios.post).toHaveBeenCalledWith(
       '/api/finance/paystack/recover-reference',
@@ -894,5 +1027,6 @@ describe('StudentPaymentTracker', () => {
     expect(screen.getByText(/open • opens 2026-10-01 • due 2026-10-31/i)).toBeInTheDocument();
     expect(screen.getByText(/upcoming • opens 2026-11-01 • due 2026-11-30/i)).toBeInTheDocument();
     expect(screen.getAllByText(/paid so far on this installment: gh₵ 0.00 • remaining: gh₵ 500.00/i)).toHaveLength(2);
+    expect(screen.queryByText('Required:')).not.toBeInTheDocument();
   });
 });

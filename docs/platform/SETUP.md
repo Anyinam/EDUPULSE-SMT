@@ -51,6 +51,8 @@ nano .env
 # MAIL_USERNAME=your-email@gmail.com
 # MAIL_PASSWORD=your-app-password  # From Google App Passwords
 # DATA_ENCRYPTION_KEY=your-fernet-key
+# PAYSTACK_SECRET_KEY=sk_test_or_live_key
+# PAYSTACK_PUBLIC_KEY=pk_test_or_live_key
 # BANK_WEBHOOK_SECRET=shared secret used to verify bank/provider callbacks
 ```
 
@@ -58,6 +60,19 @@ nano .env
 Use one of these models:
 - if the bank or payment aggregator gives you a webhook signing secret, store that exact value in `.env`
 - if the bank asks you to define a shared secret for callback signing, generate your own strong random value and configure the same value on both sides
+
+`PAYSTACK_SECRET_KEY` is required for both:
+
+- paid subscription checkout verification
+- tracked-transfer tuition collection through Paystack dedicated virtual accounts
+
+`PAYSTACK_PUBLIC_KEY` is required for frontend checkout flows that still redirect schools or families through Paystack.
+
+### Payment Feature Setup Notes
+
+- Tracked transfer accounts do not become available for a school just because platform Paystack keys exist.
+- Each school must still save verified bank details in Settings so EduPulse can create that school's Paystack settlement subaccount.
+- If a school enables tuition installments, the saved installment schedule must add up exactly to the configured tuition amount before the fee settings can be saved.
 
 ### 4. Initialize Database
 

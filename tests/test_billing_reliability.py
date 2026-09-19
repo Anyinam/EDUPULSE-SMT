@@ -1331,6 +1331,7 @@ def test_paystack_recover_reference_recovers_tracked_transfer_payment(
             "status": "success",
             "channel": "transfer",
             "amount": 2039,
+            "fees": 20,
             "customer": {"customer_code": "CUS_ROUTE_TRANSFER_001"},
             "authorization": {
                 "channel": "transfer",
@@ -1356,10 +1357,12 @@ def test_paystack_recover_reference_recovers_tracked_transfer_payment(
     payment = Payment.query.filter_by(reference_id="6a9d6f5523744a1df06a6143").first()
     assert payment is not None
     assert payment.student_id == student.id
-    assert payment.amount == 20.0
+    assert payment.amount == 19.8
+    assert payment.payment_category["actual_provider_fee_amount"] == 0.2
+    assert payment.payment_category["collected_convenience_fee_amount"] == 0.39
 
     db.session.refresh(student)
-    assert student.total_tuition_owed == 0.0
+    assert student.total_tuition_owed == 0.2
 
     db.session.refresh(intent)
     assert intent.intent_status == "paid"
@@ -1500,6 +1503,7 @@ def test_paystack_recover_reference_records_partial_dedicated_account_amount_wit
             "status": "success",
             "channel": "dedicated_account",
             "amount": 2100,
+            "fees": 41,
             "customer": {"customer_code": "CUS_PARTIAL_ROUTE_001"},
             "authorization": {
                 "channel": "dedicated_account",
@@ -1521,17 +1525,20 @@ def test_paystack_recover_reference_records_partial_dedicated_account_amount_wit
     payload = response.get_json()
     assert payload["status"] == "recorded"
     assert payload["gross_amount_paid"] == 21.0
-    assert payload["applied_school_fee_amount"] == 21.0
+    assert payload["applied_school_fee_amount"] == 20.59
+    assert payload["actual_provider_fee_amount"] == 0.41
+    assert payload["collected_convenience_fee_amount"] == 0.0
 
     payment = Payment.query.filter_by(reference_id="6a9f87df190c011168af33e2").first()
     assert payment is not None
     assert payment.student_id == student.id
-    assert payment.amount == 21.0
+    assert payment.amount == 20.59
     assert payment.payment_category["gross_amount_paid"] == 21.0
-    assert payment.payment_category["applied_school_fee_amount"] == 21.0
+    assert payment.payment_category["applied_school_fee_amount"] == 20.59
+    assert payment.payment_category["actual_provider_fee_amount"] == 0.41
 
     db.session.refresh(student)
-    assert student.total_tuition_owed == 79.0
+    assert student.total_tuition_owed == 79.41
 
 
 def test_admission_blocks_when_actual_active_count_hits_limit_even_if_meter_is_stale(

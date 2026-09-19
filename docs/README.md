@@ -42,9 +42,9 @@ Legal and privacy documents remain under `compliance/` and lawyer-facing operati
 - `academics/REPORT_BUILDER_GUIDE.md`
 - `testing/TESTING_INDEX.md`
 
-## Recent August 2026 Updates
+## Recent September 2026 Updates
 
-- Billing and subscription changes are now summarized in `finance/SUBSCRIPTION_BILLING_GUIDE.md`, including the fixed 30-day Premium trial, post-trial term proration, Paystack-only paid upgrades, and migration-backed local reset flows.
-- Admissions and student-profile document updates now live in `academics/PARENT_ADMISSIONS_WORKFLOW.md`, including passport-photo upload, student document vault behavior, and admissions-to-profile document linkage.
-- Local setup, seed, and migration rebuild behavior now live in `platform/SETUP.md` and `platform/IMPLEMENTATION_SUMMARY.md`.
-- Current automated validation status now lives in `testing/TESTING_INDEX.md` and `testing/FINAL_TEST_SUMMARY.md`.
+- Finance docs now reflect the current tracked-transfer model, including Paystack dedicated virtual accounts, automatic webhook matching, reconciliation fallback, and split-settlement behavior.
+- Tuition installment documentation now covers `2`, `3`, and custom schedules, per-installment references such as `STUDENT-TUIT-I1`, live installment statuses, and exact-total validation rules.
+- Payment reference docs now explain the mixed model of readable structured references for newer flows and legacy compact fee codes that remain active for backward compatibility.
+- Billing and subscription behavior continues to be summarized in `finance/SUBSCRIPTION_BILLING_GUIDE.md`, while the broader payment-layer overview now lives in `finance/PAYMENT_INTEGRATION.md`.

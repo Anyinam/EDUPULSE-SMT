@@ -1,6 +1,61 @@
 from datetime import datetime, timedelta, timezone
 
 
+def _extract_paystack_fee_amount(payload):
+    if not isinstance(payload, dict):
+        return 0.0
+
+    fee_candidates = [
+        payload.get("fees"),
+        payload.get("fees_charged"),
+        payload.get("fee"),
+    ]
+    fees_breakdown = payload.get("fees_breakdown") if isinstance(payload.get("fees_breakdown"), dict) else {}
+    fee_candidates.extend(
+        [
+            fees_breakdown.get("total"),
+            fees_breakdown.get("paystack"),
+            fees_breakdown.get("provider"),
+        ]
+    )
+
+    for raw_fee in fee_candidates:
+        try:
+            fee_minor = float(raw_fee or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if fee_minor > 0:
+            return round(fee_minor / 100.0, 2)
+    return 0.0
+
+
+def _calculate_actual_convenience_fee_amount(gross_amount_paid, intent):
+    try:
+        gross_amount_paid = round(max(0.0, float(gross_amount_paid or 0.0)), 2)
+    except (TypeError, ValueError):
+        gross_amount_paid = 0.0
+
+    if gross_amount_paid <= 0 or not intent:
+        return 0.0
+
+    try:
+        base_amount = round(max(0.0, float(intent.base_amount or 0.0)), 2)
+    except (TypeError, ValueError):
+        base_amount = 0.0
+    try:
+        configured_convenience = round(max(0.0, float(intent.convenience_fee_amount or 0.0)), 2)
+    except (TypeError, ValueError):
+        configured_convenience = 0.0
+
+    if base_amount <= 0 or configured_convenience <= 0:
+        return 0.0
+
+    convenience_rate = configured_convenience / base_amount
+    school_portion_before_provider_fee = gross_amount_paid / (1.0 + convenience_rate)
+    actual_convenience = gross_amount_paid - school_portion_before_provider_fee
+    return round(max(0.0, actual_convenience), 2)
+
+
 def get_or_create_paystack_transfer_split(
     school,
     provider_settings,
@@ -457,12 +512,18 @@ def record_paystack_virtual_account_payment(
     except Exception:
         gross_amount_paid = 0.0
 
+    actual_provider_fee_amount = _extract_paystack_fee_amount(payload)
+    actual_convenience_fee_amount = _calculate_actual_convenience_fee_amount(gross_amount_paid, intent)
+
     applied_school_fee_amount = round(
-        min(max(gross_amount_paid, 0.0), float(intent.base_amount or 0.0)),
+        min(
+            max(gross_amount_paid - actual_provider_fee_amount - actual_convenience_fee_amount, 0.0),
+            float(intent.base_amount or 0.0),
+        ),
         2,
     )
     collected_convenience_fee_amount = round(
-        max(0.0, gross_amount_paid - applied_school_fee_amount),
+        actual_convenience_fee_amount,
         2,
     )
 
@@ -484,6 +545,7 @@ def record_paystack_virtual_account_payment(
                 "applied_school_fee_amount": applied_school_fee_amount,
                 "convenience_fee_amount": round(float(intent.convenience_fee_amount or 0.0), 2),
                 "collected_convenience_fee_amount": collected_convenience_fee_amount,
+                "actual_provider_fee_amount": actual_provider_fee_amount,
                 "platform_fee_amount": round(float(intent.platform_fee_amount or 0.0), 2),
                 "estimated_provider_fee_amount": round(float(intent.estimated_provider_fee_amount or 0.0), 2),
                 "settlement_mode": sanitize_string(split_config.get("settlement_mode") or "reference_first") or "reference_first",
@@ -521,6 +583,8 @@ def record_paystack_virtual_account_payment(
         "transfer_total_amount": round(float(intent.total_amount or 0.0), 2),
         "gross_amount_paid": gross_amount_paid,
         "applied_school_fee_amount": applied_school_fee_amount,
+        "actual_provider_fee_amount": actual_provider_fee_amount,
+        "collected_convenience_fee_amount": collected_convenience_fee_amount,
         "provider_account_number": intent.provider_account_number,
         "provider_bank_name": intent.provider_bank_name,
     }, status_code

@@ -5,6 +5,35 @@ import StudentPaymentTracker from '../components/StudentPaymentTracker';
 import PaymentEntry from './PaymentEntry';
 import { useBranding } from '../hooks/useBranding';
 
+function formatMoney(value) {
+  return `GH₵ ${Number(value || 0).toFixed(2)}`;
+}
+
+function getTrackedTransferDetails(payment) {
+  const category = payment.payment_category && typeof payment.payment_category === 'object'
+    ? payment.payment_category
+    : {};
+
+  const hasTrackedTransfer = Boolean(
+    category.collection_channel === 'dedicated_virtual_account'
+    || category.payment_collection_intent_id
+    || category.split_code
+    || category.transfer_total_amount
+  );
+
+  if (!hasTrackedTransfer) {
+    return null;
+  }
+
+  return {
+    referenceCode: category.reference_code || null,
+    transferTotalAmount: Number(category.transfer_total_amount || payment.display_amount || payment.amount || 0),
+    appliedSchoolFeeAmount: Number(category.applied_school_fee_amount || payment.applied_amount || payment.amount || 0),
+    convenienceFeeAmount: Number(category.collected_convenience_fee_amount || category.convenience_fee_amount || 0),
+    providerFeeAmount: Number(category.actual_provider_fee_amount || category.estimated_provider_fee_amount || 0),
+  };
+}
+
 /**
  * Finance Dashboard - Handles fee collection, payment records, and financial reports
  */
@@ -166,28 +195,49 @@ export default function FinanceDashboard() {
               <th className="p-4 font-bold">Date</th>
               <th className="p-4 font-bold">Student</th>
               <th className="p-4 font-bold">Amount</th>
+              <th className="p-4 font-bold">Transfer Detail</th>
               <th className="p-4 font-bold">Payment Type</th>
               <th className="p-4 font-bold">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-emerald-50">
             {stats.recent_transactions?.length > 0 ? (
-              stats.recent_transactions.map((payment, idx) => (
-                <tr key={idx} className="hover:bg-emerald-50/50">
+              stats.recent_transactions.map((payment, idx) => {
+                const trackedTransfer = getTrackedTransferDetails(payment);
+                return (
+                <tr key={idx} className="hover:bg-emerald-50/50 align-top">
                   <td className="p-4 text-gray-700">{new Date(payment.date).toLocaleDateString()}</td>
                   <td className="p-4 font-semibold text-gray-800">{payment.student_name}</td>
-                  <td className="p-4 text-green-600 font-bold">₵{payment.amount?.toFixed(2)}</td>
+                  <td className="p-4 text-green-600 font-bold">
+                    {formatMoney(payment.display_amount ?? payment.amount)}
+                    {payment.display_amount !== undefined && payment.applied_amount !== undefined && Number(payment.display_amount) !== Number(payment.applied_amount) ? (
+                      <p className="mt-1 text-[11px] font-medium text-slate-500">Applied to {payment.type}: {formatMoney(payment.applied_amount)}</p>
+                    ) : null}
+                  </td>
+                  <td className="p-4 text-xs text-slate-600">
+                    {trackedTransfer ? (
+                      <div className="space-y-1">
+                        {trackedTransfer.referenceCode ? <p>Ref: <span className="font-semibold text-slate-800">{trackedTransfer.referenceCode}</span></p> : null}
+                        <p>Gross paid: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.transferTotalAmount)}</span></p>
+                        <p>Convenience deducted: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.convenienceFeeAmount)}</span></p>
+                        <p>Paystack fee deducted: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.providerFeeAmount)}</span></p>
+                        <p>Applied to school fee: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.appliedSchoolFeeAmount)}</span></p>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">-</span>
+                    )}
+                  </td>
                   <td className="p-4 text-gray-600">{payment.type || 'Tuition'}</td>
                   <td className="p-4">
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
-                      Recorded
+                      {payment.status || 'Recorded'}
                     </span>
                   </td>
                 </tr>
-              ))
+              )})
             ) : (
               <tr>
-                <td colSpan="5" className="p-4 text-center text-gray-500">No recent transactions</td>
+                <td colSpan="6" className="p-4 text-center text-gray-500">No recent transactions</td>
               </tr>
             )}
           </tbody>

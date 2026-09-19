@@ -9079,6 +9079,16 @@ def _normalize_payment_category_for_storage(school_id, payment_type, payment_cat
     return normalized_category
 
 
+def _get_payment_applied_school_fee_amount(payment):
+    if not payment:
+        return 0.0
+    payment_category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
+    try:
+        return round(float(payment_category.get("applied_school_fee_amount") or payment.amount or 0.0), 2)
+    except (TypeError, ValueError):
+        return round(float(payment.amount or 0.0), 2) if payment.amount else 0.0
+
+
 def _get_feeding_status_details_for_students(students, school_id, as_of_date=None):
     student_list = [student for student in (students or []) if student is not None]
     if not student_list:
@@ -9324,9 +9334,10 @@ def _serialize_feeding_status_detail(feeding_status):
     }
 
 
-def _apply_confirmed_payment_effects(payment, student, actor_id):
+def _apply_confirmed_payment_effects(payment, student, actor_id, *, actor_label="system", extra_metadata=None):
+    applied_amount = _get_payment_applied_school_fee_amount(payment)
     if payment.payment_type == "Tuition":
-        student.total_tuition_owed = max(0, student.total_tuition_owed - float(payment.amount))
+        student.total_tuition_owed = max(0, float(student.total_tuition_owed or 0) - applied_amount)
     elif payment.payment_type == "Feeding":
         student.feeding_paid = True
 
@@ -9343,8 +9354,10 @@ def _apply_confirmed_payment_effects(payment, student, actor_id):
             "payment_id": payment.id,
             "student_name": student.name,
             "student_code": student.student_code,
+            "applied_school_fee_amount": applied_amount,
             "payment_category": payment.payment_category,
-            "recorded_by": "parent-payment-import",
+            "recorded_by": actor_label,
+            **(extra_metadata or {}),
         },
     )
 
@@ -9445,7 +9458,12 @@ def import_parent_payment_notice():
     db.session.flush()
 
     aml_flags = _evaluate_payment_aml_flags(g.school_id, payment, actor_id=user.id if user else None)
-    _apply_confirmed_payment_effects(payment, student, user.id if user else None)
+    _apply_confirmed_payment_effects(
+        payment,
+        student,
+        user.id if user else None,
+        actor_label="parent-payment-import",
+    )
 
     log_action(
         user_id=user.id if user else None,
@@ -11828,13 +11846,14 @@ def receive_payment():
 
     # Only update student stats if confirmed immediately
     if status == "Confirmed":
-        if payment.payment_type == "Tuition":
-            student.total_tuition_owed = max(
-                0, student.total_tuition_owed - float(payment.amount)
-            )
-        elif payment.payment_type == "Feeding":
-            student.feeding_paid = True
-        elif payment.payment_type in ["Inventory", "Uniform"]:
+        _apply_confirmed_payment_effects(
+            payment,
+            student,
+            user.id,
+            actor_label=user.username if user else "system",
+        )
+
+        if payment.payment_type in ["Inventory", "Uniform"]:
             item_id = payment.payment_category.get("item_id")
             sku = payment.payment_category.get("sku")
             quantity = int(payment.payment_category.get("quantity", 1))
@@ -11864,25 +11883,17 @@ def receive_payment():
                     "sku": inventory_item.sku,
                     "quantity": quantity,
                 }
-        
-        # Create immutable ledger entry for confirmed payment
-        add_ledger_entry(
-            school_id=g.school_id,
-            tx_type=payment.payment_type.lower(),
-            tx_ref=payment.reference_id or f"PAY-{payment.id}",
-            amount=payment.amount,
-            currency="GH₵",
-            actor_id=user.id,
-            student_id=student.id,
-            source=payment.method.lower(),
-            metadata={
-                "payment_id": payment.id,
-                "student_name": student.name,
-                "student_code": student.student_code,
-                "payment_category": payment.payment_category,
-                "recorded_by": user.username
-            }
-        )
+        if payment.payment_type in ["Inventory", "Uniform"]:
+            latest_ledger_entry = LedgerEntry.query.filter_by(
+                school_id=g.school_id,
+                tx_ref=payment.reference_id or f"PAY-{payment.id}",
+            ).order_by(LedgerEntry.id.desc()).first()
+            if latest_ledger_entry and isinstance(latest_ledger_entry.meta, dict):
+                latest_ledger_entry.meta = {
+                    **latest_ledger_entry.meta,
+                    "payment_category": payment.payment_category,
+                    "recorded_by": user.username,
+                }
 
     log_action(
         user_id=user.id,
@@ -12783,30 +12794,23 @@ def _confirm_pending_payment_record(payment, confirmed_by_user_id, confirmed_by_
     )
 
     student = Student.query.get(payment.student_id)
-    if student and payment.payment_type == "Tuition":
-        student.total_tuition_owed = max(
-            0, (student.total_tuition_owed or 0) - float(payment.amount)
+    if student:
+        _apply_confirmed_payment_effects(
+            payment,
+            student,
+            confirmed_by_user_id,
+            actor_label=confirmed_by_username or "System",
         )
-    elif student and payment.payment_type == "Feeding":
-        student.feeding_paid = True
-
-    add_ledger_entry(
-        school_id=g.school_id,
-        tx_type=payment.payment_type.lower(),
-        tx_ref=payment.reference_id or f"PAY-{payment.id}",
-        amount=payment.amount,
-        currency="GH₵",
-        actor_id=confirmed_by_user_id,
-        student_id=payment.student_id,
-        source=(payment.method or "cash").lower(),
-        metadata={
-            "payment_id": payment.id,
-            "student_name": student.name if student else "Unknown",
-            "student_code": student.student_code if student else "N/A",
-            "payment_category": payment.payment_category,
-            "confirmed_by": confirmed_by_username or "System",
-        },
-    )
+        latest_ledger_entry = LedgerEntry.query.filter_by(
+            school_id=g.school_id,
+            tx_ref=payment.reference_id or f"PAY-{payment.id}",
+        ).order_by(LedgerEntry.id.desc()).first()
+        if latest_ledger_entry and isinstance(latest_ledger_entry.meta, dict):
+            latest_ledger_entry.meta = {
+                **latest_ledger_entry.meta,
+                "payment_category": payment.payment_category,
+                "confirmed_by": confirmed_by_username or "System",
+            }
 
 
 @api.route("/finance/confirm-payment/<int:payment_id>", methods=["POST"])

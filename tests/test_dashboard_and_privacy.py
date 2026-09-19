@@ -1537,6 +1537,64 @@ def test_finance_dashboard_groups_pending_payments_and_exposes_recorder_metadata
     assert grouped[0]["payments"][0]["recorded_by_role"] == "homeroom"
 
 
+def test_finance_dashboard_recent_transactions_include_tracked_transfer_breakdown(client, app, test_school):
+    finance_user = User(
+        username="finance_recent_tx",
+        school_id=test_school.id,
+        role="finance",
+        email="finance-recent@test.edu",
+    )
+    finance_user.set_password("FinancePass123")
+    db.session.add(finance_user)
+    db.session.flush()
+
+    student = Student(
+        school_id=test_school.id,
+        first_name="Ama",
+        surname="Mensah",
+        name="Ama Mensah",
+        student_code="S001",
+        current_class="JHS 1",
+        total_tuition_owed=40.0,
+    )
+    db.session.add(student)
+    db.session.flush()
+
+    payment = Payment(
+        student_id=student.id,
+        school_id=test_school.id,
+        amount=20.19,
+        payment_type="Tuition",
+        method="Paystack_Payment",
+        reference_id="6aae84c407261e44077d06d6",
+        status="Confirmed",
+        payment_category={
+            "collection_channel": "dedicated_virtual_account",
+            "reference_code": "S001-TUIT-I1",
+            "gross_amount_paid": 21.0,
+            "transfer_total_amount": 21.0,
+            "applied_school_fee_amount": 20.19,
+            "collected_convenience_fee_amount": 0.4,
+            "actual_provider_fee_amount": 0.41,
+        },
+    )
+    db.session.add(payment)
+    db.session.commit()
+
+    headers = _finance_headers(app, test_school.id, finance_user.id)
+    response = client.get("/api/finance/dashboard", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["recent_transactions"]) == 1
+    recent = payload["recent_transactions"][0]
+    assert recent["amount"] == 20.19
+    assert recent["display_amount"] == 21.0
+    assert recent["applied_amount"] == 20.19
+    assert recent["reference_id"] == "6aae84c407261e44077d06d6"
+    assert recent["payment_category"]["actual_provider_fee_amount"] == 0.41
+
+
 def test_student_rescue_agent_does_not_flag_tuition_just_after_reopening_without_other_behaviour_signals(client, app, test_school, test_proprietor):
     _enable_ai_pack_for_school(test_school.id)
 
@@ -3670,6 +3728,71 @@ def test_student_payment_codes_build_tuition_installments_with_status_and_credit
     assert payload["payment_identity"]["tuition_credit_balance"] == 0.0
 
 
+def test_cash_tuition_payment_with_installment_reference_updates_installment_progress(client, app, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 100.0
+    settings.terminal_report_fee = 0.0
+    settings.other_fees = {
+        "__tuition_convenience_fee_percentage__": 1.95,
+        "__tuition_installment_plan__": {
+            "enabled": True,
+            "installment_count": 2,
+            "schedule": [
+                {
+                    "installment_number": 1,
+                    "label": "Installment 1",
+                    "amount": 50.0,
+                    "start_date": "2026-09-01",
+                    "due_date": "2026-09-30",
+                },
+                {
+                    "installment_number": 2,
+                    "label": "Installment 2",
+                    "amount": 50.0,
+                    "start_date": "2026-10-01",
+                    "due_date": "2026-10-31",
+                },
+            ],
+        },
+    }
+    db.session.commit()
+
+    student = test_students[0]
+    student.total_tuition_owed = 100.0
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    record_response = client.post(
+        "/api/finance/receive-payment",
+        headers=headers,
+        data=json.dumps(
+            {
+                "reference_code": f"{student.student_code}-TUIT-I1",
+                "amount": 50.0,
+                "method": "Cash",
+            }
+        ),
+    )
+
+    assert record_response.status_code == 200
+    record_payload = record_response.get_json()
+    assert record_payload["message"] == "Payment recorded as Confirmed."
+
+    codes_response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
+    assert codes_response.status_code == 200
+    payload = codes_response.get_json()
+    tuition_codes = [item for item in payload["payment_codes"] if item["fee_type"] == "Tuition"]
+    assert tuition_codes[0]["reference_code"] == f"{student.student_code}-TUIT-I1"
+    assert tuition_codes[0]["payment_category"]["installment_status"] == "paid"
+    assert tuition_codes[0]["payment_category"]["installment_paid_amount"] == 50.0
+    assert tuition_codes[0]["payment_category"]["installment_outstanding_amount"] == 0.0
+    assert tuition_codes[1]["payment_category"]["installment_paid_amount"] == 0.0
+    assert tuition_codes[1]["payment_category"]["installment_outstanding_amount"] == 50.0
+
+    db.session.refresh(student)
+    assert student.total_tuition_owed == 50.0
+
+
 def test_student_payment_code_requires_school_settlement_before_tracked_transfer_account(client, app, test_school, test_proprietor, test_students):
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
     settings.tuition_fee = 100.0
@@ -4342,6 +4465,7 @@ def test_paystack_dedicated_virtual_account_webhook_records_transfer_channel_wit
             "reference": "6a9f87df190c011168af33e2",
             "channel": "transfer",
             "amount": 2100,
+            "fees": 41,
             "authorization": {
                 "channel": "transfer",
                 "sender_name": "DANIEL ANYINAM ASARE",
@@ -4363,15 +4487,18 @@ def test_paystack_dedicated_virtual_account_webhook_records_transfer_channel_wit
     payload = response.get_json()
     assert payload["status"] == "recorded"
     assert payload["transfer_total_amount"] == 21.0
-    assert payload["applied_school_fee_amount"] == 20.0
+    assert payload["applied_school_fee_amount"] == 19.59
+    assert payload["actual_provider_fee_amount"] == 0.41
+    assert payload["collected_convenience_fee_amount"] == 1.0
 
     payment = Payment.query.filter_by(reference_id="6a9f87df190c011168af33e2").first()
     assert payment is not None
     assert payment.student_id == student.id
-    assert payment.amount == 20.0
+    assert payment.amount == 19.59
     assert payment.payment_category["split_code"] == "SPLIT_school001_2000"
     assert payment.payment_category["school_settlement_amount"] == 20.0
     assert payment.payment_category["platform_settlement_amount"] == 1.0
+    assert payment.payment_category["actual_provider_fee_amount"] == 0.41
 
     db.session.refresh(intent)
     assert intent.intent_status == "paid"

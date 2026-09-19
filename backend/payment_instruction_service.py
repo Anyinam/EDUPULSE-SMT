@@ -77,6 +77,16 @@ def _get_confirmed_tuition_payments(student, payment_model):
     return [payment for payment in payments if payment.status in {"Verified", "Confirmed"}]
 
 
+def _get_payment_applied_amount(payment):
+    if not payment:
+        return 0.0
+    category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
+    try:
+        return round(float(category.get("applied_school_fee_amount") or payment.amount or 0.0), 2)
+    except (TypeError, ValueError):
+        return round(float(payment.amount or 0.0), 2) if payment.amount else 0.0
+
+
 def build_payment_collection_intent_payload(intent, sanitize_string):
     if not intent:
         return None
@@ -222,7 +232,7 @@ def build_student_payment_instruction_payload(
         if student.is_on_scholarship and student.scholarship_covers_tuition:
             base_amount = 0.0
         confirmed_tuition_payments = _get_confirmed_tuition_payments(student, payment_model)
-        tuition_paid_amount = round(sum(float(payment.amount or 0.0) for payment in confirmed_tuition_payments), 2)
+        tuition_paid_amount = round(sum(_get_payment_applied_amount(payment) for payment in confirmed_tuition_payments), 2)
 
         if tuition_installment_plan.get("enabled") and not student.scholarship_covers_tuition:
             remaining_credit = max(0.0, tuition_paid_amount)

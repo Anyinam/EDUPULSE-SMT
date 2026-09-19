@@ -1,6 +1,16 @@
 from datetime import timedelta
 
 
+def _payment_amount_details(payment):
+    category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
+    applied_amount = round(float(category.get("applied_school_fee_amount") or payment.amount or 0), 2)
+    display_amount = round(
+        float(category.get("gross_amount_paid") or category.get("charged_total_amount") or payment.amount or 0),
+        2,
+    )
+    return category, applied_amount, display_amount
+
+
 def get_finance_dashboard_payload(
     school_id,
     *,
@@ -69,14 +79,20 @@ def get_finance_dashboard_payload(
     recent_transactions = []
     for payment in recent_payments:
         student = student_model.query.get(payment.student_id)
+        payment_category, applied_amount, display_amount = _payment_amount_details(payment)
         recent_transactions.append(
             {
                 "id": payment.id,
                 "date": payment.date_paid.strftime("%Y-%m-%d"),
                 "student_name": student.name if student else "Unknown",
-                "amount": payment.amount,
+                "amount": applied_amount,
+                "display_amount": display_amount,
+                "applied_amount": applied_amount,
                 "type": payment.payment_type,
                 "method": payment.method,
+                "status": payment.status,
+                "reference_id": payment.reference_id,
+                "payment_category": payment_category,
             }
         )
 
@@ -127,17 +143,18 @@ def get_transactions_payload(
             "id": payment.id,
             "student_name": student.name,
             "student_code": student.student_code,
-            "amount": round(float(((payment.payment_category or {}) if isinstance(payment.payment_category, dict) else {}).get("applied_school_fee_amount") or payment.amount or 0), 2),
-            "display_amount": round(float(((payment.payment_category or {}) if isinstance(payment.payment_category, dict) else {}).get("gross_amount_paid") or ((payment.payment_category or {}) if isinstance(payment.payment_category, dict) else {}).get("charged_total_amount") or payment.amount or 0), 2),
-            "applied_amount": round(float(((payment.payment_category or {}) if isinstance(payment.payment_category, dict) else {}).get("applied_school_fee_amount") or payment.amount or 0), 2),
+            "amount": applied_amount,
+            "display_amount": display_amount,
+            "applied_amount": applied_amount,
             "type": payment.payment_type,
             "method": payment.method,
             "status": payment.status,
             "reference_id": payment.reference_id,
-            "payment_category": payment.payment_category or {},
+            "payment_category": payment_category,
             "date": (payment.date_paid or payment.created_at).strftime("%Y-%m-%d %H:%M") if (payment.date_paid or payment.created_at) else None,
             "created_at": to_iso_utc(payment.created_at),
             "verified_at": to_iso_utc(payment.verified_at),
         }
         for payment, student in payments
+        for payment_category, applied_amount, display_amount in [_payment_amount_details(payment)]
     ]

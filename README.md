@@ -21,6 +21,8 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - Manual and digital payment recording
 - Reconciliation workflows and transaction history
 - Payment tracking dashboards and oversight views
+- Paystack tracked transfer accounts with automatic tuition matching via dedicated virtual accounts
+- Tuition installment plans with per-installment references, statuses, deadlines, and carry-forward credit handling
 - Immutable/auditable ledger-style operational records
 
 ### Subscription, Metering & Monetization (Metronome-Aligned)
@@ -102,15 +104,20 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - Future only: fully autonomous admission approval, multilingual voice bots, predictive dropout automation, and pure outcome-based billing for AI employees.
 
 ### Payment Architecture Direction
-- The recommended product default is one stable student or family payment identity, with structured references to categorize tuition, feeding, transport, uniforms, admission, and other fee types across bank app, USSD, printed instruction sheets, and manual fallback channels.
-- Active school-fee collection is now hybrid: EduPulse prints reference-led payment instructions and can automatically attach tracked transfer accounts per fee through Paystack dedicated virtual accounts when the school is configured for them.
+- The recommended product default is one stable student or family payment identity, with references that categorize tuition, feeding, transport, uniforms, admission, and other fee types across bank app, USSD, printed instruction sheets, and manual fallback channels.
+- Active school-fee collection is now hybrid: EduPulse prints payment instructions, can automatically attach tracked transfer accounts per fee through Paystack dedicated virtual accounts, and still preserves references for support and manual fallback.
+- The current reference model is mixed: newer flows use readable structured references such as feeding-plan and tuition-installment routes, while some older fee families still use legacy compact codes for backward compatibility.
 - Shortcode and low-literacy payment paths remain strategically important and should not be removed.
 
 ### Recent Workflow Updates
 - Feeding fee instructions can now be configured as separate daily, weekly, and monthly plans per school.
 - Parent payment instructions emit structured feeding references in the format `STUDENT_IDENTIFIER-FEED-DAY`, `STUDENT_IDENTIFIER-FEED-WEK`, and `STUDENT_IDENTIFIER-FEED-MON`.
+- Proprietors can now configure tuition installment schedules in Settings with `2`, `3`, or custom installment counts, editable labels and dates, and exact-total validation before save.
+- Tuition installments now emit per-installment references such as `STUDENT_IDENTIFIER-TUIT-I1`, each with its own tracked transfer route, payable total, and live status (`upcoming`, `open`, `partial`, `paid`, `overdue`).
+- Small tuition overpayments now carry forward into the next installment as credit instead of being dropped.
 - The student identifier in those references is the learner's stable school identifier, typically the student code used throughout EduPulse.
-- Payment Tracker can now batch-print instruction sheets for filtered learners and auto-attach tracked transfer account details where supported.
+- Payment Tracker can now batch-print instruction sheets for filtered learners, auto-attach tracked transfer account details where supported, and show installment labels, due dates, statuses, and remaining balances.
+- Automatic Paystack tuition tracking is now the primary expected path for tracked transfer accounts; manual reconciliation exists only as a fallback recovery path for successful-but-untracked transfers.
 - The school-side tracked online checkout link is now secondary to printed instructions plus tracked transfer accounts.
 - Proprietor compliance work now lives in a dedicated School Verification tab instead of being buried inside the main dashboard.
 - Inventory payment entry for proprietors and inventory managers now supports typed student identifiers with live learner-name lookup instead of requiring a full student dropdown search.
@@ -122,6 +129,8 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 - `POST /api/proprietor/student-rescue-agent/outcome`
 - `POST /api/proprietor/student-rescue-agent/send-email`
 - `GET /api/students/<student_id>/payment-codes`
+- `POST /api/students/<student_id>/payment-codes/<reference_code>/virtual-account`
+- `POST /api/finance/paystack/recover-reference`
 - `GET /api/public/schools/<school_id>/payments/<student_code>`
 - `GET /api/public/schools/<school_id>/profile`
 - `POST /api/public/schools/<school_id>/admissions/apply`

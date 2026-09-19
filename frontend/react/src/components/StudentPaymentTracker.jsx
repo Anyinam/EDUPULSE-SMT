@@ -36,6 +36,8 @@ export default function StudentPaymentTracker() {
     (code) => (code?.payment_category?.fee_type || code?.fee_type) === 'Tuition'
   );
 
+  const formatMoney = (value) => `GH₵ ${Number(value || 0).toFixed(2)}`;
+
   const getInstallmentMeta = (code) => {
     const category = code?.payment_category || {};
     return {
@@ -635,6 +637,17 @@ export default function StudentPaymentTracker() {
     const receiptNumber = `RCPT-${payment.id}`;
     const paidAmount = Number(payment.display_amount || payment.total_amount || payment.amount || 0);
     const baseAmount = Number(payment.applied_amount || payment.base_amount || payment.amount || 0);
+    const paymentCategory = payment.payment_category && typeof payment.payment_category === 'object'
+      ? payment.payment_category
+      : {};
+    const hasTrackedTransferBreakdown = Boolean(
+      paymentCategory.collection_channel === 'dedicated_virtual_account'
+      || paymentCategory.payment_collection_intent_id
+      || paymentCategory.split_code
+      || paymentCategory.transfer_total_amount
+    );
+    const convenienceAmount = Number(paymentCategory.collected_convenience_fee_amount || paymentCategory.convenience_fee_amount || 0);
+    const providerFeeAmount = Number(paymentCategory.actual_provider_fee_amount || paymentCategory.estimated_provider_fee_amount || 0);
     const isConfirmed = payment.status === 'Verified' || payment.status === 'Confirmed';
 
     const printWindow = window.open('', '', 'width=900,height=1100');
@@ -798,8 +811,11 @@ export default function StudentPaymentTracker() {
           </div>
 
           <div class="summary">
+            ${hasTrackedTransferBreakdown ? `<div class="summary-row"><span>Gross Transfer Received</span><strong>GH₵ ${paidAmount.toFixed(2)}</strong></div>` : ''}
+            ${hasTrackedTransferBreakdown ? `<div class="summary-row"><span>Convenience Fee Deducted</span><strong>GH₵ ${convenienceAmount.toFixed(2)}</strong></div>` : ''}
+            ${hasTrackedTransferBreakdown ? `<div class="summary-row"><span>Paystack Fee Deducted</span><strong>GH₵ ${providerFeeAmount.toFixed(2)}</strong></div>` : ''}
             <div class="summary-row"><span>Applied To ${getFeeTypeLabel(payment.payment_type || '')}</span><strong>GH₵ ${baseAmount.toFixed(2)}</strong></div>
-            <div class="summary-row total"><span>Total Transfer Received</span><strong>GH₵ ${paidAmount.toFixed(2)}</strong></div>
+            <div class="summary-row total"><span>${hasTrackedTransferBreakdown ? 'Net School Fee Recorded' : 'Total Transfer Received'}</span><strong>GH₵ ${baseAmount.toFixed(2)}</strong></div>
           </div>
 
           <div class="summary">
@@ -856,6 +872,39 @@ export default function StudentPaymentTracker() {
     };
   };
 
+  const calculateInstallmentTuitionSummary = () => {
+    const relatedPayments = studentPayments.filter((payment) => payment.payment_type === 'Tuition');
+    const requiredAmount = trackerPaymentCodes.reduce((sum, code) => sum + Number(code.base_amount || 0), 0);
+    const totalPaid = trackerPaymentCodes.reduce((sum, code) => {
+      const installmentMeta = getInstallmentMeta(code);
+      return sum + Number(installmentMeta.paidAmount || 0);
+    }, 0);
+    const outstanding = trackerPaymentCodes.reduce((sum, code) => {
+      const installmentMeta = getInstallmentMeta(code);
+      return sum + Number(installmentMeta.outstandingAmount || 0);
+    }, 0);
+    const refundable = Math.max(0, totalPaid - requiredAmount);
+    const isPaid = outstanding <= 0.009;
+    const isPending = totalPaid > 0 && outstanding > 0.009;
+
+    return {
+      totalPaid,
+      requiredAmount,
+      outstanding,
+      refundable,
+      isPaid,
+      isPending,
+      paymentHistory: relatedPayments,
+    };
+  };
+
+  const getSummaryForFeeType = (student, paymentType) => {
+    if (paymentType === 'Tuition' && hasTuitionInstallments) {
+      return calculateInstallmentTuitionSummary();
+    }
+    return calculatePaymentSummary(student, paymentType);
+  };
+
   const classOptions = Array.from(
     new Set(
       students
@@ -877,7 +926,7 @@ export default function StudentPaymentTracker() {
     if (filterStatus === 'all') return true;
     
     const feeTypes = ['Tuition'];
-    const paymentStatus = feeTypes.map(type => calculatePaymentSummary(student, type));
+    const paymentStatus = feeTypes.map(type => getSummaryForFeeType(student, type));
 
     if (filterStatus === 'paid') {
       return paymentStatus.some(p => p.isPaid);
@@ -890,6 +939,10 @@ export default function StudentPaymentTracker() {
 
   const feeTypes = ['Tuition'];
   const trackerPaymentCodes = getTrackerPaymentCodes(paymentCodes);
+  const hasTuitionInstallments = Boolean(
+    paymentCodes?.payment_identity?.tuition_installments_enabled
+    && trackerPaymentCodes.some((code) => getInstallmentMeta(code).isInstallment)
+  );
   const trackerSupportsReconciliation = Boolean(paymentCodes?.payment_identity?.supports_fee_route_dvas && trackerPaymentCodes.length > 0);
 
   const getFeeTypeLabel = (feeType) => {
@@ -1250,6 +1303,14 @@ export default function StudentPaymentTracker() {
                       {reconciliationResult.payload?.status ? (
                         <p className="mt-1 text-xs uppercase tracking-[0.16em]">Status: {reconciliationResult.payload.status}</p>
                       ) : null}
+                      {typeof reconciliationResult.payload?.gross_amount_paid === 'number' ? (
+                        <div className="mt-3 rounded-lg border border-current/15 bg-white/60 px-3 py-3 text-xs">
+                          <p>Gross paid: {formatMoney(reconciliationResult.payload.gross_amount_paid)}</p>
+                          <p>Convenience deducted: {formatMoney(reconciliationResult.payload.collected_convenience_fee_amount)}</p>
+                          <p>Paystack fee deducted: {formatMoney(reconciliationResult.payload.actual_provider_fee_amount)}</p>
+                          <p className="font-semibold">Applied to school fee: {formatMoney(reconciliationResult.payload.applied_school_fee_amount)}</p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -1261,8 +1322,9 @@ export default function StudentPaymentTracker() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {feeTypes.map((feeType) => {
-                    const summary = calculatePaymentSummary(selectedStudent, feeType);
+                    const summary = getSummaryForFeeType(selectedStudent, feeType);
                     if (summary.requiredAmount === 0) return null;
+                    if (feeType === 'Tuition' && hasTuitionInstallments) return null;
 
                     return (
                       <div key={feeType} className="border rounded-lg p-4 bg-slate-50">
@@ -1360,7 +1422,7 @@ export default function StudentPaymentTracker() {
                       <p className="text-slate-600">Total Required</p>
                       <p className="text-xl font-bold text-slate-800">
                         GH₵ {feeTypes.reduce((sum, type) => {
-                          const summary = calculatePaymentSummary(selectedStudent, type);
+                          const summary = getSummaryForFeeType(selectedStudent, type);
                           return sum + summary.requiredAmount;
                         }, 0).toFixed(2)}
                       </p>
@@ -1369,7 +1431,7 @@ export default function StudentPaymentTracker() {
                       <p className="text-slate-600">Total Paid</p>
                       <p className="text-xl font-bold text-green-700">
                         GH₵ {feeTypes.reduce((sum, type) => {
-                          const summary = calculatePaymentSummary(selectedStudent, type);
+                          const summary = getSummaryForFeeType(selectedStudent, type);
                           return sum + summary.totalPaid;
                         }, 0).toFixed(2)}
                       </p>
@@ -1378,7 +1440,7 @@ export default function StudentPaymentTracker() {
                       <p className="text-slate-600 col-span-2">Total Outstanding</p>
                       <p className="text-xl font-bold text-red-600 col-span-2">
                         GH₵ {feeTypes.reduce((sum, type) => {
-                          const summary = calculatePaymentSummary(selectedStudent, type);
+                          const summary = getSummaryForFeeType(selectedStudent, type);
                           return sum + summary.outstanding;
                         }, 0).toFixed(2)}
                       </p>
@@ -1387,7 +1449,7 @@ export default function StudentPaymentTracker() {
                       <p className="text-slate-600 col-span-2">Total Refundable</p>
                       <p className="text-xl font-bold text-blue-700 col-span-2">
                         GH₵ {feeTypes.reduce((sum, type) => {
-                          const summary = calculatePaymentSummary(selectedStudent, type);
+                          const summary = getSummaryForFeeType(selectedStudent, type);
                           return sum + summary.refundable;
                         }, 0).toFixed(2)}
                       </p>

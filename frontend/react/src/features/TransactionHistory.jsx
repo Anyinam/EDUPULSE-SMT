@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+function formatMoney(value) {
+  return `GH₵ ${Number(value || 0).toFixed(2)}`;
+}
+
 function getPaymentFrequency(transaction) {
   if (transaction.type !== 'Feeding') return '-';
   return transaction.feeding_frequency || transaction.payment_category?.frequency || 'Inferred on approval';
@@ -30,6 +34,7 @@ function getTrackedTransferDetails(transaction) {
     transferTotalAmount: Number(category.transfer_total_amount || transaction.display_amount || 0),
     appliedSchoolFeeAmount: Number(category.applied_school_fee_amount || transaction.applied_amount || transaction.amount || 0),
     convenienceFeeAmount: Number(category.collected_convenience_fee_amount || category.convenience_fee_amount || 0),
+    providerFeeAmount: Number(category.actual_provider_fee_amount || category.estimated_provider_fee_amount || 0),
     schoolSettlementAmount: Number(category.school_settlement_amount || 0),
     platformSettlementAmount: Number(category.platform_settlement_amount || 0),
     providerAccountNumber: category.provider_account_number || null,
@@ -66,28 +71,39 @@ export default function TransactionHistory() {
       "Tracked Transfer Ref",
       "Split Code",
       "Settlement Mode",
+      "Gross Paid",
+      "Convenience Deducted",
+      "Paystack Fee Deducted",
+      "Applied School Fee",
       "School Settlement",
       "Platform Settlement",
       "Convenience Fee",
       "Intent ID",
     ];
-    const rows = transactions.map(t => [
-      t.date,
-      `"${t.student_name}"`,
-      t.type,
-      `"${getPaymentFrequency(t)}"`,
-      t.method,
-      t.display_amount ?? t.amount,
-      t.applied_amount ?? t.amount,
-      t.status,
-      getTrackedTransferDetails(t)?.referenceCode || '',
-      getTrackedTransferDetails(t)?.splitCode || '',
-      getTrackedTransferDetails(t)?.settlementMode || '',
-      getTrackedTransferDetails(t)?.schoolSettlementAmount ?? '',
-      getTrackedTransferDetails(t)?.platformSettlementAmount ?? '',
-      getTrackedTransferDetails(t)?.convenienceFeeAmount ?? '',
-      getTrackedTransferDetails(t)?.intentId ?? '',
-    ]);
+    const rows = transactions.map(t => {
+      const trackedTransfer = getTrackedTransferDetails(t);
+      return [
+        t.date,
+        `"${t.student_name}"`,
+        t.type,
+        `"${getPaymentFrequency(t)}"`,
+        t.method,
+        t.display_amount ?? t.amount,
+        t.applied_amount ?? t.amount,
+        t.status,
+        trackedTransfer?.referenceCode || '',
+        trackedTransfer?.splitCode || '',
+        trackedTransfer?.settlementMode || '',
+        trackedTransfer?.transferTotalAmount ?? '',
+        trackedTransfer?.convenienceFeeAmount ?? '',
+        trackedTransfer?.providerFeeAmount ?? '',
+        trackedTransfer?.appliedSchoolFeeAmount ?? '',
+        trackedTransfer?.schoolSettlementAmount ?? '',
+        trackedTransfer?.platformSettlementAmount ?? '',
+        trackedTransfer?.convenienceFeeAmount ?? '',
+        trackedTransfer?.intentId ?? '',
+      ];
+    });
 
     const csvContent = [
       headers.join(','),
@@ -142,9 +158,9 @@ export default function TransactionHistory() {
                 <td className="p-4 text-sm text-slate-600">{getPaymentFrequency(t)}</td>
                 <td className="p-4 text-sm">{t.method}</td>
                 <td className="p-4 font-mono font-bold text-green-600">
-                  GH₵ {(t.display_amount ?? t.amount)?.toFixed ? (t.display_amount ?? t.amount).toFixed(2) : t.display_amount ?? t.amount}
+                  {formatMoney(t.display_amount ?? t.amount)}
                   {t.display_amount !== undefined && t.applied_amount !== undefined && Number(t.display_amount) !== Number(t.applied_amount) ? (
-                    <p className="mt-1 text-[11px] font-medium text-slate-500">Applied to {t.type}: GH₵ {Number(t.applied_amount).toFixed(2)}</p>
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">Applied to {t.type}: {formatMoney(t.applied_amount)}</p>
                   ) : null}
                 </td>
                 <td className="p-4 text-xs text-slate-600">
@@ -155,8 +171,12 @@ export default function TransactionHistory() {
                       {trackedTransfer.splitCode ? <p>Split: <span className="font-semibold text-slate-800">{trackedTransfer.splitCode}</span></p> : null}
                       {trackedTransfer.providerAccountNumber ? <p>Account: <span className="font-semibold text-slate-800">{trackedTransfer.providerAccountNumber}</span></p> : null}
                       {trackedTransfer.settlementMode ? <p>Mode: <span className="font-semibold text-slate-800">{trackedTransfer.settlementMode}</span></p> : null}
-                      <p>School settle: <span className="font-semibold text-slate-800">GH₵ {Number(trackedTransfer.schoolSettlementAmount || trackedTransfer.appliedSchoolFeeAmount || 0).toFixed(2)}</span></p>
-                      <p>Platform settle: <span className="font-semibold text-slate-800">GH₵ {Number(trackedTransfer.platformSettlementAmount || trackedTransfer.convenienceFeeAmount || 0).toFixed(2)}</span></p>
+                      <p>Gross paid: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.transferTotalAmount)}</span></p>
+                      <p>Convenience deducted: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.convenienceFeeAmount)}</span></p>
+                      <p>Paystack fee deducted: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.providerFeeAmount)}</span></p>
+                      <p>Applied to school fee: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.appliedSchoolFeeAmount)}</span></p>
+                      <p>School settle target: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.schoolSettlementAmount || trackedTransfer.appliedSchoolFeeAmount || 0)}</span></p>
+                      <p>Platform settle target: <span className="font-semibold text-slate-800">{formatMoney(trackedTransfer.platformSettlementAmount || trackedTransfer.convenienceFeeAmount || 0)}</span></p>
                       {trackedTransfer.intentId ? <p>Intent: <span className="font-semibold text-slate-800">#{trackedTransfer.intentId}</span></p> : null}
                     </div>
                   ) : (
