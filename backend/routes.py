@@ -234,16 +234,51 @@ def _to_iso_utc(dt_value):
     return dt_value.astimezone(timezone.utc).isoformat()
 
 
-def _get_latest_school_verification(school_id):
+def _is_placeholder_school_verification(verification):
+    if not verification:
+        return False
+
+    return not any(
+        [
+            verification.submitted_by_user_id is not None,
+            bool(verification.documents),
+            bool(verification.owner_information),
+            bool(sanitize_string(verification.registration_number or "")),
+            bool(sanitize_string(verification.tax_id or "")),
+            bool(sanitize_string(verification.license_number or "")),
+            bool(sanitize_string(verification.bank_account_name or "")),
+            bool(sanitize_string(verification.bank_name or "")),
+            bool(sanitize_string(verification.review_notes or "")),
+            verification.reviewed_by_platform_user_id is not None,
+            verification.reviewed_at is not None,
+        ]
+    )
+
+
+def _get_latest_school_verification_records(school_id):
     return (
         SchoolVerification.query.filter_by(school_id=school_id)
         .order_by(SchoolVerification.id.desc())
-        .first()
+        .all()
     )
+
+
+def _get_latest_school_verification(school_id):
+    records = _get_latest_school_verification_records(school_id)
+    if not records:
+        return None
+
+    substantive_record = next(
+        (verification for verification in records if not _is_placeholder_school_verification(verification)),
+        None,
+    )
+    return substantive_record or records[0]
 
 
 def _get_school_verification_snapshot(school_id):
     verification = _get_latest_school_verification(school_id)
+    if _is_placeholder_school_verification(verification):
+        verification = None
     if not verification:
         return {
             "status": "not_submitted",
@@ -5716,17 +5751,6 @@ def register():
         # 2. Create Default Settings
         new_settings = SchoolSettings(school_id=school_id)
         db.session.add(new_settings)
-
-        # 2b. Seed KYB workflow baseline for AML controls.
-        new_verification = SchoolVerification(
-            school_id=school_id,
-            status="pending",
-            risk_tier="medium",
-            legal_name=school_name,
-            organization_id=school_id,
-            submitted_at=get_utc_now(),
-        )
-        db.session.add(new_verification)
 
         # 3. Create Proprietor User
         new_user = User(
@@ -11279,6 +11303,8 @@ def get_student_pulse(student_id):
 def get_school_verification_status():
     verification = _get_latest_school_verification(g.school_id)
     snapshot = _get_school_verification_snapshot(g.school_id)
+    if _is_placeholder_school_verification(verification):
+        verification = None
     if not verification:
         return jsonify({"verification": snapshot, "profile": None})
 
@@ -11430,25 +11456,38 @@ def submit_school_verification():
         entry["uploaded_by_user_id"] = user_id
         documents.append(entry)
 
-    verification = SchoolVerification(
-        school_id=g.school_id,
-        status="pending",
-        risk_tier="medium",
-        legal_name=legal_name,
-        organization_id=g.school_id,
-        registration_number=registration_number,
-        tax_id=tax_id,
-        license_number=sanitize_string(payload.get("license_number") or ""),
-        bank_account_name=bank_account_name,
-        bank_account_number=bank_account_number,
-        bank_name=bank_name,
-        owner_information=owner_information,
-        screening_results=screening_results,
-        documents=documents,
-        submitted_by_user_id=user_id,
-        submitted_at=get_utc_now(),
-    )
-    db.session.add(verification)
+    placeholder_verification = _get_latest_school_verification_records(g.school_id)
+    placeholder_verification = placeholder_verification[0] if placeholder_verification else None
+    if _is_placeholder_school_verification(placeholder_verification):
+        verification = placeholder_verification
+        verification.status = "pending"
+        verification.risk_tier = "medium"
+    else:
+        verification = SchoolVerification(
+            school_id=g.school_id,
+            status="pending",
+            risk_tier="medium",
+        )
+        db.session.add(verification)
+
+    verification.legal_name = legal_name
+    verification.organization_id = g.school_id
+    verification.registration_number = registration_number
+    verification.tax_id = tax_id
+    verification.license_number = sanitize_string(payload.get("license_number") or "")
+    verification.bank_account_name = bank_account_name
+    verification.bank_account_number = bank_account_number
+    verification.bank_name = bank_name
+    verification.owner_information = owner_information
+    verification.screening_results = screening_results
+    verification.documents = documents
+    verification.submitted_by_user_id = user_id
+    verification.submitted_at = get_utc_now()
+    verification.reviewed_by_platform_user_id = None
+    verification.reviewed_at = None
+    verification.review_notes = None
+    verification.expires_at = None
+
     db.session.flush()
 
     school = School.query.get(g.school_id)

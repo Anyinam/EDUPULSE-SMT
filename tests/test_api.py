@@ -1326,6 +1326,103 @@ class TestSchoolVerificationEndpoints:
         with app.app_context():
             assert SchoolVerification.query.filter_by(school_id="TEST-001").count() == 1
 
+    def test_placeholder_school_verification_does_not_block_first_real_submission(self, client, app, mocker):
+        """Old placeholder verification rows should not lock the proprietor out of submitting a real case."""
+        from flask_jwt_extended import create_access_token
+
+        from backend.api.models import SchoolVerification, User, db
+
+        mocker.patch(
+            "backend.routes.verify_school_profile",
+            return_value={
+                "provider": "identitypass",
+                "outcome": "review_required",
+                "verified": False,
+                "risk_tier": "medium",
+                "reason": "provider_review_required",
+                "raw": {},
+            },
+        )
+
+        with app.app_context():
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.add(
+                SchoolVerification(
+                    school_id="TEST-001",
+                    status="pending",
+                    risk_tier="medium",
+                    legal_name="Test School",
+                    organization_id="TEST-001",
+                )
+            )
+            db.session.commit()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        response = client.put(
+            "/api/school/verification",
+            json={
+                "legal_name": "Test School",
+                "registration_number": "REG-12345",
+                "tax_id": "TIN-67890",
+                "bank_account_name": "Test School",
+                "bank_account_number": "0123456789",
+                "bank_name": "Test Bank",
+                "documents": [
+                    {
+                        "document_id": "reg-cert-1",
+                        "original_filename": "certificate.pdf",
+                        "filename": "certificate.pdf",
+                        "content_type": "application/pdf",
+                        "category": "registration_certificate",
+                    }
+                ],
+                "owner_information": {"owner_name": "Jane Owner"},
+            },
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["verification"]["status"] == "review_required"
+
+        with app.app_context():
+            records = SchoolVerification.query.filter_by(school_id="TEST-001").all()
+            assert len(records) == 1
+            assert records[0].submitted_by_user_id is not None
+            assert records[0].registration_number == "REG-12345"
+
+    def test_placeholder_school_verification_reads_as_not_submitted(self, client, app):
+        """A seeded placeholder verification row should not appear as a pending reviewed case to proprietors."""
+        from flask_jwt_extended import create_access_token
+
+        from backend.api.models import SchoolVerification, User, db
+
+        with app.app_context():
+            SchoolVerification.query.filter_by(school_id="TEST-001").delete()
+            db.session.add(
+                SchoolVerification(
+                    school_id="TEST-001",
+                    status="pending",
+                    risk_tier="medium",
+                    legal_name="Test School",
+                    organization_id="TEST-001",
+                )
+            )
+            db.session.commit()
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        response = client.get(
+            "/api/school/verification",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        assert payload["verification"]["status"] == "not_submitted"
+        assert payload["profile"] is None
+
 
 class TestAdmissionsEndpoints:
     """Test admissions endpoints."""
