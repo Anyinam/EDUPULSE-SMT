@@ -7,7 +7,7 @@ import os
 import pytest
 from flask_jwt_extended import create_access_token
 
-from backend.api.models import AcademicClass, ParentAdmissionApplication, SchoolSettings, Student
+from backend.api.models import AcademicClass, ParentAdmissionApplication, SchoolSettings, Student, db
 
 
 def _proprietor_headers(app, school_id, proprietor_id):
@@ -548,6 +548,61 @@ def test_staff_admissions_list_hides_missing_document_downloads(client, app, tmp
     document_entry = listed_application["document_manifest"][0]
     assert document_entry["download_available"] is False
     assert "download_path" not in document_entry
+    assert document_entry["download_unavailable_reason"] == "The original uploaded file is no longer available in storage."
+
+
+def test_staff_admissions_list_recovers_legacy_document_downloads_without_document_id(client, app, tmp_path, test_school, test_proprietor):
+    app.config["PARENT_ADMISSION_DOCUMENT_STORAGE_DIR"] = str(tmp_path / "parent-admission-documents")
+
+    submit_response = _submit_parent_application(
+        client,
+        test_school.id,
+        documents=(io.BytesIO(b"report content"), "previous-report.pdf"),
+    )
+    application_id = submit_response.get_json()["application"]["id"]
+    application = ParentAdmissionApplication.query.get(application_id)
+    legacy_manifest_entry = dict(application.document_manifest[0])
+    legacy_manifest_entry.pop("document_id", None)
+    application.document_manifest = [legacy_manifest_entry]
+    db.session.commit()
+
+    response = client.get(
+        "/api/admissions/applications",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    listed_application = next(item for item in response.get_json()["applications"] if item["id"] == application_id)
+    document_entry = listed_application["document_manifest"][0]
+    expected_document_id = legacy_manifest_entry["stored_filename"].split("_", 3)[:3]
+    assert document_entry["download_available"] is True
+    assert "/api/admissions/applications/" in document_entry["download_path"]
+    assert "download_unavailable_reason" not in document_entry
+
+
+def test_parent_admission_document_download_accepts_legacy_stored_filename_match(client, app, tmp_path, test_school, test_proprietor):
+    app.config["PARENT_ADMISSION_DOCUMENT_STORAGE_DIR"] = str(tmp_path / "parent-admission-documents")
+
+    submit_response = _submit_parent_application(
+        client,
+        test_school.id,
+        documents=(io.BytesIO(b"report content"), "previous-report.pdf"),
+    )
+    application_id = submit_response.get_json()["application"]["id"]
+    application = ParentAdmissionApplication.query.get(application_id)
+    legacy_manifest_entry = dict(application.document_manifest[0])
+    legacy_document_id = legacy_manifest_entry["document_id"]
+    legacy_manifest_entry.pop("document_id", None)
+    application.document_manifest = [legacy_manifest_entry]
+    db.session.commit()
+
+    response = client.get(
+        f"/api/admissions/applications/{application_id}/documents/{legacy_document_id}/download",
+        headers=_proprietor_headers(app, test_school.id, test_proprietor.id),
+    )
+
+    assert response.status_code == 200
+    assert response.data == b"report content"
 
 
 def test_parent_admission_review_rejects_invalid_action(client, app, test_school, test_proprietor):

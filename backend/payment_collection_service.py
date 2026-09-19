@@ -322,11 +322,20 @@ def extract_paystack_virtual_account_identifiers(payload, sanitize_string):
     authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
     customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
     dedicated_account = payload.get("dedicated_account") if isinstance(payload.get("dedicated_account"), dict) else {}
+    receiver = payload.get("receiver") if isinstance(payload.get("receiver"), dict) else {}
+    recipient = payload.get("recipient") if isinstance(payload.get("recipient"), dict) else {}
     payload_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     customer_metadata = customer.get("metadata") if isinstance(customer.get("metadata"), dict) else {}
     dedicated_account_metadata = dedicated_account.get("metadata") if isinstance(dedicated_account.get("metadata"), dict) else {}
     if not dedicated_account and isinstance(customer.get("dedicated_account"), dict):
         dedicated_account = customer.get("dedicated_account")
+
+    receiver_account = authorization.get("receiver_account") if isinstance(authorization.get("receiver_account"), dict) else {}
+    receiver_account_details = (
+        authorization.get("receiver_account_details")
+        if isinstance(authorization.get("receiver_account_details"), dict)
+        else {}
+    )
 
     metadata_candidates = [
         payload_metadata,
@@ -344,13 +353,24 @@ def extract_paystack_virtual_account_identifiers(payload, sanitize_string):
 
     account_number_candidates = [
         sanitize_string(dedicated_account.get("account_number") or "") or None,
+        sanitize_string(receiver.get("account_number") or "") or None,
+        sanitize_string(recipient.get("account_number") or "") or None,
         sanitize_string(payload.get("receiver_account_number") or "") or None,
+        sanitize_string(payload.get("destination_account_number") or "") or None,
         sanitize_string(payload.get("account_number") or "") or None,
         sanitize_string(authorization.get("receiver_account_number") or "") or None,
         sanitize_string(authorization.get("receiver_bank_account_number") or "") or None,
+        sanitize_string(receiver_account.get("account_number") or "") or None,
+        sanitize_string(receiver_account_details.get("account_number") or "") or None,
     ]
     customer_code = sanitize_string(customer.get("customer_code") or payload.get("customer_code") or "") or None
-    dedicated_account_id = sanitize_string(dedicated_account.get("id") or payload.get("dedicated_account_id") or "") or None
+    dedicated_account_id = sanitize_string(
+        dedicated_account.get("id")
+        or receiver.get("dedicated_account_id")
+        or recipient.get("dedicated_account_id")
+        or payload.get("dedicated_account_id")
+        or ""
+    ) or None
 
     return {
         "account_number": next((value for value in account_number_candidates if value), None),

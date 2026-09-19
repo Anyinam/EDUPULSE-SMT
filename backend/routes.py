@@ -2169,6 +2169,15 @@ def _build_staff_parent_admission_document_entry(application_id, school_id, raw_
     original_filename = sanitize_string(entry.get("original_filename") or entry.get("filename") or "") or None
     resolved_path = None
 
+    if not document_id and stored_filename:
+        inferred_prefix, _, inferred_name = stored_filename.partition("_")
+        if inferred_prefix.startswith("parent_doc_") and inferred_name:
+            document_id = inferred_prefix
+        elif original_filename and stored_filename.endswith(f"_{original_filename}"):
+            inferred_document_id = stored_filename[: -(len(original_filename) + 1)]
+            if inferred_document_id.startswith("parent_doc_"):
+                document_id = inferred_document_id
+
     if stored_filename:
         resolved_path = _resolve_existing_school_file(
             _get_parent_admission_document_storage_root(school_id=school_id),
@@ -2180,9 +2189,16 @@ def _build_staff_parent_admission_document_entry(application_id, school_id, raw_
         entry["original_filename"] = original_filename or entry.get("filename") or "document"
         entry["download_path"] = _build_parent_admission_document_download_path(application_id, document_id)
         entry["download_available"] = True
+        entry.pop("download_unavailable_reason", None)
     else:
         entry["download_available"] = False
         entry.pop("download_path", None)
+        if not stored_filename:
+            entry["download_unavailable_reason"] = "This document was saved without a file reference, so EduPulse cannot reopen it yet."
+        elif not resolved_path:
+            entry["download_unavailable_reason"] = "The original uploaded file is no longer available in storage."
+        else:
+            entry["download_unavailable_reason"] = "This legacy document needs a refreshed file reference before it can be opened."
 
     return entry
 
@@ -13552,7 +13568,14 @@ def download_parent_admission_document(application_id, document_id):
         (
             item
             for item in (application.document_manifest or [])
-            if isinstance(item, dict) and (item.get("document_id") or item.get("id")) == document_id
+            if isinstance(item, dict)
+            and (
+                (item.get("document_id") or item.get("id")) == document_id
+                or (
+                    item.get("stored_filename")
+                    and str(item.get("stored_filename")).startswith(f"{document_id}_")
+                )
+            )
         ),
         None,
     )

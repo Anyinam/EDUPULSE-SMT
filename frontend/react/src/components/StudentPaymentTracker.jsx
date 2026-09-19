@@ -9,6 +9,9 @@ export default function StudentPaymentTracker() {
   const [studentPayments, setStudentPayments] = useState([]);
   const [paymentCodes, setPaymentCodes] = useState(null);
   const [paymentCodesError, setPaymentCodesError] = useState(null);
+  const [reconciliationReference, setReconciliationReference] = useState('');
+  const [reconciliationLoading, setReconciliationLoading] = useState(false);
+  const [reconciliationResult, setReconciliationResult] = useState(null);
   const [bulkPrintLoading, setBulkPrintLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -82,8 +85,44 @@ export default function StudentPaymentTracker() {
   const handleSelectStudent = (student) => {
     setSelectedStudent(student);
     setPaymentCodesError(null);
+    setReconciliationReference('');
+    setReconciliationResult(null);
     fetchStudentPayments(student.id);
     fetchPaymentCodes(student.id);
+  };
+
+  const handleRecoverTrackedTransfer = async () => {
+    const trimmedReference = reconciliationReference.trim();
+    if (!trimmedReference || !selectedStudent) {
+      return;
+    }
+
+    try {
+      setReconciliationLoading(true);
+      setReconciliationResult(null);
+      const response = await axios.post(
+        '/api/finance/paystack/recover-reference',
+        { reference: trimmedReference },
+        getAuthHeaders()
+      );
+      setReconciliationResult({
+        tone: response.data?.status === 'recorded' ? 'success' : 'neutral',
+        message: response.data?.message || `Paystack reference ${trimmedReference} was reprocessed.`,
+        payload: response.data || null,
+      });
+      await Promise.all([
+        fetchStudentPayments(selectedStudent.id),
+        fetchPaymentCodes(selectedStudent.id),
+      ]);
+    } catch (err) {
+      setReconciliationResult({
+        tone: 'error',
+        message: err.response?.data?.message || 'Unable to recover this Paystack reference right now.',
+        payload: err.response?.data || null,
+      });
+    } finally {
+      setReconciliationLoading(false);
+    }
   };
 
   const fetchPaymentCodesData = async (studentId) => {
@@ -447,14 +486,14 @@ export default function StudentPaymentTracker() {
                 <p><strong>School Tuition:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
                 ${convenience.amount > 0 ? `<p><strong>Convenience Fee:</strong> ${convenience.percentage.toFixed(2)}% = GH₵ ${convenience.amount.toFixed(2)}</p>` : ''}
                 ${code.virtual_route?.total_amount ? `<p><strong>Transfer Total:</strong> GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)}</p>` : ''}
-                <p style="color:#475569;"><strong>Share the reference exactly as shown.</strong> Use it when the school asks for bank narration or office confirmation.</p>
+                <p style="color:#475569;"><strong>EduPulse should track this payment automatically from the prepared transfer account.</strong> The reference remains a preferred support hint for office follow-up, not the normal tracking requirement.</p>
                 <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.virtual_route?.total_amount || code.total_amount || 0).toFixed(2)}</p>
                 <p><strong>Reference To Present At School Office:</strong> ${code.reference_code || code.code}</p>
                 <p style="margin-top: 8px;"><strong>Payment Flow:</strong></p>
                 <p style="margin-left: 12px;">1) ${code.virtual_route?.account_number ? 'Use the tracked transfer bank name and account number shown above for tuition.' : 'Ask the school to reconnect the tracked transfer account for tuition.'}</p>
-                <p style="margin-left: 12px;">2) ${code.virtual_route?.total_amount ? `Transfer GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)} exactly so EduPulse can match it immediately.` : `Wait for the tracked transfer account to become available before collecting this tuition payment.`}</p>
-                <p style="margin-left: 12px;">3) Keep reference <strong>${code.reference_code || code.code}</strong> in the narration or present it at the school office.</p>
-                <p style="margin-left: 12px;">4) EduPulse records the tuition payment under this learner and updates the student balance as soon as Paystack confirms it.</p>
+                <p style="margin-left: 12px;">2) ${code.virtual_route?.total_amount ? `Transfer GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)} exactly into that tracked account.` : `Wait for the tracked transfer account to become available before collecting this tuition payment.`}</p>
+                <p style="margin-left: 12px;">3) Reference <strong>${code.reference_code || code.code}</strong> can still be added in narration or shared with the office as a support hint.</p>
+                <p style="margin-left: 12px;">4) EduPulse should record the tuition payment under this learner automatically as soon as Paystack confirms it.</p>
                 ${code.tracked_transfer_error ? `<p style="margin-top: 8px; color:#b45309;"><strong>Tracked transfer note:</strong> ${code.tracked_transfer_error}</p>` : ''}
               </div>
             </div>
@@ -469,7 +508,7 @@ export default function StudentPaymentTracker() {
             <div class="instruction-text">
               ${trackerPaymentCodes.map(code => {
                 const convenience = getTuitionConvenienceDetails(code, codesRecord);
-                return `• <strong>${code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` (includes ${convenience.percentage.toFixed(2)}% convenience fee of GH₵ ${convenience.amount.toFixed(2)})` : ''}` : `Wait for the tracked transfer account before collecting tuition`} for reference <strong>${code.reference_code || code.code}</strong>.`;
+                return `• <strong>${code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` (includes ${convenience.percentage.toFixed(2)}% convenience fee of GH₵ ${convenience.amount.toFixed(2)})` : ''}` : `Wait for the tracked transfer account before collecting tuition`}. EduPulse should track it automatically from that route. Preferred support reference: <strong>${code.reference_code || code.code}</strong>.`;
               }).join('<br>')}
             </div>
             <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
@@ -482,7 +521,7 @@ export default function StudentPaymentTracker() {
           <div class="section-title">❓ Questions?</div>
           <div class="instructions">
             <div class="instruction-text">
-              If you have any questions about the payment reference to use or the school's approved payment channel:
+              If you have any questions about the tracked transfer account or want to share the preferred support reference with the school office:
             </div>
             ${schoolPhone ? `<div class="instruction-text">📞 Call: ${schoolPhone}</div>` : ''}
             ${schoolEmail ? `<div class="instruction-text">✉️ Email: ${schoolEmail}</div>` : ''}
@@ -814,6 +853,7 @@ export default function StudentPaymentTracker() {
 
   const feeTypes = ['Tuition'];
   const trackerPaymentCodes = getTrackerPaymentCodes(paymentCodes);
+  const trackerSupportsReconciliation = Boolean(paymentCodes?.payment_identity?.supports_fee_route_dvas && trackerPaymentCodes.length > 0);
 
   const getFeeTypeLabel = (feeType) => {
     return feeType;
@@ -1020,7 +1060,7 @@ export default function StudentPaymentTracker() {
                               return `${c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer account is temporarily unavailable. Reconnect Paystack settlement in system settings before sharing this instruction.`;
                             })
                             .join('\n');
-                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nHow to pay:\n1. Use the EduPulse tracked transfer account shown for tuition.\n2. Pay the exact tracked total with the exact tuition reference.\n3. Keep the same reference when sharing proof at the school office.`;
+                          const instructions = `Payment Instructions for ${paymentCodes.student_name}\n\nStable Payment Identity: ${paymentCodes.student_code}\n\n${codesText}\n\nHow to pay:\n1. Use the EduPulse tracked transfer account shown for tuition.\n2. Pay the exact tracked total into that account.\n3. EduPulse should track the payment automatically from that route.\n4. The reference is a preferred support hint for office follow-up, not the normal tracking requirement.`;
                           navigator.clipboard.writeText(instructions);
                           alert('Instructions copied to clipboard!');
                         }}
@@ -1066,7 +1106,7 @@ export default function StudentPaymentTracker() {
                             <p className="text-xs text-slate-600">Convenience fee: {convenience.percentage.toFixed(2)}% = GH₵ {convenience.amount.toFixed(2)}</p>
                           ) : null}
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
-                          <p className="text-xs text-slate-700">Parents should use the automatically prepared tracked transfer account so EduPulse records the learner and purpose immediately.</p>
+                          <p className="text-xs text-slate-700">Parents should use the automatically prepared tracked transfer account. EduPulse is expected to record the learner and purpose automatically from that route.</p>
 
                           <p className="text-xs text-slate-600">Reference: {code.reference_code || code.code}</p>
                           {virtualRoute ? (
@@ -1108,8 +1148,61 @@ export default function StudentPaymentTracker() {
                     ))}
                   </div>
                   <p className="text-xs text-amber-800 mt-3 italic">
-                    💬 Preferred instruction: "Use the EduPulse tracked transfer account for reference <strong>{trackerPaymentCodes[0]?.reference_code || trackerPaymentCodes[0]?.code || 'S001-T1'}</strong> and pay the exact tracked total shown there." 
+                    💬 Preferred instruction: "Use the EduPulse tracked transfer account and pay the exact tracked total shown there. Reference <strong>{trackerPaymentCodes[0]?.reference_code || trackerPaymentCodes[0]?.code || 'S001-T1'}</strong> is only a support hint if the office asks for it." 
                   </p>
+                </div>
+              )}
+
+              {trackerSupportsReconciliation && (
+                <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-700">
+                    Transfer Reconciliation
+                  </p>
+                  <h4 className="mt-2 text-lg font-black text-slate-950">
+                    Recover a successful tracked transfer by exact reference.
+                  </h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    Use this only for a system recovery case: Paystack shows the transfer as successful, but EduPulse failed to attach it to {selectedStudent.name} automatically.
+                  </p>
+                  <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
+                    <label className="flex-1 text-sm font-semibold text-slate-800">
+                      Transaction reference
+                      <input
+                        type="text"
+                        value={reconciliationReference}
+                        onChange={(event) => setReconciliationReference(event.target.value)}
+                        placeholder="Paste the exact Paystack reference"
+                        className="mt-2 w-full rounded-lg border border-cyan-200 bg-white px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                      />
+                    </label>
+                    <button
+                      onClick={handleRecoverTrackedTransfer}
+                      disabled={reconciliationLoading || !reconciliationReference.trim()}
+                      className="rounded-lg bg-cyan-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {reconciliationLoading ? 'Recovering...' : 'Recover Paystack Payment'}
+                    </button>
+                  </div>
+                  <p className="mt-3 text-xs font-semibold text-cyan-800">
+                    Match target: {trackerPaymentCodes[0]?.virtual_route?.account_number || 'tracked transfer account'} for tuition on {selectedStudent.student_code || selectedStudent.name}.
+                  </p>
+                  {reconciliationResult ? (
+                    <div className={`mt-4 rounded-xl border px-3 py-3 text-sm ${
+                      reconciliationResult.tone === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                        : reconciliationResult.tone === 'error'
+                          ? 'border-rose-200 bg-rose-50 text-rose-900'
+                          : 'border-slate-200 bg-white text-slate-800'
+                    }`}>
+                      <p className="font-semibold">{reconciliationResult.message}</p>
+                      {reconciliationResult.payload?.reference ? (
+                        <p className="mt-1 text-xs">Reference: {reconciliationResult.payload.reference}</p>
+                      ) : null}
+                      {reconciliationResult.payload?.status ? (
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em]">Status: {reconciliationResult.payload.status}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               )}
 

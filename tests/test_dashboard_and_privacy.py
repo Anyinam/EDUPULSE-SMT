@@ -4231,6 +4231,87 @@ def test_paystack_dedicated_virtual_account_webhook_records_transfer_channel_wit
     assert intent.provider_reference == "6a9f87df190c011168af33e2"
 
 
+def test_paystack_dedicated_virtual_account_webhook_records_transfer_when_receiver_account_is_nested(client, app, test_school, test_proprietor, test_students):
+    student = test_students[0]
+    student.total_tuition_owed = 120.0
+    intent = PaymentCollectionIntent(
+        school_id=test_school.id,
+        student_id=student.id,
+        provider="paystack",
+        collection_channel="dedicated_virtual_account",
+        intent_status="assigned",
+        reference_code=f"{student.student_code}-TUIT",
+        payment_type="Tuition",
+        payment_category={"fee_type": "Tuition", "term": "Term 1"},
+        base_amount=20.0,
+        convenience_fee_amount=1.0,
+        estimated_provider_fee_amount=0.41,
+        platform_fee_amount=0.59,
+        total_amount=21.0,
+        provider_customer_code="CUS_ROUTE_TRANSFER_003",
+        provider_dedicated_account_id="9702",
+        provider_bank_slug="titan-paystack",
+        provider_bank_name="Paystack-Titan",
+        provider_account_name="EDUPULSE / ABENA APPIAH SENIOR",
+        provider_account_number="7003000477792",
+        provider_subaccount_code="SUB_school001",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        meta={
+            "split_config": {
+                "split_code": "SPLIT_school001_2000",
+                "settlement_mode": "paystack_flat_split",
+                "school_settlement_amount": 20.0,
+                "platform_settlement_amount": 1.0,
+            }
+        },
+    )
+    db.session.add(intent)
+    db.session.commit()
+
+    os.environ["PAYSTACK_SECRET_KEY"] = "dva-paystack-secret"
+    body = {
+        "event": "charge.success",
+        "data": {
+            "id": 6536737792,
+            "reference": "6a9f87df190c011168af7792",
+            "channel": "transfer",
+            "amount": 2100,
+            "receiver": {
+                "account_number": "7003000477792",
+                "dedicated_account_id": "9702",
+            },
+            "authorization": {
+                "channel": "transfer",
+                "sender_name": "DANIEL ANYINAM ASARE",
+                "sender_bank": "MTN (GH)",
+            },
+        },
+    }
+    raw = json.dumps(body).encode("utf-8")
+    signature = hmac.new(b"dva-paystack-secret", raw, hashlib.sha512).hexdigest()
+
+    response = client.post(
+        "/api/finance/webhook/paystack",
+        data=raw,
+        headers={"Content-Type": "application/json", "X-Paystack-Signature": signature},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "recorded"
+    assert payload["transfer_total_amount"] == 21.0
+    assert payload["provider_account_number"] == "7003000477792"
+
+    payment = Payment.query.filter_by(reference_id="6a9f87df190c011168af7792").first()
+    assert payment is not None
+    assert payment.student_id == student.id
+    assert payment.amount == 20.0
+
+    db.session.refresh(intent)
+    assert intent.intent_status == "paid"
+    assert intent.provider_reference == "6a9f87df190c011168af7792"
+
+
 def test_class_performance_returns_cohort_migration_comparison(client, app, test_school, test_proprietor):
     student = Student(
         school_id=test_school.id,

@@ -451,15 +451,20 @@ export default function AdmissionsPanel() {
                     {(application.document_manifest || []).length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {(application.document_manifest || []).map((applicationDocument, index) => (
-                          <button
-                            key={applicationDocument.document_id || `${application.id}-${index}`}
-                            type="button"
-                            onClick={() => openApplicationDocument(application, applicationDocument)}
-                            disabled={!applicationDocument.download_available}
-                            className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {applicationDocument.category || 'document'}: {applicationDocument.original_filename || applicationDocument.filename || `Document ${index + 1}`}
-                          </button>
+                          <div key={applicationDocument.document_id || `${application.id}-${index}`} className="space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => openApplicationDocument(application, applicationDocument)}
+                              disabled={!applicationDocument.download_available}
+                              title={!applicationDocument.download_available ? (applicationDocument.download_unavailable_reason || 'This document is not currently available to open.') : undefined}
+                              className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {applicationDocument.category || 'document'}: {applicationDocument.original_filename || applicationDocument.filename || `Document ${index + 1}`}
+                            </button>
+                            {!applicationDocument.download_available && applicationDocument.download_unavailable_reason && (
+                              <p className="max-w-xs text-[11px] text-amber-700">{applicationDocument.download_unavailable_reason}</p>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}

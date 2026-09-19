@@ -398,7 +398,7 @@ describe('StudentPaymentTracker', () => {
     });
 
     expect(screen.getByText(/Paystack-Titan/i)).toBeInTheDocument();
-    expect(screen.getByText(/0192837465/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/0192837465/i).length).toBeGreaterThan(0);
       expect(screen.getAllByText(/Convenience fee: 1.95% = GH₵ 1.95/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Transfer total: GH₵ 101.95/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /tracked transfer/i })).not.toBeInTheDocument();
@@ -659,5 +659,120 @@ describe('StudentPaymentTracker', () => {
     expect(screen.queryByText(/recover a successful tracked transfer by exact reference/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/transaction reference/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /recover paystack payment/i })).not.toBeInTheDocument();
+  });
+
+  it('reconciles a successful tracked transfer reference from the payment tracker', async () => {
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              name: 'Ama Mensah',
+              student_code: 'S001',
+              current_class: 'JHS 1',
+              parent_name: 'Kojo Mensah',
+              parent_phone: '0240000000',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/school/fees') {
+        return Promise.resolve({
+          data: {
+            tuition_fee: 100,
+            tuition_convenience_fee_percentage: 1,
+            terminal_report_fee: 0,
+            feeding_fee: 0,
+            uniform_fee: 0,
+            transport_fee: 0,
+          },
+        });
+      }
+
+      if (url === '/api/students/1/payments') {
+        return Promise.resolve({ data: [] });
+      }
+
+      if (url === '/api/students/1/payment-codes') {
+        return Promise.resolve({
+          data: {
+            student_name: 'Ama Mensah',
+            student_code: 'S001',
+            payment_identity: {
+              supports_fee_route_dvas: true,
+            },
+            payment_codes: [
+              {
+                fee_type: 'Tuition',
+                code: 'S001-T1',
+                reference_code: 'S001-T1',
+                base_amount: 100,
+                preferred_payment_model: 'virtual_account_ready',
+                has_virtual_route: true,
+                virtual_route: {
+                  bank_name: 'Affinity Ghana Savings and Loans',
+                  account_number: '7003000477792',
+                  account_name: 'EDUPULSE / AMA MENSAH',
+                  base_amount: 100,
+                  convenience_fee_amount: 1,
+                  total_amount: 101,
+                },
+              },
+            ],
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    axios.post.mockImplementation((url, body) => {
+      if (url === '/api/finance/paystack/recover-reference') {
+        expect(body).toEqual({ reference: '6aae84c407261e44077d06d6' });
+        return Promise.resolve({
+          data: {
+            status: 'recorded',
+            reference: '6aae84c407261e44077d06d6',
+            message: 'Tracked transfer recovered and attached to the student.',
+          },
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+
+    render(<StudentPaymentTracker />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Ama Mensah'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/recover a successful tracked transfer by exact reference/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/transaction reference/i), {
+      target: { value: '6aae84c407261e44077d06d6' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /recover paystack payment/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/tracked transfer recovered and attached to the student/i)).toBeInTheDocument();
+    });
+
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/finance/paystack/recover-reference',
+      { reference: '6aae84c407261e44077d06d6' },
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token-1',
+          'X-School-ID': 'TEST-001',
+        }),
+      })
+    );
   });
 });

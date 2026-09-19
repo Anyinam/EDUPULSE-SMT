@@ -107,7 +107,7 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
       status,
       reviewNotes: '',
       riskTier: 'medium',
-      expiresInDays: '365',
+      expiresInDays: '',
     });
     setMessage('');
     setError('');
@@ -128,11 +128,9 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
     const expiresInDays = decisionDraft.status === 'verified'
       ? Number(decisionDraft.expiresInDays)
       : undefined;
-
-    if (decisionDraft.status === 'verified' && (!Number.isFinite(expiresInDays) || expiresInDays <= 0)) {
-      setError('Verification expiry days must be a positive number.');
-      return;
-    }
+    const normalizedExpiresInDays = decisionDraft.status === 'verified' && Number.isFinite(expiresInDays) && expiresInDays > 0
+      ? expiresInDays
+      : undefined;
 
     try {
       setSavingDecision(true);
@@ -142,7 +140,7 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
           status: decisionDraft.status,
           risk_tier: decisionDraft.riskTier,
           review_notes: decisionDraft.reviewNotes,
-          expires_in_days: Number.isFinite(expiresInDays) ? expiresInDays : 365,
+          expires_in_days: normalizedExpiresInDays,
         },
         getHeaders(tokenStorageKey),
       );
@@ -321,7 +319,7 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
               {decisionDraft.status === 'verified' && (
                 <div>
                   <label className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
-                    Verification Expiry Days
+                    Verification Expiry Days (Optional)
                   </label>
                   <input
                     type="number"
@@ -329,7 +327,9 @@ export default function PlatformComplianceQueue({ tokenStorageKey = 'platform_to
                     value={decisionDraft.expiresInDays}
                     onChange={(event) => setDecisionDraft((current) => ({ ...current, expiresInDays: event.target.value }))}
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                    placeholder="Leave blank to keep verification open-ended"
                   />
+                  <p className="mt-2 text-xs text-slate-400">Use this only if EduPulse should automatically flag the school for reverification after a fixed number of days.</p>
                 </div>
               )}
 
