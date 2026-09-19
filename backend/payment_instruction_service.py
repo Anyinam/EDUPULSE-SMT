@@ -153,7 +153,8 @@ def build_student_payment_instruction_payload(
 
     tuition_reference = payment_codes.get("Tuition")
     if tuition_reference:
-        base_amount = fees_config["tuition_fee"]
+        outstanding_tuition_amount = round(float(student.total_tuition_owed or 0.0), 2)
+        base_amount = outstanding_tuition_amount if outstanding_tuition_amount > 0 else fees_config["tuition_fee"]
         if student.is_on_scholarship and student.scholarship_covers_tuition:
             base_amount = 0.0
         convenience_fee_amount = round(base_amount * (tuition_convenience_fee_percentage / 100.0), 2)
@@ -167,7 +168,7 @@ def build_student_payment_instruction_payload(
             (
                 f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
                 + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
-                + f"The school tuition amount remains GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
+                + f"The current tuition balance for this learner is GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
             ),
             amount=total_amount,
             pricing_override={

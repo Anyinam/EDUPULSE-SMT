@@ -3462,6 +3462,8 @@ def test_student_payment_code_can_generate_tracked_transfer_account(client, app,
 
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
     student = test_students[0]
+    student.total_tuition_owed = 100.0
+    db.session.commit()
     captured = []
 
     def fake_call_paystack_api(endpoint, method="GET", data=None):
@@ -3521,6 +3523,85 @@ def test_student_payment_code_can_generate_tracked_transfer_account(client, app,
     assert captured[0][2]["subaccounts"][0]["subaccount"] == "SUB_school001"
     assert captured[0][2]["subaccounts"][0]["share"] == 10000
     assert captured[3][2]["split_code"] == "SPLIT_school001_10000"
+
+
+def test_student_tracked_transfer_split_uses_live_outstanding_tuition_amount(client, app, test_school, test_proprietor, test_students, monkeypatch):
+    from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
+
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 150.0
+    settings.terminal_report_fee = 0.0
+    settings.report_template_config = {
+        GLOBAL_REPORT_SETTINGS_KEY: {
+            PAYMENT_PROVIDER_SETTINGS_KEY: {
+                "paystack_subaccount_code": "SUB_school001",
+                "paystack_bank_code": "070100",
+                "paystack_resolved_account_name": "EduPulse School Account",
+            }
+        }
+    }
+    db.session.add(
+        PlatformSetting(
+            setting_key="payment_collection_pricing",
+            setting_value={
+                "charge_parent_convenience_fee": True,
+                "estimated_provider_fee_rate_pct": 2.0,
+                "estimated_provider_fee_flat": 1.0,
+                "platform_fee_flat": 3.0,
+                "platform_fee_label": "EduPulse Convenience Fee",
+            },
+        )
+    )
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    student = test_students[0]
+    student.total_tuition_owed = 20.0
+    db.session.commit()
+    captured = []
+
+    def fake_call_paystack_api(endpoint, method="GET", data=None):
+        captured.append((endpoint, method, data))
+        if endpoint == "/split" and method == "POST":
+            return ({"id": 501, "split_code": "SPLIT_school001_2000"}, None)
+        if endpoint == "/dedicated_account/available_providers" and method == "GET":
+            return ([{"provider_slug": "titan-paystack", "bank_name": "Paystack-Titan"}], None)
+        if endpoint == "/customer" and method == "POST":
+            return ({"customer_code": "CUS_ROUTE_001"}, None)
+        if endpoint == "/dedicated_account" and method == "POST":
+            return ({
+                "id": 915,
+                "account_name": "EDUPULSE / AMA MENSAH",
+                "account_number": "0192837465",
+                "bank": {"name": "Paystack-Titan", "slug": "titan-paystack"},
+            }, None)
+        raise AssertionError(f"Unexpected Paystack call: {method} {endpoint}")
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
+
+    codes_response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
+    assert codes_response.status_code == 200
+    tuition_code = next(item for item in codes_response.get_json()["payment_codes"] if item["fee_type"] == "Tuition")
+    assert tuition_code["base_amount"] == 20.0
+    assert tuition_code["total_amount"] == 20.39
+
+    response = client.post(
+        f"/api/students/{student.id}/payment-codes/{tuition_code['reference_code']}/virtual-account",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["virtual_route"]["base_amount"] == 20.0
+    assert payload["virtual_route"]["convenience_fee_amount"] == 0.39
+    assert payload["virtual_route"]["total_amount"] == 20.39
+    assert payload["virtual_route"]["split_code"] == "SPLIT_school001_2000"
+    assert payload["virtual_route"]["school_settlement_amount"] == 20.0
+    assert payload["virtual_route"]["platform_settlement_amount"] == 0.39
+
+    assert captured[0][2]["subaccounts"][0]["share"] == 2000
+    assert captured[3][2]["split_code"] == "SPLIT_school001_2000"
 
 
 def test_student_payment_code_requires_school_settlement_before_tracked_transfer_account(client, app, test_school, test_proprietor, test_students):
