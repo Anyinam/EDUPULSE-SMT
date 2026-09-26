@@ -5,6 +5,7 @@ flask-mail
 werkzeug
 python-dotenv
 psycopg2-binary
+psycopg[binary]>=3.0.0
 flask-cors
 flask-limiter
 marshmallow
