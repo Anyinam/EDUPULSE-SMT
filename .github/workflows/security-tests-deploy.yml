@@ -352,6 +352,8 @@ jobs:
           append_env "MAIL_USE_TLS" "${{ vars.MAIL_USE_TLS || 'true' }}"
           append_env "MAIL_USERNAME" "${{ vars.MAIL_USERNAME }}"
           append_env "MAIL_DEFAULT_SENDER" "${{ vars.MAIL_DEFAULT_SENDER }}"
+          append_env "DOCUMENT_STORAGE_S3_BUCKET" "${{ vars.DOCUMENT_STORAGE_S3_BUCKET || '' }}"
+          append_env "DOCUMENT_STORAGE_S3_PREFIX" "${{ vars.DOCUMENT_STORAGE_S3_PREFIX || 'edupulse-documents' }}"
           append_env "PLATFORM_OWNER_KEY_SECRET_ARN" "${{ vars.PLATFORM_OWNER_KEY_SECRET_ARN || '' }}"
           append_env "GUNICORN_WORKERS" "${{ vars.GUNICORN_WORKERS || '2' }}"
           append_env "DATABASE_URL_SECRET_ARN" "${{ vars.DATABASE_URL_SECRET_ARN }}"

@@ -270,13 +270,17 @@ def scheduled_billing_enforcement_sweep():
 
 @scheduler.scheduled_job('interval', minutes=15, id='overage_auto_charge_sweep')
 def scheduled_overage_auto_charge_sweep():
-    """Scheduled job to charge pending overage invoices after grace period."""
+    """Scheduled job to charge due renewals and pending overage invoices."""
     with app.app_context():
-        from backend.overage_billing_job import process_pending_overage_invoices
+        from backend.overage_billing_job import process_due_term_renewals, process_pending_overage_invoices
 
+        renewal_result = process_due_term_renewals()
         result = process_pending_overage_invoices()
         logging.getLogger(__name__).info(
-            "Scheduled overage auto-charge sweep result: checked=%s attempted=%s charged=%s failed=%s",
+            "Scheduled billing auto-charge sweep result: renewals_charged=%s renewals_failed=%s "
+            "overages_checked=%s overages_attempted=%s overages_charged=%s overages_failed=%s",
+            renewal_result.get("charged"),
+            renewal_result.get("failed"),
             result.get("checked"),
             result.get("attempted"),
             result.get("charged"),

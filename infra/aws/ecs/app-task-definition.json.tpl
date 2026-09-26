@@ -36,6 +36,8 @@
         {"name": "MAIL_USE_TLS", "value": "${MAIL_USE_TLS}"},
         {"name": "MAIL_USERNAME", "value": "${MAIL_USERNAME}"},
         {"name": "MAIL_DEFAULT_SENDER", "value": "${MAIL_DEFAULT_SENDER}"},
+        {"name": "DOCUMENT_STORAGE_S3_BUCKET", "value": "${DOCUMENT_STORAGE_S3_BUCKET}"},
+        {"name": "DOCUMENT_STORAGE_S3_PREFIX", "value": "${DOCUMENT_STORAGE_S3_PREFIX}"},
         {"name": "GUNICORN_WORKERS", "value": "${GUNICORN_WORKERS}"}
       ],
       "secrets": [

@@ -96,6 +96,16 @@ def get_published_national_basic_term_windows(academic_year: str) -> list[dict[s
     return enriched_terms
 
 
+def get_next_published_national_basic_term_start(current_date: date) -> date | None:
+    future_starts = [
+        term_window["start_date"]
+        for academic_year in NATIONAL_BASIC_TERM_CALENDARS
+        for term_window in get_published_national_basic_term_windows(academic_year)
+        if term_window["start_date"] > current_date
+    ]
+    return min(future_starts) if future_starts else None
+
+
 def get_recommended_published_national_basic_academic_year(current_date: date | None = None) -> str | None:
     today = current_date or _now_utc().date()
     published_years = sorted(NATIONAL_BASIC_TERM_CALENDARS.keys())

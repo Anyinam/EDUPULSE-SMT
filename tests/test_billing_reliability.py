@@ -2259,3 +2259,188 @@ def test_overage_auto_charge_creates_settlement_entry(client, app, db, test_scho
         )
         assert settlement is not None
         assert (settlement.meta or {}).get("invoice_tx_ref") == invoice_ref
+
+
+def test_due_term_renewal_auto_charges_current_enrollment_once(client, app, db, test_school, monkeypatch):
+    from backend.api.models import LedgerEntry, PlatformSetting, School, Student
+    from backend.overage_billing_job import process_due_term_renewals
+
+    renewal_at = datetime(2026, 9, 8, 8, 0, tzinfo=timezone.utc)
+
+    with app.app_context():
+        billing_school = School.query.get(test_school.id)
+        existing_students = Student.query.filter_by(
+            school_id=test_school.id,
+            status="Active",
+        ).count()
+        for index in range(max(0, 80 - existing_students)):
+            db.session.add(
+                Student(
+                    school_id=test_school.id,
+                    first_name=f"Renewal{index}",
+                    surname="Student",
+                    name=f"Renewal Student {index}",
+                    student_code=f"RNW{index:04d}",
+                    current_class="JHS 1",
+                    status="Active",
+                )
+            )
+
+        billing_school.subscription_plan = "Basic"
+        billing_school.subscription_status = "Active"
+        billing_school.next_billing_date = renewal_at - timedelta(days=1)
+        db.session.add(
+            PlatformSetting(
+                setting_key=f"auto_billing:{test_school.id}",
+                setting_value={
+                    "enabled": True,
+                    "cards": [
+                        {
+                            "card_id": "renewal-card",
+                            "authorization_code": "AUTH_RENEWAL",
+                            "customer_email": "owner@test.edu",
+                            "is_default": True,
+                        }
+                    ],
+                },
+            )
+        )
+        db.session.commit()
+        db.session.expire_all()
+
+        persisted_school = School.query.get(test_school.id)
+        assert persisted_school is not None
+        assert persisted_school.subscription_plan == "Basic"
+        assert persisted_school.next_billing_date is not None
+
+        charges = []
+
+        def fake_charge_authorization(email, amount_cents, authorization_code, metadata=None):
+            charges.append(
+                {
+                    "email": email,
+                    "amount_cents": amount_cents,
+                    "authorization_code": authorization_code,
+                    "metadata": metadata or {},
+                }
+            )
+            return {
+                "status": "success",
+                "reference": "PSK-RENEWAL-001",
+                "authorization": {"last4": "4242"},
+            }
+
+        monkeypatch.setattr("backend.paystack_integration.charge_authorization", fake_charge_authorization)
+
+        first = process_due_term_renewals(now=renewal_at)
+        second = process_due_term_renewals(now=renewal_at)
+
+        assert first["charged"] == 1, first
+        assert second["charged"] == 0
+        assert len(charges) == 1
+        assert charges[0]["amount_cents"] == 51000
+        assert charges[0]["authorization_code"] == "AUTH_RENEWAL"
+        assert charges[0]["metadata"]["student_count"] == 80
+        assert charges[0]["metadata"]["overage_students"] == 30
+
+        renewal = LedgerEntry.query.filter_by(
+            school_id=test_school.id,
+            tx_type="subscription_renewal",
+        ).one()
+        assert renewal.amount == 510.0
+        assert renewal.tx_ref == "PSK-RENEWAL-001"
+        assert (renewal.meta or {})["student_count"] == 80
+
+        db.session.refresh(billing_school)
+        assert billing_school.subscription_status == "Active"
+        next_billing_date = billing_school.next_billing_date
+        if next_billing_date.tzinfo is None:
+            next_billing_date = next_billing_date.replace(tzinfo=timezone.utc)
+        assert next_billing_date == datetime(2027, 1, 5, tzinfo=timezone.utc)
+
+
+def test_term_renewal_prefers_school_calendar_before_ges(client, app, db, test_school):
+    from datetime import date
+
+    from backend.api.models import AcademicTerm
+    from backend.overage_billing_job import _next_term_renewal_at
+
+    with app.app_context():
+        db.session.add(
+            AcademicTerm(
+                school_id=test_school.id,
+                name="Term 2",
+                academic_year="2026/2027",
+                start_date=date(2027, 1, 12),
+                end_date=date(2027, 3, 31),
+            )
+        )
+        db.session.commit()
+
+        next_billing_date = _next_term_renewal_at(
+            test_school.id,
+            datetime(2026, 9, 8, tzinfo=timezone.utc),
+            datetime(2026, 9, 8, tzinfo=timezone.utc),
+        )
+
+        assert next_billing_date == datetime(2027, 1, 12, tzinfo=timezone.utc)
+
+
+def test_term_renewal_uses_120_day_fallback_without_published_calendar(client, app, db, test_school):
+    from backend.overage_billing_job import _next_term_renewal_at
+
+    renewal_at = datetime(2030, 9, 8, 8, 0, tzinfo=timezone.utc)
+
+    with app.app_context():
+        next_billing_date = _next_term_renewal_at(
+            test_school.id,
+            renewal_at,
+            renewal_at,
+        )
+
+        assert next_billing_date == renewal_at + timedelta(days=120)
+
+
+def test_failed_term_renewal_respects_retry_cooldown(client, app, db, test_school, monkeypatch):
+    from backend.api.models import LedgerEntry, PlatformSetting, School
+    from backend.overage_billing_job import RENEWAL_FAILED_TYPE, process_due_term_renewals
+    from backend.paystack_integration import PaystackError
+
+    renewal_at = datetime(2026, 9, 8, 8, 0, tzinfo=timezone.utc)
+
+    with app.app_context():
+        billing_school = School.query.get(test_school.id)
+        billing_school.subscription_plan = "Premium"
+        billing_school.subscription_status = "Active"
+        billing_school.next_billing_date = renewal_at - timedelta(days=1)
+        db.session.add(
+            PlatformSetting(
+                setting_key=f"auto_billing:{test_school.id}",
+                setting_value={
+                    "enabled": True,
+                    "authorization_code": "AUTH_DECLINED",
+                    "customer_email": "owner@test.edu",
+                },
+            )
+        )
+        db.session.commit()
+
+        attempts = []
+
+        def fake_charge_authorization(*args, **kwargs):
+            attempts.append(kwargs)
+            raise PaystackError("Card declined")
+
+        monkeypatch.setattr("backend.paystack_integration.charge_authorization", fake_charge_authorization)
+
+        first = process_due_term_renewals(now=renewal_at)
+        second = process_due_term_renewals(now=renewal_at + timedelta(minutes=15))
+
+        assert first["failed"] == 1
+        assert second["attempted"] == 0
+        assert second["skipped"] == 1
+        assert len(attempts) == 1
+        assert LedgerEntry.query.filter_by(
+            school_id=test_school.id,
+            tx_type=RENEWAL_FAILED_TYPE,
+        ).count() == 1

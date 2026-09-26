@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { Search, ScanLine, Utensils } from 'lucide-react';
 
 export default function PaymentEntry({ students, onSuccess }) {
   const role = localStorage.getItem('role');
@@ -23,6 +24,9 @@ export default function PaymentEntry({ students, onSuccess }) {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [uniformType, setUniformType] = useState('');
   const [uniformSize, setUniformSize] = useState('');
+  const [studentQuery, setStudentQuery] = useState('');
+  const [studentClass, setStudentClass] = useState('all');
+  const studentSearchRef = useRef(null);
 
   const normalizeIdentifier = (value) =>
     String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -67,6 +71,58 @@ export default function PaymentEntry({ students, onSuccess }) {
       isCodeMatch(id, s.student_code)
     )) || null;
   }, [form.student_id, students]);
+
+  const studentClasses = useMemo(
+    () => [...new Set(students.map(student => student.current_class).filter(Boolean))].sort(),
+    [students]
+  );
+
+  const studentSuggestions = useMemo(() => {
+    const query = studentQuery.trim().toLowerCase();
+    if (!query || selectedStudent) return [];
+
+    return students.filter((student) => {
+      if (studentClass !== 'all' && student.current_class !== studentClass) return false;
+      const name = String(student.name || '').toLowerCase();
+      const initials = name.split(/\s+/).filter(Boolean).map(part => part[0]).join('');
+      return name.includes(query)
+        || initials.startsWith(query)
+        || normalizeIdentifier(student.student_code).includes(normalizeIdentifier(query));
+    }).slice(0, 8);
+  }, [selectedStudent, studentClass, studentQuery, students]);
+
+  const getFeedingAmount = (student, frequency) => {
+    if (!student) return '';
+    const feeByFrequency = {
+      Daily: student.feeding_daily_fee,
+      Weekly: student.feeding_weekly_fee,
+      Monthly: student.feeding_monthly_fee,
+    };
+    const amount = Number(feeByFrequency[frequency] || 0);
+    return amount > 0 ? String(amount) : '';
+  };
+
+  const selectStudent = (student) => {
+    setStudentQuery(`${student.name}${student.student_code ? ` · ${student.student_code}` : ''}`);
+    setForm((current) => ({
+      ...current,
+      student_id: String(student.id),
+      amount: current.type === 'Feeding'
+        ? (getFeedingAmount(student, current.feeding_frequency) || current.amount)
+        : current.amount,
+    }));
+  };
+
+  const enableDailyFeeding = () => {
+    setForm((current) => ({
+      ...current,
+      type: 'Feeding',
+      method: 'Cash',
+      feeding_frequency: 'Daily',
+      amount: getFeedingAmount(selectedStudent, 'Daily') || current.amount,
+    }));
+    studentSearchRef.current?.focus();
+  };
 
   const headers = useMemo(() => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -170,17 +226,20 @@ export default function PaymentEntry({ students, onSuccess }) {
       }, { headers });
       alert("Payment Recorded Successfully!");
       if (onSuccess) onSuccess();
+      const keepFeedingMode = form.type === 'Feeding';
       setForm({
         student_id: '',
-        amount: '',
-        type: 'Tuition',
-        method: 'Cash',
-        feeding_frequency: 'Auto',
+        amount: keepFeedingMode ? form.amount : '',
+        type: keepFeedingMode ? 'Feeding' : 'Tuition',
+        method: keepFeedingMode ? form.method : 'Cash',
+        feeding_frequency: keepFeedingMode ? form.feeding_frequency : 'Auto',
         inventory_item_id: '',
         inventory_quantity: 1
       });
+      setStudentQuery('');
       setUniformType('');
       setUniformSize('');
+      window.setTimeout(() => studentSearchRef.current?.focus(), 0);
     } catch (err) {
       alert(err.response?.data?.message || "Error recording payment.");
     }
@@ -188,16 +247,54 @@ export default function PaymentEntry({ students, onSuccess }) {
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-      <h3 className="font-bold text-lg mb-4 text-slate-800">💰 Record Payment</h3>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-bold text-lg text-slate-800">Record Payment</h3>
+        <button
+          type="button"
+          onClick={enableDailyFeeding}
+          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold ${form.type === 'Feeding' && form.feeding_frequency === 'Daily' ? 'bg-emerald-700 text-white' : 'border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'}`}
+        >
+          <Utensils size={17} />
+          Daily Feeding
+        </button>
+      </div>
       <form onSubmit={handleSubmit} className="space-y-3">
-        <input
-          type="text"
-          className="w-full p-2 border rounded-lg bg-gray-50"
-          placeholder="Student ID or Code (e.g., 1 or S001)"
-          value={form.student_id}
-          onChange={e => setForm({ ...form, student_id: e.target.value })}
-          required
-        />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+          <div className="relative">
+            <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              ref={studentSearchRef}
+              type="text"
+              className="w-full rounded-lg border bg-gray-50 py-2 pl-9 pr-10"
+              placeholder="Search name, initials, code, or scan"
+              value={studentQuery}
+              onChange={(event) => {
+                setStudentQuery(event.target.value);
+                setForm((current) => ({ ...current, student_id: event.target.value }));
+              }}
+              autoComplete="off"
+              required
+            />
+            <ScanLine size={18} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" title="Barcode or QR scanner input" />
+            {studentSuggestions.length > 0 && (
+              <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                {studentSuggestions.map((student) => (
+                  <button key={student.id} type="button" onClick={() => selectStudent(student)} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 text-left last:border-b-0 hover:bg-emerald-50">
+                    <span>
+                      <span className="block text-sm font-bold text-slate-800">{student.name}</span>
+                      <span className="block text-xs text-slate-500">{student.student_code || 'No code'}</span>
+                    </span>
+                    <span className="text-xs font-semibold text-slate-500">{student.current_class || 'No class'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <select value={studentClass} onChange={(event) => setStudentClass(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <option value="all">All classes</option>
+            {studentClasses.map((className) => <option key={className} value={className}>{className}</option>)}
+          </select>
+        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <input
@@ -239,7 +336,11 @@ export default function PaymentEntry({ students, onSuccess }) {
               <select
                 className="p-2 border rounded-lg bg-white"
                 value={form.feeding_frequency}
-                onChange={e => setForm({ ...form, feeding_frequency: e.target.value })}
+                onChange={(event) => setForm({
+                  ...form,
+                  feeding_frequency: event.target.value,
+                  amount: getFeedingAmount(selectedStudent, event.target.value) || form.amount,
+                })}
               >
                 <option value="Auto">Feeding Plan: Auto Detect</option>
                 <option value="Daily">Daily</option>
@@ -325,7 +426,7 @@ export default function PaymentEntry({ students, onSuccess }) {
         )}
 
         <button className="w-full bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700">
-          Record Transaction
+          {form.type === 'Feeding' ? 'Record Feeding' : 'Record Transaction'}
         </button>
       </form>
     </div>

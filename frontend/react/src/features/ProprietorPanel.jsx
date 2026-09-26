@@ -46,6 +46,7 @@ export default function ProprietorPanel() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [attendanceStats, setAttendanceStats] = useState(null);
   const [billingNotice, setBillingNotice] = useState(null);
+  const [ledgerIntegrity, setLedgerIntegrity] = useState(null);
   const [lastDashboardRefresh, setLastDashboardRefresh] = useState(null);
   const [selectedPaymentClass, setSelectedPaymentClass] = useState('all');
   const [selectedPaymentRecorderRole, setSelectedPaymentRecorderRole] = useState('all');
@@ -78,6 +79,7 @@ export default function ProprietorPanel() {
       setPendingPaymentGroups(res.data.pending_payments_by_class || []);
       setStats(res.data.stats || { today_revenue: 0, canteen_count: 0 });
       setBillingNotice(res.data.billing_notice || null);
+      setLedgerIntegrity(res.data.ledger_integrity || null);
       
       // Fetch all students for payment dropdown (simplified for demo)
       const studentsRes = await axios.get('/api/proprietor/students', { headers });
@@ -299,6 +301,25 @@ export default function ProprietorPanel() {
 
         {activeTab === 'dashboard' ? (
           <div className="space-y-8">
+            {ledgerIntegrity?.alert && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3" role="alert">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-red-900">{ledgerIntegrity.alert.title}</p>
+                    <p className="mt-1 text-xs text-red-800">{ledgerIntegrity.alert.message}</p>
+                    <p className="mt-2 text-xs font-semibold text-red-900">
+                      {ledgerIntegrity.verified_entries} verified entries | {ledgerIntegrity.broken_entries} ledger broken
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { window.location.href = ledgerIntegrity.alert.redirect_to || '/proprietor?tab=audit'; }}
+                    className="rounded-lg bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800"
+                  >
+                    Review Audit
+                  </button>
+                </div>
+              </div>
+            )}
             {billingNotice && (
               <div className={`rounded-xl border px-4 py-3 ${billingNotice.level === 'error' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">

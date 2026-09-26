@@ -14,6 +14,7 @@ This directory contains the infrastructure template that provisions the shared A
 - ECS scheduler service without public exposure
 - ALB and ECS security groups
 - SNS topic and basic CloudWatch alarms
+- Private, encrypted, versioned S3 document storage retained if the stack is deleted
 
 ## Before you deploy
 
@@ -65,5 +66,6 @@ aws cloudformation deploy \
 ## After deploy
 
 1. Read the stack outputs.
-2. Populate GitHub Actions variables using `infra/aws/GITHUB_ACTIONS_VARIABLES.md`.
-3. Push to `main` or run the `deploy-production` workflow manually.
+2. Set the `DOCUMENT_STORAGE_S3_BUCKET` GitHub Actions variable from the `DocumentStorageBucketName` output.
+3. Populate the remaining GitHub Actions variables using `infra/aws/GITHUB_ACTIONS_VARIABLES.md`.
+4. Push to `main` or run the `deploy-production` workflow manually.

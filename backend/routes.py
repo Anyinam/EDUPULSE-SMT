@@ -82,6 +82,13 @@ from backend.payment_workflow import (
     split_person_name,
     tenant_email_delivery_failure_message,
 )
+from backend.document_storage import (
+    DocumentStorageError,
+    build_document_key,
+    document_exists,
+    read_document_bytes,
+    store_document_bytes,
+)
 from backend import finance_read_service, legacy_consent_service, parent_admission_service, payment_checkout_service, payment_collection_service, payment_instruction_service, school_configuration_service, school_settings_service, staff_service
 from backend.report_card_parser import ocr_image_bytes, parse_report_card_image_bytes
 from backend.settings import (
@@ -2114,6 +2121,17 @@ def _store_parent_admission_document(school_id, uploaded, file_bytes):
     original_filename = secure_filename(uploaded.filename or "") or f"document_{secrets.token_hex(4)}"
     document_id = f"parent_doc_{secrets.token_hex(6)}"
     stored_filename = f"{document_id}_{original_filename}"
+    storage_key = build_document_key("parent-admission-documents", school_id, stored_filename)
+    if store_document_bytes(storage_key, file_bytes or b"", uploaded.mimetype):
+        return {
+            "document_id": document_id,
+            "stored_filename": stored_filename,
+            "storage_backend": "s3",
+            "storage_key": storage_key,
+            "original_filename": original_filename,
+            "size_bytes": len(file_bytes or b""),
+        }
+
     target_path = os.path.join(_get_parent_admission_document_storage_root(school_id=school_id), stored_filename)
     with open(target_path, "wb") as stored_file:
         stored_file.write(file_bytes or b"")
@@ -2139,6 +2157,16 @@ def _extract_latest_parent_admission_passport_photo(manifest, school_id):
     for entry in reversed(manifest or []):
         if not isinstance(entry, dict) or entry.get("category") != "passport_photo":
             continue
+
+        if entry.get("storage_backend") == "s3" and entry.get("storage_key"):
+            try:
+                return _build_student_profile_picture_data_url(
+                    read_document_bytes(entry["storage_key"]),
+                    entry.get("content_type") or "image/jpeg",
+                )
+            except (DocumentStorageError, FileNotFoundError) as exc:
+                logger.warning("Unable to read parent admission passport photo %s: %s", entry.get("storage_key"), exc)
+                continue
 
         resolved_path = _resolve_existing_school_file(
             _get_parent_admission_document_storage_root(school_id=school_id),
@@ -2178,7 +2206,11 @@ def _build_staff_parent_admission_document_entry(application_id, school_id, raw_
             if inferred_document_id.startswith("parent_doc_"):
                 document_id = inferred_document_id
 
-    if stored_filename:
+    storage_key = sanitize_string(entry.get("storage_key") or "") or None
+    is_s3_document = entry.get("storage_backend") == "s3" and bool(storage_key)
+    if is_s3_document:
+        resolved_path = storage_key if document_exists(storage_key) else None
+    elif stored_filename:
         resolved_path = _resolve_existing_school_file(
             _get_parent_admission_document_storage_root(school_id=school_id),
             stored_filename,
@@ -12119,6 +12151,35 @@ def get_live_feed():
         last_30_days = now - timedelta(days=30)
         last_365_days = now - timedelta(days=365)
         rescue_payload = _build_student_rescue_payload(g.school_id, limit=5)
+        is_chain_valid, broken_chain_entries, ledger_entries_checked = verify_ledger_chain(g.school_id)
+        broken_entry_ids = {entry.get("id") for entry in broken_chain_entries if entry.get("id") is not None}
+        ledger_integrity = {
+            "is_valid": is_chain_valid,
+            "verified_entries": max(0, ledger_entries_checked - len(broken_entry_ids)),
+            "broken_entries": len(broken_entry_ids),
+            "total_checked": ledger_entries_checked,
+            "alert": None,
+        }
+        if not is_chain_valid:
+            issue_types = {entry.get("issue") for entry in broken_chain_entries}
+            if "invalid_hash" in issue_types:
+                cause = "transaction_content_changed"
+                explanation = "A confirmed transaction's amount or stored details changed after it was sealed."
+            else:
+                cause = "chain_link_changed"
+                explanation = "An earlier ledger entry may have been deleted, replaced, or reordered."
+            ledger_integrity["alert"] = {
+                "level": "error",
+                "title": "Audit chain needs review",
+                "cause": cause,
+                "message": f"{explanation} {len(broken_entry_ids)} of {ledger_entries_checked} ledger entries failed verification.",
+                "affected_references": [
+                    entry.get("tx_ref")
+                    for entry in broken_chain_entries[:5]
+                    if entry.get("tx_ref")
+                ],
+                "redirect_to": "/proprietor?tab=audit",
+            }
 
         recent_logs = (
             db.session.query(AuditLog)
@@ -12294,6 +12355,7 @@ def get_live_feed():
                 },
                 "pending_payments": pending_list,
                 "pending_payments_by_class": pending_groups,
+                "ledger_integrity": ledger_integrity,
                 "critical_list": critical_list,
                 "student_rescue_agent": rescue_payload,
                 "recent_payments": [
@@ -13592,6 +13654,18 @@ def download_parent_admission_document(application_id, document_id):
     )
     if not matching_document:
         return jsonify({"message": "Document not found"}), 404
+
+    if matching_document.get("storage_backend") == "s3" and matching_document.get("storage_key"):
+        try:
+            file_bytes = read_document_bytes(matching_document["storage_key"])
+        except (DocumentStorageError, FileNotFoundError):
+            return jsonify({"message": "Document file is no longer available"}), 404
+        return send_file(
+            BytesIO(file_bytes),
+            as_attachment=False,
+            download_name=matching_document.get("original_filename") or matching_document.get("filename") or "document",
+            mimetype=matching_document.get("content_type") or "application/octet-stream",
+        )
 
     resolved_path = _resolve_existing_school_file(
         _get_parent_admission_document_storage_root(school_id=application.school_id),

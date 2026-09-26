@@ -667,6 +667,37 @@ def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test
     assert payload["student_rescue_agent"]["summary"]["total_flagged_students"] >= 1
 
 
+def test_live_feed_surfaces_cause_aware_ledger_integrity_alert(client, app, db, test_school, test_proprietor):
+    from backend.api.models import LedgerEntry, add_ledger_entry
+
+    add_ledger_entry(
+        school_id=test_school.id,
+        tx_type="tuition",
+        tx_ref="AUDIT-ALERT-001",
+        amount=100.0,
+        source="test",
+        metadata={"status": "Completed"},
+    )
+    db.session.commit()
+
+    entry = LedgerEntry.query.filter_by(tx_ref="AUDIT-ALERT-001").one()
+    entry.amount = 125.0
+    db.session.commit()
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    response = client.get("/api/proprietor/live-feed", headers=headers)
+
+    assert response.status_code == 200
+    integrity = response.get_json()["ledger_integrity"]
+    assert integrity["is_valid"] is False
+    assert integrity["verified_entries"] == 0
+    assert integrity["broken_entries"] == 1
+    assert integrity["alert"]["level"] == "error"
+    assert integrity["alert"]["cause"] == "transaction_content_changed"
+    assert "amount" in integrity["alert"]["message"].lower()
+    assert integrity["alert"]["redirect_to"] == "/proprietor?tab=audit"
+
+
 def test_live_feed_groups_pending_payments_by_class(client, app, test_school, test_proprietor):
     jhs_student = Student(
         school_id=test_school.id,

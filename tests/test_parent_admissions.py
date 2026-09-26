@@ -551,6 +551,48 @@ def test_staff_admissions_list_hides_missing_document_downloads(client, app, tmp
     assert document_entry["download_unavailable_reason"] == "The original uploaded file is no longer available in storage."
 
 
+def test_parent_admission_documents_persist_and_download_from_s3(client, app, monkeypatch, test_school, test_proprietor):
+    stored_objects = {}
+
+    class FakeS3Client:
+        def put_object(self, **kwargs):
+            stored_objects[kwargs["Key"]] = kwargs["Body"]
+            return {}
+
+        def head_object(self, **kwargs):
+            if kwargs["Key"] not in stored_objects:
+                raise AssertionError("Unexpected missing S3 object")
+            return {"ContentLength": len(stored_objects[kwargs["Key"]])}
+
+        def get_object(self, **kwargs):
+            return {"Body": io.BytesIO(stored_objects[kwargs["Key"]])}
+
+    monkeypatch.setenv("DOCUMENT_STORAGE_S3_BUCKET", "edupulse-test-documents")
+    monkeypatch.setattr("backend.document_storage._get_s3_client", lambda: FakeS3Client())
+
+    submit_response = _submit_parent_application(
+        client,
+        test_school.id,
+        documents=(io.BytesIO(b"durable report content"), "previous-report.pdf"),
+    )
+    application_id = submit_response.get_json()["application"]["id"]
+    application = ParentAdmissionApplication.query.get(application_id)
+    stored_entry = application.document_manifest[0]
+
+    assert stored_entry["storage_backend"] == "s3"
+    assert stored_entry["storage_key"] in stored_objects
+
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    list_response = client.get("/api/admissions/applications", headers=headers)
+    listed_application = next(item for item in list_response.get_json()["applications"] if item["id"] == application_id)
+    document_entry = listed_application["document_manifest"][0]
+    assert document_entry["download_available"] is True
+
+    download_response = client.get(document_entry["download_path"], headers=headers)
+    assert download_response.status_code == 200
+    assert download_response.data == b"durable report content"
+
+
 def test_staff_admissions_list_recovers_legacy_document_downloads_without_document_id(client, app, tmp_path, test_school, test_proprietor):
     app.config["PARENT_ADMISSION_DOCUMENT_STORAGE_DIR"] = str(tmp_path / "parent-admission-documents")
 

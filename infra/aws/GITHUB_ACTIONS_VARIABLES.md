@@ -58,6 +58,8 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 - `SES_REGION`: SES region for transactional email, typically `us-east-1`.
 - `MFA_REQUIRED`: set to `true` to force email-based login verification for all users in production, or `false` to disable the global MFA requirement while SMTP is unavailable.
 - `GUNICORN_WORKERS`: Gunicorn worker count, lean prelaunch default `2`.
+- `DOCUMENT_STORAGE_S3_BUCKET`: the `DocumentStorageBucketName` CloudFormation output. Set this in production so uploaded admission files survive ECS task replacement.
+- `DOCUMENT_STORAGE_S3_PREFIX`: optional object-key prefix; default `edupulse-documents`.
 
 ### Email and optional integrations
 

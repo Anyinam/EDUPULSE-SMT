@@ -159,6 +159,49 @@ Resources:
             ]
           }
 
+  DocumentStorageBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  DocumentStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentStorageBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowApplicationDocumentAccess
+            Effect: Allow
+            Principal:
+              AWS: !Ref EcsTaskRoleArn
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource: !Sub ${DocumentStorageBucket.Arn}/*
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt DocumentStorageBucket.Arn
+              - !Sub ${DocumentStorageBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   BackendLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -481,5 +524,7 @@ Outputs:
     Value: !Ref MigrationLogGroup
   AlertTopicArn:
     Value: !Ref AlarmTopic
+  DocumentStorageBucketName:
+    Value: !Ref DocumentStorageBucket
   EffectiveCertificateArn:
     Value: !If [CreateCertificate, !Ref EduPulseCertificate, !Ref AlbCertificateArn]

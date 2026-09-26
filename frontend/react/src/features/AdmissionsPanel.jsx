@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { ChevronDown, ChevronRight, FileCheck2, FileWarning, Search } from 'lucide-react';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
 import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
@@ -50,6 +51,10 @@ export default function AdmissionsPanel() {
   const [reviewParentMessage, setReviewParentMessage] = useState({});
   const [reviewAttachments, setReviewAttachments] = useState({});
   const [reviewingId, setReviewingId] = useState(null);
+  const [expandedApplicationId, setExpandedApplicationId] = useState(null);
+  const [expandedArchiveId, setExpandedArchiveId] = useState(null);
+  const [archiveQuery, setArchiveQuery] = useState('');
+  const [archiveStatus, setArchiveStatus] = useState('all');
 
   // Promotion state
   const [promotionData, setPromotionData] = useState({
@@ -61,6 +66,15 @@ export default function AdmissionsPanel() {
   const [searchResults, setSearchResults] = useState([]);
 
   const { classes: schoolClasses } = useSchoolClasses();
+
+  const filteredArchivedApplications = useMemo(() => {
+    const normalizedQuery = archiveQuery.trim().toLowerCase();
+    return archivedApplications.filter((application) => {
+      const matchesStatus = archiveStatus === 'all' || application.status === archiveStatus;
+      const searchableText = `${application.first_name || ''} ${application.surname || ''} ${application.application_code || ''} ${application.preferred_class || ''}`.toLowerCase();
+      return matchesStatus && (!normalizedQuery || searchableText.includes(normalizedQuery));
+    });
+  }, [archiveQuery, archiveStatus, archivedApplications]);
 
   const genderOptions = ['Male', 'Female', 'Other'];
 
@@ -442,7 +456,18 @@ export default function AdmissionsPanel() {
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setExpandedApplicationId((current) => current === application.id ? null : application.id)}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100"
+                  aria-expanded={expandedApplicationId === application.id}
+                >
+                  {expandedApplicationId === application.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  {expandedApplicationId === application.id ? 'Close review' : 'Open review'}
+                </button>
+
+                {expandedApplicationId === application.id && <>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="rounded-xl bg-white p-4">
                     <p className="text-xs font-bold uppercase text-slate-400">Guardian Contact</p>
                     <p className="mt-2 text-sm text-slate-700">{application.guardian_name || 'Not recorded'}</p>
@@ -599,21 +624,22 @@ export default function AdmissionsPanel() {
                       {schoolClasses.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
                     </select>
                   </div>
-                </div>
+                  </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button onClick={() => handleReviewApplication(application)} disabled={reviewingId === application.id} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-60">{reviewingId === application.id ? 'Sending...' : 'Send Review Update'}</button>
-                  {application.decision_document?.available && (
-                    <a
-                      href={application.decision_document.download_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-100"
-                    >
-                      Preview Approval PDF
-                    </a>
-                  )}
-                </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={() => handleReviewApplication(application)} disabled={reviewingId === application.id} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-60">{reviewingId === application.id ? 'Sending...' : 'Send Review Update'}</button>
+                    {application.decision_document?.available && (
+                      <a
+                        href={application.decision_document.download_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-100"
+                      >
+                        Preview Approval PDF
+                      </a>
+                    )}
+                  </div>
+                </>}
               </div>
             ))}
           </div>
@@ -633,56 +659,85 @@ export default function AdmissionsPanel() {
               </div>
             </div>
 
-            <div className="mt-4 space-y-3">
-              {archivedApplications.map((application) => (
-                <div key={application.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-lg font-black text-slate-900">{application.first_name} {application.surname}</h4>
-                        <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">{application.status}</span>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <label className="relative flex-1">
+                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={archiveQuery}
+                  onChange={(event) => setArchiveQuery(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm"
+                  placeholder="Search name, code, or class"
+                />
+              </label>
+              <select value={archiveStatus} onChange={(event) => setArchiveStatus(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <option value="all">All decisions</option>
+                {Object.keys(archiveSummary).map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+              {filteredArchivedApplications.length === 0 && <p className="p-4 text-sm text-slate-500">No archived applications match this filter.</p>}
+              {filteredArchivedApplications.map((application) => {
+                const documents = application.document_manifest || [];
+                const availableDocuments = documents.filter((document) => document.download_available);
+                const missingDocuments = documents.length - availableDocuments.length;
+                const isExpanded = expandedArchiveId === application.id;
+                return (
+                  <div key={application.id} className="border-b border-slate-200 last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedArchiveId((current) => current === application.id ? null : application.id)}
+                      className="grid w-full grid-cols-[auto_1fr] items-center gap-3 bg-white px-4 py-3 text-left hover:bg-slate-50 md:grid-cols-[auto_1.4fr_1fr_1fr_auto]"
+                      aria-expanded={isExpanded}
+                    >
+                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      <span>
+                        <span className="block text-sm font-bold text-slate-900">{application.first_name} {application.surname}</span>
+                        <span className="block text-xs text-slate-500">{application.application_code}</span>
+                      </span>
+                      <span className="hidden text-sm text-slate-600 md:block">{application.preferred_class || 'No class'}</span>
+                      <span className="hidden text-xs text-slate-500 md:block">{application.reviewed_at ? new Date(application.reviewed_at).toLocaleDateString() : 'Completed'}</span>
+                      <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">{application.status}</span>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="grid gap-4 bg-slate-50 px-4 py-4 md:grid-cols-2">
+                        <div>
+                          <p className="text-xs font-bold uppercase text-slate-500">Decision Record</p>
+                          <p className="mt-2 text-sm text-slate-700">{application.reviewer_notes || application.ai_summary || 'No final notes recorded.'}</p>
+                          {application.parent_response_message && <p className="mt-3 text-sm text-slate-600">{application.parent_response_message}</p>}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold uppercase text-slate-500">Application Files</p>
+                          {documents.length === 0 ? (
+                            <p className="mt-2 text-sm text-slate-500">No files were submitted.</p>
+                          ) : (
+                            <div className="mt-2 space-y-2">
+                              {documents.map((document, index) => (
+                                <button
+                                  key={document.document_id || `${application.id}-archive-${index}`}
+                                  type="button"
+                                  disabled={!document.download_available}
+                                  onClick={() => openApplicationDocument(application, document)}
+                                  className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-amber-700"
+                                >
+                                  {document.download_available ? <FileCheck2 size={16} className="text-emerald-600" /> : <FileWarning size={16} className="text-amber-600" />}
+                                  <span>{document.original_filename || document.filename || `Document ${index + 1}`}</span>
+                                  <span className="ml-auto">{document.download_available ? 'Open' : 'File missing'}</span>
+                                </button>
+                              ))}
+                              <p className="text-xs text-slate-500">{availableDocuments.length} available{missingDocuments > 0 ? `, ${missingDocuments} missing from storage` : ''}</p>
+                            </div>
+                          )}
+                          {application.decision_document?.available && (
+                            <a href={application.decision_document.download_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-100">Preview Decision PDF</a>
+                          )}
+                        </div>
                       </div>
-                      <p className="mt-2 text-sm text-slate-500">{application.application_code} • Preferred Class: {application.preferred_class}</p>
-                      <p className="mt-2 text-sm text-slate-700">{application.ai_summary}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white px-4 py-3 text-right">
-                      <p className="text-xs font-bold uppercase text-slate-400">Reviewed</p>
-                      <p className="mt-1 text-sm font-black text-slate-900">{application.reviewed_at ? new Date(application.reviewed_at).toLocaleString() : 'Completed'}</p>
-                    </div>
-                  </div>
-
-                  {application.reviewer_notes && (
-                    <div className="mt-4 rounded-xl bg-white p-4">
-                      <p className="text-xs font-bold uppercase text-slate-400">Final Notes</p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{application.reviewer_notes}</p>
-                    </div>
-                  )}
-
-                  {application.parent_response_message && (
-                    <div className="mt-4 rounded-xl bg-white p-4">
-                      <p className="text-xs font-bold uppercase text-slate-400">Parent Update Sent</p>
-                      {application.parent_email_subject && <p className="mt-2 text-sm font-semibold text-slate-800">Subject: {application.parent_email_subject}</p>}
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{application.parent_response_message}</p>
-                      {(application.parent_email_attachment_names || []).length > 0 && (
-                        <p className="mt-2 text-xs text-slate-500">Attachment: {application.parent_email_attachment_names.join(', ')}</p>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {application.decision_document?.available && (
-                      <a
-                        href={application.decision_document.download_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-100"
-                      >
-                        Preview Decision PDF
-                      </a>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

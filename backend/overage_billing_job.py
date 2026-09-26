@@ -13,7 +13,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from backend.api.models import LedgerEntry, PlatformSetting, School, User, add_ledger_entry, db
+from backend.api.models import AcademicTerm, LedgerEntry, PlatformSetting, School, User, add_ledger_entry, db
+from backend.subscription_metering import get_billing_visibility, get_next_published_national_basic_term_start
+from backend.subscription_state import normalize_plan_name
 from backend.utils import send_email_notification
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ DEFAULT_RETRY_COOLDOWN_HOURS = 24
 INVOICE_TYPES = {"subscription_prorated"}
 SETTLEMENT_TYPE = "subscription_overage_charge"
 FAILED_TYPE = "subscription_overage_charge_failed"
+RENEWAL_TYPE = "subscription_renewal"
+RENEWAL_FAILED_TYPE = "subscription_renewal_failed"
 
 
 def _now_utc() -> datetime:
@@ -170,6 +174,196 @@ def _disable_auto_billing(school_id: str):
         db.session.add(PlatformSetting(setting_key=setting_key, setting_value=config))
     else:
         setting.setting_value = config
+
+
+def _next_term_renewal_at(
+    school_id: str,
+    current_due_at: datetime,
+    now: datetime | None = None,
+) -> datetime:
+    comparison_at = max(current_due_at, now or _now_utc())
+    comparison_date = comparison_at.date()
+    terms = AcademicTerm.query.filter_by(school_id=school_id).all()
+    future_dates = []
+    for term in terms:
+        if term.billing_due_date and term.billing_due_date > comparison_date:
+            future_dates.append(term.billing_due_date)
+        elif term.start_date and term.start_date > comparison_date:
+            future_dates.append(term.start_date)
+
+    if future_dates:
+        next_date = min(future_dates)
+        return datetime.combine(next_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+
+    published_next_date = get_next_published_national_basic_term_start(comparison_date)
+    if published_next_date:
+        return datetime.combine(published_next_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+
+    return comparison_at + timedelta(days=120)
+
+
+def _renewal_cycle_processed(school_id: str, cycle_key: str) -> bool:
+    entries = LedgerEntry.query.filter(
+        LedgerEntry.school_id == school_id,
+        LedgerEntry.tx_type == RENEWAL_TYPE,
+    ).all()
+    return any((entry.meta or {}).get("renewal_cycle") == cycle_key for entry in entries)
+
+
+def _last_renewal_attempt_at(school_id: str, cycle_key: str) -> datetime | None:
+    attempts = (
+        LedgerEntry.query.filter_by(
+            school_id=school_id,
+            tx_type=RENEWAL_FAILED_TYPE,
+        )
+        .order_by(LedgerEntry.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    for entry in attempts:
+        if (entry.meta or {}).get("renewal_cycle") != cycle_key:
+            continue
+        created_at = entry.created_at
+        if created_at and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        return created_at
+    return None
+
+
+def process_due_term_renewals(
+    *,
+    now: datetime | None = None,
+    retry_cooldown_hours: int = DEFAULT_RETRY_COOLDOWN_HOURS,
+    limit: int = 200,
+) -> dict[str, int]:
+    """Auto-charge due paid-plan renewals from the current active enrollment."""
+    now_utc = now or _now_utc()
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+
+    checked = attempted = charged = skipped = failed = 0
+    schools_with_billing_dates = (
+        School.query.filter(School.next_billing_date.isnot(None))
+        .order_by(School.next_billing_date.asc())
+        .all()
+    )
+    candidates = []
+    for school in schools_with_billing_dates:
+        due_at = school.next_billing_date
+        if due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=timezone.utc)
+        if normalize_plan_name(school.subscription_plan) in {"Basic", "Premium"} and due_at <= now_utc:
+            candidates.append(school)
+        if len(candidates) >= max(1, int(limit)):
+            break
+
+    from backend.paystack_integration import PaystackError, charge_authorization
+
+    for school in candidates:
+        checked += 1
+        due_at = school.next_billing_date
+        if due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=timezone.utc)
+        cycle_key = due_at.date().isoformat()
+
+        if _renewal_cycle_processed(school.id, cycle_key):
+            school.next_billing_date = _next_term_renewal_at(school.id, due_at, now_utc)
+            db.session.commit()
+            skipped += 1
+            continue
+
+        config = _get_auto_billing_config(school.id)
+        authorization_code, customer_email = _get_default_authorization(config)
+        if not config.get("enabled") or not authorization_code:
+            skipped += 1
+            continue
+
+        email = customer_email or getattr(school, "billing_email", None)
+        if not email:
+            proprietor = User.query.filter_by(school_id=school.id, role="proprietor").first()
+            email = proprietor.email if proprietor else None
+        if not email:
+            failed += 1
+            continue
+
+        last_attempt = _last_renewal_attempt_at(school.id, cycle_key)
+        if last_attempt and (now_utc - last_attempt) < timedelta(hours=max(1, int(retry_cooldown_hours))):
+            skipped += 1
+            continue
+
+        plan_name = normalize_plan_name(school.subscription_plan)
+        billing_visibility = get_billing_visibility(school.id, commit=False)
+        student_count = int((billing_visibility.get("meter") or {}).get("active_students") or 0)
+        breakdown = billing_visibility.get("cost_breakdown") or {}
+        amount_cedis = float(breakdown.get("total_due") or 0)
+        metadata = {
+            "school_id": school.id,
+            "transaction_type": RENEWAL_TYPE,
+            "plan_name": plan_name,
+            "renewal_cycle": cycle_key,
+            "student_count": student_count,
+            "included_students": breakdown.get("included_students", 0),
+            "overage_students": breakdown.get("overage_students", 0),
+            "overage_rate": breakdown.get("overage_rate", 0),
+            "base_fee": breakdown.get("base_fee", 0),
+        }
+
+        attempted += 1
+        try:
+            tx = charge_authorization(
+                email=email,
+                amount_cents=int(round(amount_cedis * 100)),
+                authorization_code=authorization_code,
+                metadata=metadata,
+            )
+            paystack_reference = tx.get("reference") or f"RENEW-{school.id}-{cycle_key}"
+            add_ledger_entry(
+                school_id=school.id,
+                tx_type=RENEWAL_TYPE,
+                tx_ref=paystack_reference,
+                amount=amount_cedis,
+                source="paystack_auto",
+                created_at=now_utc,
+                metadata={
+                    **metadata,
+                    "status": "Completed",
+                    "paystack_reference": tx.get("reference"),
+                    "authorization_last4": (tx.get("authorization") or {}).get("last4"),
+                    "charged_at": now_utc.isoformat(),
+                },
+            )
+            school.current_student_count = student_count
+            school.last_metered_at = now_utc
+            school.subscription_status = "Active"
+            school.next_billing_date = _next_term_renewal_at(school.id, due_at, now_utc)
+            db.session.commit()
+            charged += 1
+        except PaystackError as exc:
+            db.session.rollback()
+            add_ledger_entry(
+                school_id=school.id,
+                tx_type=RENEWAL_FAILED_TYPE,
+                tx_ref=f"FAIL-RENEW-{school.id}-{now_utc.strftime('%Y%m%d%H%M%S')}",
+                amount=0.0,
+                source="paystack_auto",
+                created_at=now_utc,
+                metadata={
+                    **metadata,
+                    "status": "Failed",
+                    "attempted_at": now_utc.isoformat(),
+                    "error": str(exc),
+                },
+            )
+            db.session.commit()
+            failed += 1
+
+    return {
+        "checked": checked,
+        "attempted": attempted,
+        "charged": charged,
+        "skipped": skipped,
+        "failed": failed,
+    }
 
 
 def process_pending_overage_invoices(
