@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 import useSchoolClasses from '../hooks/useSchoolClasses';
 import useSubscription from '../hooks/useSubscription';
 
@@ -99,7 +100,7 @@ export default function StudentsRegistry() {
   const [profileStudent, setProfileStudent] = useState(null);
   const [profileTab, setProfileTab] = useState('Profile');
   const [profileLoading, setProfileLoading] = useState(false);
-  const [profileError, setProfileError] = useState('');
+  const [profileErrors, setProfileErrors] = useState({});
   const [profileReports, setProfileReports] = useState([]);
   const [profilePayments, setProfilePayments] = useState([]);
   const [profilePromotions, setProfilePromotions] = useState([]);
@@ -254,7 +255,7 @@ export default function StudentsRegistry() {
     setProfileStudent(student);
     setProfileTab('Profile');
     setProfileLoading(true);
-    setProfileError('');
+    setProfileErrors({});
     setProfileReports([]);
     setProfilePayments([]);
     setProfilePromotions([]);
@@ -267,21 +268,30 @@ export default function StudentsRegistry() {
 
     try {
       const headers = getAuthHeaders();
-      const [reportsRes, paymentsRes, promotionsRes, documentsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         axios.get(`/api/students/${student.id}/reports`, { headers }),
-        canTrackPayments ? axios.get(`/api/students/${student.id}/payments`, { headers }) : Promise.resolve({ data: [] }),
+        axios.get(`/api/students/${student.id}/payments`, { headers }),
         axios.get(`/api/students/${student.id}/promotions`, { headers }),
         axios.get(`/api/students/${student.id}/documents`, { headers }),
       ]);
 
+      const errors = {};
+      const slices = ['reports', 'payments', 'promotions', 'documents'];
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          errors[slices[index]] = result.reason?.response?.data?.message || 'Please try again later.';
+        }
+      });
+      setProfileErrors(errors);
+      const [reportsRes, paymentsRes, promotionsRes, documentsRes] = results.map((result) => (
+        result.status === 'fulfilled' ? result.value : { data: null }
+      ));
       setProfileReports(reportsRes.data || []);
       setProfilePayments(paymentsRes.data || []);
       setProfilePromotions(promotionsRes.data?.promotions || []);
       setProfileDocuments(documentsRes.data?.documents || []);
       setStudentOwnedDocuments(documentsRes.data?.student_documents || []);
       setAdmissionLinkedDocuments(documentsRes.data?.admission_documents || []);
-    } catch (err) {
-      setProfileError(err.response?.data?.message || 'Failed to load student profile details.');
     } finally {
       setProfileLoading(false);
     }
@@ -409,7 +419,10 @@ export default function StudentsRegistry() {
         ? `${profileDocuments.length} linked document${profileDocuments.length === 1 ? '' : 's'} available`
         : 'No stored student or admissions documents yet.',
     },
-  ].filter((item) => canTrackPayments || item.title !== 'Finance Standing') : [];
+  ].filter((item) => canTrackPayments || item.title !== 'Finance Standing').map((item) => {
+    const slice = { 'Academic Evidence': 'reports', 'Finance Standing': 'payments', 'Document Vault': 'documents' }[item.title];
+    return profileErrors[slice] ? { ...item, status: 'Unavailable', detail: 'Records unavailable. Please try again later.' } : item;
+  }) : [];
 
   const handleExport = () => {
     if (!filteredStudents.length) {
@@ -822,7 +835,7 @@ export default function StudentsRegistry() {
                 <div className="grid grid-cols-2 gap-3 lg:w-[24rem]">
                   <div className="rounded-2xl bg-white/10 p-4">
                     <p className="text-xs uppercase tracking-wide text-blue-100">Latest Average</p>
-                    <p className="mt-2 text-3xl font-black">{latestReport ? `${latestReport.term_average}%` : 'N/A'}</p>
+                    <p className="mt-2 text-3xl font-black">{profileErrors.reports ? 'Unavailable' : latestReport ? `${latestReport.term_average}%` : 'N/A'}</p>
                   </div>
                   {canTrackPayments && <div className="rounded-2xl bg-white/10 p-4">
                     <p className="text-xs uppercase tracking-wide text-blue-100">Outstanding Tuition</p>
@@ -834,7 +847,7 @@ export default function StudentsRegistry() {
 
             <div className="border-b border-slate-200 bg-slate-50 px-8 py-4">
               <div className="flex flex-wrap items-center gap-3">
-                {PROFILE_TABS.filter((tab) => canTrackPayments || tab !== 'Finance').map((tab) => (
+                {PROFILE_TABS.map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setProfileTab(tab)}
@@ -854,9 +867,13 @@ export default function StudentsRegistry() {
 
             <div className="max-h-[64vh] overflow-y-auto px-8 py-6">
               {profileLoading && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Loading student profile...</div>}
-              {!profileLoading && profileError && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{profileError}</div>}
+              {!profileLoading && Object.entries(profileErrors).map(([slice, message]) => (
+                <div key={slice} role="alert" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  {({ reports: 'Academic reports', payments: 'Payment history', promotions: 'Promotion history', documents: 'Documents' })[slice]} unavailable: {message}
+                </div>
+              ))}
 
-              {!profileLoading && !profileError && profileTab === 'Profile' && (
+              {profileTab === 'Profile' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
@@ -908,11 +925,11 @@ export default function StudentsRegistry() {
                       <div className="mt-4 space-y-4">
                         <div className="rounded-2xl bg-white p-4">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Academic Trend</p>
-                          <p className="mt-2 text-lg font-black text-slate-900">{trendSummary ? `${trendSummary.direction} ${trendSummary.delta > 0 ? '+' : ''}${trendSummary.delta}` : 'Awaiting multiple term records'}</p>
+                          <p className="mt-2 text-lg font-black text-slate-900">{profileErrors.reports ? 'Academic reports unavailable' : trendSummary ? `${trendSummary.direction} ${trendSummary.delta > 0 ? '+' : ''}${trendSummary.delta}` : 'Awaiting multiple term records'}</p>
                         </div>
                         <div className="rounded-2xl bg-white p-4">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent Promotion</p>
-                          <p className="mt-2 text-lg font-black text-slate-900">{profilePromotions[0] ? `${profilePromotions[0].from_class} -> ${profilePromotions[0].to_class}` : 'No promotion history yet'}</p>
+                          <p className="mt-2 text-lg font-black text-slate-900">{profileErrors.promotions ? 'Promotion history unavailable' : profilePromotions[0] ? `${profilePromotions[0].from_class} -> ${profilePromotions[0].to_class}` : 'No promotion history yet'}</p>
                         </div>
                       </div>
                     </div>
@@ -920,7 +937,7 @@ export default function StudentsRegistry() {
                 </div>
               )}
 
-              {!profileLoading && !profileError && profileTab === 'Academic' && (
+              {!profileLoading && profileTab === 'Academic' && (
                 <div className="space-y-6">
                   <div className="rounded-3xl border border-slate-200 p-6">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -969,7 +986,7 @@ export default function StudentsRegistry() {
                         </div>
                       </div>
                     ) : (
-                      <p className="mt-6 text-sm text-slate-500">No report-card history has been published for this student yet.</p>
+                      <p className="mt-6 text-sm text-slate-500">{profileErrors.reports ? 'Academic reports unavailable.' : 'No report-card history has been published for this student yet.'}</p>
                     )}
                   </div>
 
@@ -988,7 +1005,7 @@ export default function StudentsRegistry() {
                         <tbody>
                           {profileReports.length === 0 && (
                             <tr>
-                              <td colSpan={4} className="px-4 py-6 text-center text-slate-400">No academic records yet.</td>
+                              <td colSpan={4} className="px-4 py-6 text-center text-slate-400">{profileErrors.reports ? 'Academic records unavailable.' : 'No academic records yet.'}</td>
                             </tr>
                           )}
                           {profileReports.map((report) => (
@@ -1007,7 +1024,7 @@ export default function StudentsRegistry() {
                   <div className="rounded-3xl border border-slate-200 p-6">
                     <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Promotion History</p>
                     <div className="mt-4 space-y-3">
-                      {profilePromotions.length === 0 && <p className="text-sm text-slate-500">No promotion history recorded yet.</p>}
+                      {profilePromotions.length === 0 && <p className="text-sm text-slate-500">{profileErrors.promotions ? 'Promotion history unavailable.' : 'No promotion history recorded yet.'}</p>}
                       {profilePromotions.map((promotion) => (
                         <div key={promotion.id} className="rounded-2xl bg-slate-50 p-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1023,7 +1040,7 @@ export default function StudentsRegistry() {
                 </div>
               )}
 
-              {!profileLoading && !profileError && profileTab === 'Guardian' && (
+              {profileTab === 'Guardian' && (
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_1fr]">
                   <div className="rounded-3xl border border-slate-200 p-6">
                     <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Guardian Contact</p>
@@ -1062,9 +1079,10 @@ export default function StudentsRegistry() {
                 </div>
               )}
 
-              {canTrackPayments && !profileLoading && !profileError && profileTab === 'Finance' && (
+              {!profileLoading && profileTab === 'Finance' && (
                 <div className="space-y-6">
-                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  <Link to="/payment-receipts" className="inline-block font-semibold text-blue-700 underline">Payment Receipts</Link>
+                  {canTrackPayments && !profileErrors.payments && <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Outstanding Tuition</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{formatCurrency(profileStudent.total_tuition_owed)}</p>
@@ -1077,7 +1095,7 @@ export default function StudentsRegistry() {
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Pending Entries</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{outstandingPayments.length}</p>
                     </div>
-                  </div>
+                  </div>}
 
                   <div className="rounded-3xl border border-slate-200 p-6">
                     <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Payment Timeline</p>
@@ -1095,7 +1113,7 @@ export default function StudentsRegistry() {
                         <tbody>
                           {profilePayments.length === 0 && (
                             <tr>
-                              <td colSpan={5} className="px-4 py-6 text-center text-slate-400">No payment history recorded yet.</td>
+                              <td colSpan={5} className="px-4 py-6 text-center text-slate-400">{profileErrors.payments ? 'Payment history unavailable.' : 'No payment history recorded yet.'}</td>
                             </tr>
                           )}
                           {profilePayments.map((payment) => (
@@ -1118,7 +1136,7 @@ export default function StudentsRegistry() {
                 </div>
               )}
 
-              {!profileLoading && !profileError && profileTab === 'Documents' && (
+              {!profileLoading && profileTab === 'Documents' && (
                 <div className="space-y-6">
                   <div className="rounded-3xl border border-slate-200 p-6">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1218,7 +1236,7 @@ export default function StudentsRegistry() {
                       <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Stored Learner Documents</p>
                       <div className="mt-4 space-y-3">
                         {profileDocuments.length === 0 && (
-                          <p className="text-sm text-slate-500">No student-owned or linked admissions documents are stored yet.</p>
+                          <p className="text-sm text-slate-500">{profileErrors.documents ? 'Documents unavailable.' : 'No student-owned or linked admissions documents are stored yet.'}</p>
                         )}
                         {profileDocuments.map((documentItem) => (
                           <button

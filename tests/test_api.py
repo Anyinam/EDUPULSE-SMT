@@ -1018,7 +1018,7 @@ class TestPaymentEndpoints:
             assert data["error"] == "payment_collection_blocked"
             assert data["reason"] == "plan_over_capacity"
 
-    def test_student_payment_history_blocked_until_school_verification_is_complete(self, client, app):
+    def test_student_payment_history_remains_readable_before_school_verification(self, client, app):
         with app.app_context():
             from flask_jwt_extended import create_access_token
 
@@ -1036,9 +1036,8 @@ class TestPaymentEndpoints:
                 headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
             )
 
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert data["error"] == "school_verification_required"
+            assert response.status_code == 200
+            assert isinstance(json.loads(response.data), list)
 
     def test_receive_payment_invalid_amount(self, client, app):
         """Test payment with invalid amount."""
@@ -1462,7 +1461,7 @@ class TestSchoolVerificationEndpoints:
 class TestAdmissionsEndpoints:
     """Test admissions endpoints."""
 
-    def test_finance_audit_endpoints_blocked_until_school_verification_is_complete(self, client, app):
+    def test_finance_audit_endpoints_remain_readable_before_school_verification(self, client, app):
         with app.app_context():
             from flask_jwt_extended import create_access_token
 
@@ -1488,9 +1487,7 @@ class TestAdmissionsEndpoints:
             else:
                 response = client.get(path, headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"})
 
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert data["error"] == "school_verification_required"
+            assert response.status_code == 200
 
     def test_delete_student_blocked_when_history_exists(self, client, app):
         with app.app_context():

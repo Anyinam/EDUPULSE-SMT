@@ -27,13 +27,31 @@ describe('restricted components', () => {
   });
 
   it.each([
-    ['tracker', StudentPaymentTracker], ['audit', AuditReport], ['oversight', RemoteOversight],
-    ['finance', FinanceDashboard], ['transactions', TransactionHistory], ['payment entry', PaymentEntry],
+    ['tracker', StudentPaymentTracker], ['oversight', RemoteOversight],
+    ['finance', FinanceDashboard], ['payment entry', PaymentEntry],
   ])('does not mount or fetch %s on Free Tier', async (_name, Component) => {
     render(<MemoryRouter><Component students={[]} /></MemoryRouter>);
     await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
     expect(screen.getByText('Payment Tracking Locked')).toBeInTheDocument();
     expect(axios.get.mock.calls[0][0]).toBe('/api/school/subscription/effective-plan');
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['transactions', TransactionHistory, 'Financial Ledger'],
+    ['audit', AuditReport, 'Financial Integrity Report'],
+  ])('mounts historical %s without consulting plan entitlements', async (_name, Component, heading) => {
+    axios.get.mockImplementation((url) => {
+      if (url.startsWith('/api/finance/audit/summary')) {
+        return Promise.resolve({ data: { currency: 'GHS', summary: { total_transactions: 0, total_value: 0, verified_count: 0, is_chain_valid: true, integrity_status: 'Valid' } } });
+      }
+      return Promise.resolve({ data: url.includes('/ledger') ? { ledger: [] } : [] });
+    });
+    render(<MemoryRouter><Component /></MemoryRouter>);
+    expect(await screen.findByText(new RegExp(heading))).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledWith('/api/finance/transactions', expect.any(Object));
+    expect(axios.get.mock.calls.some(([url]) => url.includes('subscription'))).toBe(false);
+    expect(screen.queryByText('Payment Tracking Locked')).not.toBeInTheDocument();
     expect(axios.post).not.toHaveBeenCalled();
   });
 

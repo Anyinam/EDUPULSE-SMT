@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import FeatureLock from './FeatureLock';
 
 function formatMoney(value) {
   return `GH₵ ${Number(value || 0).toFixed(2)}`;
@@ -34,7 +33,7 @@ function getTrackedTransferDetails(transaction) {
 }
 
 export default function AuditReport() {
-  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><AuditReportContent /></FeatureLock>;
+  return <AuditReportContent />;
 }
 
 function AuditReportContent() {
@@ -42,6 +41,7 @@ function AuditReportContent() {
   const [transactions, setTransactions] = useState([]);
   const [ledger, setLedger] = useState([]);
   const [verification, setVerification] = useState(null);
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [period, setPeriod] = useState('current_term');
@@ -57,12 +57,15 @@ function AuditReportContent() {
 
   const fetchSummary = async () => {
     setLoading(true);
+    setErrors((previous) => ({ ...previous, summary: null }));
     try {
       const periodLabel = period === 'current_term' ? '1st Term 2026' : 'All Time';
       const res = await axios.get(`/api/finance/audit/summary?period_label=${periodLabel}`, getAuthHeaders());
       setSummary(res.data);
     } catch (err) {
       console.error('Failed to fetch audit summary:', err);
+      setSummary(null);
+      setErrors((previous) => ({ ...previous, summary: err.response?.data?.message || 'Please try again later.' }));
     } finally {
       setLoading(false);
     }
@@ -70,34 +73,42 @@ function AuditReportContent() {
 
   const fetchLedger = async () => {
     setLoading(true);
+    setErrors((previous) => ({ ...previous, ledger: null }));
     try {
       const offset = page * pageSize;
       const res = await axios.get(`/api/finance/audit/ledger?limit=${pageSize}&offset=${offset}`, getAuthHeaders());
       setLedger(res.data.ledger || []);
     } catch (err) {
       console.error('Failed to fetch ledger:', err);
+      setLedger([]);
+      setErrors((previous) => ({ ...previous, ledger: err.response?.data?.message || 'Please try again later.' }));
     } finally {
       setLoading(false);
     }
   };
 
   const fetchTransactions = async () => {
+    setErrors((previous) => ({ ...previous, transactions: null }));
     try {
       const res = await axios.get('/api/finance/transactions', getAuthHeaders());
       setTransactions(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error('Failed to fetch transactions:', err);
       setTransactions([]);
+      setErrors((previous) => ({ ...previous, transactions: err.response?.data?.message || 'Please try again later.' }));
     }
   };
 
   const runVerification = async () => {
     setVerifying(true);
+    setErrors((previous) => ({ ...previous, verification: null }));
     try {
       const res = await axios.post('/api/finance/audit/verify', {}, getAuthHeaders());
       setVerification(res.data);
     } catch (err) {
       console.error('Failed to verify ledger:', err);
+      setVerification(null);
+      setErrors((previous) => ({ ...previous, verification: err.response?.data?.message || 'Please try again later.' }));
     } finally {
       setVerifying(false);
     }
@@ -115,6 +126,11 @@ function AuditReportContent() {
 
   return (
     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+      {Object.entries(errors).filter(([, message]) => message).map(([slice, message]) => (
+        <p key={slice} role="alert" className="mb-4 text-amber-900">
+          {({ summary: 'Audit summary', ledger: 'Audit ledger', transactions: 'Recorded payment history', verification: 'Chain verification' })[slice]} unavailable: {message}
+        </p>
+      ))}
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-800 mb-2">📄 Financial Integrity Report</h1>
@@ -204,7 +220,7 @@ function AuditReportContent() {
               {loading && transactions.length === 0 && (
                 <tr><td className="p-3 text-center" colSpan="7">Loading transactions...</td></tr>
               )}
-              {!loading && transactions.length === 0 && (
+              {!loading && !errors.transactions && transactions.length === 0 && (
                 <tr><td className="p-3 text-center" colSpan="7">No recorded payments were found. If a real transfer does not appear here, the system does not currently have a stored payment row for it.</td></tr>
               )}
               {transactions.map((entry, idx) => (
@@ -281,7 +297,7 @@ function AuditReportContent() {
               {loading && ledger.length === 0 && (
                 <tr><td className="p-3 text-center" colSpan="7">Loading ledger entries...</td></tr>
               )}
-              {!loading && ledger.length === 0 && (
+              {!loading && !errors.ledger && ledger.length === 0 && (
                 <tr><td className="p-3 text-center" colSpan="7">No confirmed ledger entries found.</td></tr>
               )}
               {ledger.map((entry, idx) => (

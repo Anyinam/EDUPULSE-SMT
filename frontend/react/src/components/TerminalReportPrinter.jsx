@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useBranding } from '../hooks/useBranding';
 
@@ -48,6 +48,7 @@ const currentAcademicYear = () => {
 export default function TerminalReportPrinter() {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
+  const [classesStatus, setClassesStatus] = useState('loading');
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedStudent, setSelectedStudent] = useState('');
   const [selectedTerm, setSelectedTerm] = useState('Term 1');
@@ -64,6 +65,8 @@ export default function TerminalReportPrinter() {
   const [gradingScheme, setGradingScheme] = useState({ classScoreMax: 30, examScoreMax: 70 });
   const [promotionData, setPromotionData] = useState({ new_class: '', remarks: '' });
   const [promotingStudent, setPromotingStudent] = useState(false);
+  const studentsRequestId = useRef(0);
+  const reportRequestId = useRef(0);
   const userRole = localStorage.getItem('role') || 'proprietor';
   const { branding } = useBranding();
 
@@ -98,12 +101,14 @@ export default function TerminalReportPrinter() {
     if (selectedClass) {
       fetchStudents(selectedClass);
     }
+    return () => { studentsRequestId.current += 1; };
   }, [selectedClass]);
 
   useEffect(() => {
     if (!termContextLoading && selectedStudent && selectedClass) {
       fetchReportData();
     }
+    return () => { reportRequestId.current += 1; };
   }, [selectedStudent, selectedClass, selectedTerm, selectedYear, termContextLoading]);
 
   const fetchClasses = async () => {
@@ -112,21 +117,26 @@ export default function TerminalReportPrinter() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id')
       };
-      const res = await axios.get('/api/school/grades', { headers });
-      
-      // /api/school/grades returns a simple array of grade/class names
-      const classList = Array.isArray(res.data) ? res.data : [];
+      const res = await axios.get('/api/school/classes?active_only=true', { headers });
+      const classList = Array.isArray(res.data)
+        ? [...new Set(res.data.map(item => {
+            const name = typeof item === 'string' ? item : item?.class_name || item?.name;
+            return typeof name === 'string' ? name.trim() : '';
+          }).filter(Boolean))]
+        : [];
       
       setClasses(classList);
+      setClassesStatus('ready');
       
       if (classList.length > 0) {
         setSelectedClass(classList[0]);
         setMessage(`✅ Loaded ${classList.length} classes`);
       } else {
-        setMessage('⚠️ No classes found');
+        setMessage('No active classes found');
       }
     } catch (err) {
       console.error('Failed to load classes:', err);
+      setClassesStatus('error');
       setMessage(`❌ Error loading classes: ${err.response?.data?.message || err.message}`);
     }
   };
@@ -148,6 +158,7 @@ export default function TerminalReportPrinter() {
   };
 
   const fetchStudents = async (className) => {
+    const requestId = ++studentsRequestId.current;
     try {
       setMessage('Loading students...');
       const headers = {
@@ -156,11 +167,12 @@ export default function TerminalReportPrinter() {
       };
       
       const res = await axios.get(`/api/students/by-class/${encodeURIComponent(className)}`, { headers });
+      if (requestId !== studentsRequestId.current) return;
       
       let studentList = [];
       if (Array.isArray(res.data)) {
         studentList = res.data;
-      } else if (res.data?.students) {
+      } else if (Array.isArray(res.data?.students)) {
         studentList = res.data.students;
       }
       
@@ -170,17 +182,21 @@ export default function TerminalReportPrinter() {
         setSelectedStudent(studentList[0].id || studentList[0].student_id);
         setMessage(`✅ Loaded ${studentList.length} students`);
       } else {
+        setSelectedStudent('');
         setMessage('⚠️ No students in this class');
         setPreviewData({});
       }
     } catch (err) {
+      if (requestId !== studentsRequestId.current) return;
       console.error('Failed to load students:', err);
       setMessage(`❌ Error loading students: ${err.response?.data?.message || err.message}`);
       setStudents([]);
+      setSelectedStudent('');
+      setPreviewData({});
     }
   };
 
-  const fetchPerformanceHistory = async (studentId) => {
+  const fetchPerformanceHistory = async (studentId, requestId) => {
     try {
       const headers = {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -188,6 +204,7 @@ export default function TerminalReportPrinter() {
       };
       
       const res = await axios.get(`/api/students/${studentId}/reports`, { headers });
+      if (requestId !== reportRequestId.current) return;
       
       if (res.data && Array.isArray(res.data)) {
         const history = res.data
@@ -202,14 +219,20 @@ export default function TerminalReportPrinter() {
         setPerformanceHistory(history);
       }
     } catch (err) {
+      if (requestId !== reportRequestId.current) return;
       console.error('Failed to load performance history:', err);
       setPerformanceHistory([]);
     }
   };
 
   const fetchReportData = async () => {
+    const requestId = ++reportRequestId.current;
     try {
       setLoading(true);
+      setPreviewData({});
+      setPerformanceHistory([]);
+      setHeadmasterRemarks('');
+      setProprietorRemarks('');
       const headers = {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id')
@@ -219,20 +242,22 @@ export default function TerminalReportPrinter() {
         params: { term: selectedTerm, year: selectedYear },
         headers
       });
+      if (requestId !== reportRequestId.current) return;
       
       setPreviewData(res.data);
       setHeadmasterRemarks(res.data.headmaster_remarks || '');
       setProprietorRemarks(res.data.proprietor_remarks || '');
       
       // Fetch performance history for trend visualization
-      fetchPerformanceHistory(selectedStudent);
+      fetchPerformanceHistory(selectedStudent, requestId);
       setMessage('');
     } catch (err) {
+      if (requestId !== reportRequestId.current) return;
       console.error('Failed to load report data:', err);
       setPreviewData({});
       setMessage(`⚠️ No report data available`);
     } finally {
-      setLoading(false);
+      if (requestId === reportRequestId.current) setLoading(false);
     }
   };
 
@@ -705,11 +730,24 @@ export default function TerminalReportPrinter() {
           <label className="block text-sm font-bold text-slate-700 mb-2">📚 Class</label>
           <select
             value={selectedClass}
-            onChange={(e) => setSelectedClass(e.target.value)}
+            aria-label="Report Class"
+            disabled={classesStatus === 'loading' || classes.length === 0}
+            onChange={(e) => {
+              studentsRequestId.current += 1;
+              reportRequestId.current += 1;
+              setSelectedStudent('');
+              setStudents([]);
+              setPreviewData({});
+              setPerformanceHistory([]);
+              setHeadmasterRemarks('');
+              setProprietorRemarks('');
+              setLoading(false);
+              setSelectedClass(e.target.value);
+            }}
             className="w-full p-3 border rounded-lg bg-white text-sm font-medium"
           >
             {classes.length === 0 ? (
-              <option>Loading classes...</option>
+              <option value="">{classesStatus === 'loading' ? 'Loading classes...' : classesStatus === 'error' ? 'Unable to load classes' : 'No active classes found'}</option>
             ) : (
               classes.map((cls) => (
                 <option key={cls} value={cls}>{cls}</option>
@@ -722,11 +760,13 @@ export default function TerminalReportPrinter() {
           <label className="block text-sm font-bold text-slate-700 mb-2">👤 Student</label>
           <select
             value={selectedStudent}
+            aria-label="Report Student"
+            disabled={students.length === 0}
             onChange={(e) => setSelectedStudent(e.target.value)}
             className="w-full p-3 border rounded-lg bg-white text-sm font-medium"
           >
             {students.length === 0 ? (
-              <option>Select a class first</option>
+              <option value="">Select a class first</option>
             ) : (
               students.map((s) => (
                 <option key={s.id || s.student_id} value={s.id || s.student_id}>

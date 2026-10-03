@@ -1,17 +1,41 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import axios from 'axios';
 import StudentPaymentTracker from '../StudentPaymentTracker';
+import useSubscription from '../../hooks/useSubscription';
 
 vi.mock('axios');
-vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true }) }));
+vi.mock('../../hooks/useSubscription', () => ({ default: vi.fn() }));
 vi.mock('../../hooks/useBranding', () => ({
   useBranding: () => ({ branding: {} }),
 }));
 
 describe('StudentPaymentTracker', () => {
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  };
+
+  const codesFor = (studentId, virtualRoute = null) => ({
+    student_name: studentId === 1 ? 'Ama Mensah' : 'Yaw Owusu',
+    student_code: `S00${studentId}`,
+    payment_identity: { supports_fee_route_dvas: true },
+    payment_codes: [{
+      fee_type: 'Tuition',
+      code: `S00${studentId}-T1`,
+      base_amount: 120,
+      virtual_route: virtualRoute,
+    }],
+  });
+
   beforeEach(() => {
+    useSubscription.mockReturnValue({ plan: 'Basic', hasFeature: () => true });
     vi.stubGlobal('alert', vi.fn());
     localStorage.setItem('token', 'token-1');
     localStorage.setItem('school_id', 'TEST-001');
@@ -72,6 +96,289 @@ describe('StudentPaymentTracker', () => {
     localStorage.clear();
   });
 
+  it('shows GET and preparation stages while history and the latest receipt remain available', async () => {
+    const codesGet = deferred();
+    const routePost = deferred();
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students/1/payment-codes') return codesGet.promise;
+      if (url === '/api/students/1/payments') return Promise.resolve({ data: [{
+        id: 9, payment_type: 'Tuition', amount: 40, status: 'Confirmed',
+        date_paid: '2026-10-01', reference_id: 'HISTORY-AMA', method: 'Cash',
+      }] });
+      return defaultGet(url);
+    });
+    axios.post.mockReturnValue(routePost.promise);
+    vi.stubGlobal('open', vi.fn());
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: vi.fn() },
+    });
+
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(screen.getByRole('status')).toHaveTextContent('Loading payment instructions...');
+    expect(await screen.findByRole('button', { name: /print latest receipt/i })).toBeEnabled();
+    expect(screen.getAllByText(/40\.00/).length).toBeGreaterThan(0);
+
+    await act(async () => codesGet.resolve({ data: codesFor(1) }));
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing tracked transfer accounts...');
+    expect(screen.getByRole('button', { name: /print latest receipt/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /print instructions|copy instructions/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/tracked transfer account ready/i)).not.toBeInTheDocument();
+    expect(window.open).not.toHaveBeenCalled();
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    expect(axios.post).toHaveBeenCalledTimes(1);
+
+    await act(async () => routePost.resolve({ data: { virtual_route: {
+      account_number: '1111111111', bank_name: 'Test bank', base_amount: 120, total_amount: 120,
+    } } }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText(/tracked transfer account ready/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /print instructions/i })).toBeEnabled();
+    expect(axios.get.mock.calls.filter(([url]) => url.includes('/students/1/'))).toHaveLength(2);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  const readyRoute = { account_number: '2222222222', base_amount: 120, total_amount: 120 };
+  const historicalPayment = {
+    id: 9, payment_type: 'Tuition', amount: 40, status: 'Confirmed',
+    date_paid: '2026-10-01', method: 'Cash',
+  };
+  const mockStudentReads = (responses, extraStudents = []) => {
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students') return Promise.resolve({ data: [
+        { id: 1, name: 'Ama Mensah', student_code: 'S001', current_class: 'JHS 1' },
+        { id: 2, name: 'Yaw Owusu', student_code: 'S002', current_class: 'JHS 2' },
+        ...extraStudents,
+      ] });
+      if (responses[url]) return responses[url];
+      return defaultGet(url);
+    });
+  };
+
+  it.each(['GET success', 'GET error', 'POST success', 'POST error'])(
+    'ignores stale history and codes on %s without clearing the current loading stage', async (stage) => {
+      const oldHistory = deferred();
+      const oldCodes = deferred();
+      const oldRoute = deferred();
+      const newHistory = deferred();
+      const newCodes = deferred();
+      mockStudentReads({
+        '/api/students/1/payments': oldHistory.promise,
+        '/api/students/1/payment-codes': oldCodes.promise,
+        '/api/students/2/payments': newHistory.promise,
+        '/api/students/2/payment-codes': newCodes.promise,
+      });
+      axios.post.mockReturnValue(oldRoute.promise);
+      render(<StudentPaymentTracker />);
+      fireEvent.click(await screen.findByText('Ama Mensah'));
+      if (stage.startsWith('POST')) {
+        await act(async () => oldCodes.resolve({ data: codesFor(1) }));
+        expect(screen.getByRole('status')).toHaveTextContent('Preparing tracked transfer accounts...');
+      }
+      fireEvent.click(screen.getByText('Yaw Owusu'));
+      await act(async () => {
+        oldHistory.resolve({ data: [historicalPayment] });
+        const pending = stage.startsWith('POST') ? oldRoute : oldCodes;
+        if (stage.endsWith('error')) {
+          pending.reject({ response: { data: { message: 'OLD STUDENT ERROR' } } });
+        } else {
+          pending.resolve({ data: stage.startsWith('POST')
+            ? { virtual_route: { ...readyRoute, account_number: '1111111111' } }
+            : codesFor(1, readyRoute) });
+        }
+      });
+      expect(screen.getByRole('status')).toHaveTextContent('Loading payment instructions...');
+      expect(screen.queryByRole('button', { name: /print latest receipt/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/S001-T1|1111111111|OLD STUDENT ERROR/)).not.toBeInTheDocument();
+      expect(axios.post).toHaveBeenCalledTimes(stage.startsWith('POST') ? 1 : 0);
+      await act(async () => {
+        newHistory.resolve({ data: [] });
+        newCodes.resolve({ data: codesFor(2, readyRoute) });
+      });
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.getByText(/Account number: 2222222222/)).toBeInTheDocument();
+      expect(screen.queryByText(/S001-T1|1111111111/)).not.toBeInTheDocument();
+    }
+  );
+
+  it('clears ready instructions and receipts immediately on selecting another student', async () => {
+    const newCodes = deferred();
+    mockStudentReads({
+      '/api/students/1/payments': Promise.resolve({ data: [historicalPayment] }),
+      '/api/students/1/payment-codes': Promise.resolve({ data: codesFor(1, readyRoute) }),
+      '/api/students/2/payments': Promise.resolve({ data: [] }),
+      '/api/students/2/payment-codes': newCodes.promise,
+    });
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(await screen.findByRole('button', { name: /print instructions/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /print latest receipt/i })).toBeEnabled();
+    fireEvent.click(screen.getByText('Yaw Owusu'));
+    expect(screen.getByRole('status')).toHaveTextContent('Loading payment instructions...');
+    expect(screen.queryByText(/S001-T1|Account number:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /print instructions|copy instructions|print latest receipt/i })).not.toBeInTheDocument();
+    await act(async () => newCodes.resolve({ data: codesFor(2, readyRoute) }));
+  });
+
+  it('ignores earlier responses when the same student is selected again', async () => {
+    const oldCodes = deferred();
+    const oldHistory = deferred();
+    const newCodes = deferred();
+    const newHistory = deferred();
+    const defaultGet = axios.get.getMockImplementation();
+    let codesCalls = 0;
+    let historyCalls = 0;
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students/1/payment-codes') return ++codesCalls === 1 ? oldCodes.promise : newCodes.promise;
+      if (url === '/api/students/1/payments') return ++historyCalls === 1 ? oldHistory.promise : newHistory.promise;
+      return defaultGet(url);
+    });
+    render(<StudentPaymentTracker />);
+    const studentButton = await screen.findByRole('button', { name: /Ama Mensah/ });
+    fireEvent.click(studentButton);
+    fireEvent.click(studentButton);
+    await act(async () => {
+      oldHistory.reject(new Error('Old history failure'));
+      oldCodes.resolve({ data: codesFor(1) });
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Loading payment instructions...');
+    expect(axios.post).not.toHaveBeenCalled();
+    await act(async () => {
+      newHistory.resolve({ data: [historicalPayment] });
+      newCodes.resolve({ data: codesFor(1, readyRoute) });
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /print latest receipt/i })).toBeEnabled();
+  });
+
+  it('clears preparation status when a route POST fails without retrying', async () => {
+    const routePost = deferred();
+    mockStudentReads({ '/api/students/1/payment-codes': Promise.resolve({ data: codesFor(1) }) });
+    axios.post.mockReturnValue(routePost.promise);
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(await screen.findByText('Preparing tracked transfer accounts...')).toBeInTheDocument();
+    await act(async () => routePost.reject(new Error('Provider unavailable')));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/tracked transfer account ready/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Paystack setup needed')).toBeInTheDocument();
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps history loading independent when instructions finish first', async () => {
+    const history = deferred();
+    mockStudentReads({
+      '/api/students/1/payments': history.promise,
+      '/api/students/1/payment-codes': Promise.resolve({ data: codesFor(1, readyRoute) }),
+    });
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(await screen.findByRole('button', { name: /print instructions/i })).toBeEnabled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText('Loading payment data...')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /print latest receipt/i })).not.toBeInTheDocument();
+    await act(async () => history.resolve({ data: [historicalPayment] }));
+    expect(screen.queryByText('Loading payment data...')).not.toBeInTheDocument();
+    expect(screen.getByText('Recent Payments:')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /print latest receipt/i })).toBeEnabled();
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it('keeps preparation visible until all route POSTs settle', async () => {
+    const firstRoute = deferred();
+    const secondRoute = deferred();
+    const codes = codesFor(1);
+    codes.payment_codes.push({ ...codes.payment_codes[0], code: 'S001-T2' });
+    mockStudentReads({ '/api/students/1/payment-codes': Promise.resolve({ data: codes }) });
+    axios.post.mockImplementation((url) => url.includes('S001-T1') ? firstRoute.promise : secondRoute.promise);
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(await screen.findByText('Preparing tracked transfer accounts...')).toBeInTheDocument();
+    await act(async () => firstRoute.resolve({ data: { virtual_route: readyRoute } }));
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing tracked transfer accounts...');
+    expect(screen.queryByText(/tracked transfer account ready/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy instructions|print instructions/i })).not.toBeInTheDocument();
+    await act(async () => secondRoute.resolve({ data: { virtual_route: readyRoute } }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/tracked transfer account ready/i)).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /copy instructions/i })).toBeEnabled();
+    expect(axios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates pending responses when a student has no valid selection ID', async () => {
+    const history = deferred();
+    const codes = deferred();
+    mockStudentReads({
+      '/api/students/1/payments': history.promise,
+      '/api/students/1/payment-codes': codes.promise,
+    }, [{ id: null, name: 'Invalid Student', current_class: 'JHS 1' }]);
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    fireEvent.click(screen.getByText('Invalid Student'));
+    await act(async () => {
+      history.resolve({ data: [historicalPayment] });
+      codes.resolve({ data: codesFor(1) });
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /print latest receipt|print instructions/i })).not.toBeInTheDocument();
+    expect(axios.get.mock.calls.some(([url]) => url.includes('/undefined/'))).toBe(false);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it.each(['GET', 'POST'])('safely settles pending %s and history after unmount', async (stage) => {
+    const history = deferred();
+    const codes = deferred();
+    const route = deferred();
+    mockStudentReads({
+      '/api/students/1/payments': history.promise,
+      '/api/students/1/payment-codes': codes.promise,
+    });
+    axios.post.mockReturnValue(route.promise);
+    const { unmount } = render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    if (stage === 'POST') await act(async () => codes.resolve({ data: codesFor(1) }));
+    unmount();
+    await act(async () => {
+      history.reject(new Error('History after unmount'));
+      if (stage === 'GET') codes.resolve({ data: codesFor(1) });
+      else route.resolve({ data: { virtual_route: readyRoute } });
+    });
+    expect(axios.post).toHaveBeenCalledTimes(stage === 'POST' ? 1 : 0);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('does not refresh an old student when recovery settles after switching students', async () => {
+    const recovery = deferred();
+    mockStudentReads({
+      '/api/students/1/payments': Promise.resolve({ data: [] }),
+      '/api/students/1/payment-codes': Promise.resolve({ data: codesFor(1, readyRoute) }),
+      '/api/students/2/payments': Promise.resolve({ data: [] }),
+      '/api/students/2/payment-codes': Promise.resolve({ data: codesFor(2, readyRoute) }),
+    });
+    axios.post.mockReturnValue(recovery.promise);
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    fireEvent.change(await screen.findByLabelText(/transaction reference/i), { target: { value: 'old-reference' } });
+    fireEvent.click(screen.getByRole('button', { name: /recover paystack payment/i }));
+    fireEvent.click(screen.getByText('Yaw Owusu'));
+    await act(async () => recovery.resolve({ data: { status: 'recorded', message: 'OLD RECOVERY' } }));
+    expect(screen.queryByText('OLD RECOVERY')).not.toBeInTheDocument();
+    expect(axios.get.mock.calls.filter(([url]) => url.includes('/students/1/'))).toHaveLength(2);
+    expect(await screen.findByRole('button', { name: /recover paystack payment/i })).toBeDisabled();
+    expect(screen.getByText(/Account number: 2222222222/)).toBeInTheDocument();
+  });
+
+  it('keeps Free Tier locked without starting payment or provider requests', () => {
+    useSubscription.mockReturnValue({ plan: 'Free Tier', hasFeature: () => false });
+    render(<StudentPaymentTracker />);
+    expect(screen.getByText('Payment Tracking Locked')).toBeInTheDocument();
+    expect(axios.get).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
   it('shows a blocked collection banner instead of payment references', async () => {
     render(<StudentPaymentTracker />);
 
@@ -88,6 +395,7 @@ describe('StudentPaymentTracker', () => {
     expect(screen.getByText(/upgrade the school subscription or reduce active enrollment/i)).toBeInTheDocument();
     expect(screen.getByText('54')).toBeInTheDocument();
     expect(screen.getByText('50')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('shows the verification gate before payment instructions are available', async () => {
@@ -897,6 +1205,12 @@ describe('StudentPaymentTracker', () => {
     expect(screen.getByText('Convenience deducted: GH₵ 0.40')).toBeInTheDocument();
     expect(screen.getByText('Paystack fee deducted: GH₵ 0.41')).toBeInTheDocument();
     expect(screen.getByText('Applied to school fee: GH₵ 20.19')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(axios.get.mock.calls.filter(([url]) => url === '/api/students/1/payments')).toHaveLength(2);
+      expect(axios.get.mock.calls.filter(([url]) => url === '/api/students/1/payment-codes')).toHaveLength(2);
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
 
     expect(axios.post).toHaveBeenCalledWith(
       '/api/finance/paystack/recover-reference',

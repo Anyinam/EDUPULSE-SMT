@@ -5,7 +5,7 @@ import axios from 'axios';
 import AuditReport from '../AuditReport';
 
 vi.mock('axios');
-vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true }) }));
+vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Free Tier', hasFeature: () => false }) }));
 
 describe('AuditReport', () => {
   beforeEach(() => {
@@ -74,6 +74,18 @@ describe('AuditReport', () => {
     vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+  });
+
+  it('reports unavailable audit slices without claiming no historical records', async () => {
+    axios.get.mockRejectedValue({ response: { status: 403, data: { message: 'Historical read denied' } } });
+    render(<AuditReport />);
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(3));
+    expect(screen.getByText('Audit summary unavailable: Historical read denied')).toBeInTheDocument();
+    expect(screen.getByText('Audit ledger unavailable: Historical read denied')).toBeInTheDocument();
+    expect(screen.getByText('Recorded payment history unavailable: Historical read denied')).toBeInTheDocument();
+    expect(screen.queryByText('No confirmed ledger entries found.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/No recorded payments were found/)).not.toBeInTheDocument();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it('shows the tracked transfer amount breakdown in recorded payment history', async () => {

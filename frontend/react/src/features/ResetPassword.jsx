@@ -1,60 +1,84 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import axios from 'axios';
+import { Link, useLocation } from 'react-router-dom';
+import { ArrowRight, Loader } from 'lucide-react';
+import PublicSiteLayout from '../components/PublicSiteLayout';
+import '../styles/public-auth.css';
 
 export default function ResetPassword() {
+  const { search } = useLocation();
+  const token = new URLSearchParams(search).get('token');
+  const hasToken = Boolean(token?.trim());
   const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [status, setStatus] = useState({ type: '', msg: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitting = useRef(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const searchParams = new URLSearchParams(window.location.search);
-    const token = searchParams.get('token');
-
-    if (!token) {
-      setStatus({ type: 'error', msg: "Invalid or missing reset token." });
+    if (submitting.current || status.type === 'success' || !hasToken) return;
+    const effectivePassword = password.trim();
+    if (effectivePassword.length < 8 || !/[A-Z]/.test(effectivePassword) || !/[0-9]/.test(effectivePassword)) {
+      setStatus({ type: 'error', msg: 'Password must be at least 8 characters and contain an uppercase letter and a digit.' });
       return;
     }
-
+    if (confirmation && confirmation !== password) {
+      setStatus({ type: 'error', msg: 'Passwords do not match.' });
+      return;
+    }
+    submitting.current = true;
+    setIsSubmitting(true);
+    setStatus({ type: '', msg: '' });
     try {
       await axios.post('/api/reset-password', { token, password });
-      setStatus({ type: 'success', msg: "Password reset successfully!" });
-      setTimeout(() => window.location.href = '/login', 2000);
+      setStatus({ type: 'success', msg: 'Password reset successfully! You can now log in with your new password.' });
     } catch (err) {
       setStatus({ type: 'error', msg: err.response?.data?.message || "Reset failed. Token may be expired." });
+    } finally {
+      submitting.current = false;
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex bg-white font-sans items-center justify-center p-6">
-      <div className="w-full max-w-md bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">🔑</div>
-          <h1 className="text-2xl font-black text-slate-800">Set New Password</h1>
-          <p className="text-slate-500">Enter your new secure password below.</p>
+    <PublicSiteLayout>
+      <section className="public-auth" aria-labelledby="reset-heading">
+        <div className="public-auth-heading">
+          <h1 id="reset-heading">Set new password</h1>
+          <p>Restore access to your EduPulse SMT account.</p>
         </div>
-
-        {status.msg && (
-          <div className={`p-4 rounded-xl mb-6 text-sm font-bold text-center ${status.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-            {status.msg}
-          </div>
+        {!hasToken ? (
+          <>
+            <div className="public-auth-error" role="alert">Invalid or missing reset token.</div>
+            <Link to="/forgot-password">Request a new reset link</Link>
+          </>
+        ) : (
+          <>
+            {status.msg && <div className={status.type === 'error' ? 'public-auth-error' : 'public-auth-notice'} role={status.type === 'error' ? 'alert' : 'status'}>{status.msg}</div>}
+            {status.type === 'success' ? <Link to="/login" className="public-auth-secondary">Back to login <ArrowRight size={18} aria-hidden="true" /></Link> : (
+              <form onSubmit={handleSubmit} aria-label="Reset password" aria-busy={isSubmitting}>
+                <div className="public-auth-fields">
+                  <div className="public-auth-field">
+                    <label htmlFor="reset-password">New password</label>
+                    <input id="reset-password" name="password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" required minLength={8} disabled={isSubmitting} aria-describedby="reset-password-hint" />
+                    <p id="reset-password-hint" className="public-auth-hint">At least 8 characters, including an uppercase letter and a digit.</p>
+                  </div>
+                  <div className="public-auth-field">
+                    <label htmlFor="reset-confirmation">Confirm new password (optional)</label>
+                    <input id="reset-confirmation" name="confirmation" type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} autoComplete="new-password" disabled={isSubmitting} />
+                  </div>
+                </div>
+                <button type="submit" className="public-auth-primary" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader size={18} className="public-auth-spinner" aria-hidden="true" /> : <ArrowRight size={18} aria-hidden="true" />}
+                  {isSubmitting ? 'Resetting...' : 'Reset password'}
+                </button>
+              </form>
+            )}
+            {status.type !== 'success' && <p className="public-auth-switch"><Link to="/forgot-password">Request a new reset link</Link></p>}
+          </>
         )}
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">New Password</label>
-            <input 
-              type="password" 
-              className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
-              placeholder="••••••••" 
-              onChange={e => setPassword(e.target.value)} 
-              required 
-              minLength={6}
-            />
-          </div>
-
-          <button className="w-full bg-blue-900 text-white p-4 rounded-xl font-bold hover:bg-blue-800 transition-all shadow-lg">Reset Password</button>
-        </form>
-      </div>
-    </div>
+      </section>
+    </PublicSiteLayout>
   );
 }

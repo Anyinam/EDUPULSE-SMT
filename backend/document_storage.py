@@ -77,3 +77,21 @@ def read_document_bytes(object_key: str) -> bytes:
         if _is_missing_object_error(exc):
             raise FileNotFoundError(object_key) from exc
         raise DocumentStorageError("Unable to read document from durable storage") from exc
+
+
+def read_school_document_bytes(document: dict, school_id: str, storage_root: str) -> bytes:
+    if document.get("storage_backend") == "s3":
+        storage_key = document.get("storage_key")
+        if not storage_key:
+            raise FileNotFoundError("Document has no durable storage reference")
+        return read_document_bytes(storage_key)
+
+    stored_filename = document.get("stored_filename")
+    if not stored_filename or os.path.basename(stored_filename) != stored_filename:
+        raise FileNotFoundError("Document has no valid local storage reference")
+    school_root = os.path.realpath(os.path.join(storage_root, str(school_id)))
+    document_path = os.path.realpath(os.path.join(school_root, stored_filename))
+    if os.path.commonpath((school_root, document_path)) != school_root:
+        raise FileNotFoundError("Document is outside the school storage directory")
+    with open(document_path, "rb") as document_file:
+        return document_file.read()

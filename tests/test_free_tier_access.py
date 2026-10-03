@@ -14,10 +14,6 @@ def proprietor_headers(app, test_proprietor):
 
 @pytest.mark.parametrize("path", [
     "/api/finance/dashboard",
-    "/api/finance/transactions",
-    "/api/finance/audit/ledger",
-    "/api/finance/audit/summary",
-    "/api/finance/audit/events",
 ])
 def test_expired_trial_blocks_payment_reads(client, db, test_school, proprietor_headers, path):
     test_school.subscription_plan = "Free Tier"

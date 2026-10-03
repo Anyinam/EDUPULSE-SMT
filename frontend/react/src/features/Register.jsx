@@ -4,8 +4,9 @@ import TermsModal from '../components/TermsModal';
 import PrivacyModal from '../components/PrivacyModal';
 import DataRetentionModal from '../components/DataRetentionModal';
 import DataProcessingModal from '../components/DataProcessingModal';
-import { Logo } from '../components/Logo';
-import { CheckCircle, ArrowRight, ArrowLeft, Loader, Info } from 'lucide-react';
+import PublicSiteLayout from '../components/PublicSiteLayout';
+import '../styles/public-auth.css';
+import { CheckCircle, XCircle, ArrowRight, ArrowLeft, Loader, Info } from 'lucide-react';
 
 const TERMS_VERSION = '2026-03-07';
 const POLICY_VERSION = '2026-03-07';
@@ -17,8 +18,8 @@ const DEFAULT_PUBLIC_CONTENT = {
     response_time: 'within 24 hours on business days',
   },
   auth: {
-    register_title: 'Create Tenant',
-    register_subtitle: 'Register your school organization.',
+    register_title: 'Create your school account',
+    register_subtitle: 'Start with your school and proprietor details.',
     register_support_note: 'Need help choosing a plan or completing registration?',
   },
 };
@@ -34,6 +35,7 @@ export default function Register() {
     selectedPlan: 'Free' // Default to Free plan
   });
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(true);
   const [agreed, setAgreed] = useState(false);
@@ -128,6 +130,8 @@ export default function Register() {
   };
 
   const handleRegister = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     setError('');
 
     try {
@@ -179,200 +183,176 @@ export default function Register() {
       const errorDetails = err.response?.data?.errors;
       setError(errorDetails ? `${errorMsg}: ${errorDetails}` : errorMsg);
       setStep(1); // Go back to step 1 if registration fails
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex bg-white font-sans">
-      {/* Left Side - Branding */}
-      <div className="hidden lg:flex w-1/2 bg-blue-900 items-center justify-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-linear-to-br from-blue-900 to-slate-900 opacity-90 z-10"></div>
-        <img src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?ixlib=rb-4.0.3&auto=format&fit=crop&w=1350&q=80" className="absolute inset-0 w-full h-full object-cover" alt="School" />
-        <div className="relative z-20 text-white p-12 max-w-xl">
-          <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-6 border border-white/20 shadow-xl" style={{background: 'rgba(102, 126, 234, 0.2)'}}>
-            <Logo size="lg" variant="default" />
+    <PublicSiteLayout>
+      <section className="public-auth public-auth--register" aria-labelledby="register-title">
+          <div className="public-auth-heading">
+            <h1 id="register-title">{DEFAULT_PUBLIC_CONTENT.auth.register_title}</h1>
+            <p>{step === 1 ? DEFAULT_PUBLIC_CONTENT.auth.register_subtitle : step === 2 ? `Choose a plan for ${form.schoolName}.` : 'Review your details before completing registration.'}</p>
           </div>
-          <h2 className="text-5xl font-black mb-6 leading-tight">Start Your Journey.</h2>
-          <p className="text-blue-200 text-lg leading-relaxed">
-            {step === 1 && '"Join hundreds of schools using EduPulse to secure revenue and improve academic outcomes."'}
-            {step === 2 && '"Choose the right plan for your school. Paid plans charge only the base fee during signup."'}
-            {step === 3 && '"You\'re almost there! Review your details and complete registration."'}
-          </p>
-          
-          {/* Progress Indicator */}
-          <div className="mt-12 flex items-center gap-3">
-            <div className={`h-2 flex-1 rounded-full ${step >= 1 ? 'bg-blue-400' : 'bg-white/20'}`}></div>
-            <div className={`h-2 flex-1 rounded-full ${step >= 2 ? 'bg-blue-400' : 'bg-white/20'}`}></div>
-            <div className={`h-2 flex-1 rounded-full ${step >= 3 ? 'bg-blue-400' : 'bg-white/20'}`}></div>
-          </div>
-          <div className="mt-3 text-sm text-blue-200 flex justify-between">
-            <span>School Info</span>
-            <span>Select Plan</span>
-            <span>Confirm</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Side - Registration Steps */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-12 overflow-y-auto">
-        <div className="w-full max-w-2xl">
-          <div className="flex items-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-blue-900 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-200">E</div>
-            <span className="text-2xl font-black text-blue-900 tracking-tighter">EDUPULSE SMT</span>
-          </div>
-
-          {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 text-sm font-bold flex items-center gap-2">⚠️ {error}</div>}
+          <ol className="public-auth-progress" aria-label="Registration progress">
+            {['School details', 'Select plan', 'Confirm'].map((label, index) => (
+              <li key={label} className={step >= index + 1 ? 'is-current' : ''} aria-current={step === index + 1 ? 'step' : undefined}>
+                <span>{index + 1}</span>{label}
+              </li>
+            ))}
+          </ol>
+          {error && <p className="public-auth-error" role="alert">{error}</p>}
 
           {/* STEP 1: School Information */}
           {step === 1 && (
             <form onSubmit={handleNext}>
-              <h1 className="text-3xl font-bold text-slate-800 mb-2">{publicContent.auth?.register_title || DEFAULT_PUBLIC_CONTENT.auth.register_title}</h1>
-              <p className="text-slate-500 mb-8">{publicContent.auth?.register_subtitle || DEFAULT_PUBLIC_CONTENT.auth.register_subtitle}</p>
-
-              <div className="space-y-5">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">School Name</label>
+              <div className="public-auth-fields public-auth-school-fields">
+                <div className="public-auth-field">
+                  <label htmlFor="register-school-name">School Name</label>
                   <input 
-                    className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
+                    id="register-school-name" autoComplete="organization"
                     placeholder="e.g. CCA Ofankor" 
                     value={form.schoolName}
                     onChange={e => setForm({...form, schoolName: e.target.value})} 
                     required 
                   />
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Organization ID</label>
+                <div className="public-auth-field">
+                  <label htmlFor="register-school-id">School ID</label>
                   <input 
-                    className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all font-mono uppercase" 
+                    id="register-school-id"
                     placeholder="e.g. CCA-OFK" 
                     value={form.schoolCode}
                     onChange={e => setForm({...form, schoolCode: e.target.value})} 
                     required 
                   />
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Proprietor Username</label>
+                <div className="public-auth-field">
+                  <label htmlFor="register-username">Proprietor Username</label>
                   <input 
-                    className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
+                    id="register-username" autoComplete="username"
                     placeholder="Username" 
                     value={form.username}
                     onChange={e => setForm({...form, username: e.target.value})} 
                     required 
                   />
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Email Address</label>
+                <div className="public-auth-field">
+                  <label htmlFor="register-email">Email Address</label>
                   <input 
-                    className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
+                    id="register-email" autoComplete="email"
                     type="email" 
                     placeholder="owner@school.com" 
                     value={form.email}
                     onChange={e => setForm({...form, email: e.target.value})} 
                     required 
                   />
-                  <p className="text-xs text-slate-500 mt-1 ml-1">Used for welcome email and password recovery</p>
+                  <p className="public-auth-hint">Used for welcome email and password recovery</p>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Password</label>
+                <div className="public-auth-field public-auth-wide">
+                  <label htmlFor="register-password">Password</label>
                   <input 
-                    className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
+                    id="register-password" autoComplete="new-password"
                     type="password" 
                     placeholder="••••••••" 
                     value={form.password}
                     onChange={e => setForm({...form, password: e.target.value})} 
                     required 
                   />
-                  <p className="text-xs text-slate-500 mt-1 ml-1">Must be 8+ characters with uppercase, lowercase, and digit</p>
+                  <p className="public-auth-hint">Must be 8+ characters with uppercase, lowercase, and digit</p>
                 </div>
-                
-                <div className="flex items-center gap-2 pt-2">
+              </div>
+              <div className="public-auth-consents">
+                <div className="public-auth-consent">
                   <input 
                     type="checkbox" 
                     id="terms" 
                     checked={agreed} 
                     onChange={(e) => setAgreed(e.target.checked)}
-                    className="w-5 h-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                    className="public-auth-checkbox"
                   />
-                  <label htmlFor="terms" className="text-sm text-slate-600 cursor-pointer select-none">
-                    I agree to the <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-bold hover:underline">Terms of Service</button> and
-                    <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-bold hover:underline ml-1">Privacy Policy</button>
-                    <span className="ml-1">and</span>
-                    <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-bold hover:underline ml-1">Data Retention Policy</button>
+                  <label htmlFor="terms">
+                    I agree to the <button type="button" onClick={() => setShowTerms(true)} className="public-auth-link">Terms of Service</button> and{' '}
+                    <button type="button" onClick={() => setShowPrivacy(true)} className="public-auth-link">Privacy Policy</button>{' '}and{' '}
+                    <button type="button" onClick={() => setShowRetention(true)} className="public-auth-link">Data Retention Policy</button>
                   </label>
                 </div>
-                <div className="flex items-start gap-2">
+                <div className="public-auth-consent">
                   <input
                     type="checkbox"
                     id="aggregated-analytics-acceptance"
                     checked={aggregatedAnalyticsAccepted}
                     onChange={(e) => setAggregatedAnalyticsAccepted(e.target.checked)}
-                    className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                    className="public-auth-checkbox"
                   />
-                  <div className="min-w-0">
-                    <div className="flex items-start gap-2">
-                      <label htmlFor="aggregated-analytics-acceptance" className="text-sm text-slate-600 cursor-pointer select-none">
+                  <div>
+                    <div className="public-auth-analytics-label">
+                      <label htmlFor="aggregated-analytics-acceptance">
                         I agree to the{' '}
-                        <button type="button" onClick={() => setShowDataProcessing(true)} className="font-bold text-blue-600 hover:underline">
+                        <button type="button" onClick={() => setShowDataProcessing(true)} className="public-auth-link">
                           Data Processing Agreement
                         </button>, including the use of anonymized, aggregated academic metrics for national educational benchmarking and system optimization.
                       </label>
                       <button
                         type="button"
                         aria-label="Show anonymized analytics privacy explanation"
+                        title="Anonymized analytics privacy explanation"
+                        aria-expanded={showAnalyticsTooltip}
                         onClick={() => setShowAnalyticsTooltip((current) => !current)}
-                        className="mt-0.5 inline-flex shrink-0 items-center justify-center rounded-full text-blue-700 hover:text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="public-auth-info"
                       >
                         <Info size={16} />
                       </button>
                     </div>
                     {showAnalyticsTooltip && (
-                      <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
+                      <div className="public-auth-notice">
                         We take privacy seriously. Your student names and school identity are completely stripped out using security protocols before approved data is pooled into aggregated graphs. Your school's private dashboard remains viewable only by you.
                       </div>
                     )}
                   </div>
                 </div>
-                <div className="flex items-start gap-2">
+                <div className="public-auth-consent">
                   <input
                     type="checkbox"
                     id="school-authority"
                     checked={schoolAuthorityConfirmed}
                     onChange={(e) => setSchoolAuthorityConfirmed(e.target.checked)}
-                    className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                    className="public-auth-checkbox"
                   />
-                  <label htmlFor="school-authority" className="text-sm text-slate-600 cursor-pointer select-none">
+                  <label htmlFor="school-authority">
                     I confirm that this school has authority to manage student, guardian, and school records in EduPulse SMT and understands that parent or guardian consent must be obtained before student biodata is uploaded.
                   </label>
                 </div>
-                <div className="flex items-start gap-2">
+                <div className="public-auth-consent">
                   <input
                     type="checkbox"
                     id="legacy-consent-plan"
                     checked={migrationConsentPlanConfirmed}
                     onChange={(e) => setMigrationConsentPlanConfirmed(e.target.checked)}
-                    className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                    className="public-auth-checkbox"
                   />
-                  <label htmlFor="legacy-consent-plan" className="text-sm text-slate-600 cursor-pointer select-none">
+                  <label htmlFor="legacy-consent-plan">
                     I confirm that the school will use the parent-consent form sent to its registration email, or an approved equivalent, to notify parents or guardians and obtain any required consent before uploading student biodata, migrating legacy records, or uploading WAEC or BECE data.
                   </label>
                 </div>
-                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                  <p className="text-sm font-semibold text-blue-900">Anonymized educational benchmarking notice</p>
-                  <p className="mt-2 text-sm leading-6 text-blue-900">
+                <details className="public-auth-disclosure">
+                  <summary>Anonymized educational benchmarking notice</summary>
+                  <p>
                     EduPulse SMT may de-identify and aggregate lawfully supplied academic records for district, regional, and national benchmarking, curriculum research, and system optimization. Student names, IDs, contact details, and direct school identifiers are intended to be removed before data enters the shared analytics layer, and shared outputs should remain aggregated rather than naming your students or school.
                   </p>
-                </div>
-                <p className="text-xs leading-5 text-slate-500">
+                </details>
+                <p className="public-auth-hint">
                   By continuing, you confirm that your school has authority to manage student and guardian data in EduPulse SMT, will send the required parent or guardian notice or consent form before uploading any student biodata to EduPulse, including legacy records and WAEC or BECE result data, and explicitly accepts EduPulse SMT's Data Processing Agreement for anonymized, aggregated academic benchmarking and educational insights in line with Ghana's Data Protection Act.
                 </p>
               </div>
 
-              <button type="submit" className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold mt-8 hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 flex items-center justify-center gap-2">
+              <button type="submit" className="public-auth-primary">
                 Continue to Plan Selection <ArrowRight size={20} />
               </button>
 
-              <p className="text-center mt-8 text-sm text-slate-400">
-                Already have an account? <a href="/login" className="text-blue-600 font-bold hover:underline">Login</a>
+              <p className="public-auth-switch">
+                Already have an account? <a href="/login">Login</a>
               </p>
             </form>
           )}
@@ -380,109 +360,106 @@ export default function Register() {
           {/* STEP 2: Plan Selection */}
           {step === 2 && (
             <div>
-              <h1 className="text-3xl font-bold text-slate-800 mb-2">Choose Your Plan</h1>
-              <p className="text-slate-500 mb-4">Select the perfect plan for {form.schoolName}</p>
+              <h2 className="public-auth-step-title">Choose Your Plan</h2>
 
               {/* Important Notice */}
-              <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-xl mb-6">
-                <p className="text-sm text-blue-900 font-semibold">
-                  ℹ️ <strong>Free</strong> completes instantly. If you choose <strong>Basic</strong> or <strong>Premium</strong>, you will pay only the base fee now. Any overage above the included students will be billed later from actual usage.
+              <div className="public-auth-notice">
+                <p>
+                  <strong>Free</strong> completes instantly. If you choose <strong>Basic</strong> or <strong>Premium</strong>, you will pay only the base fee now. Any overage above the included students will be billed later from actual usage.
                 </p>
               </div>
 
               {plansLoading ? (
-                <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 p-12">
-                  <Loader className="h-8 w-8 animate-spin text-blue-600" />
+                <div className="public-auth-loading" role="status">
+                  <Loader className="public-auth-spinner" size={24} /> Loading plans...
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="public-auth-plans" role="radiogroup" aria-label="Subscription plan">
                   {plans.map((plan) => {
                     const isSelected = form.selectedPlan === plan.name;
                     
                     return (
-                      <div
+                      <label
                         key={plan.name}
-                        onClick={() => setForm({...form, selectedPlan: plan.name})}
-                        className={`relative border-2 rounded-2xl p-6 cursor-pointer transition-all ${
-                          isSelected 
-                            ? 'border-blue-600 bg-blue-50 shadow-xl' 
-                            : 'border-slate-200 hover:border-blue-300 hover:shadow-lg'
-                        }`}
+                        className={`public-auth-plan ${isSelected ? 'is-selected' : ''}`}
                       >
+                        <input type="radio" name="registration-plan" value={plan.name} checked={isSelected} onChange={() => setForm({...form, selectedPlan: plan.name})} aria-label={plan.displayName} />
                         {plan.popular && (
-                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">
+                          <div className="public-auth-plan-badge">
                             MOST POPULAR
                           </div>
                         )}
                         {isSelected && (
-                          <div className="absolute top-4 right-4">
-                            <CheckCircle className="text-blue-600" size={24} />
+                          <div className="public-auth-plan-selected">
+                            <CheckCircle size={20} />
                           </div>
                         )}
                         
-                        <h3 className="text-xl font-bold text-slate-800 mb-2">{plan.displayName}</h3>
-                        <p className="text-sm text-slate-600 mb-4">{plan.description}</p>
+                        <h3>{plan.displayName}</h3>
+                        <p className="public-auth-plan-description">{plan.description}</p>
                         
-                        <div className="mb-4">
+                        <div className="public-auth-plan-price">
                           {plan.name === 'Free' ? (
-                            <div className="text-3xl font-black text-slate-800">GH₵ 0</div>
+                            <strong>GH₵ 0</strong>
                           ) : (
                             <>
-                              <div className="text-2xl font-black text-slate-800">GH₵ {plan.baseFee.toLocaleString()}</div>
-                              <div className="text-sm text-slate-600">base fee at signup</div>
-                              <div className="text-xs text-slate-500 mt-1">Includes first {plan.includedStudents} students each term</div>
-                              <div className="text-xs text-slate-500">Later overage: GH₵ {plan.price}/student above {plan.includedStudents}</div>
+                              <strong>GH₵ {plan.baseFee.toLocaleString()}</strong>
+                              <div>base fee at signup</div>
+                              <div>Includes first {plan.includedStudents} students each term</div>
+                              <div>Additional students: GH₵ {plan.price} per student per term above {plan.includedStudents}</div>
                             </>
                           )}
                         </div>
                         
-                        <ul className="space-y-2 text-sm">
+                        <ul className="public-auth-plan-features">
                           {plan.features.map((feature, idx) => (
-                            <li key={idx} className="flex items-start gap-2">
-                              <CheckCircle className="text-green-600 shrink-0 mt-0.5" size={16} />
+                            <li key={idx}>
+                              {feature.included ? <CheckCircle size={16} /> : <XCircle size={16} aria-label="Not included" />}
                               <span>
                                 {feature.name}
-                                {feature.note && <span className="ml-1 text-xs italic text-slate-500">{feature.note}</span>}
+                                {!feature.included && <span> (not included)</span>}
+                                {feature.note && <span className="public-auth-plan-note"> {feature.note}</span>}
                               </span>
                             </li>
                           ))}
                         </ul>
 
                         {plan.packagingSummary && (
-                          <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                          <p className="public-auth-plan-note">
                             {plan.packagingSummary}
                           </p>
                         )}
 
                         {plan.addonOptions.length > 0 && (
-                          <div className="mt-4 border-t border-slate-100 pt-3">
-                            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Future Add-Ons</p>
-                            <p className="mb-2 text-xs text-slate-500">These are future optional products and do not come with the selected plan by default.</p>
-                            <div className="flex flex-wrap gap-2">
+                          <div className="public-auth-addons">
+                            <p><strong>Optional add-ons</strong></p>
+                            <p>These are purchased separately and are not included in the selected plan.</p>
+                            <div>
                               {plan.addonOptions.map((addon) => (
-                                <span key={addon} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
+                                <span key={addon}>
                                   {addon}
                                 </span>
                               ))}
                             </div>
                           </div>
                         )}
-                      </div>
+                      </label>
                     );
                   })}
                 </div>
               )}
 
-              <div className="flex gap-4">
+              <div className="public-auth-actions">
                 <button 
                   onClick={handleBack}
-                  className="flex-1 bg-slate-200 text-slate-700 p-4 rounded-xl font-bold hover:bg-slate-300 transition-all flex items-center justify-center gap-2"
+                  className="public-auth-secondary"
                 >
                   <ArrowLeft size={20} /> Back
                 </button>
                 <button 
                   onClick={handleNext}
-                  className="flex-1 bg-blue-600 text-white p-4 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 flex items-center justify-center gap-2"
+                  disabled={plansLoading || plans.length === 0}
+                  className="public-auth-primary"
                 >
                   Continue <ArrowRight size={20} />
                 </button>
@@ -492,74 +469,77 @@ export default function Register() {
 
           {/* STEP 3: Confirmation */}
           {step === 3 && (
-            <div>
-              <h1 className="text-3xl font-bold text-slate-800 mb-2">Confirm Registration</h1>
-              <p className="text-slate-500 mb-8">
+            <div aria-busy={isSubmitting}>
+              <h2 className="public-auth-step-title">Confirm Registration</h2>
+              <p className="public-auth-hint">
                 {form.selectedPlan === 'Free'
                   ? 'Review your details before completing registration'
                   : 'Review your details before continuing to payment'}
               </p>
 
-              <div className="bg-slate-50 rounded-2xl p-6 mb-6 space-y-4">
+              <div className="public-auth-review">
                 <div>
-                  <div className="text-xs font-bold text-slate-500 uppercase mb-1">School Name</div>
-                  <div className="text-lg font-bold text-slate-800">{form.schoolName}</div>
+                  <div className="public-auth-review-label">School Name</div>
+                  <div>{form.schoolName}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-slate-500 uppercase mb-1">Organization ID</div>
-                  <div className="text-lg font-mono font-bold text-slate-800">{form.schoolCode.toUpperCase()}</div>
+                  <div className="public-auth-review-label">School ID</div>
+                  <div>{form.schoolCode.toUpperCase()}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-slate-500 uppercase mb-1">Proprietor</div>
-                  <div className="text-lg font-bold text-slate-800">{form.username}</div>
+                  <div className="public-auth-review-label">Proprietor</div>
+                  <div>{form.username}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-slate-500 uppercase mb-1">Email</div>
-                  <div className="text-lg font-bold text-slate-800">{form.email}</div>
+                  <div className="public-auth-review-label">Email</div>
+                  <div>{form.email}</div>
                 </div>
-                <div className="border-t pt-4">
-                  <div className="text-xs font-bold text-slate-500 uppercase mb-1">Selected Plan</div>
-                  <div className="text-2xl font-black text-blue-600">{plans.find(p => p.name === form.selectedPlan)?.displayName || form.selectedPlan}</div>
+                <div className="public-auth-wide">
+                  <div className="public-auth-review-label">Selected Plan</div>
+                  <div className="public-auth-review-plan">{plans.find(p => p.name === form.selectedPlan)?.displayName || form.selectedPlan}</div>
                   {form.selectedPlan !== 'Free' && (
-                    <div className="text-sm text-slate-600 mt-1">
+                    <div className="public-auth-hint">
                       GH₵ {plans.find(p => p.name === form.selectedPlan)?.baseFee?.toLocaleString()} due now at signup
                     </div>
                   )}
                   {form.selectedPlan !== 'Free' && (
-                    <div className="text-xs text-slate-500 mt-1">
+                    <div className="public-auth-hint">
                       Overage above {plans.find(p => p.name === form.selectedPlan)?.includedStudents} students will be billed later based on actual active students.
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="flex gap-4">
+              <div className="public-auth-actions">
                 <button 
                   onClick={handleBack}
-                  className="flex-1 bg-slate-200 text-slate-700 p-4 rounded-xl font-bold hover:bg-slate-300 transition-all flex items-center justify-center gap-2"
+                  disabled={isSubmitting}
+                  className="public-auth-secondary"
                 >
                   <ArrowLeft size={20} /> Back
                 </button>
                 <button 
                   onClick={handleRegister}
-                  className="flex-1 bg-green-600 text-white p-4 rounded-xl font-bold hover:bg-green-700 transition-all shadow-xl shadow-green-200 flex items-center justify-center gap-2"
+                  disabled={isSubmitting}
+                  className="public-auth-primary"
                 >
-                  {form.selectedPlan === 'Free' ? 'Complete Registration ✓' : 'Proceed to Payment →'}
+                  {isSubmitting ? <Loader size={18} className="public-auth-spinner" /> : <ArrowRight size={18} />}
+                  {isSubmitting ? 'Creating account...' : form.selectedPlan === 'Free' ? 'Complete Registration' : 'Proceed to Payment'}
                 </button>
               </div>
 
-              <p className="text-center mt-5 text-xs text-slate-500 leading-relaxed">
+              <p className="public-auth-hint public-auth-confirm-policy">
                 By creating a school account, you accept our{' '}
-                <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-semibold hover:underline">Terms of Service</button>,{' '}
-                <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-semibold hover:underline">Privacy Policy</button>, and{' '}
-                <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>.
+                <button type="button" onClick={() => setShowTerms(true)} className="public-auth-link">Terms of Service</button>,{' '}
+                <button type="button" onClick={() => setShowPrivacy(true)} className="public-auth-link">Privacy Policy</button>, and{' '}
+                <button type="button" onClick={() => setShowRetention(true)} className="public-auth-link">Data Retention Policy</button>.
               </p>
 
-              <p className="text-center mt-4 text-xs text-slate-500 leading-relaxed">
+              <p className="public-auth-hint">
                 Registration also confirms acceptance of the Data Processing Agreement and this onboarding notice's disclosure of EduPulse SMT's planned use of irreversibly de-identified, aggregated school-performance data for benchmarking, research, and system optimization.
               </p>
 
-              <p className="text-center mt-6 text-xs text-slate-400">
+              <p className="public-auth-hint">
                 By completing registration, you confirm all information is accurate.
               </p>
             </div>
@@ -570,17 +550,18 @@ export default function Register() {
           <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
           <DataProcessingModal isOpen={showDataProcessing} onClose={() => setShowDataProcessing(false)} />
 
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Registration Support</p>
-            <p className="text-sm text-slate-600">{publicContent.auth?.register_support_note || DEFAULT_PUBLIC_CONTENT.auth.register_support_note}</p>
-            <div className="mt-3 text-sm space-y-1">
-              <p className="text-slate-700">Email: <a href={`mailto:${publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}`} className="text-blue-600 font-semibold hover:underline">{publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}</a></p>
-              <p className="text-slate-700">Phone/WhatsApp: <a href={`tel:${(publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone).replace(/\s+/g, '')}`} className="text-blue-600 font-semibold hover:underline">{publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone}</a></p>
+          <aside className="public-auth-help">
+            <details>
+              <summary>Registration support</summary>
+              <p>{publicContent.auth?.register_support_note || DEFAULT_PUBLIC_CONTENT.auth.register_support_note}</p>
+              <div>
+              <p>Email: <a href={`mailto:${publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}`}>{publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}</a></p>
+              <p>Phone/WhatsApp: <a href={`tel:${(publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone).replace(/\s+/g, '')}`}>{publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone}</a></p>
             </div>
-            <p className="text-xs text-slate-500 mt-2">Typical response time: {publicContent.support?.response_time || DEFAULT_PUBLIC_CONTENT.support.response_time}.</p>
-          </div>
-        </div>
-      </div>
-    </div>
+              <p>Typical response time: {publicContent.support?.response_time || DEFAULT_PUBLIC_CONTENT.support.response_time}.</p>
+            </details>
+          </aside>
+      </section>
+    </PublicSiteLayout>
   );
 }

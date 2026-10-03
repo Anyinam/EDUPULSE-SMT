@@ -212,9 +212,9 @@ function LayoutContent({ subscriptionAccess, refreshBranding }) {
           <X size={22} />
         </button>
         <div className="flex items-center gap-3 mb-10">
-          <Logo size="md" variant="default" />
-          <div>
-            <h2 className="text-xl font-bold tracking-tight uppercase">{branding.name || 'EduPulse SMT'}</h2>
+          <Logo size="lg" className="shrink-0" ariaLabel="EduPulse SMT logo" />
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold leading-snug break-words uppercase">{branding.name || 'EduPulse SMT'}</h2>
             <div className="mt-2">
               <SchoolVerifiedBadge verified={Boolean(branding.is_verified)} compact className="border-white/20 bg-white/10 text-white" />
             </div>
@@ -234,10 +234,10 @@ function LayoutContent({ subscriptionAccess, refreshBranding }) {
             <>
               {modules.finance && <li><Link to="/proprietor" className="hover:text-blue-200 pl-3">📊 Dashboard & Insights</Link></li>}
               {modules.finance && canTrackPayments && <li><Link to="/proprietor?tab=payment-tracker" className="hover:text-blue-200 pl-3">💳 Payment Tracker</Link></li>}
-              {modules.finance && canTrackPayments && <li><Link to="/proprietor?tab=finance" className="hover:text-blue-200 pl-3">📈 Transaction History</Link></li>}
+              {modules.finance && <li><Link to="/proprietor?tab=finance" className="hover:text-blue-200 pl-3">📈 Transaction History</Link></li>}
               {canAccessExamIntelligence && <li><Link to="/proprietor?tab=exam-intelligence" className="hover:text-blue-200 pl-3">📘 Exam Intelligence</Link></li>}
               {modules.finance && canAccessRescueActivity && <li><Link to="/proprietor?tab=rescue-activity" className="hover:text-blue-200 pl-3">🚨 Rescue Activity</Link></li>}
-              {modules.finance && canTrackPayments && <li><Link to="/proprietor?tab=audit" className="hover:text-blue-200 pl-3">🔒 Audit Report</Link></li>}
+              {modules.finance && <li><Link to="/proprietor?tab=audit" className="hover:text-blue-200 pl-3">🔒 Audit Report</Link></li>}
               {modules.admissions && <li><Link to="/proprietor?tab=terminal-reports" className="hover:text-blue-200 pl-3">📄 Terminal Reports</Link></li>}
               {modules.hr && <li><Link to="/proprietor?tab=staff" className="hover:text-blue-200 pl-3">👥 Staff & HR</Link></li>}
               {modules.inventory && canManageInventory && <li><Link to="/proprietor?tab=inventory" className="hover:text-blue-200 pl-3">📦 Inventory</Link></li>}

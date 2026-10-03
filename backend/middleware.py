@@ -66,6 +66,7 @@ SUSPENDED_READONLY_PATHS = {
 }
 
 SUSPENDED_READONLY_PATH_PATTERNS = (
+    re.compile(r"^/api/students/\d+/payments$"),
     re.compile(r"^/api/students/\d+/terminal-report$"),
     re.compile(r"^/api/students/\d+/reports$"),
 )

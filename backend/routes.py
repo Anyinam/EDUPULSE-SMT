@@ -1448,14 +1448,6 @@ def _payment_records_verification_block_response(school, public=False):
     return jsonify(payload), 403
 
 
-def _payment_audit_access_block_response(school):
-    verification_restriction = _payment_records_verification_block_response(school)
-    if verification_restriction:
-        return verification_restriction
-
-    return _payment_collection_block_response(school)
-
-
 def _student_hard_delete_blockers(student):
     if not student:
         return []
@@ -6178,8 +6170,12 @@ def forgot_password():
             db.session.add(reset_record)
             db.session.commit()
 
-            # In production, this URL would point to the frontend domain
-            reset_link = f"http://localhost:5173/reset-password?token={reset_token}"
+            frontend_base_url = (
+                (os.getenv("FRONTEND_URL") or "").strip()
+                or (os.getenv("FRONTEND_ORIGIN") or "").strip()
+                or "http://localhost:5173"
+            ).rstrip("/")
+            reset_link = f"{frontend_base_url}/reset-password?token={reset_token}"
 
             # Send password reset email using template system
             reset_subject, reset_body = get_password_reset_email(
@@ -6683,6 +6679,19 @@ def get_school_subjects():
 def get_school_classes():
     """Returns all classes in the school."""
     try:
+        if str(request.args.get("active_only") or "").lower() in {"true", "1", "yes"}:
+            rows = (
+                db.session.query(Student.current_class)
+                .filter(Student.school_id == g.school_id, Student.status.in_(["Active", "active"]))
+                .distinct()
+                .order_by(Student.current_class)
+                .all()
+            )
+            return jsonify([
+                {"name": row[0], "class_name": row[0]}
+                for row in rows if row[0] and row[0].strip()
+            ])
+
         # Try to get classes from AcademicClass table
         classes = (
             AcademicClass.query.filter_by(school_id=g.school_id)
@@ -7408,7 +7417,11 @@ def set_class_grading_policy():
 @jwt_required()
 def get_students_by_class(class_name):
     """Fetches students for grade entry or homeroom use."""
-    if class_name not in VALID_GRADES:
+    if (
+        class_name not in VALID_GRADES
+        and not AcademicClass.query.filter_by(school_id=g.school_id, name=class_name).first()
+        and not Student.query.filter_by(school_id=g.school_id, current_class=class_name).first()
+    ):
         return jsonify({"message": "Invalid class name."}), 400
     
     user = User.query.get(int(get_jwt_identity()))
@@ -7638,6 +7651,7 @@ def get_students():
                     "id": s.id,
                     "name": s.name,
                     "student_code": s.student_code,
+                    "profile_picture": s.profile_picture,
                     "current_class": s.current_class,
                     "guardian_name": s.guardian_name,
                     "parent_name": s.parent_name,
@@ -7800,6 +7814,18 @@ def download_student_document(student_id, document_id):
     if not linked_document:
         return jsonify({"message": "Document not found"}), 404
 
+    if linked_document.get("storage_backend") == "s3" and linked_document.get("storage_key"):
+        try:
+            file_bytes = read_document_bytes(linked_document["storage_key"])
+        except (DocumentStorageError, FileNotFoundError):
+            return jsonify({"message": "Document file is no longer available"}), 404
+        return send_file(
+            BytesIO(file_bytes),
+            as_attachment=False,
+            download_name=linked_document.get("original_filename") or linked_document.get("filename") or "admission-document",
+            mimetype=linked_document.get("content_type") or "application/octet-stream",
+        )
+
     resolved_path = _resolve_existing_school_file(
         _get_parent_admission_document_storage_root(),
         linked_document.get("stored_filename"),
@@ -7862,14 +7888,6 @@ def get_payment_receipts():
 def get_student_payments(student_id):
     """Fetch payment history for a specific student."""
     try:
-        school = School.query.get(g.school_id)
-        verification_restriction = _payment_records_verification_block_response(school)
-        if verification_restriction:
-            return verification_restriction
-        collection_restriction = _payment_collection_block_response(school)
-        if collection_restriction:
-            return collection_restriction
-
         student = Student.query.filter_by(
             id=student_id, school_id=g.school_id
         ).first_or_404()
@@ -7882,7 +7900,7 @@ def get_student_payments(student_id):
         payment_list = []
         for payment in payments:
             payment_category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
-            applied_amount = round(float(payment_category.get("applied_school_fee_amount") or payment.amount or 0), 2)
+            applied_amount = round(float(payment_category.get("applied_school_fee_amount", payment.amount) or 0), 2)
             gross_amount = round(float(payment_category.get("gross_amount_paid") or payment_category.get("charged_total_amount") or payment.amount or 0), 2)
 
             payment_list.append(
@@ -7896,7 +7914,7 @@ def get_student_payments(student_id):
                     "payment_type": payment.payment_type,
                     "method": payment.method,
                     "status": payment.status,
-                    "date_paid": payment.date_paid.strftime("%Y-%m-%d %H:%M"),
+                    "date_paid": payment.date_paid.strftime("%Y-%m-%d %H:%M") if payment.date_paid else None,
                     "reference_id": payment.reference_id,
                     "payment_category": payment_category,
                     "verified_at": (
@@ -9294,10 +9312,14 @@ def _get_daily_meal_breakdown(school_id):
         "finance",
         "inventory_manager",
     ]
-    total_staff_meals = (
+    staff_candidates = (
         User.query.filter_by(school_id=school_id)
         .filter(User.role.in_(staff_roles))
-        .count()
+        .all()
+    )
+    total_staff_meals = sum(
+        1 for user in staff_candidates
+        if "kitchen" not in {str(role).strip().lower() for role in (user.roles or [])}
     )
     return {
         "present_students": present_students,
@@ -16205,14 +16227,6 @@ def get_finance_summary():
 def get_transactions():
     """Full Financial Ledger for the Proprietor."""
     try:
-        school = School.query.get(g.school_id)
-        verification_restriction = _payment_records_verification_block_response(school)
-        if verification_restriction:
-            return verification_restriction
-        collection_restriction = _payment_collection_block_response(school)
-        if collection_restriction:
-            return collection_restriction
-
         payload = finance_read_service.get_transactions_payload(
             g.school_id,
             payment_model=Payment,
@@ -16249,11 +16263,6 @@ def get_transactions():
 def get_audit_ledger():
     """Get immutable ledger entries with hash chain verification."""
     try:
-        school = School.query.get(g.school_id)
-        restriction = _payment_audit_access_block_response(school)
-        if restriction:
-            return restriction
-
         from backend.api.models import LedgerEntry
         
         # Get query parameters
@@ -16340,11 +16349,6 @@ def get_audit_ledger():
 def verify_audit_ledger():
     """Run complete ledger chain verification."""
     try:
-        school = School.query.get(g.school_id)
-        restriction = _payment_audit_access_block_response(school)
-        if restriction:
-            return restriction
-
         is_valid, broken_entries, total_checked = verify_ledger_chain(g.school_id)
         
         return jsonify({
@@ -16365,11 +16369,6 @@ def verify_audit_ledger():
 def get_audit_summary():
     """Get Financial Integrity Report summary."""
     try:
-        school = School.query.get(g.school_id)
-        restriction = _payment_audit_access_block_response(school)
-        if restriction:
-            return restriction
-
         # Get date range from query params
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
@@ -16403,11 +16402,6 @@ def get_audit_summary():
 def get_audit_events():
     """Get school audit events with optional action filter for compliance review."""
     try:
-        school = School.query.get(g.school_id)
-        restriction = _payment_audit_access_block_response(school)
-        if restriction:
-            return restriction
-
         limit = request.args.get("limit", 50, type=int)
         offset = request.args.get("offset", 0, type=int)
         action = request.args.get("action", type=str)
@@ -16467,11 +16461,6 @@ def get_audit_events():
 def export_audit_events_csv():
     """Export school audit events to CSV with optional action filter."""
     try:
-        school = School.query.get(g.school_id)
-        restriction = _payment_audit_access_block_response(school)
-        if restriction:
-            return restriction
-
         action = request.args.get("action", type=str)
 
         query = AuditLog.query.filter(AuditLog.school_id == g.school_id)
@@ -19202,7 +19191,7 @@ def recover_subscription_reconciliation_gaps():
 def recover_finance_paystack_reference():
     """Recover one Paystack transaction reference without relying on the removed reconciliation card."""
     school = School.query.get(g.school_id)
-    restriction = _payment_audit_access_block_response(school)
+    restriction = _payment_records_verification_block_response(school) or _payment_collection_block_response(school)
     if restriction:
         return restriction
 

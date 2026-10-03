@@ -4,27 +4,20 @@ import axios from 'axios'
 import './index.css'
 import App from './App.jsx'
 import { clearAuth, getAuthToken, validateTokenExpiry } from './utils/authUtils'
-
-const AUTH_EXEMPT_PATH_PREFIXES = [
-  '/api/login',
-  '/api/register',
-  '/api/2fa/',
-  '/api/forgot-password',
-  '/api/reset-password',
-  '/api/public/',
-];
+import { isAuthExemptRequest } from './utils/publicRequests'
 
 const isPublicRoute = (pathname = window.location.pathname) => (
-  pathname === '/login'
+  pathname === '/'
+  || pathname === '/login'
   || pathname === '/admin/login'
   || pathname === '/platform-console'
   || pathname === '/register'
+  || pathname === '/forgot-password'
+  || pathname === '/reset-password'
   || pathname === '/pricing'
   || pathname === '/pricing-comparison'
   || pathname.startsWith('/apply/')
 );
-
-const isAuthExemptRequest = (url) => AUTH_EXEMPT_PATH_PREFIXES.some((prefix) => String(url || '').startsWith(prefix));
 
 const redirectToLogin = (message) => {
   clearAuth();

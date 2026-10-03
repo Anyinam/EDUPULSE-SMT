@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { getAuthToken, validateTokenExpiry } from './utils/authUtils';
 const Layout = lazy(() => import('./components/Layout'));
+const PublicHome = lazy(() => import('./features/PublicHome'));
 const Login = lazy(() => import('./features/login'));
 const AdminLogin = lazy(() => import('./features/AdminLogin'));
 const AdminDashboard = lazy(() => import('./features/AdminDashboard'));
@@ -26,6 +27,8 @@ const AdmissionsPanel = lazy(() => import('./features/AdmissionsPanel'));
 const PaymentCallback = lazy(() => import('./features/PaymentCallback'));
 const Logout = lazy(() => import('./features/Logout'));
 const Register = lazy(() => import('./features/Register'));
+const ForgotPassword = lazy(() => import('./features/ForgotPassword'));
+const ResetPassword = lazy(() => import('./features/ResetPassword'));
 const HelpCenter = lazy(() => import('./features/HelpCenter'));
 const AdminSupport = lazy(() => import('./features/AdminSupport'));
 const FirstLoginPasswordChange = lazy(() => import('./features/FirstLoginPasswordChange'));
@@ -80,7 +83,7 @@ function LoginRoute() {
 }
 
 function RootRoute() {
-  return <Navigate to={isActiveSession() ? getStoredPostLoginTarget() : '/login'} replace />;
+  return isActiveSession() ? <Navigate to={getStoredPostLoginTarget()} replace /> : <PublicHome />;
 }
 
 function PaymentReceiptsRoute() {
@@ -96,10 +99,13 @@ export default function App() {
     <Router>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
+          <Route path="/" element={<RootRoute />} />
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/logout" element={<Logout />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/pricing" element={<PricingComparison />} />
           <Route path="/pricing-comparison" element={<PricingComparison />} />
           <Route path="/subscription" element={<SubscriptionPlans />} />
@@ -130,7 +136,6 @@ export default function App() {
             <Route path="inventory" element={<InventoryManager />} />
             <Route path="help" element={<HelpCenter />} />
             <Route path="admin/support" element={<AdminSupport />} />
-            <Route index element={<RootRoute />} />
           </Route>
           <Route path="*" element={<RootRoute />} />
         </Routes>

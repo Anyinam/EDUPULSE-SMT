@@ -1,5 +1,35 @@
+import base64
 import json
+import os
 from datetime import date
+
+from flask import current_app
+
+from backend.document_storage import DocumentStorageError, read_school_document_bytes
+
+
+def _extract_admission_passport_photo(application):
+    storage_root = current_app.config.get("PARENT_ADMISSION_DOCUMENT_STORAGE_DIR") or os.path.join(
+        current_app.instance_path, "parent-admission-documents"
+    )
+    for document in reversed(application.document_manifest or []):
+        if (
+            not isinstance(document, dict)
+            or document.get("category") != "passport_photo"
+            or document.get("is_primary_photo") is not True
+        ):
+            continue
+        content_type = (document.get("content_type") or "image/jpeg").strip().lower()
+        if content_type not in {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/bmp"}:
+            continue
+        try:
+            photo_bytes = read_school_document_bytes(document, application.school_id, storage_root)
+        except (OSError, DocumentStorageError) as exc:
+            current_app.logger.warning("Unable to read admission passport photo for application %s: %s", application.id, exc)
+            continue
+        if photo_bytes:
+            return f"data:{content_type};base64,{base64.b64encode(photo_bytes).decode('ascii')}"
+    return None
 
 
 def submit_parent_admission_application(
@@ -415,6 +445,9 @@ def review_parent_admission_application(
 
         application.admitted_student_id = student.id
         application.status = "Approved"
+        passport_photo = _extract_admission_passport_photo(application)
+        if passport_photo:
+            student.profile_picture = passport_photo
         db_session.commit()
         response_payload.update(
             {

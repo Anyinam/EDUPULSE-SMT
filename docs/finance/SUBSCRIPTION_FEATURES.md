@@ -7,12 +7,14 @@ EduPulse SMT offers three subscription tiers, each with specific features and re
 
 Access uses the current effective plan, not cached browser plan labels. After a Premium trial expires on a Free base subscription:
 
-- Payment instructions, account provisioning, payment entry, approvals, recovery, transaction history, inventory, and financial audits are unavailable.
+- New payment instructions, account provisioning, payment entry, approvals, recovery, and inventory operations are unavailable.
+- Historical transaction history, student payment records, and financial audit reports remain readable by authorized staff on Free Tier. Subscription changes must not hide or delete recorded payment evidence. Historical reads remain available during over-capacity, verification restrictions, and billing suspension; tenant and role checks still apply.
 - Payment receipt printing remains available on every plan, including after trial expiry, over-capacity, verification restrictions, and billing suspension. Authorized staff use Payment Receipts to search and print recorded payments; authentication and school isolation still apply. Pending or rejected records retain their actual status and are not represented as confirmed payments.
 - Signed incoming payment callbacks are retained as Pending with a PAYMENT_FEATURE_UNAVAILABLE flag. They do not reduce student balances or create confirmed fee ledger entries.
 - Attendance edits, feeding configuration edits, bulk imports/status updates, and lesson-note operations require paid access. Basic roster, admissions review, report viewing, branding, calendar, and subscription management remain available.
 - New classes and staff respect plan quotas. The proprietor is excluded from the staff quota. Existing records are preserved after downgrade.
 - Payment-instruction GET requests reuse stored routes; provider provisioning and route repricing use the guarded virtual-account POST endpoint.
+- A failed optional student-profile data request shows a warning for that section without hiding the basic learner or guardian record. Admissions approval copies the dedicated learner passport photo into the student profile from local or durable S3 storage and retains the linked admissions documents.
 
 Ledger confirmation now seals complete metadata before hashing. Existing failed hashes must be investigated against original payment/provider records; do not silently rebuild production hashes to hide the failure. Corrections should preserve the original evidence and be recorded through an audited process.
 

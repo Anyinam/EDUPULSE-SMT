@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useBranding } from '../hooks/useBranding';
 import FeatureLock from './FeatureLock';
@@ -13,6 +13,7 @@ function StudentPaymentTrackerContent() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentPayments, setStudentPayments] = useState([]);
   const [paymentCodes, setPaymentCodes] = useState(null);
+  const [paymentCodesLoading, setPaymentCodesLoading] = useState(false);
   const [paymentCodesError, setPaymentCodesError] = useState(null);
   const [reconciliationReference, setReconciliationReference] = useState('');
   const [reconciliationLoading, setReconciliationLoading] = useState(false);
@@ -23,6 +24,15 @@ function StudentPaymentTrackerContent() {
   const [selectedClass, setSelectedClass] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // all, paid, pending, overdue
   const { branding } = useBranding();
+  const mounted = useRef(true);
+  const selectedStudentId = useRef(null);
+  const historyRequestId = useRef(0);
+  const codesRequestId = useRef(0);
+  const recoveryRequestId = useRef(0);
+
+  const isCurrentRequest = (studentId, requestId, requestRef) => (
+    mounted.current && selectedStudentId.current === studentId && requestRef.current === requestId
+  );
 
   const getTuitionConvenienceDetails = (code, codesRecord = paymentCodes) => {
     const configuredPercentage = Number(codesRecord?.fees_configuration?.tuition_convenience_fee_percentage || schoolFees?.tuition_convenience_fee_percentage || 0);
@@ -82,15 +92,23 @@ function StudentPaymentTrackerContent() {
   });
 
   useEffect(() => {
+    mounted.current = true;
     fetchStudents();
     fetchSchoolFees();
+    return () => {
+      mounted.current = false;
+      selectedStudentId.current = null;
+      historyRequestId.current += 1;
+      codesRequestId.current += 1;
+      recoveryRequestId.current += 1;
+    };
   }, []);
 
   const fetchStudents = async () => {
     try {
       const res = await axios.get('/api/students', getAuthHeaders());
       const studentList = Array.isArray(res.data) ? res.data : res.data?.students || [];
-      setStudents(studentList);
+      if (mounted.current) setStudents(studentList);
     } catch (err) {
       console.error('Failed to load students');
     }
@@ -99,32 +117,46 @@ function StudentPaymentTrackerContent() {
   const fetchSchoolFees = async () => {
     try {
       const res = await axios.get('/api/school/fees', getAuthHeaders());
-      setSchoolFees(res.data);
+      if (mounted.current) setSchoolFees(res.data);
     } catch (err) {
       console.error('Failed to load school fees');
     }
   };
 
   const fetchStudentPayments = async (studentId) => {
+    if (!mounted.current || selectedStudentId.current !== studentId) return;
+    const requestId = ++historyRequestId.current;
     try {
       setLoading(true);
       const res = await axios.get(`/api/students/${studentId}/payments`, getAuthHeaders());
+      if (!isCurrentRequest(studentId, requestId, historyRequestId)) return;
       setStudentPayments(Array.isArray(res.data) ? res.data : res.data?.payments || []);
     } catch (err) {
+      if (!isCurrentRequest(studentId, requestId, historyRequestId)) return;
       if (err.response?.data?.error !== 'school_verification_required' && err.response?.data?.error !== 'payment_collection_blocked') {
         console.error('Failed to load student payments');
       }
       setStudentPayments([]);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest(studentId, requestId, historyRequestId)) setLoading(false);
     }
   };
 
   const handleSelectStudent = (student) => {
-    setSelectedStudent(student);
+    selectedStudentId.current = student?.id ?? null;
+    historyRequestId.current += 1;
+    codesRequestId.current += 1;
+    recoveryRequestId.current += 1;
+    setSelectedStudent(student?.id != null ? student : null);
+    setStudentPayments([]);
+    setPaymentCodes(null);
+    setLoading(false);
+    setPaymentCodesLoading(false);
     setPaymentCodesError(null);
     setReconciliationReference('');
     setReconciliationResult(null);
+    setReconciliationLoading(false);
+    if (student?.id == null) return;
     fetchStudentPayments(student.id);
     fetchPaymentCodes(student.id);
   };
@@ -134,6 +166,8 @@ function StudentPaymentTrackerContent() {
     if (!trimmedReference || !selectedStudent) {
       return;
     }
+    const studentId = selectedStudent.id;
+    const requestId = ++recoveryRequestId.current;
 
     try {
       setReconciliationLoading(true);
@@ -143,23 +177,25 @@ function StudentPaymentTrackerContent() {
         { reference: trimmedReference },
         getAuthHeaders()
       );
+      if (!isCurrentRequest(studentId, requestId, recoveryRequestId)) return;
       setReconciliationResult({
         tone: response.data?.status === 'recorded' ? 'success' : 'neutral',
         message: response.data?.message || `Paystack reference ${trimmedReference} was reprocessed.`,
         payload: response.data || null,
       });
       await Promise.all([
-        fetchStudentPayments(selectedStudent.id),
-        fetchPaymentCodes(selectedStudent.id),
+        fetchStudentPayments(studentId),
+        fetchPaymentCodes(studentId),
       ]);
     } catch (err) {
+      if (!isCurrentRequest(studentId, requestId, recoveryRequestId)) return;
       setReconciliationResult({
         tone: 'error',
         message: err.response?.data?.message || 'Unable to recover this Paystack reference right now.',
         payload: err.response?.data || null,
       });
     } finally {
-      setReconciliationLoading(false);
+      if (isCurrentRequest(studentId, requestId, recoveryRequestId)) setReconciliationLoading(false);
     }
   };
 
@@ -169,12 +205,21 @@ function StudentPaymentTrackerContent() {
   };
 
   const fetchPaymentCodes = async (studentId) => {
+    if (!mounted.current || selectedStudentId.current !== studentId) return;
+    const requestId = ++codesRequestId.current;
+    setPaymentCodes(null);
+    setPaymentCodesError(null);
+    setPaymentCodesLoading(true);
     try {
       const result = await fetchPaymentCodesData(studentId);
+      if (!isCurrentRequest(studentId, requestId, codesRequestId)) return;
+      setPaymentCodes(result);
       const preparedResult = await ensureTrackedTransferRoutes(studentId, result);
+      if (!isCurrentRequest(studentId, requestId, codesRequestId)) return;
       setPaymentCodes(preparedResult);
       setPaymentCodesError(null);
     } catch (err) {
+      if (!isCurrentRequest(studentId, requestId, codesRequestId)) return;
       const responseData = err.response?.data || null;
       if (responseData?.error === 'payment_collection_blocked' || responseData?.error === 'school_verification_required') {
         setPaymentCodesError(responseData);
@@ -186,6 +231,8 @@ function StudentPaymentTrackerContent() {
         });
       }
       setPaymentCodes(null);
+    } finally {
+      if (isCurrentRequest(studentId, requestId, codesRequestId)) setPaymentCodesLoading(false);
     }
   };
 
@@ -234,7 +281,7 @@ function StudentPaymentTrackerContent() {
   };
 
   const printPaymentInstructions = async () => {
-    if (!paymentCodes) return;
+    if (!paymentCodes || paymentCodesLoading) return;
     const html = buildPaymentInstructionsHtml(paymentCodes);
     openInstructionPrintWindow(`Payment Instructions & Reference Guide - ${paymentCodes.student_name}`, html);
   };
@@ -1084,6 +1131,12 @@ function StudentPaymentTrackerContent() {
               </div>
 
               {/* Payment Routes Section */}
+              {paymentCodesLoading && (
+                <div role="status" className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <span aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-amber-200 border-t-amber-700" />
+                  {paymentCodes ? 'Preparing tracked transfer accounts...' : 'Loading payment instructions...'}
+                </div>
+              )}
               {paymentCodesError ? (
                 <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-700">
@@ -1140,7 +1193,7 @@ function StudentPaymentTrackerContent() {
                 </div>
               ) : null}
 
-              {paymentCodes && trackerPaymentCodes.length > 0 && (
+              {!paymentCodesLoading && paymentCodes && trackerPaymentCodes.length > 0 && (
                 <div className="bg-amber-50 border-l-4 border-l-amber-600 p-4 rounded-lg">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-bold text-amber-900 flex items-center gap-2">
@@ -1259,7 +1312,7 @@ function StudentPaymentTrackerContent() {
                 </div>
               )}
 
-              {trackerSupportsReconciliation && (
+              {!paymentCodesLoading && trackerSupportsReconciliation && (
                 <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-700">
                     Transfer Reconciliation

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import FeatureLock from '../components/FeatureLock';
 
 function formatMoney(value) {
   return `GH₵ ${Number(value || 0).toFixed(2)}`;
@@ -43,11 +42,13 @@ function getTrackedTransferDetails(transaction) {
 }
 
 export default function TransactionHistory() {
-  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><TransactionHistoryContent /></FeatureLock>;
+  return <TransactionHistoryContent />;
 }
 
 function TransactionHistoryContent() {
   const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -55,8 +56,14 @@ function TransactionHistoryContent() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id') 
       };
-      const res = await axios.get('/api/finance/transactions', { headers });
-      setTransactions(res.data);
+      try {
+        const res = await axios.get('/api/finance/transactions', { headers });
+        setTransactions(Array.isArray(res.data) ? res.data : []);
+      } catch (err) {
+        setError(err.response?.data?.message || 'Please try again later.');
+      } finally {
+        setLoading(false);
+      }
     };
     fetchTransactions();
   }, []);
@@ -131,13 +138,16 @@ function TransactionHistoryContent() {
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Financial Ledger</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Receipt printing is available in the Payment Tracker after selecting a student and the specific payment record.
+            <a href="/payment-receipts" className="text-blue-700 underline">Payment Receipts</a>
           </p>
         </div>
-        <button onClick={downloadCSV} className="bg-green-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 flex items-center gap-2">
+        <button onClick={downloadCSV} disabled={loading || Boolean(error) || !transactions.length} className="bg-green-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 flex items-center gap-2 disabled:opacity-50">
           📥 Export CSV
         </button>
       </div>
+      {loading && <p role="status">Loading transaction history...</p>}
+      {error && <p role="alert">Transaction history unavailable: {error}</p>}
+      {!loading && !error && !transactions.length && <p>No transaction history recorded yet.</p>}
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b">

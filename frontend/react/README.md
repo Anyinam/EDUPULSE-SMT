@@ -1,4 +1,16 @@
-# React + Vite
+# EduPulse SMT Frontend
+
+## Local API Setup
+
+The Vite development server normally forwards `/api` requests to `http://127.0.0.1:5000`. Run the backend for login, registration, password recovery, and school operations, or set `VITE_API_PROXY_TARGET` to your development backend.
+
+For a public-site preview without a local backend, set `VITE_PUBLIC_API_PROXY_TARGET=https://edupulsesmt.com` in an ignored `.env.development.local` file in this directory. Only GET/HEAD requests to `/api/subscription/plans` and `/api/public/platform-content` use this target. Authorization and cookie headers are removed. Account submissions and private APIs continue to use the local backend and are never forwarded to production by this option.
+
+Run `npm run dev`, `npm test -- --run`, and `npm run build` from this directory. Vite reloads when its configuration changes; refresh the browser after the server is ready.
+
+Password-reset emails use the backend's `FRONTEND_URL`, then `FRONTEND_ORIGIN`, with a localhost fallback for development. Configure a public frontend URL in production.
+
+## Toolchain
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

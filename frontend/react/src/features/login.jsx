@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Logo } from '../components/Logo';
+import PublicSiteLayout from '../components/PublicSiteLayout';
+import { ArrowRight, Loader } from 'lucide-react';
+import '../styles/public-auth.css';
 import TermsModal from '../components/TermsModal';
 import PrivacyModal from '../components/PrivacyModal';
 import DataRetentionModal from '../components/DataRetentionModal';
@@ -37,14 +39,15 @@ const DEFAULT_PUBLIC_CONTENT = {
     response_time: 'within 24 hours on business days'
   },
   auth: {
-    login_title: 'Welcome Back',
-    login_subtitle: 'Enter your business credentials to access the dashboard.'
+    login_title: 'Welcome back',
+    login_subtitle: 'Sign in to your school account.'
   }
 };
 
 export default function Login() {
   const [creds, setCreds] = useState({ schoolCode: '', username: '', password: '' });
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [twoFaToken, setTwoFaToken] = useState('');
   const [twoFaCode, setTwoFaCode] = useState('');
   const [twoFaStep, setTwoFaStep] = useState(false);
@@ -64,7 +67,7 @@ export default function Login() {
       try {
         const res = await axios.get('/api/public/platform-content');
         setPublicContent((prev) => ({ ...prev, ...res.data }));
-      } catch (err) {
+      } catch {
         setPublicContent(DEFAULT_PUBLIC_CONTENT);
       }
     };
@@ -109,6 +112,8 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     setError('');
     setTwoFaHint('');
     setResendMessage('');
@@ -130,13 +135,17 @@ export default function Login() {
       persistAuthAndRedirect(res.data);
     } catch (err) {
       // Display specific error from backend if available
-      const msg = err.response?.data?.message || 'Invalid School Code or Business Credentials';
+      const msg = err.response?.data?.message || 'Check your school ID, staff username or email, and password.';
       setError(msg);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleVerify2fa = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     setError('');
     try {
       const res = await axios.post('/api/2fa/verify', {
@@ -148,6 +157,8 @@ export default function Login() {
     } catch (err) {
       const msg = err.response?.data?.message || 'Invalid verification code';
       setError(msg);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -224,171 +235,74 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex bg-white font-sans">
-      {/* Left Side - Branding */}
-      <div className="hidden lg:flex w-1/2 bg-blue-900 items-center justify-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-linear-to-br from-blue-900 to-slate-900 opacity-90 z-10"></div>
-        <img src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?ixlib=rb-4.0.3&auto=format&fit=crop&w=1350&q=80" className="absolute inset-0 w-full h-full object-cover" alt="School" />
-        <div className="relative z-20 text-white p-12 max-w-xl">
-            <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-6 border border-white/20 shadow-xl" style={{background: 'rgba(102, 126, 234, 0.2)'}}
-            >
-                <Logo size="lg" variant="default" />
-            </div>
-            <h2 className="text-5xl font-black mb-6 leading-tight">Governance with Pulse.</h2>
-            <p className="text-blue-200 text-lg leading-relaxed">
-                Smart school management technology designed for modern education.
-            </p>
+    <PublicSiteLayout>
+      <section className="public-auth public-auth--login" aria-labelledby="login-title">
+        <div className="public-auth-heading">
+          <h1 id="login-title">Welcome back</h1>
+          <p>{twoFaStep ? 'Enter the verification code sent to your email.' : DEFAULT_PUBLIC_CONTENT.auth.login_subtitle}</p>
         </div>
-      </div>
-
-      {/* Right Side - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-24">
-        <form onSubmit={twoFaStep ? handleVerify2fa : handleLogin} className="w-full max-w-md">
-          <div className="flex items-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-blue-900 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-200">E</div>
-            <span className="text-2xl font-black text-blue-900 tracking-tighter">EDUPULSE SMT</span>
-          </div>
-
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">{publicContent.auth?.login_title || DEFAULT_PUBLIC_CONTENT.auth.login_title}</h1>
-          <p className="text-slate-500 mb-8">
-            {twoFaStep ? 'Enter the verification code sent to your email.' : (publicContent.auth?.login_subtitle || DEFAULT_PUBLIC_CONTENT.auth.login_subtitle)}
-          </p>
-
-          {isDevTwoFaFallback && (
-            <div className="inline-flex items-center gap-2 mb-4 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
-              <span>Development Mode</span>
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-              <span>Email Delivery Fallback</span>
+        <form onSubmit={twoFaStep ? handleVerify2fa : handleLogin} aria-busy={isSubmitting}>
+          {isDevTwoFaFallback && <p className="public-auth-notice">Development Mode: Email Delivery Fallback</p>}
+          {error && <p className="public-auth-error" role="alert">{error}</p>}
+          {twoFaStep && twoFaHint && <p className="public-auth-notice" role="status">{twoFaHint}</p>}
+          {twoFaStep && resendMessage && <p className="public-auth-notice" role="status">{resendMessage}</p>}
+          <div className="public-auth-fields">
+            <div className="public-auth-field">
+              <label htmlFor="login-school">School ID</label>
+              <input id="login-school" placeholder="e.g. CCA-OFK" value={creds.schoolCode} onChange={e => setCreds({...creds, schoolCode: e.target.value.toUpperCase()})} required disabled={twoFaStep || isSubmitting} autoComplete="organization" />
             </div>
-          )}
-          
-          {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 text-sm font-bold flex items-center gap-2">⚠️ {error}</div>}
-          {twoFaStep && twoFaHint && (
-            <div className="bg-blue-50 text-blue-700 p-4 rounded-xl mb-6 text-sm font-semibold">
-              {twoFaHint}
-            </div>
-          )}
-          {twoFaStep && resendMessage && (
-            <div className="bg-green-50 text-green-700 p-4 rounded-xl mb-6 text-sm font-semibold">
-              {resendMessage}
-            </div>
-          )}
-
-          <div className="space-y-5">
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Organization ID</label>
-              <input 
-                className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all font-mono" 
-                placeholder="e.g. CCA-OFK" 
-                onChange={e => setCreds({...creds, schoolCode: e.target.value.toUpperCase()})} 
-                required
-                disabled={twoFaStep}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Staff Username Or Email</label>
-              <input 
-                className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
-                placeholder="Username or email" 
-                onChange={e => setCreds({...creds, username: e.target.value})} 
-                required
-                disabled={twoFaStep}
-              />
+            <div className="public-auth-field">
+              <label htmlFor="login-username">Staff username or email</label>
+              <input id="login-username" placeholder="Username or email" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} required disabled={twoFaStep || isSubmitting} autoComplete="username" />
             </div>
             {!twoFaStep ? (
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Password</label>
-                <input 
-                  className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" 
-                  type="password" 
-                  placeholder="••••••••" 
-                  onChange={e => setCreds({...creds, password: e.target.value})} 
-                  required
-                />
-                <div className="text-right mt-2">
-                  <a href="/forgot-password" className="text-xs font-bold text-blue-600 hover:underline">Forgot Password?</a>
-                </div>
+              <div className="public-auth-field">
+                <label htmlFor="login-password">Password</label>
+                <input id="login-password" type="password" placeholder="Your password" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} required disabled={isSubmitting} autoComplete="current-password" />
+                <a href="/forgot-password" className="public-auth-recovery">Forgot password?</a>
               </div>
             ) : (
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block">Verification Code</label>
-                <input
-                  className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all font-mono tracking-widest"
-                  placeholder="000000"
-                  value={twoFaCode}
-                    onChange={e => setTwoFaCode(e.target.value)}
-                    required
-                  />
-                  <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                    <button
-                      type="button"
-                      onClick={handleResend2faCode}
-                      disabled={resendCooldown > 0 || isResendingCode}
-                      className="font-bold text-blue-600 hover:underline disabled:text-slate-400 disabled:no-underline"
-                    >
-                      {isResendingCode
-                        ? 'Resending...'
-                        : resendCooldown > 0
-                        ? `Resend Code in ${resendCooldown}s`
-                        : 'Resend Code'}
-                    </button>
-                    <span className="text-slate-400">Code expires in 10 minutes</span>
-                  </div>
+              <div className="public-auth-field">
+                <label htmlFor="login-code">Verification code</label>
+                <input id="login-code" placeholder="000000" value={twoFaCode} onChange={e => setTwoFaCode(e.target.value)} required disabled={isSubmitting} autoComplete="one-time-code" />
+                <div className="public-auth-code-actions">
+                  <button type="button" onClick={handleResend2faCode} disabled={resendCooldown > 0 || isResendingCode || isSubmitting} className="public-auth-link">
+                    {isResendingCode ? 'Resending...' : resendCooldown > 0 ? `Resend Code in ${resendCooldown}s` : 'Resend Code'}
+                  </button>
+                  <span>Code expires in 10 minutes</span>
                 </div>
-              )}
-            </div>
-
-          <button className="w-full bg-blue-900 text-white p-4 rounded-xl font-bold mt-8 hover:bg-blue-800 transition-all shadow-xl shadow-blue-200">
-            {twoFaStep ? 'Verify & Continue' : 'Sign In to Dashboard'}
+              </div>
+            )}
+          </div>
+          <button type="submit" className="public-auth-primary" disabled={isSubmitting || isResendingCode}>
+            {isSubmitting ? <Loader size={18} className="public-auth-spinner" /> : <ArrowRight size={18} />}
+            {isSubmitting ? 'Please wait...' : twoFaStep ? 'Verify & Continue' : 'Log in'}
           </button>
-
-          <p className="text-center mt-8 text-sm text-slate-400">
-            New Tenant? <a href="/register" className="text-blue-600 font-bold hover:underline">Create Credentials</a>
-          </p>
-
-          <div className="mt-4 p-4 bg-white border border-slate-200 rounded-xl">
-            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Legal Policies</p>
-            <p className="text-sm text-slate-600">By creating a school account, you accept our Terms of Service, Privacy Policy, and Data Retention Policy.</p>
-            <div className="mt-2 text-sm flex flex-wrap gap-3">
-              <button type="button" onClick={() => setShowTerms(true)} className="text-blue-600 font-semibold hover:underline">Terms of Service</button>
-              <button type="button" onClick={() => setShowPrivacy(true)} className="text-blue-600 font-semibold hover:underline">Privacy Policy</button>
-              <button type="button" onClick={() => setShowRetention(true)} className="text-blue-600 font-semibold hover:underline">Data Retention Policy</button>
-            </div>
-          </div>
-
-          <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Contact & Support</p>
-            <p className="text-sm text-slate-600">Need help with setup or access?</p>
-            <div className="mt-2 text-sm">
-              <p className="text-slate-700">Email: <a href={`mailto:${publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}`} className="text-blue-600 font-semibold hover:underline">{publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}</a></p>
-              <p className="text-slate-700">Phone/WhatsApp: <a href={`tel:${(publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone).replace(/\s+/g, '')}`} className="text-blue-600 font-semibold hover:underline">{publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone}</a></p>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">Typical response time: {publicContent.support?.response_time || DEFAULT_PUBLIC_CONTENT.support.response_time}.</p>
-          </div>
-
-          <div className="mt-4 p-4 bg-white border border-slate-200 rounded-xl">
-            <p className="text-xs font-bold text-slate-500 uppercase mb-3">FAQ</p>
-            <div className="space-y-3 text-sm">
-              {(publicContent.faqs || []).map((faq, index) => (
-                <details key={`${faq.question}-${index}`} className="group">
-                  <summary className="cursor-pointer font-semibold text-slate-700">{faq.question}</summary>
-                  <p className="mt-1 text-slate-600">{faq.answer}</p>
-                </details>
-              ))}
-            </div>
-            <p className="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-100">
-              Tutorials:{' '}
-              <a href="/help#tutorials" className="text-blue-600 font-semibold hover:underline">
-                View updates (coming after production launch)
-              </a>
-            </p>
-          </div>
-
-          <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
-          <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
-          <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
         </form>
-      </div>
-    </div>
+        <p className="public-auth-switch">New to EduPulse SMT? <a href="/register">Create your school account</a></p>
+        <aside className="public-auth-help" aria-label="Account help and policies">
+          <details>
+            <summary>Contact & support</summary>
+            <p><a href={`mailto:${publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}`}>{publicContent.support?.email || DEFAULT_PUBLIC_CONTENT.support.email}</a><br /><a href={`tel:${(publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone).replace(/\s+/g, '')}`}>{publicContent.support?.phone || DEFAULT_PUBLIC_CONTENT.support.phone}</a></p>
+            <p>Typical response time: {publicContent.support?.response_time || DEFAULT_PUBLIC_CONTENT.support.response_time}.</p>
+          </details>
+          <details>
+            <summary>Legal policies</summary>
+            <div className="public-auth-legal">
+              <button type="button" onClick={() => setShowTerms(true)} className="public-auth-link">Terms of Service</button>
+              <button type="button" onClick={() => setShowPrivacy(true)} className="public-auth-link">Privacy Policy</button>
+              <button type="button" onClick={() => setShowRetention(true)} className="public-auth-link">Data Retention Policy</button>
+            </div>
+          </details>
+          <details>
+            <summary>Frequently asked questions</summary>
+            {(publicContent.faqs || []).map((faq, index) => <details key={`${faq.question}-${index}`}><summary>{faq.question}</summary><p>{faq.answer}</p></details>)}
+          </details>
+        </aside>
+      </section>
+      <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
+      <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
+      <DataRetentionModal isOpen={showRetention} onClose={() => setShowRetention(false)} />
+    </PublicSiteLayout>
   );
 }

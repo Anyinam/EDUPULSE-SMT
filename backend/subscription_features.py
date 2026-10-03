@@ -10,6 +10,7 @@ Convenience fees do NOT apply to subscription charges.
 """
 
 from datetime import datetime, timezone
+from backend.subscription_state import get_effective_plan, normalize_plan_name
 
 SUBSCRIPTION_TIERS = {"Free Tier": 0, "Basic": 1, "Premium": 2}
 
@@ -259,7 +260,7 @@ def _enabled_modules_for_school(school):
 
 
 def _is_active_premium_trial(school, effective_plan=None):
-    if not school or getattr(school, "trial_plan", None) != "Premium":
+    if not school or normalize_plan_name(getattr(school, "trial_plan", None)) != "Premium":
         return False
 
     trial_end = getattr(school, "trial_end_date", None)
@@ -268,18 +269,18 @@ def _is_active_premium_trial(school, effective_plan=None):
     if trial_end.tzinfo is None:
         trial_end = trial_end.replace(tzinfo=timezone.utc)
 
-    plan_name = effective_plan or school.subscription_plan or "Free Tier"
+    plan_name = normalize_plan_name(effective_plan) if effective_plan else get_effective_plan(school)
     return plan_name == "Premium" and datetime.now(timezone.utc) < trial_end
 
 
 def school_has_addon(school, addon_key, effective_plan=None):
     """Return True if a school can use a paid add-on under its current plan."""
-    plan_name = effective_plan or getattr(school, "subscription_plan", None) or "Free Tier"
+    plan_name = normalize_plan_name(effective_plan) if effective_plan else get_effective_plan(school)
     addon = ADDON_CATALOG.get(addon_key)
     if not school or not addon or plan_name not in addon.get("eligible_plans", []):
         return False
 
-    if _is_active_premium_trial(school, effective_plan=effective_plan):
+    if _is_active_premium_trial(school, effective_plan=plan_name):
         return True
 
     modules = _enabled_modules_for_school(school)
@@ -288,10 +289,10 @@ def school_has_addon(school, addon_key, effective_plan=None):
 
 def get_school_feature_level(school, feature_name, effective_plan=None):
     """Resolve plan and add-on restrictions for a school's feature access."""
-    plan_name = effective_plan or getattr(school, "subscription_plan", None) or "Free Tier"
+    plan_name = normalize_plan_name(effective_plan) if effective_plan else get_effective_plan(school)
     addon_requirement = FEATURE_ADDON_REQUIREMENTS.get(feature_name)
     if addon_requirement:
-        if school_has_addon(school, addon_requirement, effective_plan=effective_plan):
+        if school_has_addon(school, addon_requirement, effective_plan=plan_name):
             return ADDON_FEATURE_LEVELS.get(feature_name, True)
         return False
 

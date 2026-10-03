@@ -1,4 +1,16 @@
-# 🧠 EduPulse SMT Logo - Neural Learn
+# EduPulse SMT Logo
+
+## Current Brand Mark
+
+The official platform mark is the owner-supplied black-and-white circular EDUPULSE SMT / GUAN seal, stored at `frontend/react/public/images/edupulse-smt-logo.jpg`. Preserve the original artwork, lettering, proportions, and colors. Do not redraw or recolor it.
+
+The shared React Logo component removes only surrounding blank margins for display and retains a white background for contrast. Public header/footer use the 48px size. The browser favicon and touch icon reference the same original image. School-uploaded branding remains separate.
+
+User dashboards use the same supplied seal at 64px in the shared sidebar for every staff role. The school's name and verification badge remain alongside it; the platform mark is not replaced by the retired colored artwork.
+
+The sections below describe the retired Neural Learn artwork and are retained as historical reference, not current implementation instructions.
+
+## Historical Neural Learn Design
 
 ## Overview
 

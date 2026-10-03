@@ -5,7 +5,7 @@ import axios from 'axios';
 import TransactionHistory from '../TransactionHistory';
 
 vi.mock('axios');
-vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true }) }));
+vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Free Tier', hasFeature: () => false }) }));
 
 describe('TransactionHistory', () => {
   beforeEach(() => {
@@ -46,6 +46,15 @@ describe('TransactionHistory', () => {
     vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+  });
+
+  it('marks denied history as unavailable instead of empty', async () => {
+    axios.get.mockRejectedValue({ response: { status: 403, data: { message: 'History temporarily denied' } } });
+    render(<TransactionHistory />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Transaction history unavailable: History temporarily denied');
+    expect(screen.queryByText('No transaction history recorded yet.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /export csv/i })).toBeDisabled();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it('shows the tracked transfer amount breakdown for net school-fee payments', async () => {
