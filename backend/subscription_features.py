@@ -105,7 +105,7 @@ PLAN_FEATURES = {
             {"name": "Up to 50 students", "included": True},
             {"name": "1 class only", "included": True},
             {"name": "Attendance and feeding overview", "included": True, "note": "Read-only"},
-            {"name": "Manual grade entry", "included": True},
+            {"name": "Grade viewing", "included": True},
             {"name": "Basic report generation", "included": True, "note": "1 template"},
             {"name": "Student roster management", "included": True},
             {"name": "Payment tracking and reconciliation", "included": False},

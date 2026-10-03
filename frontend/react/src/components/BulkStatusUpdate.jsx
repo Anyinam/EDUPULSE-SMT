@@ -2,8 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, Check, Loader } from 'lucide-react';
 import axios from 'axios';
 import useSchoolClasses from '../hooks/useSchoolClasses';
+import FeatureLock from './FeatureLock';
 
-const BulkStatusUpdate = ({ trigger = 'button' }) => {
+const BulkStatusUpdate = (props) => (
+  <FeatureLock feature="bulk_operations" requiredPlan="Basic"><BulkStatusUpdateContent {...props} /></FeatureLock>
+);
+
+const BulkStatusUpdateContent = ({ trigger = 'button' }) => {
   const [showModal, setShowModal] = useState(false);
   const [selectedClass, setSelectedClass] = useState('');
   const [newStatus, setNewStatus] = useState('Graduated');

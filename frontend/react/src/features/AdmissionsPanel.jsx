@@ -3,7 +3,8 @@ import axios from 'axios';
 import { ChevronDown, ChevronRight, FileCheck2, FileWarning, Search } from 'lucide-react';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
-import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+import useSubscription from '../hooks/useSubscription';
+import FeatureLock from '../components/FeatureLock';
 import useSchoolClasses from '../hooks/useSchoolClasses';
 
 const getAdmissionsBillingMessage = (err, fallbackMessage) => {
@@ -22,8 +23,9 @@ const getAdmissionsBillingMessage = (err, fallbackMessage) => {
 };
 
 export default function AdmissionsPanel() {
-  const { plan: subscriptionPlan } = useEffectiveSubscriptionPlan();
-  const aiRegistrarIncluded = subscriptionPlan === 'Basic' || subscriptionPlan === 'Premium';
+  const { hasFeature } = useSubscription();
+  const aiRegistrarIncluded = hasFeature('ai_registrar');
+  const canBulkOperate = hasFeature('bulk_operations');
   const [formData, setFormData] = useState({
     first_name: '',
     surname: '',
@@ -221,6 +223,7 @@ export default function AdmissionsPanel() {
   };
 
   const handleBulkUpload = async () => {
+    if (!canBulkOperate) return;
     if (!csvFile) return alert("Please select a CSV file.");
     
     const uploadData = new FormData();
@@ -744,6 +747,7 @@ export default function AdmissionsPanel() {
       </div>
 
       {/* Bulk Upload Section */}
+      <FeatureLock feature="bulk_operations" requiredPlan="Basic">
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
         <h2 className="text-2xl font-bold text-slate-800 mb-6">Bulk Upload via CSV</h2>
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
@@ -757,6 +761,7 @@ export default function AdmissionsPanel() {
           <strong>Optional:</strong> student_code (auto-generated if blank), guardian_name, parent_email
         </p>
       </div>
+      </FeatureLock>
 
       {/* Class Promotion Override Section */}
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">

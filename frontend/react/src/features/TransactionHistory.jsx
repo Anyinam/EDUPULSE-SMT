@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import FeatureLock from '../components/FeatureLock';
 
 function formatMoney(value) {
   return `GH₵ ${Number(value || 0).toFixed(2)}`;
@@ -42,6 +43,10 @@ function getTrackedTransferDetails(transaction) {
 }
 
 export default function TransactionHistory() {
+  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><TransactionHistoryContent /></FeatureLock>;
+}
+
+function TransactionHistoryContent() {
   const [transactions, setTransactions] = useState([]);
 
   useEffect(() => {

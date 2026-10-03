@@ -5,6 +5,8 @@ import TeacherAlerts from '../components/TeacherAlerts';
 import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
 import { useBranding } from '../hooks/useBranding';
 import useSchoolClasses from '../hooks/useSchoolClasses';
+import useSubscription from '../hooks/useSubscription';
+import FeatureLock from '../components/FeatureLock';
 
 export default function TeacherDashboard() {
   const [students, setStudents] = useState([]);
@@ -49,6 +51,8 @@ export default function TeacherDashboard() {
   const [examSubjectSummaryError, setExamSubjectSummaryError] = useState('');
   const { branding } = useBranding();
   const { classes: schoolClasses } = useSchoolClasses();
+  const { hasFeature } = useSubscription();
+  const canEnterGrades = hasFeature('grade_entry');
 
   const createEmptyDiagnosticTopic = () => ({ topic: '', score: '', max_score: '' });
 
@@ -404,6 +408,7 @@ export default function TeacherDashboard() {
   };
 
   const handleSave = async () => {
+    if (!canEnterGrades) return;
     if (students.length === 0) {
       return alert('No students found for the selected class.');
     }
@@ -932,6 +937,8 @@ export default function TeacherDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* LEFT COLUMN: MARKS ENTRY */}
         <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          {!canEnterGrades && <FeatureLock feature="grade_entry" requiredPlan="Basic" />}
+          <fieldset disabled={!canEnterGrades} className="min-w-0">
           <div className="flex flex-wrap items-end gap-4 mb-4">
             <div>
               <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Class</label>
@@ -1136,9 +1143,10 @@ export default function TeacherDashboard() {
             )}
           </div>
           )}
-          <button onClick={handleSave} className="mt-6 w-full btn-primary">
+          <button onClick={handleSave} disabled={!canEnterGrades} className="mt-6 w-full btn-primary">
             Submit Grades to Homeroom
           </button>
+          </fieldset>
         </div>
 
         {/* RIGHT COLUMN: LESSON NOTES & AI */}

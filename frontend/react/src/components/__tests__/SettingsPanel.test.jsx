@@ -24,6 +24,7 @@ describe('SettingsPanel', () => {
         return Promise.resolve({
           data: {
             effective_plan: 'Premium',
+            features: { feeding: 'full_access' },
             trial: { active: false, plan: '', end_date: null },
           },
         });
@@ -129,6 +130,89 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('GH₵ 19.50')).toBeInTheDocument();
     expect(screen.getByText('GH₵ 1019.50')).toBeInTheDocument();
     expect(screen.queryByText(/admissions configuration/i)).not.toBeInTheDocument();
+  });
+
+  it.each(['free', 'loading', 'error'])('preserves tuition and branding saves without feeding keys when access is %s', async (accessState) => {
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === '/api/school/subscription/effective-plan') {
+        if (accessState === 'loading') return new Promise(() => {});
+        if (accessState === 'error') return Promise.reject(new Error('unavailable'));
+        return Promise.resolve({ data: { effective_plan: 'Free Tier', features: { feeding: 'view_only' } } });
+      }
+      return defaultGet(url, config);
+    });
+    axios.post.mockResolvedValue({ data: {} });
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    render(<SettingsPanel />);
+    const dailyFee = await screen.findByRole('spinbutton', { name: 'Feeding Fee (Daily Plan)' });
+    expect(dailyFee).toBeDisabled();
+    expect(screen.getByRole('spinbutton', { name: 'Feeding Fee (Weekly Plan)' })).toBeDisabled();
+    expect(screen.getByRole('spinbutton', { name: 'Feeding Fee (Monthly Plan)' })).toBeDisabled();
+    fireEvent.submit(dailyFee.closest('form'));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/school/fees', expect.any(Object), expect.any(Object)));
+    const payload = axios.post.mock.calls.find(([url]) => url === '/api/school/fees')[1];
+    expect(Object.keys(payload).filter((key) => key.startsWith('feeding'))).toEqual([]);
+    expect(payload.tuition_fee).toBe(1000);
+    expect(payload.tuition_installment_plan.enabled).toBe(true);
+    expect(axios.post).toHaveBeenCalledWith('/api/school/settings', expect.objectContaining({ name: 'Test School' }), expect.any(Object));
+  });
+
+  it('allows feeding controls and payload keys with confirmed full access', async () => {
+    axios.post.mockResolvedValue({ data: {} });
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    render(<SettingsPanel />);
+    const dailyFee = await screen.findByRole('spinbutton', { name: 'Feeding Fee (Daily Plan)' });
+    expect(dailyFee).toBeEnabled();
+    fireEvent.submit(dailyFee.closest('form'));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/school/fees', expect.objectContaining({
+      feeding_fee: 450,
+      feeding_daily_fee: 15,
+      feeding_weekly_fee: 75,
+      feeding_monthly_fee: 300,
+    }), expect.any(Object)));
+  });
+
+  it.each([false, true])('preserves bank reconnect on Free with unsaved bank edits: %s', async (editBankDetails) => {
+    const defaultGet = axios.get.getMockImplementation();
+    let connected = false;
+    axios.get.mockImplementation((url, config) => {
+      if (url === '/api/school/subscription/effective-plan') {
+        return Promise.resolve({ data: { effective_plan: 'Free Tier', features: { feeding: 'view_only' } } });
+      }
+      if (url === '/api/school/settings') {
+        return Promise.resolve({ data: {
+          name: 'Test School', bank_name: 'Test Bank', bank_account: '1234567890',
+          bank_account_name: 'Test School', bank_branch: 'Main',
+          paystack_subaccount_code: connected ? 'ACCT_test' : '',
+        } });
+      }
+      return defaultGet(url, config);
+    });
+    axios.post.mockImplementation((url) => {
+      if (url === '/api/school/settings/paystack/reconnect') {
+        connected = true;
+        return Promise.resolve({ data: { paystack_subaccount_code: 'ACCT_test' } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    render(<SettingsPanel />);
+    await screen.findByRole('button', { name: 'Reconnect Settlement Account' });
+    if (editBankDetails) {
+      fireEvent.change(screen.getByPlaceholderText('School bank account number'), { target: { value: '9876543210' } });
+    }
+    fireEvent.click(screen.getByRole('button', { name: editBankDetails ? 'Save and Connect Settlement Account' : 'Reconnect Settlement Account' }));
+    await screen.findByText('Connected');
+    expect(axios.post.mock.calls.map(([url]) => url)).toEqual(editBankDetails
+      ? ['/api/school/settings', '/api/school/settings/paystack/reconnect']
+      : ['/api/school/settings/paystack/reconnect']);
+    if (editBankDetails) {
+      expect(axios.post.mock.calls[0][1]).toEqual({
+        bank_name: 'Test Bank', bank_account: '9876543210', bank_account_name: 'Test School', bank_branch: 'Main',
+      });
+    }
+    expect(axios.get.mock.calls.filter(([url]) => url === '/api/school/settings')).toHaveLength(2);
   });
 
   it('renders the saved tuition installment schedule', async () => {

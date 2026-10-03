@@ -54,6 +54,7 @@ BILLING_RECOVERY_PREFIXES = (
 # Suspended schools retain limited read-only access to archived records so
 # proprietors can review historical terms and billing evidence while resolving payment.
 SUSPENDED_READONLY_PATHS = {
+    "/api/finance/receipts",
     "/api/school/terms",
     "/api/school/terms/active",
     "/api/finance/summary",
@@ -316,9 +317,58 @@ def multi_tenant_guard(f):
         if restriction:
             return restriction
 
+        payload = request.get_json(silent=True) if (
+            request.path.rstrip("/") == "/api/school/fees" and request.method == "POST"
+        ) else None
+        requirement = get_operational_entitlement(request.path, request.method, payload)
+        if requirement:
+            feature_name, min_level = requirement
+            return feature_required(feature_name, min_level)(f)(*args, **kwargs)
+
         return f(*args, **kwargs)
 
     return decorated_function
+
+
+def get_operational_entitlement(path, method, payload=None):
+    """Return the entitlement for explicitly scoped operational routes."""
+    path = (path or "").rstrip("/")
+    method = (method or "GET").upper()
+    if method == "OPTIONS":
+        return None
+
+    if method == "POST" and re.fullmatch(r"/api/homeroom/attendance(?:/[^/]+)?", path):
+        return "attendance", "full_access"
+
+    if method == "POST" and path == "/api/school/fees" and isinstance(payload, dict):
+        if any(key in payload for key in {
+            "feeding_fee", "feeding_daily_fee", "feeding_weekly_fee", "feeding_monthly_fee",
+        }):
+            return "feeding", "full_access"
+
+    if method == "POST" and path in {
+        "/api/admissions/bulk-upload",
+        "/api/admissions/students/bulk-update-status",
+        "/api/staff/bulk-upload",
+    }:
+        return "bulk_operations", True
+
+    if path == "/api/inventory" or path.startswith("/api/inventory/"):
+        return "payment_tracking", True
+
+    if method in {"GET", "HEAD"} and path in {
+        "/api/staff/my-lesson-notes",
+        "/api/headmaster/lesson-notes",
+    }:
+        return "lesson_notes", True
+
+    if method == "POST" and (
+        path == "/api/staff/lesson-note"
+        or re.fullmatch(r"/api/headmaster/lesson-note/\d+/(?:review|rescore)", path)
+    ):
+        return "lesson_notes", True
+
+    return None
 
 
 def role_required(*allowed_roles):
@@ -528,7 +578,7 @@ def check_quota(school, resource_type):
         count = AcademicClass.query.filter_by(school_id=school.id).count()
         limit = plan_info.get("max_classes", 1)
     elif resource_type == "staff":
-        count = User.query.filter_by(school_id=school.id).count()
+        count = User.query.filter(User.school_id == school.id, User.role != "proprietor").count()
         limit = plan_info.get("max_staff", 3)
     else:
         return (True, 0, 0)

@@ -627,6 +627,7 @@ def test_tenant_chief_examiner_library_is_empty_before_any_upload(client, app, t
 
 
 def test_live_feed_includes_students_overdue_more_than_30_days(client, app, test_school, test_proprietor):
+    _enable_ai_pack_for_school(test_school.id)
     overdue_student = Student(
         school_id=test_school.id,
         first_name="Kwame",
@@ -4001,7 +4002,7 @@ def test_student_payment_code_refreshes_stale_tracked_transfer_amounts_when_tuit
     assert refreshed_intent.total_amount == 101.95
 
 
-def test_student_payment_code_get_refreshes_stale_tracked_transfer_amounts_when_tuition_pricing_changes(client, app, test_school, test_proprietor, test_students, monkeypatch):
+def test_student_payment_code_post_resyncs_stale_tracked_transfer_amounts_and_get_attaches_route(client, app, test_school, test_proprietor, test_students, monkeypatch):
     from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
 
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
@@ -4075,14 +4076,29 @@ def test_student_payment_code_get_refreshes_stale_tracked_transfer_amounts_when_
     monkeypatch.setattr("backend.routes._call_paystack_api", fake_call_paystack_api)
 
     headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    provisioning_response = client.post(
+        f"/api/students/{student.id}/payment-codes/{student.student_code}1/virtual-account",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert provisioning_response.status_code == 200
+    provisioned_route = provisioning_response.get_json()["virtual_route"]
+    assert provisioned_route["convenience_fee_amount"] == 1.95
+    assert provisioned_route["total_amount"] == 101.95
+    assert captured
+    provisioning_calls = list(captured)
+
     response = client.get(
         f"/api/students/{student.id}/payment-codes",
         headers=headers,
     )
 
     assert response.status_code == 200
+    assert captured == provisioning_calls
     payload = response.get_json()
     tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
+    assert tuition_code["virtual_route"]["account_number"] == provisioned_route["account_number"]
     assert tuition_code["virtual_route"]["convenience_fee_amount"] == 1.95
     assert tuition_code["virtual_route"]["total_amount"] == 101.95
 
@@ -4095,7 +4111,7 @@ def test_student_payment_code_get_refreshes_stale_tracked_transfer_amounts_when_
     assert refreshed_intent.total_amount == 101.95
 
 
-def test_student_payment_codes_survive_unexpected_tracked_transfer_generation_error(client, app, test_school, test_proprietor, test_students, monkeypatch):
+def test_student_payment_codes_get_skips_provisioning_and_post_sanitizes_unexpected_provider_error(client, app, test_school, test_proprietor, test_students, monkeypatch):
     from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
 
     settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
@@ -4112,7 +4128,10 @@ def test_student_payment_codes_survive_unexpected_tracked_transfer_generation_er
     }
     db.session.commit()
 
+    generation_calls = []
+
     def fail_generation(*_args, **_kwargs):
+        generation_calls.append((_args, _kwargs))
         raise RuntimeError("simulated tracked transfer failure")
 
     monkeypatch.setattr("backend.routes._create_or_reuse_student_virtual_account_intent", fail_generation)
@@ -4121,11 +4140,26 @@ def test_student_payment_codes_survive_unexpected_tracked_transfer_generation_er
     response = client.get(f"/api/students/{test_students[0].id}/payment-codes", headers=headers)
 
     assert response.status_code == 200
+    assert generation_calls == []
     payload = response.get_json()
     tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
     assert tuition_code["reference_code"]
-    assert tuition_code["tracked_transfer_error"]
+    assert "tracked_transfer_error" not in tuition_code
     assert tuition_code["virtual_route"] is None
+
+    provisioning_response = client.post(
+        f"/api/students/{test_students[0].id}/payment-codes/{tuition_code['reference_code']}/virtual-account",
+        headers=headers,
+        data=json.dumps({}),
+    )
+
+    assert provisioning_response.status_code == 502
+    assert len(generation_calls) == 1
+    assert provisioning_response.get_json() == {
+        "message": "EduPulse could not prepare the tracked transfer account right now. Please try again shortly or use the school office for manual assistance."
+    }
+    assert "simulated tracked transfer failure" not in provisioning_response.get_data(as_text=True)
+    assert "RuntimeError" not in provisioning_response.get_data(as_text=True)
 
 
 def test_virtual_account_endpoint_survives_unexpected_tracked_transfer_generation_error(client, app, test_school, test_proprietor, test_students, monkeypatch):

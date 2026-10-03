@@ -5,6 +5,7 @@ import axios from 'axios';
 import AuditReport from '../AuditReport';
 
 vi.mock('axios');
+vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true }) }));
 
 describe('AuditReport', () => {
   beforeEach(() => {

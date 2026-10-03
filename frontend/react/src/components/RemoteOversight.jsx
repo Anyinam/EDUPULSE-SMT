@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import FeatureLock from './FeatureLock';
 
 export default function RemoteOversight() {
+  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><RemoteOversightContent /></FeatureLock>;
+}
+
+function RemoteOversightContent() {
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState({});
   const [recentPayments, setRecentPayments] = useState([]);

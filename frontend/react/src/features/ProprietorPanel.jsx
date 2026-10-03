@@ -25,6 +25,8 @@ import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import RescueActivityCenter from './RescueActivityCenter';
 import SchoolCompliancePanel from '../components/SchoolCompliancePanel';
 import useEffectiveSubscriptionPlan from '../hooks/useEffectiveSubscriptionPlan';
+import useSubscription from '../hooks/useSubscription';
+import FeatureLock from '../components/FeatureLock';
 
 const PLAN_DISPLAY_NAMES = {
   'Free Tier': 'Free',
@@ -36,6 +38,8 @@ export default function ProprietorPanel() {
   // Use React Router's useSearchParams hook to properly handle query parameters
   const [searchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'dashboard';
+  const { hasFeature } = useSubscription();
+  const canTrackPayments = hasFeature('payment_tracking');
 
   const [pendingPayments, setPendingPayments] = useState([]);
   const [pendingPaymentGroups, setPendingPaymentGroups] = useState([]);
@@ -68,6 +72,7 @@ export default function ProprietorPanel() {
   const showingTrialAccess = Boolean(trial?.active && resolvedBasePlan !== plan);
 
   const fetchRiskData = async () => {
+    if (!canTrackPayments) return;
     try {
       const headers = { 
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -119,7 +124,7 @@ export default function ProprietorPanel() {
     refreshDashboardData();
     const refreshTimer = setInterval(refreshDashboardData, 30000);
     return () => clearInterval(refreshTimer);
-  }, [activeTab]);
+  }, [activeTab, canTrackPayments]);
 
   const getAuthHeaders = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -174,6 +179,7 @@ export default function ProprietorPanel() {
   };
 
   const confirmCash = async (id) => {
+    if (!canTrackPayments) return;
     const headers = { 
       'Authorization': `Bearer ${localStorage.getItem('token')}`,
       'X-School-ID': localStorage.getItem('school_id') 
@@ -191,6 +197,7 @@ export default function ProprietorPanel() {
   };
 
   const rejectPayment = async (id) => {
+    if (!canTrackPayments) return;
     const headers = { 
       'Authorization': `Bearer ${localStorage.getItem('token')}`,
       'X-School-ID': localStorage.getItem('school_id') 
@@ -211,6 +218,7 @@ export default function ProprietorPanel() {
   };
 
   const approveClassPayments = async (group) => {
+    if (!canTrackPayments || !hasFeature('bulk_operations')) return;
     if (!group?.payments?.length) return;
 
     const confirmed = window.confirm(
@@ -280,10 +288,10 @@ export default function ProprietorPanel() {
   return (
     <div className="flex-1 bg-gray-100 font-sans">
       {/* MAIN CONTENT - Full Width (no internal sidebar) */}
-      <main className="w-full p-8 overflow-y-auto">
-        <header className="flex justify-between items-end mb-8">
+      <main className="w-full p-4 md:p-8 overflow-y-auto">
+        <header className="flex flex-wrap gap-4 justify-between items-end mb-8">
           <div>
-            <h1 className="text-4xl font-black text-slate-800">Proprietor Command</h1>
+            <h1 className="text-2xl md:text-4xl font-black text-slate-800">Proprietor Command</h1>
             <p className={`text-xs mt-1 ${(lastDashboardRefresh && (Date.now() - lastDashboardRefresh.getTime() > 60000)) ? 'text-red-500' : 'text-slate-500'}`}>
               {lastDashboardRefresh
                 ? `Dashboard updated ${lastDashboardRefresh.toLocaleTimeString()}`
@@ -301,7 +309,7 @@ export default function ProprietorPanel() {
 
         {activeTab === 'dashboard' ? (
           <div className="space-y-8">
-            {ledgerIntegrity?.alert && (
+            {canTrackPayments && ledgerIntegrity?.alert && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3" role="alert">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -368,10 +376,10 @@ export default function ProprietorPanel() {
             </div>
 
             <div className="mb-8">
-              <PerformanceAnalytics
+              <FeatureLock feature="advanced_analytics"><PerformanceAnalytics
                 title="Class Performance (Proprietor View)"
                 defaultView="visualization"
-              />
+              /></FeatureLock>
             </div>
 
             {/* Report Card Approvals Section */}
@@ -432,7 +440,7 @@ export default function ProprietorPanel() {
                 {/* PAYMENT ENTRY & CONFIRMATION */}
                 <PaymentEntry students={allStudents} onSuccess={() => Promise.all([fetchRiskData(), fetchAttendance()])} />
                 
-                {pendingPayments.length > 0 && (
+                {canTrackPayments && pendingPayments.length > 0 && (
                   <div className="bg-yellow-50 p-6 rounded-3xl border border-yellow-200">
                     <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-4">
                       <div>
@@ -481,7 +489,7 @@ export default function ProprietorPanel() {
                             </div>
                             <button
                               onClick={() => approveClassPayments(group)}
-                              disabled={bulkApprovingClass === group.class_name}
+                              disabled={!hasFeature('bulk_operations') || bulkApprovingClass === group.class_name}
                               className="rounded-full bg-green-600 px-4 py-2 text-xs font-bold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-green-300"
                             >
                               {bulkApprovingClass === group.class_name ? 'Approving...' : 'Approve All In Class'}
@@ -521,7 +529,7 @@ export default function ProprietorPanel() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {canTrackPayments && <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-green-500">
                     <p className="text-slate-400 font-bold uppercase text-xs mb-2">Confirmed Revenue (Today)</p>
                     <h3 className="text-4xl font-black text-green-600">GH₵ {Number(stats.today_revenue || 0).toLocaleString()}</h3>
@@ -534,13 +542,13 @@ export default function ProprietorPanel() {
                     <p className="text-slate-400 font-bold uppercase text-xs mb-2">Confirmed Revenue (Last 365 Days)</p>
                     <h3 className="text-4xl font-black text-indigo-700">GH₵ {Number(stats.yearly_revenue || 0).toLocaleString()}</h3>
                   </div>
-                </div>
+                </div>}
 
-                <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-orange-500">
+                {canTrackPayments && <div className="bg-white p-8 rounded-3xl shadow-sm border-b-8 border-orange-500">
                   <p className="text-slate-400 font-bold uppercase text-xs mb-2">Student Meals Today</p>
                   <h3 className="text-5xl font-black text-orange-600">{stats.student_meals || 0} <span className="text-lg text-slate-400 font-medium">Meals</span></h3>
                   <p className="mt-2 text-xs text-slate-500">Kitchen prep total: {stats.canteen_count || 0} including staff meals.</p>
-                </div>
+                </div>}
               </div>
             </div>
           </div>

@@ -5,6 +5,7 @@ import axios from 'axios';
 import FinanceDashboard from '../FinanceDashboard';
 
 vi.mock('axios');
+vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true }) }));
 vi.mock('react-router-dom', () => ({
   useSearchParams: () => [new URLSearchParams(''), vi.fn()],
 }));

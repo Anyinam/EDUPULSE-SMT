@@ -6,14 +6,29 @@ import SupportModal from './Support';
 import SchoolVerifiedBadge from './SchoolVerifiedBadge';
 import { useBranding } from '../hooks/useBranding';
 import useSubscription from '../hooks/useSubscription';
+import { Menu, X, Printer } from 'lucide-react';
 
 export default function Layout() {
+  const location = useLocation();
+  return location.pathname === '/payment-receipts'
+    ? <LayoutContent subscriptionAccess={{ hasFeature: () => false, subscription: null, loading: false, error: null, plan: 'Free Tier' }} refreshBranding={false} />
+    : <SubscriptionLayout />;
+}
+
+function SubscriptionLayout() {
+  const subscriptionAccess = useSubscription();
+  return <LayoutContent subscriptionAccess={subscriptionAccess} refreshBranding />;
+}
+
+function LayoutContent({ subscriptionAccess, refreshBranding }) {
   const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
   const location = useLocation();
   const role = localStorage.getItem('role');
   const schoolId = localStorage.getItem('school_id') || '';
   const dismissedAlertStorageKey = schoolId ? `dismissed_system_alert:${schoolId}` : 'dismissed_system_alert';
-  const { hasFeature } = useSubscription();
+  const { hasFeature, subscription, loading: subscriptionLoading, error: subscriptionError, plan } = subscriptionAccess;
+  const canTrackPayments = hasFeature('payment_tracking');
+  const canManageInventory = !subscriptionLoading && !subscriptionError && Boolean(subscription) && ['Basic', 'Premium'].includes(plan);
   const canAccessExamIntelligence = hasFeature('exam_intelligence');
   const canAccessRescueActivity = hasFeature('student_rescue_agent');
   const normalizeRoleValue = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
@@ -32,7 +47,7 @@ export default function Layout() {
   const roles = Array.isArray(rawRoles) ? rawRoles : [rawRoles];
   const normalizedRole = normalizeRoleValue(role);
   const normalizedRoles = roles.map(normalizeRoleValue).filter(Boolean);
-  const { branding } = useBranding({ refreshOnMount: true });
+  const { branding } = useBranding({ refreshOnMount: refreshBranding });
   const modules = safeJsonParse(localStorage.getItem('enabled_modules'), null) || { canteen: true, admissions: true, finance: true, hr: true, inventory: true };
   const assignedClass = localStorage.getItem('assigned_class');
 
@@ -47,6 +62,7 @@ export default function Layout() {
   const [hasUnread, setHasUnread] = useState(false);
   const [dismissedSystemAlert, setDismissedSystemAlert] = useState(() => localStorage.getItem(dismissedAlertStorageKey) || '');
   const [expandedMenus, setExpandedMenus] = useState({}); // Track expanded menu sections
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const visibleNotifications = notifications.filter((notification) => {
     if (!notification.isSystem) {
       return true;
@@ -183,11 +199,18 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-gray-50">
+      {mobileNavigationOpen && (
+        <button type="button" aria-label="Close navigation" onClick={() => setMobileNavigationOpen(false)} className="fixed inset-0 z-30 bg-black/40 md:hidden" />
+      )}
       {/* Dynamic Sidebar based on Branding & Access Control */}
       <nav 
-        className="w-64 text-white p-6 shadow-2xl flex flex-col"
+        className={`${mobileNavigationOpen ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-40 w-64 shrink-0 overflow-y-auto text-white p-6 shadow-2xl flex-col md:static md:flex`}
         style={{ backgroundColor: 'var(--school-primary, #1e3a8a)' }}
+        onClick={(event) => { if (event.target.closest('a')) setMobileNavigationOpen(false); }}
       >
+        <button type="button" aria-label="Close menu" title="Close navigation" onClick={() => setMobileNavigationOpen(false)} className="self-end p-2 md:hidden">
+          <X size={22} />
+        </button>
         <div className="flex items-center gap-3 mb-10">
           <Logo size="md" variant="default" />
           <div>
@@ -201,19 +224,23 @@ export default function Layout() {
         <ul className="space-y-4 flex-1 text-sm font-medium">
           {/* DASHBOARDS SECTION */}
           <li className="text-[10px] uppercase tracking-wider text-white/60 font-bold">📊 Dashboards</li>
+
+          {['proprietor', 'finance', 'headmaster', 'homeroom', 'teacher'].some(hasRole) && (
+            <li><Link to="/payment-receipts" className="inline-flex items-center gap-2 pl-3 hover:text-blue-200"><Printer size={16} aria-hidden="true" />Payment Receipts</Link></li>
+          )}
           
           {/* Proprietor */}
           {hasRole('proprietor') && (
             <>
               {modules.finance && <li><Link to="/proprietor" className="hover:text-blue-200 pl-3">📊 Dashboard & Insights</Link></li>}
-              {modules.finance && <li><Link to="/proprietor?tab=payment-tracker" className="hover:text-blue-200 pl-3">💳 Payment Tracker</Link></li>}
-              {modules.finance && <li><Link to="/proprietor?tab=finance" className="hover:text-blue-200 pl-3">📈 Transaction History</Link></li>}
+              {modules.finance && canTrackPayments && <li><Link to="/proprietor?tab=payment-tracker" className="hover:text-blue-200 pl-3">💳 Payment Tracker</Link></li>}
+              {modules.finance && canTrackPayments && <li><Link to="/proprietor?tab=finance" className="hover:text-blue-200 pl-3">📈 Transaction History</Link></li>}
               {canAccessExamIntelligence && <li><Link to="/proprietor?tab=exam-intelligence" className="hover:text-blue-200 pl-3">📘 Exam Intelligence</Link></li>}
               {modules.finance && canAccessRescueActivity && <li><Link to="/proprietor?tab=rescue-activity" className="hover:text-blue-200 pl-3">🚨 Rescue Activity</Link></li>}
-              {modules.finance && <li><Link to="/proprietor?tab=audit" className="hover:text-blue-200 pl-3">🔒 Audit Report</Link></li>}
+              {modules.finance && canTrackPayments && <li><Link to="/proprietor?tab=audit" className="hover:text-blue-200 pl-3">🔒 Audit Report</Link></li>}
               {modules.admissions && <li><Link to="/proprietor?tab=terminal-reports" className="hover:text-blue-200 pl-3">📄 Terminal Reports</Link></li>}
               {modules.hr && <li><Link to="/proprietor?tab=staff" className="hover:text-blue-200 pl-3">👥 Staff & HR</Link></li>}
-              {modules.inventory && <li><Link to="/proprietor?tab=inventory" className="hover:text-blue-200 pl-3">📦 Inventory</Link></li>}
+              {modules.inventory && canManageInventory && <li><Link to="/proprietor?tab=inventory" className="hover:text-blue-200 pl-3">📦 Inventory</Link></li>}
               {modules.admissions && <li><Link to="/proprietor?tab=admissions" className="hover:text-blue-200 pl-3">🎓 Admissions</Link></li>}
               <li><Link to="/proprietor?tab=students" className="hover:text-blue-200 pl-3">📚 Students</Link></li>
               <li><Link to="/proprietor?tab=verification" className="hover:text-blue-200 pl-3">🏛️ School Verification</Link></li>
@@ -236,7 +263,7 @@ export default function Layout() {
           )}
 
           {/* Finance Staff */}
-          {hasRole('finance') && (
+          {hasRole('finance') && canTrackPayments && (
             <>
               <div>
                 <button 
@@ -257,7 +284,7 @@ export default function Layout() {
           )}
 
           {/* Inventory Manager */}
-          {hasRole('inventory_manager') && modules.inventory && (
+          {hasRole('inventory_manager') && modules.inventory && canManageInventory && (
             <li><Link to="/inventory" className="hover:text-blue-200 pl-3 transition-colors">📦 Inventory</Link></li>
           )}
 
@@ -291,9 +318,12 @@ export default function Layout() {
         
       </nav>
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main className="min-w-0 flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header for Notifications */}
-        <header className="bg-white h-16 border-b border-slate-200 flex items-center justify-end px-8 shadow-sm shrink-0 z-20">
+        <header className="bg-white h-16 border-b border-slate-200 flex items-center justify-between md:justify-end px-4 md:px-8 shadow-sm shrink-0 z-20">
+            <button type="button" aria-label="Toggle navigation" aria-expanded={mobileNavigationOpen} title="Navigation" onClick={() => setMobileNavigationOpen(!mobileNavigationOpen)} className="p-2 md:hidden">
+                {mobileNavigationOpen ? <X size={22} /> : <Menu size={22} />}
+            </button>
             <div className="relative">
                 <button 
                     onClick={() => { setShowNotifs(!showNotifs); setHasUnread(false); }}

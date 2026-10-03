@@ -5,6 +5,7 @@ import axios from 'axios';
 import PaymentEntry from '../PaymentEntry';
 
 vi.mock('axios');
+vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true, canAccess: () => true }) }));
 
 describe('PaymentEntry', () => {
   beforeEach(() => {

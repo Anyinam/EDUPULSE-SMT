@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import FeatureLock, { SubscriptionGuard } from '../components/FeatureLock';
 
 export default function InventoryManager() {
+  return <SubscriptionGuard requires="Basic"><FeatureLock feature="payment_tracking" requiredPlan="Basic"><InventoryManagerContent /></FeatureLock></SubscriptionGuard>;
+}
+
+function InventoryManagerContent() {
   const [items, setItems] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [saleStatus, setSaleStatus] = useState({ type: '', message: '' });

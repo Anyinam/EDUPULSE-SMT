@@ -189,6 +189,7 @@ export default function PerformanceAnalyticsShell({
   };
 
   useEffect(() => {
+    if (!canAccessAdvancedAnalytics) return;
     let cancelled = false;
 
     const initialize = async () => {
@@ -220,7 +221,7 @@ export default function PerformanceAnalyticsShell({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canAccessAdvancedAnalytics]);
 
   const maxAverage = useMemo(() => {
     if (!data?.classes?.length) return 100;

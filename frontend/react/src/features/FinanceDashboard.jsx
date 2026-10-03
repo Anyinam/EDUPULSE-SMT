@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import StudentPaymentTracker from '../components/StudentPaymentTracker';
 import PaymentEntry from './PaymentEntry';
 import { useBranding } from '../hooks/useBranding';
+import FeatureLock from '../components/FeatureLock';
 
 function formatMoney(value) {
   return `GH₵ ${Number(value || 0).toFixed(2)}`;
@@ -38,6 +39,10 @@ function getTrackedTransferDetails(payment) {
  * Finance Dashboard - Handles fee collection, payment records, and financial reports
  */
 export default function FinanceDashboard() {
+  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><FinanceDashboardContent /></FeatureLock>;
+}
+
+function FinanceDashboardContent() {
   const [searchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'dashboard';
   const [stats, setStats] = useState(null);

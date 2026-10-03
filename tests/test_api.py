@@ -31,7 +31,12 @@ def client(app):
         db.create_all()
 
         # Create test school
-        school = School(id="TEST-001", name="Test School", primary_color="#1e3a8a")
+        school = School(
+            id="TEST-001",
+            name="Test School",
+            primary_color="#1e3a8a",
+            subscription_plan="Premium",
+        )
         db.session.add(school)
 
         # Keep finance tests focused on payment behavior by pre-verifying the tenant.

@@ -39,13 +39,20 @@ const getWeakDiagnosticTopics = (topics = []) =>
 const getStrongDiagnosticTopics = (topics = []) =>
   getSortedDiagnosticTopics(topics).filter((topic) => !isWeakDiagnosticTopic(topic));
 
+const currentAcademicYear = () => {
+  const today = new Date();
+  const startYear = today.getMonth() >= 7 ? today.getFullYear() : today.getFullYear() - 1;
+  return `${startYear}/${startYear + 1}`;
+};
+
 export default function TerminalReportPrinter() {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedStudent, setSelectedStudent] = useState('');
   const [selectedTerm, setSelectedTerm] = useState('Term 1');
-  const [selectedYear, setSelectedYear] = useState('2024/2025');
+  const [selectedYear, setSelectedYear] = useState(currentAcademicYear);
+  const [termContextLoading, setTermContextLoading] = useState(true);
   const [previewData, setPreviewData] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -63,6 +70,28 @@ export default function TerminalReportPrinter() {
   useEffect(() => {
     fetchClasses();
     fetchGradingScheme();
+    let cancelled = false;
+    const fetchActiveTerm = async () => {
+      try {
+        const response = await axios.get('/api/school/terms', {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+            'X-School-ID': localStorage.getItem('school_id'),
+          },
+        });
+        const activeTerm = response.data?.terms?.find((term) => term.is_active);
+        if (!cancelled && activeTerm) {
+          if (activeTerm.academic_year) setSelectedYear(activeTerm.academic_year);
+          if (activeTerm.name) setSelectedTerm(activeTerm.name);
+        }
+      } catch {
+        if (!cancelled) setSelectedYear(currentAcademicYear());
+      } finally {
+        if (!cancelled) setTermContextLoading(false);
+      }
+    };
+    fetchActiveTerm();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -72,10 +101,10 @@ export default function TerminalReportPrinter() {
   }, [selectedClass]);
 
   useEffect(() => {
-    if (selectedStudent && selectedClass) {
+    if (!termContextLoading && selectedStudent && selectedClass) {
       fetchReportData();
     }
-  }, [selectedStudent, selectedClass, selectedTerm, selectedYear]);
+  }, [selectedStudent, selectedClass, selectedTerm, selectedYear, termContextLoading]);
 
   const fetchClasses = async () => {
     try {
@@ -712,9 +741,12 @@ export default function TerminalReportPrinter() {
           <label className="block text-sm font-bold text-slate-700 mb-2">🗓️ Term</label>
           <select
             value={selectedTerm}
+            disabled={termContextLoading}
+            aria-label="Report Term"
             onChange={(e) => setSelectedTerm(e.target.value)}
             className="w-full p-3 border rounded-lg bg-white text-sm font-medium"
           >
+            {!['Term 1', 'Term 2', 'Term 3'].includes(selectedTerm) && <option>{selectedTerm}</option>}
             <option>Term 1</option>
             <option>Term 2</option>
             <option>Term 3</option>
@@ -726,6 +758,8 @@ export default function TerminalReportPrinter() {
           <input
             type="text"
             value={selectedYear}
+            disabled={termContextLoading}
+            aria-label="Report Year"
             onChange={(e) => setSelectedYear(e.target.value)}
             className="w-full p-3 border rounded-lg bg-white text-sm font-medium"
           />

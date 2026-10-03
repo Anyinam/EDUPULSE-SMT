@@ -18,6 +18,7 @@ const ProfileSettings = lazy(() => import('./features/ProfileSettings'));
 const StaffManagement = lazy(() => import('./features/StaffManagement'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const StudentPaymentTracker = lazy(() => import('./components/StudentPaymentTracker'));
+const PaymentReceipts = lazy(() => import('./components/PaymentReceipts'));
 const InventoryManager = lazy(() => import('./features/InventoryManager'));
 const SubscriptionPlans = lazy(() => import('./features/SubscriptionPlans'));
 const PricingComparison = lazy(() => import('./features/PricingComparison'));
@@ -82,6 +83,14 @@ function RootRoute() {
   return <Navigate to={isActiveSession() ? getStoredPostLoginTarget() : '/login'} replace />;
 }
 
+function PaymentReceiptsRoute() {
+  if (!isActiveSession()) return <Navigate to="/login" replace />;
+  const roles = [...getStoredRoles(), normalizeRoleValue(localStorage.getItem('role'))];
+  return roles.some((role) => ['proprietor', 'finance', 'headmaster', 'homeroom', 'teacher'].includes(role))
+    ? <PaymentReceipts />
+    : <Navigate to="/profile" replace />;
+}
+
 export default function App() {
   return (
     <Router>
@@ -117,6 +126,7 @@ export default function App() {
             <Route path="settings" element={<SettingsPanel />} />
             <Route path="staff" element={<StaffManagement />} />
             <Route path="payment-tracker" element={<StudentPaymentTracker />} />
+            <Route path="payment-receipts" element={<PaymentReceiptsRoute />} />
             <Route path="inventory" element={<InventoryManager />} />
             <Route path="help" element={<HelpCenter />} />
             <Route path="admin/support" element={<AdminSupport />} />

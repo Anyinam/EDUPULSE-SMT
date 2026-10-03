@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import useSubscription from '../hooks/useSubscription';
 import PaymentEntry from './PaymentEntry';
 import TimetableManager from '../components/TimetableManager';
 import AcademicGuidancePanel from '../components/AcademicGuidancePanel';
@@ -59,6 +60,9 @@ const getDefaultDailyFeedingAmount = (student) => {
  * Implements 'Terminal Report' logic as a human-in-the-loop gateway.
  */
 export default function Homeroom() {
+  const { hasFeature, canAccess } = useSubscription();
+  const canEditAttendance = canAccess('attendance');
+  const canRecordFeeding = canAccess('feeding') && hasFeature('payment_tracking');
   const [students, setStudents] = useState([]);
   const [currentClass, setCurrentClass] = useState(localStorage.getItem('assigned_class') || "JHS 1");
   const [attendanceChanges, setAttendanceChanges] = useState({});
@@ -90,6 +94,7 @@ export default function Homeroom() {
   }, [currentClass]);
 
   const handleAttendance = (studentId, status) => {
+    if (!canEditAttendance) return;
     // Track changes locally without saving immediately
     setAttendanceChanges(prev => ({
       ...prev,
@@ -101,6 +106,7 @@ export default function Homeroom() {
   };
 
   const handleSelectAllPresent = () => {
+    if (!canEditAttendance) return;
     const nextChanges = {};
     for (const student of students) {
       nextChanges[student.id] = true;
@@ -110,11 +116,13 @@ export default function Homeroom() {
   };
 
   const handleClearAttendanceDraft = () => {
+    if (!canEditAttendance) return;
     setAttendanceChanges({});
     setStudents(prev => prev.map((student) => ({ ...student, is_present: false })));
   };
 
   const handleSaveAttendance = async () => {
+    if (!canEditAttendance) return;
     const changesArray = Object.entries(attendanceChanges).map(([studentId, status]) => ({
       student_id: parseInt(studentId),
       status: status
@@ -144,6 +152,7 @@ export default function Homeroom() {
   };
 
   const handlePayFeeding = async (student) => {
+    if (!canRecordFeeding) return;
     const defaultAmount = getDefaultDailyFeedingAmount(student);
     const planHints = [
       student.feeding_daily_fee ? `Daily GH₵${Number(student.feeding_daily_fee).toFixed(2)}` : null,
@@ -218,21 +227,21 @@ export default function Homeroom() {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={handleSelectAllPresent}
-                      disabled={savingAttendance || students.length === 0}
+                      disabled={!canEditAttendance || savingAttendance || students.length === 0}
                       className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                     >
                       Select All Present
                     </button>
                     <button
                       onClick={handleClearAttendanceDraft}
-                      disabled={savingAttendance || students.length === 0}
+                      disabled={!canEditAttendance || savingAttendance || students.length === 0}
                       className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-semibold hover:bg-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors"
                     >
                       Clear Draft
                     </button>
                     <button
                       onClick={handleSaveAttendance}
-                      disabled={savingAttendance || Object.keys(attendanceChanges).length === 0}
+                      disabled={!canEditAttendance || savingAttendance || Object.keys(attendanceChanges).length === 0}
                       className="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                     >
                       {savingAttendance ? 'Saving...' : `Save Attendance ${Object.keys(attendanceChanges).length > 0 ? `(${Object.keys(attendanceChanges).length})` : ''}`}
@@ -263,6 +272,7 @@ export default function Homeroom() {
                         <label className="flex items-center cursor-pointer">
                           <input 
                             type="checkbox" 
+                            disabled={!canEditAttendance}
                             checked={student.is_present} 
                             onChange={(e) => handleAttendance(student.id, e.target.checked)}
                             className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500 border-gray-300"
@@ -294,9 +304,10 @@ export default function Homeroom() {
                           ) : (
                             <button 
                               onClick={() => handlePayFeeding(student)}
+                              disabled={!canRecordFeeding}
                               className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold hover:bg-red-200 transition-colors"
                             >
-                              {getFeedingBadgeLabel(student)}
+                              {canRecordFeeding ? getFeedingBadgeLabel(student) : 'Unpaid'}
                             </button>
                           )}
                         </td>

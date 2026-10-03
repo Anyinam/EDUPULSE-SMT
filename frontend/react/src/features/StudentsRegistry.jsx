@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import useSchoolClasses from '../hooks/useSchoolClasses';
+import useSubscription from '../hooks/useSubscription';
 
 const PROFILE_TABS = ['Profile', 'Academic', 'Guardian', 'Finance', 'Documents'];
 
@@ -86,6 +87,8 @@ const buildTrendPolyline = (points) => {
 };
 
 export default function StudentsRegistry() {
+  const { hasFeature } = useSubscription();
+  const canTrackPayments = hasFeature('payment_tracking');
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -266,7 +269,7 @@ export default function StudentsRegistry() {
       const headers = getAuthHeaders();
       const [reportsRes, paymentsRes, promotionsRes, documentsRes] = await Promise.all([
         axios.get(`/api/students/${student.id}/reports`, { headers }),
-        axios.get(`/api/students/${student.id}/payments`, { headers }),
+        canTrackPayments ? axios.get(`/api/students/${student.id}/payments`, { headers }) : Promise.resolve({ data: [] }),
         axios.get(`/api/students/${student.id}/promotions`, { headers }),
         axios.get(`/api/students/${student.id}/documents`, { headers }),
       ]);
@@ -406,7 +409,7 @@ export default function StudentsRegistry() {
         ? `${profileDocuments.length} linked document${profileDocuments.length === 1 ? '' : 's'} available`
         : 'No stored student or admissions documents yet.',
     },
-  ] : [];
+  ].filter((item) => canTrackPayments || item.title !== 'Finance Standing') : [];
 
   const handleExport = () => {
     if (!filteredStudents.length) {
@@ -821,17 +824,17 @@ export default function StudentsRegistry() {
                     <p className="text-xs uppercase tracking-wide text-blue-100">Latest Average</p>
                     <p className="mt-2 text-3xl font-black">{latestReport ? `${latestReport.term_average}%` : 'N/A'}</p>
                   </div>
-                  <div className="rounded-2xl bg-white/10 p-4">
+                  {canTrackPayments && <div className="rounded-2xl bg-white/10 p-4">
                     <p className="text-xs uppercase tracking-wide text-blue-100">Outstanding Tuition</p>
                     <p className="mt-2 text-3xl font-black">{formatCurrency(profileStudent.total_tuition_owed)}</p>
-                  </div>
+                  </div>}
                 </div>
               </div>
             </div>
 
             <div className="border-b border-slate-200 bg-slate-50 px-8 py-4">
               <div className="flex flex-wrap items-center gap-3">
-                {PROFILE_TABS.map((tab) => (
+                {PROFILE_TABS.filter((tab) => canTrackPayments || tab !== 'Finance').map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setProfileTab(tab)}
@@ -1059,7 +1062,7 @@ export default function StudentsRegistry() {
                 </div>
               )}
 
-              {!profileLoading && !profileError && profileTab === 'Finance' && (
+              {canTrackPayments && !profileLoading && !profileError && profileTab === 'Finance' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">

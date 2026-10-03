@@ -1,8 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Search, ScanLine, Utensils } from 'lucide-react';
+import FeatureLock from '../components/FeatureLock';
+import useSubscription from '../hooks/useSubscription';
 
-export default function PaymentEntry({ students, onSuccess }) {
+export default function PaymentEntry(props) {
+  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><PaymentEntryContent {...props} /></FeatureLock>;
+}
+
+function PaymentEntryContent({ students, onSuccess }) {
+  const { canAccess } = useSubscription();
+  const canRecordFeeding = canAccess('feeding');
   const role = localStorage.getItem('role');
   const roles = (() => {
     try {
@@ -114,6 +122,7 @@ export default function PaymentEntry({ students, onSuccess }) {
   };
 
   const enableDailyFeeding = () => {
+    if (!canRecordFeeding) return;
     setForm((current) => ({
       ...current,
       type: 'Feeding',
@@ -196,6 +205,7 @@ export default function PaymentEntry({ students, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (form.type === 'Feeding' && !canRecordFeeding) return;
     if (!selectedStudent) {
       alert('Student not found. Please check the student ID or code.');
       return;
@@ -252,6 +262,7 @@ export default function PaymentEntry({ students, onSuccess }) {
         <button
           type="button"
           onClick={enableDailyFeeding}
+          disabled={!canRecordFeeding}
           className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold ${form.type === 'Feeding' && form.feeding_frequency === 'Daily' ? 'bg-emerald-700 text-white' : 'border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'}`}
         >
           <Utensils size={17} />
@@ -322,7 +333,7 @@ export default function PaymentEntry({ students, onSuccess }) {
             setUniformSize('');
           }} value={form.type}>
             <option value="Tuition">Tuition</option>
-            <option value="Feeding">Feeding Fee</option>
+            <option value="Feeding" disabled={!canRecordFeeding}>Feeding Fee</option>
             <option value="Transport">Transport</option>
             <option value="Terminal Report">Terminal Report</option>
             {canUseInventoryCatalog && <option value="Uniform">Uniform</option>}
@@ -425,7 +436,7 @@ export default function PaymentEntry({ students, onSuccess }) {
           </div>
         )}
 
-        <button className="w-full bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700">
+        <button disabled={form.type === 'Feeding' && !canRecordFeeding} className="w-full bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700">
           {form.type === 'Feeding' ? 'Record Feeding' : 'Record Transaction'}
         </button>
       </form>

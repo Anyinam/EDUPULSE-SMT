@@ -44,6 +44,9 @@ describe('PerformanceAnalytics', () => {
     };
 
     axios.get.mockImplementation((url) => {
+      if (url === '/api/school/subscription/effective-plan') {
+        return Promise.resolve({ data: { plan: 'Premium', features: { advanced_analytics: true } } });
+      }
       if (url === '/api/school/classes') {
         return Promise.resolve({ data: schoolClasses });
       }
@@ -298,7 +301,7 @@ describe('PerformanceAnalytics', () => {
     render(<PerformanceAnalytics defaultView="visualization" />);
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Preset name')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Term 1')).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByDisplayValue('Term 1'), { target: { value: 'Term 2' } });

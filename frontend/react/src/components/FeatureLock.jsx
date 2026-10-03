@@ -7,10 +7,10 @@
 import React from 'react';
 import useSubscription from '../hooks/useSubscription';
 
-export function FeatureLock({ feature, requiredPlan = 'Premium', children }) {
-  const { hasFeature, plan } = useSubscription();
+export function FeatureLock({ feature, requiredPlan = 'Premium', minLevel, children }) {
+  const { hasFeature, canAccess, plan } = useSubscription();
 
-  if (hasFeature(feature)) {
+  if (minLevel ? canAccess(feature, minLevel) : hasFeature(feature)) {
     return children;
   }
 
@@ -22,6 +22,7 @@ export function FeatureLock({ feature, requiredPlan = 'Premium', children }) {
     html_templates: 'Custom HTML Templates',
     advanced_analytics: 'Advanced Analytics',
     payment_tracking: 'Payment Tracking',
+    bulk_operations: 'Bulk Operations',
     attendance: 'Attendance Management',
     feeding: 'Feeding Records',
   };
@@ -66,10 +67,10 @@ export function FeatureAlert({ feature, children }) {
  * Usage: <SubscriptionGuard requires="Premium"><YourComponent /></SubscriptionGuard>
  */
 export function SubscriptionGuard({ requires = 'Basic', children, fallback = null }) {
-  const { plan } = useSubscription();
+  const { subscription, loading, error, plan } = useSubscription();
   const tiers = { 'Free Tier': 0, 'Basic': 1, 'Premium': 2 };
 
-  if ((tiers[plan] || 0) >= (tiers[requires] || 0)) {
+  if (!loading && !error && subscription && tiers[plan] !== undefined && tiers[requires] !== undefined && tiers[plan] >= tiers[requires]) {
     return children;
   }
 

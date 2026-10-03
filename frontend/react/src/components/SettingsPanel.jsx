@@ -311,6 +311,7 @@ export default function SettingsPanel() {
   });
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [subscriptionPlan, setSubscriptionPlan] = useState('');
+  const [feedingAccessConfirmed, setFeedingAccessConfirmed] = useState(false);
   const [subscriptionTrial, setSubscriptionTrial] = useState({ active: false, plan: '', end_date: null });
   const [bankDetailsVisible, setBankDetailsVisible] = useState(false);
   const [isReconnectingPaystackSettlement, setIsReconnectingPaystackSettlement] = useState(false);
@@ -511,11 +512,13 @@ export default function SettingsPanel() {
         const res = await axios.get('/api/school/subscription/effective-plan', { headers: getAuthHeaders() });
         const planFromServer = res.data.effective_plan || res.data.plan || localStorage.getItem('subscription_plan') || 'Free Tier';
         setSubscriptionPlan(planFromServer);
+        setFeedingAccessConfirmed(planFromServer !== 'Free Tier' && res.data.features?.feeding === 'full_access');
         setSubscriptionTrial(res.data.trial || { active: false, plan: '', end_date: null });
         // Update localStorage with latest plan
         localStorage.setItem('subscription_plan', planFromServer);
       } catch (err) {
         console.error('Failed to load subscription plan:', err);
+        setFeedingAccessConfirmed(false);
         // Fallback to localStorage
         const plan = localStorage.getItem('subscription_plan') || 'Free Tier';
         setSubscriptionPlan(plan);
@@ -1361,10 +1364,12 @@ export default function SettingsPanel() {
         tuition_fee: fees.tuition_fee,
         tuition_convenience_fee_percentage: fees.tuition_convenience_fee_percentage,
         tuition_installment_plan: tuitionInstallmentPlan,
-        feeding_fee: fees.feeding_fee,
-        feeding_daily_fee: fees.feeding_daily_fee,
-        feeding_weekly_fee: fees.feeding_weekly_fee,
-        feeding_monthly_fee: fees.feeding_monthly_fee,
+        ...(feedingAccessConfirmed ? {
+          feeding_fee: fees.feeding_fee,
+          feeding_daily_fee: fees.feeding_daily_fee,
+          feeding_weekly_fee: fees.feeding_weekly_fee,
+          feeding_monthly_fee: fees.feeding_monthly_fee,
+        } : {}),
         transport_fee: fees.transport_fee,
         terminal_report_fee: fees.terminal_report_fee,
         admission_fee_enabled: fees.admission_fee_enabled,
@@ -1998,6 +2003,8 @@ export default function SettingsPanel() {
                 <input
                   type="number"
                   value={fees.feeding_daily_fee}
+                  disabled={!feedingAccessConfirmed}
+                  aria-label="Feeding Fee (Daily Plan)"
                   onChange={(e) => {
                     const nextValue = parseFloat(e.target.value) || 0;
                     setFees((prev) => ({
@@ -2021,6 +2028,8 @@ export default function SettingsPanel() {
                 <input
                   type="number"
                   value={fees.feeding_weekly_fee}
+                  disabled={!feedingAccessConfirmed}
+                  aria-label="Feeding Fee (Weekly Plan)"
                   onChange={(e) => {
                     const nextValue = parseFloat(e.target.value) || 0;
                     setFees((prev) => ({
@@ -2044,6 +2053,8 @@ export default function SettingsPanel() {
                 <input
                   type="number"
                   value={fees.feeding_monthly_fee}
+                  disabled={!feedingAccessConfirmed}
+                  aria-label="Feeding Fee (Monthly Plan)"
                   onChange={(e) => {
                     const nextValue = parseFloat(e.target.value) || 0;
                     setFees((prev) => ({

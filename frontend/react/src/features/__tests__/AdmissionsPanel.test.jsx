@@ -3,12 +3,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import axios from 'axios';
 import AdmissionsPanel from '../AdmissionsPanel';
+import useSubscription from '../../hooks/useSubscription';
 
 vi.mock('axios');
 vi.mock('../../components/BulkStatusUpdate', () => ({ default: () => <div /> }));
 vi.mock('../../components/PromotionThresholdManager', () => ({ default: () => <div /> }));
-vi.mock('../../hooks/useEffectiveSubscriptionPlan', () => ({
-  default: () => ({ plan: 'Basic' }),
+vi.mock('../../hooks/useSubscription', () => ({
+  default: vi.fn(),
 }));
 vi.mock('../../hooks/useSchoolClasses', () => ({
   default: () => ({ classes: ['JHS 3'] }),
@@ -16,6 +17,7 @@ vi.mock('../../hooks/useSchoolClasses', () => ({
 
 describe('AdmissionsPanel', () => {
   beforeEach(() => {
+    useSubscription.mockReturnValue({ plan: 'Basic', hasFeature: () => true });
     localStorage.setItem('token', 'token-1');
     localStorage.setItem('school_id', 'TEST-001');
     axios.get.mockResolvedValue({
@@ -56,6 +58,16 @@ describe('AdmissionsPanel', () => {
   afterEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+  });
+
+  it('preserves core admissions but locks CSV upload on Free Tier', async () => {
+    useSubscription.mockReturnValue({ plan: 'Free Tier', hasFeature: () => false });
+    render(<AdmissionsPanel />);
+    await waitFor(() => expect(screen.getByText('Daniel Asare')).toBeInTheDocument());
+    expect(screen.getByText('Bulk Operations Locked')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Upload CSV' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Admit Student/i })).toBeInTheDocument();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it('keeps review and archive details collapsed until selected', async () => {

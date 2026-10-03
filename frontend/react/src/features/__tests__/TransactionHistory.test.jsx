@@ -5,6 +5,7 @@ import axios from 'axios';
 import TransactionHistory from '../TransactionHistory';
 
 vi.mock('axios');
+vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true }) }));
 
 describe('TransactionHistory', () => {
   beforeEach(() => {

@@ -1273,6 +1273,17 @@ def _get_payment_collection_block(school):
 
     active_students = _count_active_students_for_billing(school.id)
     if active_students <= plan_limit:
+        if not get_school_feature_level(school, "payment_tracking", effective_plan=effective_plan):
+            return {
+                "status": "blocked",
+                "error": "payment_collection_blocked",
+                "reason": "feature_unavailable",
+                "effective_plan": effective_plan,
+                "plan_limit": plan_limit,
+                "active_students": active_students,
+                "required_plan": "School OS",
+                "message": "Payment tracking and collection require School OS or School OS Plus. Upgrade to resume payment operations.",
+            }
         return None
 
     return {
@@ -6380,6 +6391,11 @@ def get_report_template():
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     if not settings:
         return jsonify({"message": "School settings not found"}), 404
+    school = School.query.get(g.school_id)
+    effective_plan = get_effective_plan(school)
+    template_id = _normalize_report_template_id(settings.report_template_id)
+    if not can_access_report_template(effective_plan, template_id):
+        return jsonify({"report_template_id": "gradman_v1", "report_template_config": {}})
     return jsonify(
         {
             "report_template_id": _normalize_report_template_id(settings.report_template_id),
@@ -6582,6 +6598,10 @@ def restore_report_template_history(snapshot_id):
     if not snapshot:
         return jsonify({"message": "Report template history snapshot not found."}), 404
 
+    effective_plan = get_effective_plan(School.query.get(g.school_id))
+    if not can_access_report_template(effective_plan, _normalize_report_template_id(snapshot.get("report_template_id"))):
+        return jsonify({"message": "This template is not available on the current subscription."}), 403
+
     settings.report_template_id = _normalize_report_template_id(snapshot.get("report_template_id"))
     settings.report_template_config = _clone_json_document(snapshot.get("report_template_config") or {})
     db.session.commit()
@@ -6730,6 +6750,16 @@ def create_school_class():
         level=level,
         stream=stream,
     )
+    school = _lock_school_for_capacity_check(g.school_id)
+    within_quota, current_count, limit = check_quota(school, "classes")
+    if not within_quota:
+        return jsonify({
+            "message": "Class limit reached. Upgrade the subscription to add another class.",
+            "error": "class_limit_reached",
+            "current_count": current_count,
+            "limit": limit,
+        }), 403
+
     db.session.add(school_class)
     db.session.commit()
 
@@ -7457,7 +7487,6 @@ def get_student_payment_codes(student_id):
         id=student_id, school_id=g.school_id
     ).first_or_404()
     school = School.query.get(g.school_id)
-    _ensure_student_payment_identity(student)
     verification_restriction = _payment_records_verification_block_response(school)
     if verification_restriction:
         return verification_restriction
@@ -7465,40 +7494,13 @@ def get_student_payment_codes(student_id):
     if restriction:
         return restriction
 
+    _ensure_student_payment_identity(student)
     actor_id = get_jwt_identity()
     try:
         actor_id = int(actor_id) if actor_id is not None else None
     except (TypeError, ValueError):
         actor_id = None
     payload = _build_student_payment_instruction_payload(student, g.school_id)
-    settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
-
-    if payload.get("payment_identity", {}).get("supports_fee_route_dvas"):
-        for code in payload.get("payment_codes") or []:
-            if sanitize_string((code.get("payment_category") or {}).get("fee_type") or code.get("fee_type") or "") != "Tuition":
-                continue
-            try:
-                intent, error = _create_or_reuse_student_virtual_account_intent(student, school, settings, code)
-                if error:
-                    code["tracked_transfer_error"] = public_tracked_transfer_failure_message() if looks_like_provider_error(error, sanitize_string) else error
-                    continue
-                route_payload = _build_payment_collection_intent_payload(intent)
-                code["virtual_route"] = route_payload
-                code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
-                code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
-                code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
-                code["has_virtual_route"] = bool(route_payload)
-                code["preferred_payment_model"] = "virtual_account_ready" if route_payload else code.get("preferred_payment_model")
-            except Exception as exc:
-                db.session.rollback()
-                logger.error(
-                    "Tracked transfer account preparation failed for school %s student %s ref %s: %s",
-                    g.school_id,
-                    student.id,
-                    code.get("reference_code") or code.get("code"),
-                    exc,
-                )
-                code["tracked_transfer_error"] = public_tracked_transfer_failure_message()
 
     log_action(
         actor_id,
@@ -7527,7 +7529,6 @@ def get_student_payment_codes(student_id):
 def create_student_payment_virtual_account(student_id, reference_code):
     student = Student.query.filter_by(id=student_id, school_id=g.school_id).first_or_404()
     school = School.query.get(g.school_id)
-    _ensure_student_payment_identity(student)
     verification_restriction = _payment_records_verification_block_response(school)
     if verification_restriction:
         return verification_restriction
@@ -7535,6 +7536,7 @@ def create_student_payment_virtual_account(student_id, reference_code):
     if restriction:
         return restriction
 
+    _ensure_student_payment_identity(student)
     payload = _build_student_payment_instruction_payload(student, g.school_id)
     selected_code = next(
         (
@@ -7810,6 +7812,47 @@ def download_student_document(student_id, document_id):
         as_attachment=False,
         download_name=linked_document.get("original_filename") or linked_document.get("filename") or "admission-document",
     )
+
+
+@api.route("/finance/receipts", methods=["GET"])
+@multi_tenant_guard
+@role_required("proprietor", "finance", "headmaster", "homeroom", "teacher")
+@jwt_required()
+def get_payment_receipts():
+    """Provide printable recorded-payment evidence independently of collection access."""
+    query = db.session.query(Payment, Student).join(Student, Student.id == Payment.student_id).filter(
+        Payment.school_id == g.school_id,
+        Student.school_id == g.school_id,
+    )
+    search = sanitize_string(request.args.get("q") or "").strip()
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(or_(Student.name.ilike(pattern), Student.student_code.ilike(pattern), Payment.reference_id.ilike(pattern)))
+    limit = min(100, max(1, request.args.get("limit", 50, type=int)))
+    offset = max(0, request.args.get("offset", 0, type=int))
+    total = query.count()
+    rows = query.order_by(Payment.date_paid.desc(), Payment.id.desc()).offset(offset).limit(limit).all()
+    school = School.query.get(g.school_id)
+    receipts = []
+    for payment, student in rows:
+        category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
+        receipts.append({
+            "id": payment.id,
+            "receipt_number": f"RCPT-{payment.id}",
+            "student_name": student.name,
+            "student_code": student.student_code,
+            "class_name": student.current_class,
+            "payment_type": payment.payment_type,
+            "method": payment.method,
+            "status": payment.status,
+            "date_paid": _to_iso_utc(payment.date_paid),
+            "reference_id": payment.reference_id,
+            "display_amount": round(float(category.get("gross_amount_paid", category.get("charged_total_amount", payment.amount)) or 0), 2),
+            "applied_amount": round(float(category.get("applied_school_fee_amount", payment.amount) or 0), 2),
+            "convenience_fee_amount": round(float(category.get("collected_convenience_fee_amount", category.get("convenience_fee_amount", 0)) or 0), 2),
+            "provider_fee_amount": round(float(category.get("actual_provider_fee_amount", category.get("estimated_provider_fee_amount", 0)) or 0), 2),
+        })
+    return jsonify({"receipts": receipts, "total": total, "limit": limit, "offset": offset, "school_name": school.name, "currency": "GHS"})
 
 
 @api.route("/students/<int:student_id>/payments", methods=["GET"])
@@ -9638,9 +9681,9 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
             school_id=student.school_id,
             payment_id=payment.id,
             student_id=student.id,
-            rule_code="FREE_TIER_OVER_CAP_PAYMENT",
+            rule_code="PAYMENT_FEATURE_UNAVAILABLE" if collection_block.get("reason") == "feature_unavailable" else "FREE_TIER_OVER_CAP_PAYMENT",
             severity="high",
-            summary="Payment received while Free Tier collection is paused for over-capacity.",
+            summary=collection_block["message"],
             details={"reference": tx_ref, "source": "paystack", "collection_block": collection_block},
         )
 
@@ -11884,13 +11927,6 @@ def receive_payment():
 
     # Only update student stats if confirmed immediately
     if status == "Confirmed":
-        _apply_confirmed_payment_effects(
-            payment,
-            student,
-            user.id,
-            actor_label=user.username if user else "system",
-        )
-
         if payment.payment_type in ["Inventory", "Uniform"]:
             item_id = payment.payment_category.get("item_id")
             sku = payment.payment_category.get("sku")
@@ -11921,17 +11957,12 @@ def receive_payment():
                     "sku": inventory_item.sku,
                     "quantity": quantity,
                 }
-        if payment.payment_type in ["Inventory", "Uniform"]:
-            latest_ledger_entry = LedgerEntry.query.filter_by(
-                school_id=g.school_id,
-                tx_ref=payment.reference_id or f"PAY-{payment.id}",
-            ).order_by(LedgerEntry.id.desc()).first()
-            if latest_ledger_entry and isinstance(latest_ledger_entry.meta, dict):
-                latest_ledger_entry.meta = {
-                    **latest_ledger_entry.meta,
-                    "payment_category": payment.payment_category,
-                    "recorded_by": user.username,
-                }
+        _apply_confirmed_payment_effects(
+            payment,
+            student,
+            user.id,
+            actor_label=user.username if user else "system",
+        )
 
     log_action(
         user_id=user.id,
@@ -12061,9 +12092,9 @@ def bank_transfer_webhook():
                 school_id=student.school_id,
                 payment_id=payment.id,
                 student_id=student.id,
-                rule_code="FREE_TIER_OVER_CAP_PAYMENT",
+                rule_code="PAYMENT_FEATURE_UNAVAILABLE" if collection_block.get("reason") == "feature_unavailable" else "FREE_TIER_OVER_CAP_PAYMENT",
                 severity="high",
-                summary="Bank transfer received while Free Tier collection is paused for over-capacity.",
+                summary=collection_block["message"],
                 details={"reference": data.get("transaction_id"), "collection_block": collection_block},
             )
 
@@ -12147,6 +12178,12 @@ def get_live_feed():
     """Remote oversight for the traveling proprietor."""
     try:
         now = datetime.now(timezone.utc)
+        school = School.query.get(g.school_id)
+        payment_access = (
+            get_school_feature_level(school, "payment_tracking")
+            and _get_school_verification_snapshot(g.school_id)["is_verified"]
+            and not _get_payment_collection_block(school)
+        )
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         last_30_days = now - timedelta(days=30)
         last_365_days = now - timedelta(days=365)
@@ -12321,6 +12358,23 @@ def get_live_feed():
                 }
         except Exception:
             billing_notice = None
+
+        if not get_school_feature_level(school, "student_rescue_agent"):
+            critical_list = []
+            rescue_payload = {"students": [], "summary": {"critical_count": 0}}
+
+        if not payment_access:
+            today_revenue = monthly_revenue = yearly_revenue = unpaid_tuition = None
+            pending_list = []
+            pending_groups = []
+            recent_payments = []
+            low_stock_items = []
+            ledger_integrity = None
+            critical_list = []
+            recent_logs = [
+                log for log in recent_logs
+                if not any(keyword in log.action.upper() for keyword in ("PAYMENT", "TRANSFER", "FINANCE", "INVENTORY"))
+            ]
 
         return jsonify(
             {
@@ -12738,6 +12792,12 @@ def proprietor_live_events():
 
             if new_logs:
                 last_seen_id = max(log.id for log in new_logs)
+                school = School.query.get(school_id)
+                if not get_school_feature_level(school, "payment_tracking") or _get_payment_collection_block(school):
+                    new_logs = [
+                        log for log in new_logs
+                        if not any(keyword in log.action.upper() for keyword in ("PAYMENT", "TRANSFER", "FINANCE", "INVENTORY"))
+                    ]
                 payload = {
                     "type": "new_logs",
                     "last_id": last_seen_id,
@@ -12868,17 +12928,8 @@ def _confirm_pending_payment_record(payment, confirmed_by_user_id, confirmed_by_
             student,
             confirmed_by_user_id,
             actor_label=confirmed_by_username or "System",
+            extra_metadata={"confirmed_by": confirmed_by_username or "System"},
         )
-        latest_ledger_entry = LedgerEntry.query.filter_by(
-            school_id=g.school_id,
-            tx_ref=payment.reference_id or f"PAY-{payment.id}",
-        ).order_by(LedgerEntry.id.desc()).first()
-        if latest_ledger_entry and isinstance(latest_ledger_entry.meta, dict):
-            latest_ledger_entry.meta = {
-                **latest_ledger_entry.meta,
-                "payment_category": payment.payment_category,
-                "confirmed_by": confirmed_by_username or "System",
-            }
 
 
 @api.route("/finance/confirm-payment/<int:payment_id>", methods=["POST"])
@@ -12893,6 +12944,10 @@ def confirm_payment(payment_id):
     )
     if verification_block:
         return verification_block
+
+    restriction = _payment_collection_block_response(School.query.get(g.school_id))
+    if restriction:
+        return restriction
 
     payment = Payment.query.filter_by(
         id=payment_id, school_id=g.school_id
@@ -12925,6 +12980,10 @@ def confirm_payments_bulk():
     )
     if verification_block:
         return verification_block
+
+    restriction = _payment_collection_block_response(School.query.get(g.school_id))
+    if restriction:
+        return restriction
 
     payload = request.get_json(silent=True) or {}
     class_name = str(payload.get("class_name") or "").strip()
@@ -13285,6 +13344,15 @@ def get_ai_insights():
                     "icon": "⏰",
                 }
             )
+
+        school = School.query.get(g.school_id)
+        if not get_school_feature_level(school, "payment_tracking") or _get_payment_collection_block(school):
+            restricted_titles = {"Revenue Growth", "Revenue Decline", "Outstanding Debts"}
+            insights = [item for item in insights if item["title"] not in restricted_titles]
+            alerts = [item for item in alerts if item["title"] not in restricted_titles]
+            revenue_this_week = revenue_change = students_with_debt = total_debt = None
+        if not get_school_feature_level(school, "lesson_notes"):
+            insights = [item for item in insights if item["title"] != "Lesson Notes Review"]
 
         return jsonify(
             {
@@ -15285,7 +15353,7 @@ def kitchen_dashboard():
 def submit_lesson_note():
     """Submit lesson note and trigger AI scoring."""
     data = request.json or {}
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     week_number = data.get("week_number") or data.get("week", 1)
     subject = data.get("subject")
@@ -15449,7 +15517,7 @@ def check_headmaster_exists():
 @jwt_required()
 def get_my_lesson_notes():
     """Fetch teacher's own lesson notes."""
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     notes = (
         LessonNote.query.filter_by(school_id=g.school_id, teacher_id=user_id)
         .order_by(LessonNote.submitted_at.desc())
@@ -15901,6 +15969,16 @@ def _normalize_homeroom_assignment(roles, assigned_class):
 @role_required("proprietor")
 def add_staff():
     """Adds a new staff member to the tenant."""
+    school = _lock_school_for_capacity_check(g.school_id)
+    within_quota, current_count, limit = check_quota(school, "staff")
+    if not within_quota:
+        return jsonify({
+            "message": "Staff limit reached. Upgrade the subscription to add another staff member.",
+            "error": "staff_limit_reached",
+            "current_count": current_count,
+            "limit": limit,
+        }), 403
+
     response_body, error, status_code = staff_service.add_staff_member(
         request.json or {},
         g.school_id,
@@ -15964,9 +16042,8 @@ def bulk_upload_staff():
             stream = StringIO(file.stream.read().decode("UTF8"), newline=None)
             csv_input = csv.DictReader(stream)
 
-            school = School.query.get(g.school_id)
-            limit = get_plan_limits(get_effective_plan(school))
-            current_staff_count = User.query.filter_by(school_id=g.school_id).count()
+            school = _lock_school_for_capacity_check(g.school_id)
+            _, current_staff_count, limit = check_quota(school, "staff")
             existing_usernames = {
                 username
                 for (username,) in User.query.filter_by(school_id=g.school_id)
@@ -15979,6 +16056,9 @@ def bulk_upload_staff():
             allowed_roles = ["teacher", "homeroom", "headmaster", "finance", "inventory_manager"]
 
             for idx, row in enumerate(csv_input, start=1):
+                if current_staff_count + added_count >= limit:
+                    errors.append(f"Row {idx}: Staff limit reached ({limit}). Upgrade the subscription.")
+                    continue
                 # Don't enforce student limit for staff - just take what they provide
                 # Basic Validation - username, email, password required
                 username = (row.get("username") or "").strip()
@@ -18615,9 +18695,7 @@ def get_subscription():
         db.session.commit()
 
     current_students = _count_active_students_for_billing(g.school_id)
-    current_classes = (
-        len(school.academic_classes) if hasattr(school, "academic_classes") else 0
-    )
+    current_classes = AcademicClass.query.filter_by(school_id=g.school_id).count()
 
     effective_plan = get_effective_plan(school)
     plan_info = PLAN_FEATURES.get(effective_plan, PLAN_FEATURES["Free Tier"])
@@ -18758,6 +18836,15 @@ def get_effective_subscription_plan():
             "base_plan": school.subscription_plan or "Free Tier",
             "base_plan_display_name": get_plan_display_name(school.subscription_plan or "Free Tier"),
             "effective_plan": effective_plan,
+            "features": {
+                feature: get_school_feature_level(school, feature, effective_plan=effective_plan)
+                for feature in PLAN_FEATURES[effective_plan]["features"]
+            },
+            "report_templates": PLAN_FEATURES[effective_plan]["report_templates"],
+            "active_addons": {
+                addon: school_has_addon(school, addon, effective_plan=effective_plan)
+                for addon in ("ai_pack", "automation_pack")
+            },
             "trial": {
                 "active": bool(
                     school.trial_plan
@@ -19114,6 +19201,11 @@ def recover_subscription_reconciliation_gaps():
 @role_required("proprietor", "finance")
 def recover_finance_paystack_reference():
     """Recover one Paystack transaction reference without relying on the removed reconciliation card."""
+    school = School.query.get(g.school_id)
+    restriction = _payment_audit_access_block_response(school)
+    if restriction:
+        return restriction
+
     payload = request.get_json(silent=True) or {}
     reference = sanitize_string(payload.get("reference") or "") or ""
     if not reference:

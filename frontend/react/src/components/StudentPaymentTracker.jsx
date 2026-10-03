@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useBranding } from '../hooks/useBranding';
+import FeatureLock from './FeatureLock';
 
 export default function StudentPaymentTracker() {
+  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><StudentPaymentTrackerContent /></FeatureLock>;
+}
+
+function StudentPaymentTrackerContent() {
   const [students, setStudents] = useState([]);
   const [schoolFees, setSchoolFees] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -194,7 +199,11 @@ export default function StudentPaymentTracker() {
         if ((code?.payment_category?.fee_type || code?.fee_type) !== 'Tuition') {
           return code;
         }
-        if (code.virtual_route?.account_number || code.has_virtual_route) {
+        const route = code.virtual_route;
+        const pricingMatches = route
+          && (code.base_amount == null || Number(route.base_amount) === Number(code.base_amount))
+          && (code.total_amount == null || Number(route.total_amount) === Number(code.total_amount));
+        if ((route?.account_number || code.has_virtual_route) && pricingMatches) {
           return code;
         }
 

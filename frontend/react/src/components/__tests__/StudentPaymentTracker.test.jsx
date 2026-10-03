@@ -5,6 +5,7 @@ import axios from 'axios';
 import StudentPaymentTracker from '../StudentPaymentTracker';
 
 vi.mock('axios');
+vi.mock('../../hooks/useSubscription', () => ({ default: () => ({ plan: 'Basic', hasFeature: () => true }) }));
 vi.mock('../../hooks/useBranding', () => ({
   useBranding: () => ({ branding: {} }),
 }));

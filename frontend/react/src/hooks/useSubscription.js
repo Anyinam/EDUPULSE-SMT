@@ -15,6 +15,9 @@ export const PLAN_FEATURES = {
     features: {
       attendance: 'view_only',
       feeding: 'view_only',
+      payment_tracking: false,
+      bulk_operations: false,
+      advanced_analytics: false,
       lesson_notes: false,
       grade_entry: false,
       report_generation: true,
@@ -33,6 +36,9 @@ export const PLAN_FEATURES = {
     features: {
       attendance: 'full_access',
       feeding: 'full_access',
+      payment_tracking: true,
+      bulk_operations: true,
+      advanced_analytics: false,
       lesson_notes: true,
       grade_entry: true,
       report_generation: true,
@@ -51,6 +57,9 @@ export const PLAN_FEATURES = {
     features: {
       attendance: 'full_access',
       feeding: 'full_access',
+      payment_tracking: true,
+      bulk_operations: true,
+      advanced_analytics: true,
       lesson_notes: true,
       grade_entry: true,
       report_generation: true,
@@ -80,17 +89,13 @@ export function useSubscription() {
           'Authorization': `Bearer ${storedToken}`,
         };
 
-        const response = await axios.get('/api/school/subscription', { headers });
-        setSubscription(response.data);
+        const response = await axios.get('/api/school/subscription/effective-plan', { headers });
+        setSubscription({ ...response.data, plan: response.data.effective_plan || response.data.plan });
         setError(null);
       } catch (err) {
         console.error('Failed to fetch subscription:', err);
         setError(err.response?.data?.message || 'Failed to fetch subscription');
-        // Default to Free Tier on error
-        setSubscription({
-          plan: 'Free Tier',
-          features: PLAN_FEATURES['Free Tier'].features,
-        });
+        setSubscription(null);
       } finally {
         setLoading(false);
       }
@@ -103,7 +108,7 @@ export function useSubscription() {
     }
   }, []);
 
-  const hasAddon = (addonName) => Boolean(subscription?.active_addons?.[addonName]);
+  const hasAddon = (addonName) => !loading && !error && Boolean(subscription?.active_addons?.[addonName]);
 
   /**
    * Check if a feature is available at any level
@@ -111,11 +116,10 @@ export function useSubscription() {
    * @returns {boolean} - True if feature is available
    */
   const hasFeature = (featureName) => {
-    if (!subscription) return false;
-    const features = subscription.features || PLAN_FEATURES[subscription.plan]?.features || {};
+    if (loading || error || !subscription) return false;
+    const features = subscription.features || {};
     const featureValue = features[featureName];
-    // Feature is available if it's not false or null
-    return featureValue !== false && featureValue !== null;
+    return featureValue === true || ['view_only', 'basic', 'full_access', 'full'].includes(featureValue);
   };
 
   /**
@@ -124,9 +128,9 @@ export function useSubscription() {
    * @returns {string|boolean} - Access level ('view_only', 'basic', 'full_access', 'full', true, or false)
    */
   const getFeatureLevel = (featureName) => {
-    if (!subscription) return false;
-    const features = subscription.features || PLAN_FEATURES[subscription.plan]?.features || {};
-    return features[featureName];
+    if (loading || error || !subscription) return false;
+    const features = subscription.features || {};
+    return features[featureName] ?? false;
   };
 
   /**
@@ -177,7 +181,7 @@ export function useSubscription() {
    * @returns {boolean} - True if accessible
    */
   const canAccessTemplate = (templateId) => {
-    if (!subscription) return false;
+    if (loading || error || !subscription) return false;
     const templates = subscription.report_templates || [];
     return templates.includes(templateId);
   };

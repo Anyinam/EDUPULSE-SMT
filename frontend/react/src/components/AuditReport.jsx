@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import FeatureLock from './FeatureLock';
 
 function formatMoney(value) {
   return `GH₵ ${Number(value || 0).toFixed(2)}`;
@@ -33,6 +34,10 @@ function getTrackedTransferDetails(transaction) {
 }
 
 export default function AuditReport() {
+  return <FeatureLock feature="payment_tracking" requiredPlan="Basic"><AuditReportContent /></FeatureLock>;
+}
+
+function AuditReportContent() {
   const [summary, setSummary] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [ledger, setLedger] = useState([]);
