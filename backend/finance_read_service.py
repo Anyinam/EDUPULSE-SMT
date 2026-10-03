@@ -3,7 +3,7 @@ from datetime import timedelta
 
 def _payment_amount_details(payment):
     category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
-    applied_amount = round(float(category.get("applied_school_fee_amount") or payment.amount or 0), 2)
+    applied_amount = round(float(category.get("applied_school_fee_amount", payment.amount) or 0), 2)
     display_amount = round(
         float(category.get("gross_amount_paid") or category.get("charged_total_amount") or payment.amount or 0),
         2,

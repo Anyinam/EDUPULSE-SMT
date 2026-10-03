@@ -132,11 +132,17 @@ For tracked transfer accounts, EduPulse stores:
 - `platform_fee_amount`
 - `total_amount`
 
-Example:
+New tuition routes use the versioned `gross_up_margin_v1` fee model. The default estimated Paystack rate is 1.95% of the complete parent transfer; EduPulse's selected margin is 1% of the school tuition amount. The total is rounded upward to the next pesewa so the school amount and target margin are covered.
 
-- base tuition installment: `GH₵500`
-- convenience fee: `GH₵9.75`
-- parent transfer total: `GH₵509.75`
+For a GH₵25 installment:
+
+- school tuition: GH₵25.00
+- target EduPulse margin: GH₵0.25
+- estimated provider fee on the gross transfer: GH₵0.50
+- cent-rounding adjustment: GH₵0.01
+- parent transfer total: GH₵25.76
+
+The parent's total is calculated as `(school fee + target margin + provider flat fee) / (1 - provider percentage)`, rounded upward. The service fee is separate from tuition, and the displayed exact total applies only to the dedicated account for that learner and installment.
 
 When the payment record is written, EduPulse separates the tracked-transfer payment into distinct accounting values:
 
@@ -145,15 +151,11 @@ When the payment record is written, EduPulse separates the tracked-transfer paym
 - actual Paystack/provider fee when Paystack returns it
 - applied school-fee amount
 
-The learner's tuition debt is reduced by the applied school-fee amount, which is the net school portion remaining after convenience and provider-fee deductions, capped by the route base amount.
+For the new model, an exact GH₵25.76 payment to an account-bearer flat split credits the full GH₵25.00 school tuition. The provider fee is paid from the platform's GH₵0.76 gross remainder, not deducted again from the learner's school credit. At an actual GH₵0.50 fee, platform net is GH₵0.26: the GH₵0.25 target margin plus GH₵0.01 rounding surplus. Missing provider fees are labeled as estimates rather than represented as known actual fees.
 
-Example with an actual provider fee:
+Underpayments, overpayments, invalid split settings, and provider fees that would consume the target margin are retained as Pending for settlement review. Gross funds remain recorded, applied school credit is zero, balances and confirmed ledgers are unchanged, and normal manual-payment approval cannot bypass the hold. Replayed callbacks do not duplicate the record.
 
-- base tuition installment: `GH₵500`
-- convenience fee: `GH₵9.75`
-- parent transfer total: `GH₵509.75`
-- Paystack fee returned on the transaction: `GH₵0.41`
-- applied school-fee amount: `GH₵499.59`
+Historical routes without this fee-model version retain their original calculations and recorded amounts. Do not reprice previously paid accounts or rewrite historical receipts.
 
 Tracked transfer accounts use Paystack split settlement so that:
 

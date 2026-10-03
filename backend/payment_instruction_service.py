@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from backend.payment_workflow import calculate_payment_collection_breakdown, get_tuition_collection_pricing
+
 
 TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
 TUITION_INSTALLMENT_PLAN_KEY = "__tuition_installment_plan__"
@@ -82,7 +84,7 @@ def _get_payment_applied_amount(payment):
         return 0.0
     category = payment.payment_category if isinstance(payment.payment_category, dict) else {}
     try:
-        return round(float(category.get("applied_school_fee_amount") or payment.amount or 0.0), 2)
+        return round(float(category.get("applied_school_fee_amount", payment.amount) or 0.0), 2)
     except (TypeError, ValueError):
         return round(float(payment.amount or 0.0), 2) if payment.amount else 0.0
 
@@ -91,6 +93,15 @@ def build_payment_collection_intent_payload(intent, sanitize_string):
     if not intent:
         return None
     split_config = intent.meta.get("split_config") if isinstance(intent.meta, dict) else {}
+    split_config = split_config if isinstance(split_config, dict) else {}
+    pricing = intent.meta.get("pricing") if isinstance(intent.meta, dict) else {}
+    pricing = pricing if isinstance(pricing, dict) else {}
+    fee_model = pricing.get("fee_model")
+    rounding_surplus_amount = round(
+        float(intent.total_amount or 0.0) - float(intent.base_amount or 0.0)
+        - float(intent.estimated_provider_fee_amount or 0.0) - float(intent.platform_fee_amount or 0.0),
+        2,
+    ) if fee_model == "gross_up_margin_v1" else 0.0
     return {
         "id": intent.id,
         "provider": intent.provider,
@@ -102,6 +113,8 @@ def build_payment_collection_intent_payload(intent, sanitize_string):
         "convenience_fee_amount": round(float(intent.convenience_fee_amount or 0.0), 2),
         "estimated_provider_fee_amount": round(float(intent.estimated_provider_fee_amount or 0.0), 2),
         "platform_fee_amount": round(float(intent.platform_fee_amount or 0.0), 2),
+        "fee_model": fee_model,
+        "rounding_surplus_amount": rounding_surplus_amount,
         "total_amount": round(float(intent.total_amount or 0.0), 2),
         "currency": intent.currency or "GH₵",
         "bank_name": intent.provider_bank_name,
@@ -156,12 +169,28 @@ def attach_virtual_routes_to_payment_codes(student, codes_list, get_student_paym
     for code in codes_list:
         intent = latest_by_reference.get(code.get("reference_code"))
         route_payload = build_payment_collection_intent_payload_fn(intent)
+        if route_payload:
+            amount_fields = (
+                "base_amount", "total_amount", "convenience_fee_amount",
+                "estimated_provider_fee_amount", "platform_fee_amount", "rounding_surplus_amount",
+            )
+            matches_pricing = route_payload.get("fee_model") == code.get("fee_model") and all(
+                round(float(route_payload.get(field) or 0.0), 2) == round(float(code.get(field) or 0.0), 2)
+                for field in amount_fields
+            )
+            if not matches_pricing:
+                route_payload = None
+        historical_paid = bool(intent and (intent.intent_status == "paid" or intent.paid_at))
         code["virtual_route"] = route_payload
         code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
         code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
         code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
         code["has_virtual_route"] = bool(route_payload and route_payload.get("status") in {"assigned", "paid"})
-        code["preferred_payment_model"] = "virtual_account_ready" if code["has_virtual_route"] else "reference_first"
+        code["needs_virtual_route_preparation"] = not code["has_virtual_route"] and not historical_paid
+        code["preferred_payment_model"] = (
+            "virtual_account_ready" if code["has_virtual_route"]
+            else "historical_paid" if historical_paid else "reference_first"
+        )
 
 
 def build_student_payment_instruction_payload(
@@ -184,7 +213,8 @@ def build_student_payment_instruction_payload(
     other_fees = dict(settings.other_fees or {}) if settings and isinstance(settings.other_fees, dict) else {}
     feeding_plan_fees = get_feeding_plan_fees(settings)
     admission_fee = get_school_admission_fee_config(settings)
-    tuition_convenience_fee_percentage = _get_tuition_convenience_fee_percentage(settings)
+    payment_collection_pricing = get_payment_collection_pricing()
+    tuition_pricing = get_tuition_collection_pricing(payment_collection_pricing)
     tuition_installment_plan = _read_tuition_installment_plan(settings)
 
     fees_config = {
@@ -202,14 +232,21 @@ def build_student_payment_instruction_payload(
 
     def append_standard_code(fee_type, reference_code, base_amount, payment_category, instructions, *, amount=None, pricing_override=None):
         normalized_base_amount = round(float(base_amount or 0.0), 2)
-        normalized_total_amount = round(float(amount if amount is not None else normalized_base_amount), 2)
+        breakdown = calculate_payment_collection_breakdown(normalized_base_amount, pricing_override or {})
+        normalized_total_amount = round(float(amount if amount is not None else breakdown["total_amount"]), 2)
+        fee_model = breakdown.get("fee_model")
         codes_list.append({
             "fee_type": fee_type,
             "code": reference_code,
             "reference_code": reference_code,
             "payment_identity_base": student.student_code,
-            "payment_category": payment_category,
+            "payment_category": {**payment_category, "fee_model": fee_model} if fee_model else payment_category,
             "base_amount": normalized_base_amount,
+            "convenience_fee_amount": breakdown["convenience_fee_amount"],
+            "estimated_provider_fee_amount": breakdown["estimated_provider_fee_amount"],
+            "platform_fee_amount": breakdown["platform_fee_amount"],
+            "rounding_surplus_amount": breakdown.get("rounding_surplus_amount", 0.0),
+            "fee_model": fee_model,
             "cash_amount": normalized_base_amount,
             "total_amount": normalized_total_amount,
             "amount": normalized_total_amount,
@@ -258,8 +295,7 @@ def build_student_payment_instruction_payload(
                 else:
                     installment_status = "open"
 
-                convenience_fee_amount = round(installment_amount * (tuition_convenience_fee_percentage / 100.0), 2)
-                total_amount = round(installment_amount + convenience_fee_amount, 2)
+                total_amount = calculate_payment_collection_breakdown(installment_amount, tuition_pricing)["total_amount"]
                 reference_code = f"{student.student_code}-TUIT-I{installment_number}"
                 schedule_window = []
                 if installment.get("start_date"):
@@ -284,23 +320,16 @@ def build_student_payment_instruction_payload(
                     (
                         f"EduPulse automatically prepares a tracked transfer account for {installment.get('label') or f'Installment {installment_number}'}{schedule_window_text}. "
                         + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {reference_code}. "
-                        + f"The installment base amount is GH₵ {installment_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
+                        + f"The installment base amount is GH₵ {installment_amount:.2f}; the tracked transfer total includes provider processing and the EduPulse service fee."
                     ),
                     amount=total_amount,
-                    pricing_override={
-                        "estimated_provider_fee_rate_pct": tuition_convenience_fee_percentage,
-                        "estimated_provider_fee_flat": 0.0,
-                        "platform_fee_flat": 0.0,
-                        "charge_parent_convenience_fee": True,
-                        "platform_fee_label": "Convenience Fee",
-                    },
+                    pricing_override=tuition_pricing,
                 )
                 codes_list[-1]["is_tuition_installment"] = True
                 codes_list[-1]["is_scholarship_fee"] = False
             tuition_credit_balance = round(max(0.0, remaining_credit), 2)
         else:
-            convenience_fee_amount = round(base_amount * (tuition_convenience_fee_percentage / 100.0), 2)
-            total_amount = round(base_amount + convenience_fee_amount, 2)
+            total_amount = calculate_payment_collection_breakdown(base_amount, tuition_pricing)["total_amount"]
 
             append_standard_code(
                 "Tuition",
@@ -310,16 +339,10 @@ def build_student_payment_instruction_payload(
                 (
                     f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
                     + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
-                    + f"The current tuition balance for this learner is GH₵ {base_amount:.2f}; the tracked transfer total includes a {tuition_convenience_fee_percentage:.2f}% convenience fee."
+                    + f"The current tuition balance for this learner is GH₵ {base_amount:.2f}; the tracked transfer total includes provider processing and the EduPulse service fee."
                 ),
                 amount=total_amount,
-                pricing_override={
-                    "estimated_provider_fee_rate_pct": tuition_convenience_fee_percentage,
-                    "estimated_provider_fee_flat": 0.0,
-                    "platform_fee_flat": 0.0,
-                    "charge_parent_convenience_fee": True,
-                    "platform_fee_label": "Convenience Fee",
-                },
+                pricing_override=tuition_pricing,
             )
             codes_list[-1]["is_scholarship_fee"] = bool(student.scholarship_covers_tuition)
             tuition_credit_balance = 0.0
@@ -425,7 +448,7 @@ def build_student_payment_instruction_payload(
             "tuition_credit_balance": tuition_credit_balance,
         },
         "admission_fee": admission_fee,
-        "payment_collection_pricing": get_payment_collection_pricing(),
+        "payment_collection_pricing": payment_collection_pricing,
         "school_payment_account": {
             "bank_name": None,
             "bank_account": None,
@@ -435,7 +458,11 @@ def build_student_payment_instruction_payload(
         "fees_configuration": {
             "tuition_fee": round(float(fees_config["tuition_fee"] or 0.0), 2),
             "terminal_report_fee": round(float(fees_config["terminal_report_fee"] or 0.0), 2),
-            "tuition_convenience_fee_percentage": tuition_convenience_fee_percentage,
+            "tuition_convenience_fee_percentage": _get_tuition_convenience_fee_percentage(settings),
+            "tuition_transfer_pricing": tuition_pricing,
+            "tuition_platform_margin_rate_pct": tuition_pricing["platform_margin_rate_pct"],
+            "tuition_provider_fee_rate_pct": tuition_pricing["estimated_provider_fee_rate_pct"],
+            "tuition_provider_fee_flat": tuition_pricing["estimated_provider_fee_flat"],
         },
         "tuition_installment_plan": tuition_installment_plan,
         "payment_codes": codes_list,

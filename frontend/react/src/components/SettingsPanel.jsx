@@ -5,6 +5,22 @@ import TermManagementPanel from './TermManagementPanel';
 import reportTemplates from '../report_templates';
 import { buildTemplateHtml, GRADE_SCALE_ROWS, formatGradingSchemeSummary, getGradeFromTotal, getRemarkFromGrade } from '../utils/reportTemplate';
 
+export const calculateTuitionTransferPreview = (baseAmount, pricing = {}) => {
+  const scale = 1000000;
+  const cents = (value) => Math.round(Math.round(Number(value) * scale) / (scale / 100));
+  const base = cents(baseAmount);
+  const providerRate = Math.round(Number(pricing.estimated_provider_fee_rate_pct ?? 1.95) * scale);
+  const marginRate = Math.round(Number(pricing.platform_margin_rate_pct ?? 1) * scale);
+  const denominator = 100 * scale;
+  const marginFlat = Math.round(Number(pricing.platform_fee_flat ?? 0) * scale) * 10000;
+  const margin = Math.round((base * marginRate + marginFlat) / denominator);
+  const providerFlat = Math.round(Number(pricing.estimated_provider_fee_flat ?? 0) * scale) * 10000;
+  const total = base > 0 ? Math.ceil(((base + margin) * denominator + providerFlat) / (denominator - providerRate)) : 0;
+  const provider = base > 0 ? Math.round((total * providerRate + providerFlat) / denominator) : 0;
+  return { total: total / 100, provider: provider / 100, margin: base > 0 ? margin / 100 : 0,
+    surplus: (total - base - provider - (base > 0 ? margin : 0)) / 100 };
+};
+
 const TEMPLATE_ALIAS_TO_CANONICAL = {
   sample1: 'gradman_v1',
   sample2: 'parent_focus',
@@ -272,7 +288,7 @@ export default function SettingsPanel() {
   });
   const [fees, setFees] = useState({
     tuition_fee: 0,
-    tuition_convenience_fee_percentage: 1.95,
+    tuition_transfer_pricing: {},
     feeding_fee: 0,
     feeding_daily_fee: 0,
     feeding_weekly_fee: 0,
@@ -424,14 +440,16 @@ export default function SettingsPanel() {
   };
 
   const tuitionFee = normalizeFeeNumber(fees.tuition_fee);
-  const tuitionConvenienceFeePercentage = normalizeFeeNumber(fees.tuition_convenience_fee_percentage, 1.95);
+  const tuitionPricing = fees.tuition_transfer_pricing || {};
+  const providerFeeRate = normalizeFeeNumber(tuitionPricing.estimated_provider_fee_rate_pct ?? 1.95, 1.95);
+  const platformMarginRate = normalizeFeeNumber(tuitionPricing.platform_margin_rate_pct ?? 1, 1);
   const feedingDailyFee = normalizeFeeNumber(fees.feeding_daily_fee);
   const feedingWeeklyFee = normalizeFeeNumber(fees.feeding_weekly_fee);
   const feedingMonthlyFee = normalizeFeeNumber(fees.feeding_monthly_fee);
   const transportFee = normalizeFeeNumber(fees.transport_fee);
   const admissionFeeAmount = normalizeFeeNumber(fees.admission_fee_amount);
-  const tuitionConvenienceAmount = Number(((tuitionFee * tuitionConvenienceFeePercentage) / 100).toFixed(2));
-  const tuitionTransferTotal = Number((tuitionFee + tuitionConvenienceAmount).toFixed(2));
+  const tuitionPreview = calculateTuitionTransferPreview(tuitionFee, tuitionPricing);
+  const tuitionTransferTotal = tuitionPreview.total;
   const tuitionInstallmentTotal = (tuitionInstallmentPlan.schedule || []).reduce(
     (sum, item) => sum + Number(item.amount || 0),
     0,
@@ -553,7 +571,7 @@ export default function SettingsPanel() {
         const res = await axios.get('/api/school/fees', { headers });
         setFees({
           tuition_fee: normalizeFeeNumber(res.data.tuition_fee),
-          tuition_convenience_fee_percentage: normalizeFeeNumber(res.data.tuition_convenience_fee_percentage, 1.95),
+          tuition_transfer_pricing: res.data.tuition_transfer_pricing || {},
           feeding_fee: normalizeFeeNumber(res.data.feeding_fee),
           feeding_daily_fee: normalizeFeeNumber(res.data.feeding_daily_fee),
           feeding_weekly_fee: normalizeFeeNumber(res.data.feeding_weekly_fee),
@@ -1362,7 +1380,6 @@ export default function SettingsPanel() {
       // Save fees separately
       await axios.post('/api/school/fees', {
         tuition_fee: fees.tuition_fee,
-        tuition_convenience_fee_percentage: fees.tuition_convenience_fee_percentage,
         tuition_installment_plan: tuitionInstallmentPlan,
         ...(feedingAccessConfirmed ? {
           feeding_fee: fees.feeding_fee,
@@ -1821,23 +1838,25 @@ export default function SettingsPanel() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Tuition Convenience Fee (%)</label>
+              <label htmlFor="tuition-provider-rate" className="block text-sm font-bold text-slate-700 mb-2">Estimated Processing Rate (% of transfer total)</label>
               <div className="flex items-center gap-2">
                 <input
+                  id="tuition-provider-rate"
                   type="number"
-                  value={fees.tuition_convenience_fee_percentage}
-                  onChange={(e) => setFees((prev) => ({ ...prev, tuition_convenience_fee_percentage: parseFloat(e.target.value) || 0 }))}
+                  value={providerFeeRate}
+                  readOnly
                   className="flex-1 p-3 border rounded-lg bg-slate-50"
-                  placeholder="1.95"
-                  step="0.01"
-                  min="0"
                 />
                 <span className="text-slate-600 font-semibold">%</span>
               </div>
-              <p className="mt-1 text-xs text-slate-500">Parents pay this extra percentage only on tuition tracked through the EduPulse transfer account.</p>
+              <label htmlFor="tuition-margin-rate" className="block text-sm font-bold text-slate-700 mt-3 mb-2">EduPulse Service Rate (% of tuition)</label>
+              <input id="tuition-margin-rate" type="number" value={platformMarginRate} readOnly className="w-full p-3 border rounded-lg bg-slate-50" />
               <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
                 <p className="font-semibold">Tracked tuition preview</p>
-                <p className="mt-1">Convenience fee to add: {tuitionConvenienceFeePercentage.toFixed(2)}% of GH₵ {tuitionFee.toFixed(2)} = GH₵ {tuitionConvenienceAmount.toFixed(2)}</p>
+                <p className="mt-1">Total convenience fee: GH₵ {(tuitionTransferTotal - tuitionFee).toFixed(2)}</p>
+                <p className="mt-1">Estimated processing fee ({providerFeeRate.toFixed(2)}% of transfer total): GH₵ {tuitionPreview.provider.toFixed(2)}</p>
+                <p className="mt-1">EduPulse service fee ({platformMarginRate.toFixed(2)}% of tuition): GH₵ {tuitionPreview.margin.toFixed(2)}</p>
+                {tuitionPreview.surplus !== 0 ? <p className="mt-1">Rounding adjustment: GH₵ {tuitionPreview.surplus.toFixed(2)}</p> : null}
                 <p className="mt-1">Parent tracked-transfer total for tuition: GH₵ {tuitionTransferTotal.toFixed(2)}</p>
               </div>
             </div>
@@ -2220,12 +2239,12 @@ export default function SettingsPanel() {
                 <p className="text-lg font-bold text-slate-800">GH₵ {tuitionFee.toFixed(2)}</p>
               </div>
               <div>
-                <p className="text-slate-600">Tuition Convenience</p>
-                <p className="text-lg font-bold text-slate-800">{tuitionConvenienceFeePercentage.toFixed(2)}%</p>
+                <p className="text-slate-600">Estimated Processing Fee</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {tuitionPreview.provider.toFixed(2)}</p>
               </div>
               <div>
-                <p className="text-slate-600">Convenience Amount</p>
-                <p className="text-lg font-bold text-slate-800">GH₵ {tuitionConvenienceAmount.toFixed(2)}</p>
+                <p className="text-slate-600">EduPulse Service Fee</p>
+                <p className="text-lg font-bold text-slate-800">GH₵ {tuitionPreview.margin.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-slate-600">Tracked Tuition Total</p>

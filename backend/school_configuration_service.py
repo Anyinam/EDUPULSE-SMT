@@ -1,3 +1,6 @@
+from backend.payment_workflow import get_tuition_collection_pricing
+
+
 TUITION_CONVENIENCE_FEE_KEY = "__tuition_convenience_fee_percentage__"
 TUITION_INSTALLMENT_PLAN_KEY = "__tuition_installment_plan__"
 
@@ -204,10 +207,18 @@ def update_school_fees(
     return {"message": "Fees updated successfully."}
 
 
-def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_plan_fees):
+def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_plan_fees, payment_collection_pricing=None):
+    tuition_pricing = get_tuition_collection_pricing(payment_collection_pricing)
+    pricing_fields = {
+        "tuition_transfer_pricing": tuition_pricing,
+        "tuition_platform_margin_rate_pct": tuition_pricing["platform_margin_rate_pct"],
+        "tuition_provider_fee_rate_pct": tuition_pricing["estimated_provider_fee_rate_pct"],
+        "tuition_provider_fee_flat": tuition_pricing["estimated_provider_fee_flat"],
+    }
     settings = school_settings_model.query.filter_by(school_id=school_id).first()
     if not settings:
         return {
+            **pricing_fields,
             "tuition_fee": 0.0,
             "tuition_convenience_fee_percentage": 1.95,
             "tuition_installment_plan": {
@@ -230,6 +241,7 @@ def get_school_fees_payload(school_id, *, school_settings_model, get_feeding_pla
     feeding_plan_fees = get_feeding_plan_fees(settings)
     visible_other_fees = _normalize_visible_other_fees(settings.other_fees or {})
     return {
+        **pricing_fields,
         "tuition_fee": settings.tuition_fee or 0.0,
         "tuition_convenience_fee_percentage": _read_tuition_convenience_fee_percentage(settings),
         "tuition_installment_plan": _read_tuition_installment_plan(settings),

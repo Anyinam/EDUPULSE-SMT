@@ -1,4 +1,82 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+
+MARGIN_FEE_MODEL = "gross_up_margin_v1"
+
+
+def _intent_fee_model(intent):
+    metadata = intent.meta if intent and isinstance(intent.meta, dict) else {}
+    pricing = metadata.get("pricing")
+    return pricing.get("fee_model") if isinstance(pricing, dict) else None
+
+
+def _known_paystack_fee_amount(payload):
+    breakdown = payload.get("fees_breakdown")
+    breakdown = breakdown if isinstance(breakdown, dict) else {}
+    candidates = [payload.get(key) for key in ("fees", "fees_charged", "fee")]
+    candidates.extend(breakdown.get(key) for key in ("total", "paystack", "provider"))
+    for candidate in candidates:
+        if candidate is None or candidate == "":
+            continue
+        try:
+            fee = Decimal(str(candidate)) / 100
+        except InvalidOperation:
+            continue
+        if fee.is_finite() and fee >= 0:
+            return fee.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return None
+
+
+def _calculate_margin_settlement(payload, intent, split_config):
+    penny = Decimal("0.01")
+    base = Decimal(str(intent.base_amount or 0)).quantize(penny)
+    total = Decimal(str(intent.total_amount or 0)).quantize(penny)
+    try:
+        gross = Decimal(str(payload.get("amount") or 0)) / 100
+    except InvalidOperation:
+        gross = Decimal(0)
+    if not gross.is_finite():
+        gross = Decimal(0)
+    provider_fee = _known_paystack_fee_amount(payload)
+    surcharge = gross - base
+    reason = None
+    if gross != total:
+        reason = "payment_amount_mismatch"
+    elif (
+        split_config.get("settlement_mode") != "paystack_flat_split"
+        or split_config.get("fee_bearer") != "account"
+        or not split_config.get("split_code")
+    ):
+        reason = "invalid_settlement_split"
+    else:
+        try:
+            school_share = (
+                Decimal(str(split_config["school_settlement_amount_minor"])) / 100
+                if "school_settlement_amount_minor" in split_config
+                else Decimal(str(split_config.get("school_settlement_amount")))
+            )
+        except InvalidOperation:
+            school_share = Decimal(0)
+        if not school_share.is_finite() or school_share != base or base <= 0 or surcharge < 0:
+            reason = "invalid_settlement_split"
+        elif provider_fee is not None and provider_fee > surcharge:
+            reason = "processing_fee_exceeds_surcharge"
+        elif provider_fee is not None and surcharge - provider_fee < Decimal(str(intent.platform_fee_amount or 0)):
+            reason = "processing_fee_exceeds_margin_allowance"
+    estimate = Decimal(str(intent.estimated_provider_fee_amount or 0)).quantize(penny)
+    return {
+        "fee_model": MARGIN_FEE_MODEL,
+        "gross_amount_paid": float(gross),
+        "applied_school_fee_amount": 0.0 if reason else float(base),
+        "collected_convenience_fee_amount": float(surcharge.quantize(penny)),
+        "actual_provider_fee_amount": float(provider_fee) if provider_fee is not None else None,
+        "provider_fee_is_estimated": provider_fee is None,
+        "actual_platform_net_amount": float((surcharge - provider_fee).quantize(penny)) if provider_fee is not None else None,
+        "estimated_platform_net_amount": float((surcharge - estimate).quantize(penny)) if provider_fee is None else None,
+        "platform_margin_target_amount": round(float(intent.platform_fee_amount or 0), 2),
+        "payment_collection_requires_review": reason,
+    }
 
 
 def _extract_paystack_fee_amount(payload):
@@ -261,7 +339,6 @@ def create_or_reuse_student_virtual_account_intent(
     pricing = dict(get_payment_collection_pricing() or {})
     if isinstance(payment_code.get("pricing_override"), dict):
         pricing.update(payment_code["pricing_override"])
-    pricing_breakdown = calculate_payment_collection_breakdown_fn(base_amount, pricing)
 
     existing = (
         payment_collection_intent_model.query.filter_by(
@@ -274,12 +351,16 @@ def create_or_reuse_student_virtual_account_intent(
         .order_by(payment_collection_intent_model.id.desc())
         .first()
     )
+    if existing and existing.intent_status == "paid":
+        return existing, None
+    pricing_breakdown = calculate_payment_collection_breakdown_fn(base_amount, pricing)
     existing_expires_at = existing.expires_at if existing else None
     if existing_expires_at and getattr(existing_expires_at, "tzinfo", None) is None:
         existing_expires_at = existing_expires_at.replace(tzinfo=timezone.utc)
 
     pricing_matches_existing = bool(
         existing
+        and _intent_fee_model(existing) == pricing_breakdown["pricing"].get("fee_model")
         and round(float(existing.base_amount or 0.0), 2) == pricing_breakdown["base_amount"]
         and round(float(existing.total_amount or 0.0), 2) == pricing_breakdown["total_amount"]
         and round(float(existing.convenience_fee_amount or 0.0), 2) == pricing_breakdown["convenience_fee_amount"]
@@ -289,8 +370,6 @@ def create_or_reuse_student_virtual_account_intent(
         if pricing_matches_existing:
             return existing, None
         existing.intent_status = "deactivated"
-    if existing and existing.intent_status == "paid":
-        return existing, None
     if existing and existing.intent_status == "assigned" and existing_expires_at and existing_expires_at < now:
         existing.intent_status = "expired"
 
@@ -502,9 +581,11 @@ def record_paystack_virtual_account_payment(
         return None
 
     split_config = intent.meta.get("split_config") if isinstance(intent.meta, dict) else {}
+    split_config = split_config if isinstance(split_config, dict) else {}
+    margin_model = _intent_fee_model(intent) == MARGIN_FEE_MODEL
 
     tx_ref = sanitize_string(payload.get("reference") or str(payload.get("id") or ""))
-    if intent.provider_reference and intent.provider_reference == tx_ref and intent.intent_status == "paid":
+    if not margin_model and intent.provider_reference and intent.provider_reference == tx_ref and intent.intent_status == "paid":
         return {"status": "duplicate", "reference": tx_ref, "intent_id": intent.id}, 200
 
     try:
@@ -526,6 +607,13 @@ def record_paystack_virtual_account_payment(
         actual_convenience_fee_amount,
         2,
     )
+    margin_settlement = _calculate_margin_settlement(payload, intent, split_config) if margin_model else {}
+    review_reason = margin_settlement.get("payment_collection_requires_review")
+    if margin_model:
+        gross_amount_paid = margin_settlement["gross_amount_paid"]
+        applied_school_fee_amount = margin_settlement["applied_school_fee_amount"]
+        actual_provider_fee_amount = margin_settlement["actual_provider_fee_amount"]
+        collected_convenience_fee_amount = margin_settlement["collected_convenience_fee_amount"]
 
     adjusted_payload = {
         **payload,
@@ -552,20 +640,29 @@ def record_paystack_virtual_account_payment(
                 "split_code": sanitize_string(split_config.get("split_code") or "") or None,
                 "school_settlement_amount": round(float(split_config.get("school_settlement_amount") or intent.base_amount or 0.0), 2),
                 "platform_settlement_amount": round(float(split_config.get("platform_settlement_amount") or 0.0), 2),
+                **margin_settlement,
             },
             "reference_code": intent.reference_code,
         },
     }
+    if review_reason:
+        adjusted_payload["metadata"]["payment_collection_requires_review"] = review_reason
 
     body, status_code = record_paystack_finance_payment(adjusted_payload, event=event, school_id_scope=intent.school_id)
     if status_code >= 400:
         return body, status_code
 
     authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
-    intent.intent_status = "paid" if body.get("status") in {"recorded", "duplicate", "blocked"} else intent.intent_status
+    settled = body.get("status") in {"recorded", "duplicate"}
+    if margin_model:
+        settled = settled and not review_reason and body.get("payment_status") == "Confirmed"
+    else:
+        settled = body.get("status") in {"recorded", "duplicate", "blocked"}
+    intent.intent_status = "paid" if settled else intent.intent_status
     intent.provider_reference = tx_ref or intent.provider_reference
     intent.provider_last_event = event
-    intent.paid_at = datetime.now(timezone.utc)
+    if not margin_model or (settled and not intent.paid_at):
+        intent.paid_at = datetime.now(timezone.utc)
     intent.payer_name = sanitize_string(authorization.get("sender_name") or intent.payer_name or "") or intent.payer_name
     intent.payer_bank_name = sanitize_string(authorization.get("sender_bank") or intent.payer_bank_name or "") or intent.payer_bank_name
     intent.meta = {
@@ -585,6 +682,7 @@ def record_paystack_virtual_account_payment(
         "applied_school_fee_amount": applied_school_fee_amount,
         "actual_provider_fee_amount": actual_provider_fee_amount,
         "collected_convenience_fee_amount": collected_convenience_fee_amount,
+        **margin_settlement,
         "provider_account_number": intent.provider_account_number,
         "provider_bank_name": intent.provider_bank_name,
     }, status_code

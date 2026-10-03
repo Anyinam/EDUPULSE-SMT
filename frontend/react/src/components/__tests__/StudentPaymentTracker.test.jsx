@@ -158,6 +158,137 @@ describe('StudentPaymentTracker', () => {
     });
   };
 
+  const marginPricing = {
+    fee_model: 'gross_up_margin_v1', estimated_provider_fee_rate_pct: 1.95,
+    estimated_provider_fee_flat: 0, platform_margin_rate_pct: 1, platform_fee_flat: 0,
+    charge_parent_convenience_fee: true, platform_fee_label: 'Processing and EduPulse service fee',
+  };
+  const marginRoute = {
+    fee_model: 'gross_up_margin_v1', bank_name: 'Test bank', account_number: '3333333333',
+    base_amount: 25, total_amount: 25.76, convenience_fee_amount: 0.76,
+    estimated_provider_fee_amount: 0.50, platform_fee_amount: 0.25, rounding_surplus_amount: 0.01,
+  };
+  const marginCodes = (route = marginRoute) => ({
+    ...codesFor(1), fees_configuration: { tuition_transfer_pricing: marginPricing },
+    payment_codes: [{ ...codesFor(1).payment_codes[0], ...marginRoute, virtual_route: route,
+      payment_category: { fee_type: 'Tuition', installment_number: 1, installment_label: 'Installment 1' },
+    }],
+  });
+
+  it.each(['old total', 'missing version', 'missing route', 'config version only'])(
+    'refreshes %s before showing a ready gross-up account', async (scenario) => {
+      const post = deferred();
+      const route = scenario === 'missing route' ? null : {
+        ...marginRoute,
+        ...(scenario === 'old total' ? { total_amount: 25.49 } : { fee_model: undefined }),
+      };
+      const codes = marginCodes(route);
+      if (scenario === 'config version only') delete codes.payment_codes[0].fee_model;
+      mockStudentReads({ '/api/students/1/payment-codes': Promise.resolve({ data: codes }) });
+      axios.post.mockReturnValue(post.promise);
+      render(<StudentPaymentTracker />);
+      fireEvent.click(await screen.findByText('Ama Mensah'));
+      expect(await screen.findByText('Preparing tracked transfer accounts...')).toBeInTheDocument();
+      expect(screen.queryByText(/25\.49|Account number:|tracked transfer account ready/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy instructions|print instructions/i })).not.toBeInTheDocument();
+      expect(axios.post).toHaveBeenCalledTimes(1);
+      await act(async () => post.resolve({ data: { virtual_route: marginRoute } }));
+      expect(screen.getByText('Transfer total: GH₵ 25.76')).toBeInTheDocument();
+      expect(screen.getAllByText('Estimated processing fee: GH₵ 0.50').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('EduPulse service fee (1.00% of tuition): GH₵ 0.25').length).toBeGreaterThan(0);
+      expect(screen.queryByText(/convenience fee: 1.95%/i)).not.toBeInTheDocument();
+      expect(axios.post).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each(['provider error', 'stale response'])(
+    'hides a stale account after %s without retrying', async (scenario) => {
+      mockStudentReads({ '/api/students/1/payment-codes': Promise.resolve({ data: marginCodes({
+        ...marginRoute, total_amount: 25.49,
+      }) }) });
+      if (scenario === 'provider error') axios.post.mockRejectedValue(new Error('Unavailable'));
+      else axios.post.mockResolvedValue({ data: { virtual_route: { ...marginRoute, fee_model: undefined } } });
+      render(<StudentPaymentTracker />);
+      fireEvent.click(await screen.findByText('Ama Mensah'));
+      expect(await screen.findByText('Paystack setup needed')).toBeInTheDocument();
+      expect(screen.queryByText(/25\.49|3333333333|tracked transfer account ready/i)).not.toBeInTheDocument();
+      expect(axios.post).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('waits for school pricing before accepting a legacy route when the codes omit pricing', async () => {
+    const fees = deferred();
+    const codes = marginCodes({ ...marginRoute, fee_model: undefined });
+    delete codes.payment_codes[0].fee_model;
+    delete codes.fees_configuration;
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/school/fees') return fees.promise;
+      if (url === '/api/students/1/payment-codes') return Promise.resolve({ data: codes });
+      return defaultGet(url);
+    });
+    axios.post.mockResolvedValue({ data: { virtual_route: marginRoute } });
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(await screen.findByText('Preparing tracked transfer accounts...')).toBeInTheDocument();
+    expect(screen.queryByText(/tracked transfer account ready/i)).not.toBeInTheDocument();
+    expect(axios.post).not.toHaveBeenCalled();
+    await act(async () => fees.resolve({ data: { tuition_transfer_pricing: marginPricing } }));
+    expect(await screen.findByText('Transfer total: GH₵ 25.76')).toBeInTheDocument();
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('copies and prints exact server quotes with the specific installment account', async () => {
+    const codes = marginCodes();
+    codes.payment_codes.push({
+      ...codes.payment_codes[0], code: 'S001-T2', base_amount: 75, total_amount: 77.26,
+      estimated_provider_fee_amount: 1.51, platform_fee_amount: 0.75, rounding_surplus_amount: 0,
+      virtual_route: { ...marginRoute, account_number: '4444444444', base_amount: 75, total_amount: 77.26,
+        convenience_fee_amount: 2.26, estimated_provider_fee_amount: 1.51,
+        platform_fee_amount: 0.75, rounding_surplus_amount: 0 },
+      payment_category: { fee_type: 'Tuition', installment_number: 2, installment_label: 'Installment 2' },
+    });
+    mockStudentReads({ '/api/students/1/payment-codes': Promise.resolve({ data: codes }) });
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const printWindow = { document: { write: vi.fn(), close: vi.fn() }, focus: vi.fn(), print: vi.fn() };
+    vi.stubGlobal('open', vi.fn(() => printWindow));
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    fireEvent.click(await screen.findByRole('button', { name: /copy instructions/i }));
+    const copy = writeText.mock.calls[0][0];
+    expect(copy).toMatch(/Installment 1:.*Account: 3333333333.*processing fee: GH₵ 0.50.*service fee \(1.00% of tuition\): GH₵ 0.25.*total GH₵ 25.76/);
+    expect(copy).toMatch(/Installment 2:.*Account: 4444444444.*total GH₵ 77.26/);
+    expect(copy).toMatch(/total convenience fee: GH₵ 0.76/i);
+    expect(copy).not.toMatch(/convenience fee: 1.95%/i);
+    fireEvent.click(screen.getByRole('button', { name: /print instructions/i }));
+    const html = printWindow.document.write.mock.calls[0][0];
+    expect(html).toMatch(/Installment 1[\s\S]*Tracked Transfer Account Number:<\/strong> 3333333333[\s\S]*Transfer GH₵ 25.76 exactly/);
+    expect(html).toMatch(/Installment 2[\s\S]*Tracked Transfer Account Number:<\/strong> 4444444444[\s\S]*Transfer GH₵ 77.26 exactly/);
+    expect(html).toContain('Estimated processing fee: GH₵ 0.50');
+    expect(html).toContain('EduPulse service fee (1.00% of tuition): GH₵ 0.25');
+    expect(html).toContain('Rounding adjustment: GH₵ 0.01');
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it('does not provision for an old selection after delayed school pricing arrives', async () => {
+    const fees = deferred();
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => url === '/api/school/fees' ? fees.promise : defaultGet(url));
+    mockStudentReads({
+      '/api/students/1/payment-codes': Promise.resolve({ data: marginCodes(null) }),
+      '/api/students/2/payment-codes': Promise.resolve({ data: { ...codesFor(2), payment_codes: [] } }),
+      '/api/students/2/payments': Promise.resolve({ data: [] }),
+    });
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(await screen.findByText('Preparing tracked transfer accounts...')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Yaw Owusu'));
+    await act(async () => fees.resolve({ data: { tuition_transfer_pricing: marginPricing } }));
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(screen.queryByText(/S001-T1|3333333333/)).not.toBeInTheDocument();
+  });
+
   it.each(['GET success', 'GET error', 'POST success', 'POST error'])(
     'ignores stale history and codes on %s without clearing the current loading stage', async (stage) => {
       const oldHistory = deferred();
@@ -939,6 +1070,7 @@ describe('StudentPaymentTracker', () => {
         return Promise.resolve({
           data: {
             tuition_fee: 120,
+            tuition_transfer_pricing: marginPricing,
             terminal_report_fee: 0,
             feeding_fee: 0,
             uniform_fee: 0,

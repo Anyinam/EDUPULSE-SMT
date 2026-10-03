@@ -29,12 +29,25 @@ function StudentPaymentTrackerContent() {
   const historyRequestId = useRef(0);
   const codesRequestId = useRef(0);
   const recoveryRequestId = useRef(0);
+  const schoolFeesRequest = useRef(null);
 
   const isCurrentRequest = (studentId, requestId, requestRef) => (
     mounted.current && selectedStudentId.current === studentId && requestRef.current === requestId
   );
 
   const getTuitionConvenienceDetails = (code, codesRecord = paymentCodes) => {
+    const route = code?.virtual_route;
+    const pricing = route?.pricing || codesRecord?.fees_configuration?.tuition_transfer_pricing || schoolFees?.tuition_transfer_pricing || {};
+    if ((route?.fee_model || code?.fee_model) === 'gross_up_margin_v1') {
+      return {
+        feeModel: 'gross_up_margin_v1',
+        amount: Number(route?.convenience_fee_amount ?? code?.convenience_fee_amount ?? 0),
+        providerAmount: Number(route?.estimated_provider_fee_amount ?? code?.estimated_provider_fee_amount ?? 0),
+        serviceAmount: Number(route?.platform_fee_amount ?? code?.platform_fee_amount ?? 0),
+        serviceRate: Number(pricing.platform_margin_rate_pct ?? 1),
+        roundingSurplus: Number(route?.rounding_surplus_amount ?? code?.rounding_surplus_amount ?? 0),
+      };
+    }
     const configuredPercentage = Number(codesRecord?.fees_configuration?.tuition_convenience_fee_percentage || schoolFees?.tuition_convenience_fee_percentage || 0);
     const amount = Number(code?.virtual_route?.convenience_fee_amount || 0);
     const baseAmount = Number(code?.virtual_route?.base_amount || code?.base_amount || 0);
@@ -46,6 +59,15 @@ function StudentPaymentTrackerContent() {
       amount,
     };
   };
+
+  const getTuitionFeeLines = (details) => details.feeModel === 'gross_up_margin_v1'
+    ? [
+      `Total convenience fee: GH₵ ${details.amount.toFixed(2)}`,
+      `Estimated processing fee: GH₵ ${details.providerAmount.toFixed(2)}`,
+      `EduPulse service fee (${details.serviceRate.toFixed(2)}% of tuition): GH₵ ${details.serviceAmount.toFixed(2)}`,
+      ...(details.roundingSurplus !== 0 ? [`Rounding adjustment: GH₵ ${details.roundingSurplus.toFixed(2)}`] : []),
+    ]
+    : (details.amount > 0 ? [`Convenience fee: ${details.percentage.toFixed(2)}% = GH₵ ${details.amount.toFixed(2)}`] : []);
 
   const getTrackerPaymentCodes = (codesRecord) => (codesRecord?.payment_codes || []).filter(
     (code) => (code?.payment_category?.fee_type || code?.fee_type) === 'Tuition'
@@ -94,7 +116,7 @@ function StudentPaymentTrackerContent() {
   useEffect(() => {
     mounted.current = true;
     fetchStudents();
-    fetchSchoolFees();
+    schoolFeesRequest.current = fetchSchoolFees();
     return () => {
       mounted.current = false;
       selectedStudentId.current = null;
@@ -118,8 +140,10 @@ function StudentPaymentTrackerContent() {
     try {
       const res = await axios.get('/api/school/fees', getAuthHeaders());
       if (mounted.current) setSchoolFees(res.data);
+      return res.data;
     } catch (err) {
       console.error('Failed to load school fees');
+      return null;
     }
   };
 
@@ -214,7 +238,7 @@ function StudentPaymentTrackerContent() {
       const result = await fetchPaymentCodesData(studentId);
       if (!isCurrentRequest(studentId, requestId, codesRequestId)) return;
       setPaymentCodes(result);
-      const preparedResult = await ensureTrackedTransferRoutes(studentId, result);
+      const preparedResult = await ensureTrackedTransferRoutes(studentId, result, () => isCurrentRequest(studentId, requestId, codesRequestId));
       if (!isCurrentRequest(studentId, requestId, codesRequestId)) return;
       setPaymentCodes(preparedResult);
       setPaymentCodesError(null);
@@ -236,21 +260,28 @@ function StudentPaymentTrackerContent() {
     }
   };
 
-  const ensureTrackedTransferRoutes = async (studentId, codesRecord) => {
+  const ensureTrackedTransferRoutes = async (studentId, codesRecord, isStillCurrent = () => true) => {
     if (!codesRecord?.payment_identity?.supports_fee_route_dvas || !Array.isArray(codesRecord.payment_codes) || codesRecord.payment_codes.length === 0) {
       return codesRecord;
     }
 
+    const authoritativeFees = schoolFees || await schoolFeesRequest.current;
+    if (!isStillCurrent()) return codesRecord;
     const updatedPaymentCodes = await Promise.all(
       codesRecord.payment_codes.map(async (code) => {
         if ((code?.payment_category?.fee_type || code?.fee_type) !== 'Tuition') {
           return code;
         }
+        if (code.preferred_payment_model === 'historical_paid' || code.payment_category?.installment_status === 'paid') {
+          return { ...code, virtual_route: null, has_virtual_route: false };
+        }
         const route = code.virtual_route;
+        const expectedFeeModel = codesRecord.fees_configuration?.tuition_transfer_pricing?.fee_model || authoritativeFees?.tuition_transfer_pricing?.fee_model || code.fee_model;
         const pricingMatches = route
+          && (!expectedFeeModel || route.fee_model === expectedFeeModel)
           && (code.base_amount == null || Number(route.base_amount) === Number(code.base_amount))
           && (code.total_amount == null || Number(route.total_amount) === Number(code.total_amount));
-        if ((route?.account_number || code.has_virtual_route) && pricingMatches) {
+        if (route?.account_number && pricingMatches) {
           return code;
         }
 
@@ -260,14 +291,24 @@ function StudentPaymentTrackerContent() {
             {},
             getAuthHeaders()
           );
-          return res.data?.payment_code || {
+          const preparedCode = res.data?.payment_code || {
             ...code,
             virtual_route: res.data?.virtual_route || null,
             has_virtual_route: Boolean(res.data?.virtual_route),
           };
+          const preparedRoute = preparedCode.virtual_route;
+          if (expectedFeeModel && (!preparedRoute?.account_number
+            || preparedRoute.fee_model !== expectedFeeModel
+            || (code.base_amount != null && Number(preparedRoute.base_amount) !== Number(code.base_amount))
+            || (code.total_amount != null && Number(preparedRoute.total_amount) !== Number(code.total_amount)))) {
+            throw new Error('Tracked transfer pricing is not current.');
+          }
+          return preparedCode;
         } catch (err) {
           return {
             ...code,
+            virtual_route: null,
+            has_virtual_route: false,
             tracked_transfer_error: err.response?.data?.message || 'Tracked transfer account is not available right now.',
           };
         }
@@ -549,7 +590,7 @@ function StudentPaymentTrackerContent() {
                   <td><span style="color:#475569;">Use the automatically prepared EduPulse tracked transfer account only</span></td>
                   <td class="amount-column">GH₵ ${Number(code.virtual_route?.total_amount || code.total_amount || 0).toFixed(2)}</td>
                 </tr>
-                ${convenience.amount > 0 ? `<tr><td colspan="4" style="font-size:12px; color:#475569; padding-top:0;">Convenience fee: ${convenience.percentage.toFixed(2)}% = GH₵ ${convenience.amount.toFixed(2)} added to tuition.</td></tr>` : ''}
+                ${getTuitionFeeLines(convenience).map(line => `<tr><td colspan="4" style="font-size:12px; color:#475569; padding-top:0;">${line}</td></tr>`).join('')}
               `;
               }).join('')}
             </tbody>
@@ -578,7 +619,7 @@ function StudentPaymentTrackerContent() {
                 ${code.virtual_route?.account_name ? `<p><strong>Tracked Transfer Account Name:</strong> ${code.virtual_route.account_name}</p>` : ''}
                 ${code.virtual_route?.account_number ? `<p><strong>Payment Route:</strong> Pay into this tracked transfer account for tuition.</p>` : `<p><strong>Payment Route:</strong> The school must reconnect Paystack tracked transfer before parents can pay.</p>`}
                 <p><strong>School Tuition:</strong> GH₵ ${Number(code.base_amount || 0).toFixed(2)}</p>
-                ${convenience.amount > 0 ? `<p><strong>Convenience Fee:</strong> ${convenience.percentage.toFixed(2)}% = GH₵ ${convenience.amount.toFixed(2)}</p>` : ''}
+                ${getTuitionFeeLines(convenience).map(line => `<p>${line}</p>`).join('')}
                 ${code.virtual_route?.total_amount ? `<p><strong>Transfer Total:</strong> GH₵ ${Number(code.virtual_route.total_amount || 0).toFixed(2)}</p>` : ''}
                 <p style="color:#475569;"><strong>EduPulse should track this payment automatically from the prepared transfer account.</strong> The reference remains a preferred support hint for office follow-up, not the normal tracking requirement.</p>
                 <p><strong>Amount To Pay:</strong> GH₵ ${Number(code.virtual_route?.total_amount || code.total_amount || 0).toFixed(2)}</p>
@@ -603,7 +644,7 @@ function StudentPaymentTrackerContent() {
               ${trackerPaymentCodes.map(code => {
                 const convenience = getTuitionConvenienceDetails(code, codesRecord);
                 const installmentMeta = getInstallmentMeta(code);
-                return `• <strong>${installmentMeta.label || code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` (includes ${convenience.percentage.toFixed(2)}% convenience fee of GH₵ ${convenience.amount.toFixed(2)})` : ''}` : `Wait for the tracked transfer account before collecting tuition`}. EduPulse should track it automatically from that route. Preferred support reference: <strong>${code.reference_code || code.code}</strong>${installmentMeta.dueDate ? ` (deadline ${installmentMeta.dueDate})` : ''}.`;
+                return `• <strong>${installmentMeta.label || code.fee_type}:</strong> ${code.virtual_route?.account_number ? `Use tracked transfer account ${code.virtual_route.account_number} at ${code.virtual_route.bank_name || 'the listed bank'} and pay GH₵ ${Number(code.virtual_route.total_amount || code.total_amount || 0).toFixed(2)} (${getTuitionFeeLines(convenience).join('; ')})` : `Wait for the tracked transfer account before collecting tuition`}. EduPulse should track it automatically from that route. Preferred support reference: <strong>${code.reference_code || code.code}</strong>${installmentMeta.dueDate ? ` (deadline ${installmentMeta.dueDate})` : ''}.`;
               }).join('<br>')}
             </div>
             <div class="instruction-text" style="margin-top: 15px; font-weight: bold; border-top: 1px solid #ddd; padding-top: 10px;">
@@ -692,7 +733,7 @@ function StudentPaymentTrackerContent() {
 
     const receiptNumber = `RCPT-${payment.id}`;
     const paidAmount = Number(payment.display_amount || payment.total_amount || payment.amount || 0);
-    const baseAmount = Number(payment.applied_amount || payment.base_amount || payment.amount || 0);
+    const baseAmount = Number(payment.applied_amount ?? payment.base_amount ?? payment.amount ?? 0);
     const paymentCategory = payment.payment_category && typeof payment.payment_category === 'object'
       ? payment.payment_category
       : {};
@@ -1013,7 +1054,7 @@ function StudentPaymentTrackerContent() {
 
   return (
     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 items-start md:flex-row md:items-center md:justify-between">
         <h2 className="text-2xl font-bold text-slate-800">💳 Student Payment Tracker</h2>
         <button
           onClick={printFilteredPaymentInstructions}
@@ -1195,7 +1236,7 @@ function StudentPaymentTrackerContent() {
 
               {!paymentCodesLoading && paymentCodes && trackerPaymentCodes.length > 0 && (
                 <div className="bg-amber-50 border-l-4 border-l-amber-600 p-4 rounded-lg">
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex flex-col gap-3 items-start md:flex-row md:items-center md:justify-between mb-3">
                     <h4 className="font-bold text-amber-900 flex items-center gap-2">
                       📋 Payment Instructions to Share with Parent
                     </h4>
@@ -1208,7 +1249,7 @@ function StudentPaymentTrackerContent() {
                               const convenience = getTuitionConvenienceDetails(c, paymentCodes);
                               const installmentMeta = getInstallmentMeta(c);
                               if (virtualRoute?.account_number) {
-                                return `${installmentMeta.label || c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer bank: ${virtualRoute.bank_name || 'Paystack transfer account'} | Account: ${virtualRoute.account_number} | School tuition GH₵ ${Number(c.base_amount || 0).toFixed(2)}${convenience.amount > 0 ? ` | Convenience fee ${convenience.percentage.toFixed(2)}% = GH₵ ${convenience.amount.toFixed(2)}` : ''} | Transfer total GH₵ ${Number(virtualRoute.total_amount || c.base_amount || 0).toFixed(2)}${installmentMeta.dueDate ? ` | Deadline ${installmentMeta.dueDate}` : ''}`;
+                                return `${installmentMeta.label || c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer bank: ${virtualRoute.bank_name || 'Paystack transfer account'} | Account: ${virtualRoute.account_number} | School tuition GH₵ ${Number(c.base_amount || 0).toFixed(2)}${getTuitionFeeLines(convenience).map(line => ` | ${line}`).join('')} | Transfer total GH₵ ${Number(virtualRoute.total_amount || c.base_amount || 0).toFixed(2)}${installmentMeta.dueDate ? ` | Deadline ${installmentMeta.dueDate}` : ''}`;
                               }
                               return `${installmentMeta.label || c.fee_type}: Ref ${c.reference_code || c.code} | Tracked transfer account is temporarily unavailable. Reconnect Paystack settlement in system settings before sharing this instruction.`;
                             })
@@ -1250,7 +1291,7 @@ function StudentPaymentTrackerContent() {
                         return (
                       <div
                         key={idx}
-                        className="flex items-center justify-between p-3 bg-white rounded border border-amber-200 text-sm"
+                        className="flex flex-col gap-3 items-stretch md:flex-row md:items-center md:justify-between p-3 bg-white rounded border border-amber-200 text-sm"
                       >
                         <div className="flex-1">
                           <p className="font-semibold text-slate-800">{installmentMeta.label || code.fee_type}</p>
@@ -1258,9 +1299,7 @@ function StudentPaymentTrackerContent() {
                             <p className="text-xs text-slate-600">{formatInstallmentStatus(installmentMeta.status)}{installmentMeta.startDate ? ` • Opens ${installmentMeta.startDate}` : ''}{installmentMeta.dueDate ? ` • Due ${installmentMeta.dueDate}` : ''}</p>
                           ) : null}
                           <p className="text-xs text-slate-600">School tuition: GH₵ {Number(code.base_amount || 0).toFixed(2)}</p>
-                          {convenience.amount > 0 ? (
-                            <p className="text-xs text-slate-600">Convenience fee: {convenience.percentage.toFixed(2)}% = GH₵ {convenience.amount.toFixed(2)}</p>
-                          ) : null}
+                          {getTuitionFeeLines(convenience).map(line => <p key={line} className="text-xs text-slate-600">{line}</p>)}
                           <p className="text-xs font-semibold text-slate-700">Preferred Ref: {code.reference_code || code.code}</p>
                           <p className="text-xs text-slate-700">Parents should use the automatically prepared tracked transfer account. EduPulse is expected to record the learner and purpose automatically from that route.</p>
                           {installmentMeta.isInstallment ? (
@@ -1275,14 +1314,12 @@ function StudentPaymentTrackerContent() {
                               <p>Account number: {virtualRoute.account_number}</p>
                               {virtualRoute.account_name ? <p>Account name: {virtualRoute.account_name}</p> : null}
                               <p className="mt-1">School tuition: GH₵ {Number(virtualRoute.base_amount || 0).toFixed(2)}</p>
-                              {convenience.amount > 0 ? (
-                                <p>Convenience fee: {convenience.percentage.toFixed(2)}% = GH₵ {convenience.amount.toFixed(2)}</p>
-                              ) : null}
+                              {getTuitionFeeLines(convenience).map(line => <p key={line}>{line}</p>)}
                               <p className="font-semibold">Transfer total: GH₵ {Number(virtualRoute.total_amount || 0).toFixed(2)}</p>
                             </div>
                           ) : null}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <code className="block bg-amber-100 text-amber-900 px-3 py-2 rounded font-mono font-bold text-sm">
                             {code.reference_code || code.code}
                           </code>

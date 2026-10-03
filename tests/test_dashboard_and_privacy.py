@@ -3511,8 +3511,11 @@ def test_payment_codes_return_reference_first_amounts_without_convenience_fee(cl
     tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
     assert tuition_code["base_amount"] == 100.0
     assert tuition_code["cash_amount"] == 100.0
-    assert tuition_code["total_amount"] == 101.95
-    assert tuition_code["amount"] == 101.95
+    assert tuition_code["total_amount"] == 103.01
+    assert tuition_code["amount"] == 103.01
+    assert tuition_code["platform_fee_amount"] == 1.0
+    assert tuition_code["estimated_provider_fee_amount"] == 2.01
+    assert tuition_code["fee_model"] == "gross_up_margin_v1"
     assert payload["school_payment_account"]["bank_name"] is None
     assert payload["school_payment_account"]["bank_account"] is None
     assert payload["school_payment_account"]["bank_account_name"] is None
@@ -3590,12 +3593,12 @@ def test_student_payment_code_can_generate_tracked_transfer_account(client, app,
     assert payload["virtual_route"]["account_number"] == "0192837465"
     assert payload["virtual_route"]["bank_name"] == "Paystack-Titan"
     assert payload["virtual_route"]["base_amount"] == 100.0
-    assert payload["virtual_route"]["convenience_fee_amount"] == 1.95
-    assert payload["virtual_route"]["total_amount"] == 101.95
+    assert payload["virtual_route"]["convenience_fee_amount"] == 3.01
+    assert payload["virtual_route"]["total_amount"] == 103.01
     assert payload["virtual_route"]["split_code"] == "SPLIT_school001_10000"
     assert payload["virtual_route"]["settlement_mode"] == "paystack_flat_split"
     assert payload["virtual_route"]["school_settlement_amount"] == 100.0
-    assert payload["virtual_route"]["platform_settlement_amount"] == 1.95
+    assert payload["virtual_route"]["platform_settlement_amount"] == 3.01
 
     intent = PaymentCollectionIntent.query.filter_by(student_id=student.id, reference_code=tuition_code["reference_code"]).first()
     assert intent is not None
@@ -3673,7 +3676,7 @@ def test_student_tracked_transfer_split_uses_live_outstanding_tuition_amount(cli
     assert codes_response.status_code == 200
     tuition_code = next(item for item in codes_response.get_json()["payment_codes"] if item["fee_type"] == "Tuition")
     assert tuition_code["base_amount"] == 20.0
-    assert tuition_code["total_amount"] == 20.39
+    assert tuition_code["total_amount"] == 20.61
 
     response = client.post(
         f"/api/students/{student.id}/payment-codes/{tuition_code['reference_code']}/virtual-account",
@@ -3684,11 +3687,11 @@ def test_student_tracked_transfer_split_uses_live_outstanding_tuition_amount(cli
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["virtual_route"]["base_amount"] == 20.0
-    assert payload["virtual_route"]["convenience_fee_amount"] == 0.39
-    assert payload["virtual_route"]["total_amount"] == 20.39
+    assert payload["virtual_route"]["convenience_fee_amount"] == 0.61
+    assert payload["virtual_route"]["total_amount"] == 20.61
     assert payload["virtual_route"]["split_code"] == "SPLIT_school001_2000"
     assert payload["virtual_route"]["school_settlement_amount"] == 20.0
-    assert payload["virtual_route"]["platform_settlement_amount"] == 0.39
+    assert payload["virtual_route"]["platform_settlement_amount"] == 0.61
 
     assert captured[0][2]["subaccounts"][0]["share"] == 2000
     assert captured[3][2]["split_code"] == "SPLIT_school001_2000"
@@ -3882,7 +3885,9 @@ def test_student_payment_code_defaults_zero_tuition_convenience_percentage(clien
     payload = response.get_json()
     tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
     assert payload["fees_configuration"]["tuition_convenience_fee_percentage"] == 1.95
-    assert tuition_code["total_amount"] == 101.95
+    assert tuition_code["total_amount"] == 103.01
+    assert tuition_code["platform_fee_amount"] == 1.0
+    assert payload["fees_configuration"]["tuition_platform_margin_rate_pct"] == 1
 
 
 def test_school_fees_payload_normalizes_legacy_other_fee_amounts(client, app, db, test_school, test_proprietor):
@@ -3990,8 +3995,8 @@ def test_student_payment_code_refreshes_stale_tracked_transfer_amounts_when_tuit
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["virtual_route"]["convenience_fee_amount"] == 1.95
-    assert payload["virtual_route"]["total_amount"] == 101.95
+    assert payload["virtual_route"]["convenience_fee_amount"] == 3.01
+    assert payload["virtual_route"]["total_amount"] == 103.01
 
     db.session.refresh(stale_intent)
     assert stale_intent.intent_status == "deactivated"
@@ -3999,7 +4004,7 @@ def test_student_payment_code_refreshes_stale_tracked_transfer_amounts_when_tuit
     refreshed_intent = PaymentCollectionIntent.query.filter_by(student_id=student.id, reference_code=f"{student.student_code}1", intent_status="assigned").order_by(PaymentCollectionIntent.id.desc()).first()
     assert refreshed_intent is not None
     assert refreshed_intent.id != stale_intent.id
-    assert refreshed_intent.total_amount == 101.95
+    assert refreshed_intent.total_amount == 103.01
 
 
 def test_student_payment_code_post_resyncs_stale_tracked_transfer_amounts_and_get_attaches_route(client, app, test_school, test_proprietor, test_students, monkeypatch):
@@ -4084,8 +4089,8 @@ def test_student_payment_code_post_resyncs_stale_tracked_transfer_amounts_and_ge
 
     assert provisioning_response.status_code == 200
     provisioned_route = provisioning_response.get_json()["virtual_route"]
-    assert provisioned_route["convenience_fee_amount"] == 1.95
-    assert provisioned_route["total_amount"] == 101.95
+    assert provisioned_route["convenience_fee_amount"] == 3.01
+    assert provisioned_route["total_amount"] == 103.01
     assert captured
     provisioning_calls = list(captured)
 
@@ -4099,8 +4104,8 @@ def test_student_payment_code_post_resyncs_stale_tracked_transfer_amounts_and_ge
     payload = response.get_json()
     tuition_code = next(item for item in payload["payment_codes"] if item["fee_type"] == "Tuition")
     assert tuition_code["virtual_route"]["account_number"] == provisioned_route["account_number"]
-    assert tuition_code["virtual_route"]["convenience_fee_amount"] == 1.95
-    assert tuition_code["virtual_route"]["total_amount"] == 101.95
+    assert tuition_code["virtual_route"]["convenience_fee_amount"] == 3.01
+    assert tuition_code["virtual_route"]["total_amount"] == 103.01
 
     db.session.refresh(stale_intent)
     assert stale_intent.intent_status == "deactivated"
@@ -4108,7 +4113,7 @@ def test_student_payment_code_post_resyncs_stale_tracked_transfer_amounts_and_ge
     refreshed_intent = PaymentCollectionIntent.query.filter_by(student_id=student.id, reference_code=f"{student.student_code}1", intent_status="assigned").order_by(PaymentCollectionIntent.id.desc()).first()
     assert refreshed_intent is not None
     assert refreshed_intent.id != stale_intent.id
-    assert refreshed_intent.total_amount == 101.95
+    assert refreshed_intent.total_amount == 103.01
 
 
 def test_student_payment_codes_get_skips_provisioning_and_post_sanitizes_unexpected_provider_error(client, app, test_school, test_proprietor, test_students, monkeypatch):

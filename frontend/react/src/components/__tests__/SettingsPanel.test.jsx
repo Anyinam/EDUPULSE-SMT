@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import axios from 'axios';
 
-import SettingsPanel from '../SettingsPanel';
+import SettingsPanel, { calculateTuitionTransferPreview } from '../SettingsPanel';
 
 vi.mock('axios');
 vi.mock('../TimetableManager', () => ({
@@ -14,6 +14,21 @@ vi.mock('../TermManagementPanel', () => ({
 }));
 
 describe('SettingsPanel', () => {
+  it.each([
+    [25, { total: 25.76, provider: 0.50, margin: 0.25, surplus: 0.01 }],
+    [75, { total: 77.26, provider: 1.51, margin: 0.75, surplus: 0 }],
+    [0, { total: 0, provider: 0, margin: 0, surplus: 0 }],
+  ])('grosses up tuition %s using cents', (base, expected) => {
+    expect(calculateTuitionTransferPreview(base)).toEqual(expected);
+  });
+
+  it('uses authoritative rates and flat fees instead of a fixed total', () => {
+    expect(calculateTuitionTransferPreview(25, {
+      estimated_provider_fee_rate_pct: 2, estimated_provider_fee_flat: 0.10,
+      platform_margin_rate_pct: 3, platform_fee_flat: 0.05,
+    })).toEqual({ total: 26.43, provider: 0.63, margin: 0.80, surplus: 0 });
+  });
+
   beforeEach(() => {
     localStorage.setItem('token', 'token-1');
     localStorage.setItem('school_id', 'TEST-001');
@@ -126,10 +141,45 @@ describe('SettingsPanel', () => {
       expect(screen.getAllByText('GH₵ 1000.00').length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText('1.95%')).toBeInTheDocument();
-    expect(screen.getByText('GH₵ 19.50')).toBeInTheDocument();
-    expect(screen.getByText('GH₵ 1019.50')).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /estimated processing rate/i })).toHaveAttribute('readonly');
+    expect(screen.getByRole('spinbutton', { name: /edupulse service rate/i })).toHaveAttribute('readonly');
+    expect(screen.getByText('GH₵ 20.09')).toBeInTheDocument();
+    expect(screen.getByText('GH₵ 10.00')).toBeInTheDocument();
+    expect(screen.getByText('GH₵ 1030.09')).toBeInTheDocument();
     expect(screen.queryByText(/admissions configuration/i)).not.toBeInTheDocument();
+  });
+
+  it('hydrates authoritative pricing as read-only and recalculates the full tuition quote', async () => {
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => url === '/api/school/fees'
+      ? Promise.resolve({ data: { tuition_fee: 25, tuition_transfer_pricing: {
+        fee_model: 'gross_up_margin_v1', estimated_provider_fee_rate_pct: 1.95,
+        platform_margin_rate_pct: 1, estimated_provider_fee_flat: 0, platform_fee_flat: 0,
+      } } }) : defaultGet(url, config));
+    render(<SettingsPanel />);
+    await screen.findByText('GH₵ 25.76');
+    expect(screen.getByText('Total convenience fee: GH₵ 0.76')).toBeInTheDocument();
+    const margin = screen.getByRole('spinbutton', { name: /edupulse service rate/i });
+    fireEvent.change(margin, { target: { value: '9' } });
+    expect(margin).toHaveValue(1);
+    expect(screen.queryByText('Tuition Convenience Fee (%)')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue('25'), { target: { value: '75' } });
+    expect(screen.getByText('GH₵ 77.26')).toBeInTheDocument();
+    expect(screen.getByText('GH₵ 1.51')).toBeInTheDocument();
+    expect(screen.getByText('GH₵ 0.75')).toBeInTheDocument();
+  });
+
+  it('renders non-default server rates instead of fallback rates', async () => {
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => url === '/api/school/fees'
+      ? Promise.resolve({ data: { tuition_fee: 25, tuition_transfer_pricing: {
+        fee_model: 'gross_up_margin_v1', estimated_provider_fee_rate_pct: 2,
+        platform_margin_rate_pct: 3, estimated_provider_fee_flat: 0.10, platform_fee_flat: 0.05,
+      } } }) : defaultGet(url, config));
+    render(<SettingsPanel />);
+    await screen.findByText('GH₵ 26.43');
+    expect(screen.getByRole('spinbutton', { name: /estimated processing rate/i })).toHaveValue(2);
+    expect(screen.getByRole('spinbutton', { name: /edupulse service rate/i })).toHaveValue(3);
   });
 
   it.each(['free', 'loading', 'error'])('preserves tuition and branding saves without feeding keys when access is %s', async (accessState) => {
@@ -154,6 +204,8 @@ describe('SettingsPanel', () => {
     const payload = axios.post.mock.calls.find(([url]) => url === '/api/school/fees')[1];
     expect(Object.keys(payload).filter((key) => key.startsWith('feeding'))).toEqual([]);
     expect(payload.tuition_fee).toBe(1000);
+    expect(payload).not.toHaveProperty('tuition_convenience_fee_percentage');
+    expect(payload).not.toHaveProperty('tuition_transfer_pricing');
     expect(payload.tuition_installment_plan.enabled).toBe(true);
     expect(axios.post).toHaveBeenCalledWith('/api/school/settings', expect.objectContaining({ name: 'Test School' }), expect.any(Object));
   });

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import tempfile
 import os
 import re
@@ -2526,6 +2527,9 @@ DEFAULT_PAYMENT_PROVIDER_SETTINGS = {
 PAYMENT_COLLECTION_SPLIT_CACHE_KEY = "payment_collection_split_cache"
 
 DEFAULT_PAYMENT_COLLECTION_PRICING = {
+    "tuition_provider_fee_rate_pct": float(os.getenv("EDUPULSE_TUITION_PROVIDER_FEE_RATE_PCT") or 1.95),
+    "tuition_provider_fee_flat": float(os.getenv("EDUPULSE_TUITION_PROVIDER_FEE_FLAT") or 0.0),
+    "tuition_platform_margin_rate_pct": float(os.getenv("EDUPULSE_TUITION_PLATFORM_MARGIN_RATE_PCT") or 1.0),
     "charge_parent_convenience_fee": True,
     "estimated_provider_fee_rate_pct": float(os.getenv("EDUPULSE_PAYSTACK_TRANSFER_FEE_RATE_PCT") or 0.0),
     "estimated_provider_fee_flat": float(os.getenv("EDUPULSE_PAYSTACK_TRANSFER_FEE_FLAT") or 0.0),
@@ -2594,6 +2598,9 @@ def _normalize_payment_collection_pricing(raw_config):
             return round(float(DEFAULT_PAYMENT_COLLECTION_PRICING[key] or 0.0), 2)
 
     return {
+        "tuition_provider_fee_rate_pct": _float_value("tuition_provider_fee_rate_pct"),
+        "tuition_provider_fee_flat": _float_value("tuition_provider_fee_flat"),
+        "tuition_platform_margin_rate_pct": _float_value("tuition_platform_margin_rate_pct"),
         "charge_parent_convenience_fee": bool(config.get("charge_parent_convenience_fee", DEFAULT_PAYMENT_COLLECTION_PRICING["charge_parent_convenience_fee"])),
         "estimated_provider_fee_rate_pct": _float_value("estimated_provider_fee_rate_pct"),
         "estimated_provider_fee_flat": _float_value("estimated_provider_fee_flat"),
@@ -7593,6 +7600,13 @@ def create_student_payment_virtual_account(student_id, reference_code):
         return jsonify({"message": error}), 400
 
     route_payload = _build_payment_collection_intent_payload(intent)
+    if selected_code.get("fee_model") == "gross_up_margin_v1" and (
+        route_payload.get("fee_model") != selected_code["fee_model"]
+        or any(round(float(route_payload.get(field) or 0), 2) != round(float(selected_code.get(field) or 0), 2) for field in ("base_amount", "total_amount", "platform_fee_amount"))
+    ):
+        db.session.rollback()
+        return jsonify({"error": "historical_payment_route", "message": "This reference belongs to a previously paid route. Its recorded payment remains unchanged; use a new unpaid installment reference for collection."}), 409
+
     updated_code = {**selected_code}
     updated_code["virtual_route"] = route_payload
     updated_code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
@@ -9599,7 +9613,14 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
 
     existing_payment = Payment.query.filter_by(reference_id=tx_ref).first()
     if existing_payment:
-        return {"status": "duplicate", "reference": tx_ref}, 200
+        if school_id_scope and existing_payment.school_id != school_id_scope:
+            return {"status": "ignored", "reference": tx_ref}, 200
+        return {"status": "duplicate", "reference": tx_ref, "payment_status": existing_payment.status}, 200
+
+    metadata = payload.get("metadata") or {}
+    review_reason = metadata.get("payment_collection_requires_review")
+    review_reasons = {"payment_amount_mismatch", "processing_fee_exceeds_surcharge", "processing_fee_exceeds_margin_allowance", "invalid_settlement_split"}
+    review_required = review_reason in review_reasons
 
     amount_minor = payload.get("amount")
     try:
@@ -9607,15 +9628,19 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
     except Exception:
         return {"status": "error", "message": "Invalid payment amount"}, 400
 
-    if amount <= 0:
+    if amount < 0 or (amount == 0 and not review_required):
         return {"status": "error", "message": "Amount must be greater than zero"}, 400
 
-    metadata = payload.get("metadata") or {}
     school_id_hint = sanitize_string(metadata.get("school_id") or school_id_scope)
 
     student = None
     payment_type = sanitize_string(metadata.get("payment_type")) or None
     payment_category = metadata.get("payment_category") if isinstance(metadata.get("payment_category"), dict) else {}
+    if review_required:
+        amount = float(payment_category.get("gross_amount_paid") or 0)
+        if amount <= 0 or not math.isfinite(amount):
+            return {"status": "error", "message": "Received transfer amount must be positive and finite."}, 400
+        payment_category = {**payment_category, "applied_school_fee_amount": 0.0}
 
     student_id = metadata.get("student_id")
     if student_id is not None:
@@ -9682,11 +9707,22 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
         payment_type=payment_type,
         method="Paystack_Payment",
         reference_id=tx_ref,
-        status="Pending" if verification_blocked or collection_block else "Confirmed",
+        status="Pending" if verification_blocked or collection_block or review_required else "Confirmed",
         payment_category=payment_category or {},
     )
     db.session.add(payment)
     db.session.flush()
+
+    if review_required:
+        _create_aml_flag(
+            school_id=student.school_id,
+            payment_id=payment.id,
+            student_id=student.id,
+            rule_code="PAYMENT_AMOUNT_MISMATCH" if review_reason == "payment_amount_mismatch" else "PAYMENT_SETTLEMENT_REVIEW",
+            severity="high",
+            summary="Tracked transfer requires review before crediting the learner.",
+            details={"reference": tx_ref, "reason": review_reason, "gross_amount_paid": payment_category.get("gross_amount_paid"), "expected_amount": payment_category.get("transfer_total_amount")},
+        )
 
     if verification_blocked:
         _create_aml_flag(
@@ -9709,7 +9745,7 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
             details={"reference": tx_ref, "source": "paystack", "collection_block": collection_block},
         )
 
-    if not verification_blocked and not collection_block:
+    if not verification_blocked and not collection_block and not review_required:
         stock_error = _apply_auto_payment_effects(student, payment_type, amount, payment_category or {})
         if stock_error:
             db.session.rollback()
@@ -9722,9 +9758,10 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
         "payment_id": payload.get("id"),
         "customer": payload.get("customer", {}),
         "authorization": payload.get("authorization", {}),
+        "payment_category": payment_category,
     }
 
-    if not verification_blocked and not collection_block:
+    if not verification_blocked and not collection_block and not review_required:
         add_ledger_entry(
             school_id=student.school_id,
             tx_type=(payment_type or "payment").lower(),
@@ -9754,6 +9791,8 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
     )
 
     db.session.commit()
+    if review_required:
+        return {"status": "blocked", "reference": tx_ref, "student_id": student.id, "payment_id": payment.id, "payment_status": "Pending", "reason": review_reason, "message": "Transfer recorded for review; no school-fee credit has been applied."}, 200
     if collection_block:
         return {
             "status": "blocked",
@@ -9763,7 +9802,7 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
             "payment_status": payment.status,
             "message": collection_block["message"],
         }, 200
-    return {"status": "recorded", "reference": tx_ref, "student_id": student.id}, 200
+    return {"status": "recorded", "reference": tx_ref, "student_id": student.id, "payment_status": payment.status}, 200
 
 
 def _fetch_paystack_success_transactions(start_time, end_time, page=1, per_page=50):
@@ -12975,6 +13014,9 @@ def confirm_payment(payment_id):
         id=payment_id, school_id=g.school_id
     ).first_or_404()
 
+    if (payment.payment_category or {}).get("payment_collection_requires_review"):
+        return jsonify({"message": "This transfer requires settlement review and cannot be approved as a manual payment.", "error": "payment_settlement_review_required"}), 409
+
     if payment.status == "Confirmed":
         return jsonify({"message": "Payment already confirmed."}), 400
 
@@ -13032,6 +13074,9 @@ def confirm_payments_bulk():
     payments = query.order_by(Payment.id.asc()).all()
     if not payments:
         return jsonify({"message": "No pending payments found for the selected class."}), 404
+
+    if any((payment.payment_category or {}).get("payment_collection_requires_review") for payment in payments):
+        return jsonify({"message": "The selected batch includes a transfer requiring settlement review. No payments were approved.", "error": "payment_settlement_review_required"}), 409
 
     confirmed_by_user_id = int(get_jwt_identity())
     confirmed_by_user = User.query.get(confirmed_by_user_id)
@@ -18499,6 +18544,7 @@ def get_school_fees():
             g.school_id,
             school_settings_model=SchoolSettings,
             get_feeding_plan_fees=_get_feeding_plan_fees,
+            payment_collection_pricing=_get_payment_collection_pricing(),
         )
     )
 
@@ -21446,6 +21492,13 @@ def paystack_subscription_webhook():
             plan_name = metadata.get('plan_name')
             amount_paid = transaction.get('amount', 0) / 100  # Convert pesewas to GHS
             card_setup_only = bool(metadata.get("card_setup_only") or metadata.get("skip_subscription_update"))
+
+            if not plan_name and not card_setup_only and (
+                _is_paystack_dedicated_account_charge(transaction)
+                or metadata.get("student_id")
+                or metadata.get("payment_type")
+            ):
+                return paystack_webhook()
             
             if status != 'success' or not school_id or (not plan_name and not card_setup_only):
                 logger.warning(f"Invalid charge webhook data: {event}")

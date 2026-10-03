@@ -45,7 +45,17 @@ Operational workflow:
 - nested or alternate receiver-account payload shapes are normalized before matching
 - the school fee and convenience fee stay separated correctly
 
+The main `/api/paystack/webhook` dispatches student-fee charge events to the finance recorder, while retaining subscription/card-setup handling. `/api/finance/webhook/paystack` also accepts signed finance events. Configure the selected public HTTPS URL in Paystack and use the correct matching secret for signature validation. Do not create test transactions in live mode merely to check configuration.
+
+System Settings shows provider and EduPulse rates read-only, with an explicit total convenience-fee amount. The student tracker and copied/printed instructions show the same total and breakdown. After a successful exact transfer to the correct installment account, the signed callback automatically matches the learner, confirms the payment, updates tuition credit, and creates a receipt/ledger entry; manual approval is not required for a valid auto-tracked payment.
+
 ## Settlement Behavior
+
+New tuition routes use `gross_up_margin_v1`: default Paystack processing rate 1.95% on the total transfer, plus a 1% EduPulse margin on school tuition. GH₵25 tuition becomes GH₵25.76 payable. The full GH₵25 goes to the school's flat split; actual processing fees come out of the platform remainder. A full GH₵75 single payment is GH₵77.26, while three GH₵25 installments total GH₵77.28 because each installment is rounded separately.
+
+Platform configuration keys are `tuition_provider_fee_rate_pct`, `tuition_provider_fee_flat`, and `tuition_platform_margin_rate_pct`; defaults may be set through `EDUPULSE_TUITION_PROVIDER_FEE_RATE_PCT`, `EDUPULSE_TUITION_PROVIDER_FEE_FLAT`, and `EDUPULSE_TUITION_PLATFORM_MARGIN_RATE_PCT`. School settings cannot change the platform margin. Subscription checkout and admission-fee pricing are unchanged.
+
+Before production rollout, confirm the actual Paystack fee for this transfer channel, deploy backend and frontend together, and refresh unpaid route instructions using the guarded virtual-account POST. Share the new exact payable totals with parents. Never relabel legacy accounts as newly priced routes, automatically rewrite old receipts, or assume an underpayment met a flat split's minimum. This change does not modify live Paystack accounts by itself.
 
 Each tracked transfer account uses split settlement on the Paystack dedicated virtual account:
 
@@ -53,7 +63,9 @@ Each tracked transfer account uses split settlement on the Paystack dedicated vi
 - the remainder settles into EduPulse's main Paystack account
 - Paystack processing fees are currently borne by the main account in this setup
 
-For learner-balance accounting, EduPulse now records the school-fee credit as the net school portion actually attributable to the payment route:
+Legacy route accounting remains as originally recorded. For new versioned routes, exact amount and account-bearer split checks precede credit; mismatches are held Pending for review with no balance or confirmed-ledger effects.
+
+The pre-version legacy calculation was:
 
 - start from the gross amount paid
 - subtract the convenience-fee slice carried by that route

@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 
 
 def public_payment_setup_failure_message():
@@ -66,7 +67,45 @@ def split_person_name(full_name, sanitize_string, fallback_last_name="Customer")
     return parts[0], " ".join(parts[1:])
 
 
+def get_tuition_collection_pricing(pricing=None):
+    pricing = pricing or {}
+    return {
+        "fee_model": "gross_up_margin_v1",
+        "estimated_provider_fee_rate_pct": pricing.get("tuition_provider_fee_rate_pct", 1.95),
+        "estimated_provider_fee_flat": pricing.get("tuition_provider_fee_flat", 0),
+        "platform_margin_rate_pct": pricing.get("tuition_platform_margin_rate_pct", 1),
+        "platform_fee_flat": 0,
+        "charge_parent_convenience_fee": True,
+        "platform_fee_label": "Processing and EduPulse service fee",
+    }
+
+
 def calculate_payment_collection_breakdown(base_amount, pricing):
+    if pricing.get("fee_model") == "gross_up_margin_v1":
+        penny = Decimal("0.01")
+        base = Decimal(str(base_amount or 0)).quantize(penny, rounding=ROUND_HALF_UP)
+        provider_rate = Decimal(str(pricing.get("estimated_provider_fee_rate_pct", 1.95))) / 100
+        provider_flat = Decimal(str(pricing.get("estimated_provider_fee_flat", 0)))
+        margin_rate = Decimal(str(pricing.get("platform_margin_rate_pct", 1))) / 100
+        platform_flat = Decimal(str(pricing.get("platform_fee_flat", 0)))
+        if not all(value.is_finite() for value in (base, provider_rate, provider_flat, margin_rate, platform_flat)):
+            raise ValueError("Payment fee configuration must be finite.")
+        if base < 0 or not 0 <= provider_rate < 1 or min(provider_flat, margin_rate, platform_flat) < 0:
+            raise ValueError("Invalid payment fee configuration.")
+        platform_margin = (base * margin_rate + platform_flat).quantize(penny, rounding=ROUND_HALF_UP)
+        total = ((base + platform_margin + provider_flat) / (1 - provider_rate)).quantize(penny, rounding=ROUND_CEILING) if base else Decimal(0)
+        provider_fee = (total * provider_rate + provider_flat).quantize(penny, rounding=ROUND_HALF_UP) if base else Decimal(0)
+        return {
+            "fee_model": "gross_up_margin_v1",
+            "base_amount": float(base),
+            "estimated_provider_fee_amount": float(provider_fee),
+            "platform_fee_amount": float(platform_margin if base else Decimal(0)),
+            "convenience_fee_amount": float(total - base),
+            "total_amount": float(total),
+            "rounding_surplus_amount": float(total - base - provider_fee - (platform_margin if base else Decimal(0))),
+            "pricing": pricing,
+        }
+
     base_amount = round(float(base_amount or 0.0), 2)
     estimated_provider_fee_amount = round(
         (base_amount * (float(pricing.get("estimated_provider_fee_rate_pct") or 0.0) / 100.0))
