@@ -1729,6 +1729,43 @@ class TestAdmissionsEndpoints:
         assert "Successfully admitted 1 students." == payload.get("message")
         assert not payload.get("errors")
 
+    def test_bulk_admit_on_free_tier_stops_at_50_student_cap(self, client, app):
+        """Free Tier can bulk upload students but only up to the 50-student cap."""
+        with app.app_context():
+            from flask_jwt_extended import create_access_token
+
+            from backend.api.models import School, Student, User, db
+
+            school = School.query.get("TEST-001")
+            school.subscription_plan = "Free Tier"
+            school.trial_plan = None
+            school.trial_end_date = None
+            existing = Student.query.filter_by(school_id="TEST-001", status="Active").count()
+            db.session.commit()
+
+            proprietor = User.query.filter_by(username="proprietor1").first()
+            token = create_access_token(identity=str(proprietor.id))
+
+        remaining = 50 - existing
+        rows = "".join(f"Free{index},Learner,JHS 1,Female\n" for index in range(remaining + 3))
+        csv_content = "First Name,Surname,Class Assigned,Gender\n" + rows
+        data = {"file": (io.BytesIO(csv_content.encode("utf-8")), "students.csv")}
+        response = client.post(
+            "/api/admissions/bulk-upload",
+            data=data,
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {token}", "X-School-ID": "TEST-001"},
+        )
+
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        assert payload.get("message") == f"Successfully admitted {remaining} students."
+        assert any("Plan limit of 50 students reached" in err for err in payload.get("errors", []))
+        with app.app_context():
+            from backend.api.models import Student
+
+            assert Student.query.filter_by(school_id="TEST-001", status="Active").count() == 50
+
     def test_receive_payment_missing_student(self, client, app):
         """Test payment for non-existent student."""
         with app.app_context():

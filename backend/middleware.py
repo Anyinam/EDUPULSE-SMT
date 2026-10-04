@@ -255,10 +255,23 @@ except ImportError:
     ALLOW_ALL_DASHBOARDS = False
     RATE_LIMIT_ENABLED = True
 
-# Rate limiter instance - conditionally set default limits
+def _rate_limit_key():
+    # Staff in one school often share a NAT IP, so bucket signed-in users individually.
+    try:
+        verify_jwt_in_request(optional=True)
+        identity = get_jwt_identity()
+    except Exception:
+        identity = None
+    if identity is not None:
+        return f"user:{identity}"
+    return f"ip:{get_remote_address()}"
+
+
+# The SPA polls dashboards and loads several endpoints per page, so the old
+# 50/hour default throttled normal use and surfaced as locked/Free Tier screens.
 limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"] if RATE_LIMIT_ENABLED else [],
+    key_func=_rate_limit_key,
+    default_limits=["20000 per day", "2000 per hour", "300 per minute"] if RATE_LIMIT_ENABLED else [],
     enabled=RATE_LIMIT_ENABLED
 )
 
@@ -347,8 +360,8 @@ def get_operational_entitlement(path, method, payload=None):
         }):
             return "feeding", "full_access"
 
+    # Student CSV upload stays open on Free; the route itself enforces the plan's student cap.
     if method == "POST" and path in {
-        "/api/admissions/bulk-upload",
         "/api/admissions/students/bulk-update-status",
         "/api/staff/bulk-upload",
     }:

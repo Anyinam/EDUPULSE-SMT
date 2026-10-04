@@ -39,6 +39,26 @@ describe('subscription entitlements', () => {
     expect(axios.get).toHaveBeenCalledWith('/api/school/subscription/effective-plan', expect.any(Object));
   });
 
+  it('reuses the confirmed plan on remount without a locked loading flash', async () => {
+    axios.get.mockResolvedValue({ data: { effective_plan: 'Premium', features: { payment_tracking: true } } });
+    const first = renderHook(() => useSubscription());
+    await waitFor(() => expect(first.result.current.hasFeature('payment_tracking')).toBe(true));
+    first.unmount();
+    const second = renderHook(() => useSubscription());
+    expect(second.result.current.loading).toBe(false);
+    expect(second.result.current.hasFeature('payment_tracking')).toBe(true);
+    expect(axios.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one request across simultaneously mounted consumers', async () => {
+    axios.get.mockResolvedValue({ data: { effective_plan: 'Basic', features: { bulk_operations: true } } });
+    const hooks = [renderHook(() => useSubscription()), renderHook(() => useSubscription())];
+    for (const { result } of hooks) {
+      await waitFor(() => expect(result.current.hasFeature('bulk_operations')).toBe(true));
+    }
+    expect(axios.get).toHaveBeenCalledTimes(1);
+  });
+
   it('fails closed after a subscription request fails', async () => {
     axios.get.mockRejectedValue(new Error('unavailable'));
     const { result } = renderHook(() => useSubscription());

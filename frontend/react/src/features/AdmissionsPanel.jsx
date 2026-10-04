@@ -4,7 +4,6 @@ import { ChevronDown, ChevronRight, FileCheck2, FileWarning, Search } from 'luci
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
 import PromotionThresholdManager from '../components/PromotionThresholdManager';
 import useSubscription from '../hooks/useSubscription';
-import FeatureLock from '../components/FeatureLock';
 import useSchoolClasses from '../hooks/useSchoolClasses';
 
 const getAdmissionsBillingMessage = (err, fallbackMessage) => {
@@ -746,8 +745,7 @@ export default function AdmissionsPanel() {
         )}
       </div>
 
-      {/* Bulk Upload Section */}
-      <FeatureLock feature="bulk_operations" requiredPlan="Basic">
+      {/* Bulk Upload Section (available on every plan; plan student cap enforced by the API) */}
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
         <h2 className="text-2xl font-bold text-slate-800 mb-6">Bulk Upload via CSV</h2>
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
@@ -761,7 +759,6 @@ export default function AdmissionsPanel() {
           <strong>Optional:</strong> student_code (auto-generated if blank), guardian_name, parent_email
         </p>
       </div>
-      </FeatureLock>
 
       {/* Class Promotion Override Section */}
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">

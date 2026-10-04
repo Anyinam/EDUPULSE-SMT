@@ -54,7 +54,8 @@ describe('teacher grade entitlements', () => {
       expect(classScore).toBeDisabled();
       expect(examScore).toBeDisabled();
       expect(screen.getByRole('button', { name: /Add Diagnostic/ })).toBeDisabled();
-      expect(screen.getByText('Grade Entry Locked')).toBeInTheDocument();
+      const lockMessage = { free: 'Grade Entry Locked', loading: 'Checking your plan access...', error: "We couldn't confirm your plan access right now." }[accessState];
+      expect(await screen.findByText(lockMessage)).toBeInTheDocument();
       fireEvent.click(submit);
       expect(axios.post).not.toHaveBeenCalled();
     }

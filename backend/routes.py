@@ -10005,6 +10005,11 @@ def paystack_webhook():
             if virtual_account_result:
                 body, status_code = virtual_account_result
                 return jsonify(body), status_code
+            return jsonify({
+                "status": "unmapped",
+                "reference": sanitize_string(payload.get("reference") or str(payload.get("id") or "")),
+                "message": "Dedicated-account transfer could not be matched to an active student payment reference.",
+            }), 200
         if metadata.get("transaction_type") == "parent_admission_fee" or metadata.get("parent_admission_application_id"):
             body, status_code = _record_paystack_parent_admission_payment(payload, event=event)
             return jsonify(body), status_code
@@ -21457,23 +21462,10 @@ def paystack_subscription_webhook():
     Verify HMAC signature for security.
     """
     try:
-        # Verify webhook signature
-        import hmac
-        import hashlib
-        
-        paystack_secret = os.getenv("PAYSTACK_SECRET_KEY", "")
-        signature = request.headers.get("X-Paystack-Signature", "")
-        body = request.get_data()
-        
-        hash_object = hmac.new(
-            paystack_secret.encode(),
-            body,
-            hashlib.sha512
-        )
-        computed_signature = hash_object.hexdigest()
-        
-        if signature != computed_signature:
-            logger.warning(f"Invalid webhook signature from Paystack")
+        # Shared verifier rejects a missing secret (an empty key would let anyone forge signatures).
+        signature_ok, signature_reason = _verify_paystack_signature(request.get_data())
+        if not signature_ok:
+            logger.warning(f"Rejected Paystack webhook: {signature_reason}")
             return jsonify({"message": "Invalid signature"}), 403
         
         # Parse webhook data

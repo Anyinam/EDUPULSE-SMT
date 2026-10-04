@@ -6,16 +6,9 @@ import SupportModal from './Support';
 import SchoolVerifiedBadge from './SchoolVerifiedBadge';
 import { useBranding } from '../hooks/useBranding';
 import useSubscription from '../hooks/useSubscription';
-import { Menu, X, Printer } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 
 export default function Layout() {
-  const location = useLocation();
-  return location.pathname === '/payment-receipts'
-    ? <LayoutContent subscriptionAccess={{ hasFeature: () => false, subscription: null, loading: false, error: null, plan: 'Free Tier' }} refreshBranding={false} />
-    : <SubscriptionLayout />;
-}
-
-function SubscriptionLayout() {
   const subscriptionAccess = useSubscription();
   return <LayoutContent subscriptionAccess={subscriptionAccess} refreshBranding />;
 }
@@ -224,10 +217,6 @@ function LayoutContent({ subscriptionAccess, refreshBranding }) {
         <ul className="space-y-4 flex-1 text-sm font-medium">
           {/* DASHBOARDS SECTION */}
           <li className="text-[10px] uppercase tracking-wider text-white/60 font-bold">📊 Dashboards</li>
-
-          {['proprietor', 'finance', 'headmaster', 'homeroom', 'teacher'].some(hasRole) && (
-            <li><Link to="/payment-receipts" className="inline-flex items-center gap-2 pl-3 hover:text-blue-200"><Printer size={16} aria-hidden="true" />Payment Receipts</Link></li>
-          )}
           
           {/* Proprietor */}
           {hasRole('proprietor') && (

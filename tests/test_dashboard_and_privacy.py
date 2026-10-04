@@ -4292,6 +4292,45 @@ def test_paystack_dedicated_virtual_account_webhook_records_student_payment(clie
     assert intent.provider_reference == "PS-DVA-443322"
 
 
+def test_unmatched_dedicated_virtual_account_webhook_does_not_fall_through_to_generic_credit(client, app, test_school, test_proprietor, test_students):
+    student = test_students[0]
+    original_balance = student.total_tuition_owed
+    os.environ["PAYSTACK_SECRET_KEY"] = "dva-paystack-secret"
+    body = {
+        "event": "charge.success",
+        "data": {
+            "id": 443399,
+            "reference": "PS-DVA-UNMATCHED-443399",
+            "status": "success",
+            "amount": 10600,
+            "metadata": {
+                "school_id": test_school.id,
+                "student_id": student.id,
+                "payment_type": "Tuition",
+                "reference_code": f"{student.student_code}-TUIT",
+            },
+            "authorization": {
+                "channel": "dedicated_nuban",
+                "receiver_account_number": "UNKNOWN-ACCOUNT",
+            },
+        },
+    }
+    raw = json.dumps(body).encode("utf-8")
+    signature = hmac.new(b"dva-paystack-secret", raw, hashlib.sha512).hexdigest()
+
+    response = client.post(
+        "/api/finance/webhook/paystack",
+        data=raw,
+        headers={"Content-Type": "application/json", "X-Paystack-Signature": signature},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "unmapped"
+    assert Payment.query.filter_by(reference_id="PS-DVA-UNMATCHED-443399").first() is None
+    db.session.refresh(student)
+    assert student.total_tuition_owed == original_balance
+
+
 def test_paystack_dedicated_virtual_account_webhook_uses_metadata_to_avoid_cross_student_match(client, app, test_school, test_proprietor, test_students):
     first_student = test_students[0]
     second_student = test_students[1]

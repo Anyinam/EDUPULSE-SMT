@@ -60,12 +60,11 @@ describe('AdmissionsPanel', () => {
     localStorage.clear();
   });
 
-  it('preserves core admissions but locks CSV upload on Free Tier', async () => {
+  it('keeps core admissions and CSV upload available on Free Tier', async () => {
     useSubscription.mockReturnValue({ plan: 'Free Tier', hasFeature: () => false });
     render(<AdmissionsPanel />);
     await waitFor(() => expect(screen.getByText('Daniel Asare')).toBeInTheDocument());
-    expect(screen.getByText('Bulk Operations Locked')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Upload CSV' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Upload CSV' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Admit Student/i })).toBeInTheDocument();
     expect(axios.post).not.toHaveBeenCalled();
   });

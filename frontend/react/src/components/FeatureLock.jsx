@@ -8,10 +8,33 @@ import React from 'react';
 import useSubscription from '../hooks/useSubscription';
 
 export function FeatureLock({ feature, requiredPlan = 'Premium', minLevel, children }) {
-  const { hasFeature, canAccess, plan } = useSubscription();
+  const { hasFeature, canAccess, plan, loading, error } = useSubscription();
 
   if (minLevel ? canAccess(feature, minLevel) : hasFeature(feature)) {
     return children;
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6 rounded-lg border border-slate-200 bg-white text-center text-sm text-slate-500" role="status">
+        Checking your plan access...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 rounded-lg border border-amber-200 bg-amber-50 text-center text-sm text-amber-800" role="alert">
+        <p className="font-semibold">We couldn't confirm your plan access right now.</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-3 px-4 py-2 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   const featureNames = {
@@ -72,6 +95,10 @@ export function SubscriptionGuard({ requires = 'Basic', children, fallback = nul
 
   if (!loading && !error && subscription && tiers[plan] !== undefined && tiers[requires] !== undefined && tiers[plan] >= tiers[requires]) {
     return children;
+  }
+
+  if (loading) {
+    return <div className="p-4 text-sm text-slate-500" role="status">Checking your plan access...</div>;
   }
 
   return fallback || (

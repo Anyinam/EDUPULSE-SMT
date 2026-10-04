@@ -12,7 +12,6 @@ OPERATIONS = [
     ("POST", "/api/homeroom/attendance", "attendance"),
     ("POST", "/api/homeroom/attendance/batch", "attendance"),
     ("POST", "/api/homeroom/attendance/bulk", "attendance"),
-    ("POST", "/api/admissions/bulk-upload", "bulk_operations"),
     ("POST", "/api/admissions/students/bulk-update-status", "bulk_operations"),
     ("POST", "/api/staff/bulk-upload", "bulk_operations"),
     ("GET", "/api/inventory", "payment_tracking"),

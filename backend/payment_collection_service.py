@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+from backend.payment_workflow import first_valid_customer_email, normalize_paystack_customer_phone
+
 
 MARGIN_FEE_MODEL = "gross_up_margin_v1"
 
@@ -388,12 +390,22 @@ def create_or_reuse_student_virtual_account_intent(
     if error:
         return None, error
 
-    reference_email = build_intent_customer_email_fn(student.parent_email or school.school_email, student.school_id, reference_code)
+    # Malformed parent contact data previously made Paystack reject route creation for some learners.
+    reference_email = build_intent_customer_email_fn(
+        first_valid_customer_email(student.parent_email, school.school_email),
+        student.school_id,
+        reference_code,
+    )
+    customer_phone = normalize_paystack_customer_phone(
+        student.parent_phone,
+        school.school_phone,
+        country_code=settings.country_code if settings and settings.country_code else "GH",
+    )
     customer_name = student.parent_name or student.guardian_name or student.name
     customer_result, error = create_paystack_collection_customer_fn(
         reference_email,
         customer_name,
-        student.parent_phone or school.school_phone,
+        customer_phone,
         metadata={
             "school_id": student.school_id,
             "student_id": student.id,
@@ -409,7 +421,7 @@ def create_or_reuse_student_virtual_account_intent(
         sanitize_string(provider.get("provider_slug") or "") or "",
         provider_settings,
         split_code=split_config.get("split_code") if split_config else None,
-        phone=student.parent_phone or school.school_phone,
+        phone=customer_phone,
         first_name=customer_result["first_name"],
         last_name=customer_result["last_name"],
     )

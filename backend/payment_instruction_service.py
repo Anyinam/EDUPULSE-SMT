@@ -181,12 +181,15 @@ def attach_virtual_routes_to_payment_codes(student, codes_list, get_student_paym
             if not matches_pricing:
                 route_payload = None
         historical_paid = bool(intent and (intent.intent_status == "paid" or intent.paid_at))
+        nothing_due = round(float(code.get("base_amount") or 0.0), 2) <= 0
+        if nothing_due:
+            route_payload = None
         code["virtual_route"] = route_payload
         code["virtual_bank_account"] = route_payload.get("account_number") if route_payload else None
         code["virtual_bank_name"] = route_payload.get("bank_name") if route_payload else None
         code["subaccount_code"] = route_payload.get("subaccount_code") if route_payload else None
         code["has_virtual_route"] = bool(route_payload and route_payload.get("status") in {"assigned", "paid"})
-        code["needs_virtual_route_preparation"] = not code["has_virtual_route"] and not historical_paid
+        code["needs_virtual_route_preparation"] = not code["has_virtual_route"] and not historical_paid and not nothing_due
         code["preferred_payment_model"] = (
             "virtual_account_ready" if code["has_virtual_route"]
             else "historical_paid" if historical_paid else "reference_first"
@@ -329,14 +332,20 @@ def build_student_payment_instruction_payload(
                 codes_list[-1]["is_scholarship_fee"] = False
             tuition_credit_balance = round(max(0.0, remaining_credit), 2)
         else:
+            # total_tuition_owed is only set by imports/seeds; otherwise derive the balance from confirmed payments.
+            if outstanding_tuition_amount <= 0 and not (student.is_on_scholarship and student.scholarship_covers_tuition):
+                base_amount = round(max(0.0, float(fees_config["tuition_fee"] or 0.0) - tuition_paid_amount), 2)
+            tuition_settled = base_amount <= 0.009
             total_amount = calculate_payment_collection_breakdown(base_amount, tuition_pricing)["total_amount"]
 
             append_standard_code(
                 "Tuition",
                 tuition_reference,
                 base_amount,
-                {"fee_type": "Tuition"},
+                {"fee_type": "Tuition", "tuition_status": "paid" if tuition_settled else "open"},
                 (
+                    f"Tuition for reference {tuition_reference} is fully settled. No further tuition payment is required."
+                    if tuition_settled else
                     f"EduPulse automatically prepares a tracked transfer account for reference {tuition_reference}. "
                     + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {tuition_reference}. "
                     + f"The current tuition balance for this learner is GH₵ {base_amount:.2f}; the tracked transfer total includes provider processing and the EduPulse service fee."

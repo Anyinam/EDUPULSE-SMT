@@ -1,3 +1,4 @@
+import hashlib
 import re
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 
@@ -46,16 +47,51 @@ def looks_like_provider_error(message, sanitize_string):
     return any(marker in normalized for marker in provider_markers)
 
 
+_CUSTOMER_EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
+_EMAIL_LOCAL_PART_MAX = 64
+_PHONE_DIAL_CODES = {"GH": ("233", 9), "NG": ("234", 10)}
+
+
+def first_valid_customer_email(*candidates):
+    for value in candidates:
+        email = str(value or "").strip()
+        if _CUSTOMER_EMAIL_PATTERN.match(email):
+            return email
+    return ""
+
+
 def build_intent_customer_email(base_email, school_id, reference_code, sanitize_string):
-    email = sanitize_string(base_email or "") or ""
+    email = (sanitize_string(base_email or "") or "").strip()
     safe_ref = re.sub(r"[^a-z0-9]+", "-", (reference_code or "").lower()).strip("-") or "payment"
     safe_school = re.sub(r"[^a-z0-9]+", "-", (school_id or "").lower()).strip("-") or "school"
-    if "@" in email:
-        local_part, domain = email.split("@", 1)
-        local_part = local_part or "parent"
-        domain = domain or "example.com"
-        return f"{local_part}+edupulse-{safe_school}-{safe_ref}@{domain}"
-    return f"edupulse-{safe_school}-{safe_ref}@parents.edupulse.invalid"
+    tag = f"edupulse-{safe_school}-{safe_ref}"
+    if _CUSTOMER_EMAIL_PATTERN.match(email):
+        local_part, domain = email.rsplit("@", 1)
+        local_part = local_part.split("+", 1)[0] or "parent"
+        candidate = f"{local_part}+{tag}"
+        if len(candidate) > _EMAIL_LOCAL_PART_MAX:
+            digest = hashlib.sha256(tag.encode("utf-8")).hexdigest()[:16]
+            candidate = f"{local_part[:_EMAIL_LOCAL_PART_MAX - len(digest) - 4]}+ep-{digest}"
+        return f"{candidate}@{domain.lower()}"
+    if len(tag) > _EMAIL_LOCAL_PART_MAX:
+        tag = f"edupulse-{hashlib.sha256(tag.encode('utf-8')).hexdigest()[:24]}"
+    return f"{tag}@parents.edupulse.invalid"
+
+
+def normalize_paystack_customer_phone(*candidates, country_code="GH"):
+    """Return the first candidate as an E.164 number Paystack accepts, else an empty string."""
+    dial_code, national_length = _PHONE_DIAL_CODES.get((country_code or "GH").upper(), _PHONE_DIAL_CODES["GH"])
+    for value in candidates:
+        digits = re.sub(r"\D+", "", str(value or ""))
+        if digits.startswith("00"):
+            digits = digits[2:]
+        if digits.startswith(dial_code) and len(digits) == len(dial_code) + national_length:
+            return f"+{digits}"
+        if digits.startswith("0") and len(digits) == national_length + 1:
+            return f"+{dial_code}{digits[1:]}"
+        if len(digits) == national_length:
+            return f"+{dial_code}{digits}"
+    return ""
 
 
 def split_person_name(full_name, sanitize_string, fallback_last_name="Customer"):

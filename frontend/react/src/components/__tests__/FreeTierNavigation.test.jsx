@@ -54,32 +54,16 @@ describe('Free Tier navigation and proprietor routes', () => {
     for (const name of ['Payment Tracker', 'Inventory']) {
       expect(screen.queryByRole('link', { name: new RegExp(name) })).not.toBeInTheDocument();
     }
-    for (const name of ['Transaction History', 'Audit Report', 'Payment Receipts', 'Subscription', 'Students', 'Admissions', 'Holiday Calendar', 'Terminal Reports', 'System Settings']) {
+    for (const name of ['Transaction History', 'Audit Report', 'Subscription', 'Students', 'Admissions', 'Holiday Calendar', 'Terminal Reports', 'System Settings']) {
       expect(screen.getByRole('link', { name: new RegExp(name) })).toBeInTheDocument();
     }
-  });
-
-  it.each(['proprietor', 'finance', 'headmaster', 'homeroom', 'teacher'])('keeps receipts independent of modules and subscription for %s', async (role) => {
-    localStorage.setItem('role', role);
-    localStorage.setItem('enabled_modules', JSON.stringify({ finance: false }));
-    render(<MemoryRouter initialEntries={['/payment-receipts']}><Layout /></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Payment Receipts' })).toHaveAttribute('href', '/payment-receipts');
-    await waitFor(() => expect(axios.get).toHaveBeenCalledWith('/api/staff/notifications', expect.any(Object)));
-    expect(axios.get.mock.calls.every(([url]) => url === '/api/staff/notifications')).toBe(true);
-    expect(screen.queryByRole('link', { name: /Payment Tracker/ })).not.toBeInTheDocument();
-  });
-
-  it('supports normalized secondary receipt roles but not kitchen-only users', async () => {
-    localStorage.setItem('role', 'kitchen');
-    localStorage.setItem('roles', JSON.stringify([' Teacher ']));
-    const { unmount } = render(<MemoryRouter initialEntries={['/payment-receipts']}><Layout /></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Payment Receipts' })).toBeInTheDocument();
-    await waitFor(() => expect(axios.get).toHaveBeenCalledWith('/api/staff/notifications', expect.any(Object)));
-    unmount();
-    localStorage.setItem('roles', '[]');
-    render(<MemoryRouter initialEntries={['/payment-receipts']}><Layout /></MemoryRouter>);
     expect(screen.queryByRole('link', { name: 'Payment Receipts' })).not.toBeInTheDocument();
-    await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not show a Payment Receipts sidebar link (receipts live in the payment tracker)', async () => {
+    render(<MemoryRouter initialEntries={['/payment-receipts']}><Layout /></MemoryRouter>);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith('/api/school/subscription/effective-plan', expect.any(Object)));
+    expect(screen.queryByRole('link', { name: 'Payment Receipts' })).not.toBeInTheDocument();
   });
 
   it.each(['payment-tracker', 'inventory'])('locks the direct proprietor %s URL despite a cached Premium plan', async (tab) => {

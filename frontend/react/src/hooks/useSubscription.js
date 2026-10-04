@@ -75,37 +75,104 @@ export const PLAN_FEATURES = {
   },
 };
 
+const CACHE_STORAGE_KEY = 'edupulse_effective_plan_cache';
+const CACHE_FRESH_MS = 30 * 1000;
+// Shared on globalThis so test setup can reset dedupe state between tests.
+const inflightRequests = globalThis.__edupulseSubscriptionRequests || (globalThis.__edupulseSubscriptionRequests = new Map());
+
+const getStoredToken = () => localStorage.getItem('token') || localStorage.getItem('access_token');
+// subscription_plan is rewritten on login and plan changes, so including it invalidates the cache then.
+const getCacheKey = () => [
+  localStorage.getItem('school_id') || '',
+  localStorage.getItem('role') || '',
+  localStorage.getItem('subscription_plan') || '',
+].join('|');
+
+function readCachedSubscription() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(CACHE_STORAGE_KEY) || 'null');
+    return cached && cached.key === getCacheKey() && cached.data ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSubscription(data) {
+  try {
+    sessionStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({ key: getCacheKey(), data, fetchedAt: Date.now() }));
+  } catch {
+    // Storage can be unavailable (private mode); the hook still works without the cache.
+  }
+}
+
+export function clearSubscriptionCache() {
+  inflightRequests.clear();
+  try {
+    sessionStorage.removeItem(CACHE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function requestEffectivePlan() {
+  const key = getCacheKey();
+  if (!inflightRequests.has(key)) {
+    const request = axios.get('/api/school/subscription/effective-plan', {
+      headers: {
+        'X-School-ID': localStorage.getItem('school_id'),
+        'Authorization': `Bearer ${getStoredToken()}`,
+      },
+    })
+      .then((response) => {
+        const data = { ...response.data, plan: response.data.effective_plan || response.data.plan };
+        writeCachedSubscription(data);
+        return data;
+      })
+      .finally(() => inflightRequests.delete(key));
+    inflightRequests.set(key, request);
+  }
+  return inflightRequests.get(key);
+}
+
 export function useSubscription() {
-  const [subscription, setSubscription] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Reuse the last confirmed plan so navigation/refresh doesn't flash a locked Free Tier screen.
+  const [initialCache] = useState(() => (getStoredToken() ? readCachedSubscription() : null));
+  const [subscription, setSubscription] = useState(initialCache?.data || null);
+  const [loading, setLoading] = useState(!initialCache);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetchSubscription = async () => {
-      try {
-        const storedToken = localStorage.getItem('token') || localStorage.getItem('access_token');
-        const headers = {
-          'X-School-ID': localStorage.getItem('school_id'),
-          'Authorization': `Bearer ${storedToken}`,
-        };
-
-        const response = await axios.get('/api/school/subscription/effective-plan', { headers });
-        setSubscription({ ...response.data, plan: response.data.effective_plan || response.data.plan });
-        setError(null);
-      } catch (err) {
-        console.error('Failed to fetch subscription:', err);
-        setError(err.response?.data?.message || 'Failed to fetch subscription');
-        setSubscription(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (localStorage.getItem('token') || localStorage.getItem('access_token')) {
-      fetchSubscription();
-    } else {
+    let active = true;
+    if (!getStoredToken()) {
       setLoading(false);
+      return undefined;
     }
+    if (initialCache && Date.now() - initialCache.fetchedAt < CACHE_FRESH_MS) {
+      return undefined;
+    }
+
+    requestEffectivePlan()
+      .then((data) => {
+        if (!active) return;
+        setSubscription(data);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('Failed to fetch subscription:', err);
+        // Keep a previously confirmed plan on transient failures instead of downgrading the UI.
+        if (!initialCache) {
+          setError(err.response?.data?.message || 'Failed to fetch subscription');
+          setSubscription(null);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const hasAddon = (addonName) => !loading && !error && Boolean(subscription?.active_addons?.[addonName]);

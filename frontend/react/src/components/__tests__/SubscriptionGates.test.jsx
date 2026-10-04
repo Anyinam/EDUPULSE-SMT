@@ -71,7 +71,8 @@ describe('restricted components', () => {
   it('keeps the tracker unmounted when entitlement loading fails', async () => {
     axios.get.mockRejectedValue(new Error('offline'));
     render(<StudentPaymentTracker />);
-    await waitFor(() => expect(screen.getByText("You're currently on", { exact: false })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("We couldn't confirm your plan access right now.")).toBeInTheDocument());
+    expect(screen.queryByText("You're currently on", { exact: false })).not.toBeInTheDocument();
     expect(axios.get.mock.calls.every(([url]) => url === '/api/school/subscription/effective-plan')).toBe(true);
     expect(axios.post).not.toHaveBeenCalled();
   });
