@@ -275,6 +275,22 @@ def build_student_payment_instruction_payload(
         tuition_paid_amount = round(sum(_get_payment_applied_amount(payment) for payment in confirmed_tuition_payments), 2)
 
         if tuition_installment_plan.get("enabled") and not student.scholarship_covers_tuition:
+            scheduled_total = round(sum(float(item["amount"]) for item in tuition_installment_plan["schedule"]), 2)
+            full_remaining = round(max(0.0, scheduled_total - tuition_paid_amount), 2)
+            full_reference = f"{student.student_code}-TUIT-FULL"
+            append_standard_code(
+                "Tuition",
+                full_reference,
+                full_remaining,
+                {
+                    "fee_type": "Tuition",
+                    "tuition_payment_option": "full_remaining",
+                    "payment_label": "Full Remaining Tuition",
+                    "tuition_status": "paid" if full_remaining <= 0.009 else "open",
+                },
+                f"Pay the full remaining tuition balance of GH₵ {full_remaining:.2f} using the separate tracked account for {full_reference}. The transfer total includes processing and EduPulse service fees.",
+                pricing_override=tuition_pricing,
+            )
             remaining_credit = max(0.0, tuition_paid_amount)
             today = datetime.now(timezone.utc).date()
             for installment in tuition_installment_plan.get("schedule") or []:
@@ -298,7 +314,7 @@ def build_student_payment_instruction_payload(
                 else:
                     installment_status = "open"
 
-                total_amount = calculate_payment_collection_breakdown(installment_amount, tuition_pricing)["total_amount"]
+                total_amount = calculate_payment_collection_breakdown(outstanding_amount, tuition_pricing)["total_amount"]
                 reference_code = f"{student.student_code}-TUIT-I{installment_number}"
                 schedule_window = []
                 if installment.get("start_date"):
@@ -309,9 +325,10 @@ def build_student_payment_instruction_payload(
                 append_standard_code(
                     "Tuition",
                     reference_code,
-                    installment_amount,
+                    outstanding_amount,
                     {
                         "fee_type": "Tuition",
+                        "tuition_payment_option": "installment",
                         "installment_number": installment_number,
                         "installment_label": installment.get("label") or f"Installment {installment_number}",
                         "installment_status": installment_status,
@@ -319,11 +336,12 @@ def build_student_payment_instruction_payload(
                         "installment_due_date": installment.get("due_date"),
                         "installment_paid_amount": applied_amount,
                         "installment_outstanding_amount": outstanding_amount,
+                        "installment_scheduled_amount": installment_amount,
                     },
                     (
                         f"EduPulse automatically prepares a tracked transfer account for {installment.get('label') or f'Installment {installment_number}'}{schedule_window_text}. "
                         + f"Parents should pay GH₵ {total_amount:.2f} to that account using reference {reference_code}. "
-                        + f"The installment base amount is GH₵ {installment_amount:.2f}; the tracked transfer total includes provider processing and the EduPulse service fee."
+                        + f"The remaining installment amount is GH₵ {outstanding_amount:.2f}; the tracked transfer total includes provider processing and the EduPulse service fee."
                     ),
                     amount=total_amount,
                     pricing_override=tuition_pricing,

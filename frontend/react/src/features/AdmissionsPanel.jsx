@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { ChevronDown, ChevronRight, FileCheck2, FileWarning, Search } from 'lucide-react';
 import BulkStatusUpdate from '../components/BulkStatusUpdate';
@@ -39,6 +39,33 @@ export default function AdmissionsPanel() {
     score: 0 // Default for manual admission
   });
   const [csvFile, setCsvFile] = useState(null);
+  const [passportPhoto, setPassportPhoto] = useState(null);
+  const [passportPhotoPreview, setPassportPhotoPreview] = useState('');
+  const [passportPhotoError, setPassportPhotoError] = useState('');
+  const [admittingStudent, setAdmittingStudent] = useState(false);
+  const passportPhotoInput = useRef(null);
+
+  useEffect(() => {
+    if (!passportPhoto) {
+      setPassportPhotoPreview('');
+      return undefined;
+    }
+    const preview = URL.createObjectURL(passportPhoto);
+    setPassportPhotoPreview(preview);
+    return () => URL.revokeObjectURL(preview);
+  }, [passportPhoto]);
+
+  const handlePassportPhoto = (event) => {
+    const photo = event.target.files?.[0];
+    setPassportPhotoError('');
+    if (photo && (!['image/jpeg', 'image/png', 'image/webp'].includes(photo.type) || photo.size > 5 * 1024 * 1024)) {
+      setPassportPhoto(null);
+      setPassportPhotoError('Choose a JPG, PNG, or WebP photo no larger than 5 MB.');
+      event.target.value = '';
+      return;
+    }
+    setPassportPhoto(photo || null);
+  };
   const [applications, setApplications] = useState([]);
   const [archivedApplications, setArchivedApplications] = useState([]);
   const [applicationSummary, setApplicationSummary] = useState({});
@@ -190,16 +217,27 @@ export default function AdmissionsPanel() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (admittingStudent || passportPhotoError) return;
     if (!formData.class_assigned) {
       alert('Add a school class first before admitting students.');
       return;
     }
     try {
+      setAdmittingStudent(true);
       const headers = {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'X-School-ID': localStorage.getItem('school_id')
       };
-      await axios.post('/api/admissions/admit', formData, { headers });
+      let profilePicture = null;
+      if (passportPhoto) {
+        profilePicture = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Unable to read the passport photo. Please select it again.'));
+          reader.readAsDataURL(passportPhoto);
+        });
+      }
+      await axios.post('/api/admissions/admit', { ...formData, profile_picture: profilePicture }, { headers });
       const fullName = `${formData.first_name} ${formData.surname}`;
       alert(`Student ${fullName} admitted successfully!`);
       setFormData({
@@ -215,9 +253,14 @@ export default function AdmissionsPanel() {
         scholarship_notes: '',
         score: 0
       });
+      setPassportPhoto(null);
+      setPassportPhotoError('');
+      if (passportPhotoInput.current) passportPhotoInput.current.value = '';
       fetchApplications();
     } catch (err) {
-      alert(getAdmissionsBillingMessage(err, 'Admission failed.'));
+      alert(getAdmissionsBillingMessage(err, err.message || 'Admission failed.'));
+    } finally {
+      setAdmittingStudent(false);
     }
   };
 
@@ -405,7 +448,17 @@ export default function AdmissionsPanel() {
             <input name="scholarship_notes" value={formData.scholarship_notes} onChange={handleChange} className="w-full p-3 border rounded-lg bg-slate-50" placeholder="Optional notes" />
           </div>
           <div className="md:col-span-2 pt-4">
-              <button type="submit" className="bg-blue-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-800 w-full md:w-auto shadow-lg shadow-blue-200">Admit Student</button>
+            <label htmlFor="manual-passport-photo" className="block text-sm font-bold text-slate-700 mb-2">Passport Photo</label>
+            <div className="flex flex-wrap items-start gap-4">
+              {passportPhotoPreview ? (
+                <img src={passportPhotoPreview} alt="Student passport photo preview" className="h-32 w-24 shrink-0 rounded-lg border border-slate-200 object-cover" />
+              ) : null}
+              <input id="manual-passport-photo" ref={passportPhotoInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePassportPhoto} disabled={admittingStudent} className="block w-full min-w-0 max-w-sm text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:font-semibold file:text-blue-700" />
+            </div>
+            {passportPhotoError ? <p role="alert" className="mt-2 text-sm text-red-700">{passportPhotoError}</p> : null}
+          </div>
+          <div className="md:col-span-2 pt-4">
+              <button type="submit" disabled={admittingStudent || Boolean(passportPhotoError)} className="bg-blue-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-800 w-full md:w-auto shadow-lg shadow-blue-200 disabled:opacity-50">{admittingStudent ? 'Admitting...' : 'Admit Student'}</button>
           </div>
         </form>
       </div>

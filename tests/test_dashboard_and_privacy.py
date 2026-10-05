@@ -7,6 +7,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
 from reportlab.pdfgen import canvas
 
 from flask_jwt_extended import create_access_token
@@ -3747,15 +3748,19 @@ def test_student_payment_codes_build_tuition_installments_with_status_and_credit
 
     assert response.status_code == 200
     payload = response.get_json()
-    tuition_codes = [item for item in payload["payment_codes"] if item["fee_type"] == "Tuition"]
+    full_code = next(item for item in payload["payment_codes"] if item["payment_category"].get("tuition_payment_option") == "full_remaining")
+    assert full_code["base_amount"] == 499.8
+    tuition_codes = [item for item in payload["payment_codes"] if item["payment_category"].get("installment_number")]
     assert [item["reference_code"] for item in tuition_codes] == [
         f"{student.student_code}-TUIT-I1",
         f"{student.student_code}-TUIT-I2",
     ]
-    assert tuition_codes[0]["base_amount"] == 500.0
+    assert tuition_codes[0]["base_amount"] == 0.0
+    assert tuition_codes[0]["total_amount"] == 0.0
     assert tuition_codes[0]["payment_category"]["installment_status"] == "paid"
     assert tuition_codes[0]["payment_category"]["installment_outstanding_amount"] == 0.0
-    assert tuition_codes[1]["base_amount"] == 500.0
+    assert tuition_codes[1]["base_amount"] == 499.8
+    assert tuition_codes[1]["payment_category"]["installment_scheduled_amount"] == 500.0
     assert tuition_codes[1]["payment_category"]["installment_status"] == "partial"
     assert tuition_codes[1]["payment_category"]["installment_paid_amount"] == 0.2
     assert tuition_codes[1]["payment_category"]["installment_outstanding_amount"] == 499.8
@@ -3816,7 +3821,9 @@ def test_cash_tuition_payment_with_installment_reference_updates_installment_pro
     codes_response = client.get(f"/api/students/{student.id}/payment-codes", headers=headers)
     assert codes_response.status_code == 200
     payload = codes_response.get_json()
-    tuition_codes = [item for item in payload["payment_codes"] if item["fee_type"] == "Tuition"]
+    full_code = next(item for item in payload["payment_codes"] if item["payment_category"].get("tuition_payment_option") == "full_remaining")
+    assert full_code["base_amount"] == 50.0
+    tuition_codes = [item for item in payload["payment_codes"] if item["payment_category"].get("installment_number")]
     assert tuition_codes[0]["reference_code"] == f"{student.student_code}-TUIT-I1"
     assert tuition_codes[0]["payment_category"]["installment_status"] == "paid"
     assert tuition_codes[0]["payment_category"]["installment_paid_amount"] == 50.0
@@ -3826,6 +3833,93 @@ def test_cash_tuition_payment_with_installment_reference_updates_installment_pro
 
     db.session.refresh(student)
     assert student.total_tuition_owed == 50.0
+
+
+@pytest.mark.parametrize("first_option", ["full_remaining", "installment"])
+def test_full_and_installment_accounts_share_credit_and_hold_stale_transfers(client, app, test_school, test_proprietor, test_students, monkeypatch, first_option):
+    from backend.routes import GLOBAL_REPORT_SETTINGS_KEY, PAYMENT_PROVIDER_SETTINGS_KEY
+    from backend.utils import parse_payment_reference
+
+    student = test_students[0]
+    student.total_tuition_owed = 50.0
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 50.0
+    settings.other_fees = {
+        "__tuition_installment_plan__": {
+            "enabled": True,
+            "installment_count": 2,
+            "schedule": [{"amount": 25.0, "installment_number": index} for index in (1, 2)],
+        },
+    }
+    settings.report_template_config = {
+        GLOBAL_REPORT_SETTINGS_KEY: {PAYMENT_PROVIDER_SETTINGS_KEY: {"paystack_subaccount_code": "SUB_DUAL"}},
+    }
+    db.session.commit()
+    headers = _proprietor_headers(app, test_school.id, test_proprietor.id)
+    customer_calls = []
+
+    def provider(endpoint, method="GET", data=None):
+        if endpoint == "/split":
+            return {"split_code": f"SPL_DUAL_{data['subaccounts'][0]['share']}"}, None
+        if endpoint == "/dedicated_account/available_providers":
+            return [{"provider_slug": "test-bank", "bank_name": "Test Bank"}], None
+        if endpoint == "/customer":
+            customer_calls.append(data)
+            return {"customer_code": f"CUS_DUAL_{len(customer_calls)}"}, None
+        if endpoint == "/dedicated_account":
+            return {
+                "id": len(customer_calls), "account_number": f"0000000{len(customer_calls):03d}",
+                "account_name": "Test Learner", "bank": {"name": "Test Bank", "slug": "test-bank"},
+            }, None
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr("backend.routes._call_paystack_api", provider)
+    monkeypatch.setenv("PAYSTACK_SECRET_KEY", "dual-options-secret")
+    codes = client.get(f"/api/students/{student.id}/payment-codes", headers=headers).get_json()["payment_codes"]
+    tuition_codes = [code for code in codes if code["fee_type"] == "Tuition"]
+    assert len(tuition_codes) == 3
+    assert parse_payment_reference(tuition_codes[0]["reference_code"])["category"]["tuition_payment_option"] == "full_remaining"
+    routes = {}
+    for code in tuition_codes:
+        response = client.post(f"/api/students/{student.id}/payment-codes/{code['reference_code']}/virtual-account", headers=headers, json={})
+        assert response.status_code == 200
+        routes[code["reference_code"]] = response.get_json()["virtual_route"]
+    assert len({route["account_number"] for route in routes.values()}) == 3
+    assert len({customer["email"] for customer in customer_calls}) == 3
+    first_code = next(code for code in tuition_codes if code["payment_category"]["tuition_payment_option"] == first_option)
+    other_code = next(code for code in tuition_codes if code["payment_category"]["tuition_payment_option"] != first_option)
+
+    def send_transfer(code, transaction_reference):
+        route = routes[code["reference_code"]]
+        body = {"event": "charge.success", "data": {
+            "reference": transaction_reference, "amount": int(round(route["total_amount"] * 100)),
+            "authorization": {"channel": "dedicated_nuban", "receiver_account_number": route["account_number"]},
+        }}
+        raw = json.dumps(body).encode("utf-8")
+        signature = hmac.new(b"dual-options-secret", raw, hashlib.sha512).hexdigest()
+        return client.post("/api/finance/webhook/paystack", data=raw, headers={"Content-Type": "application/json", "X-Paystack-Signature": signature})
+
+    first_response = send_transfer(first_code, "DUAL-FIRST")
+    assert first_response.status_code == 200
+    assert first_response.get_json()["payment_status"] == "Confirmed"
+    expected_remaining = 50.0 - first_code["base_amount"]
+    db.session.refresh(student)
+    assert student.total_tuition_owed == expected_remaining
+    refreshed = client.get(f"/api/students/{student.id}/payment-codes", headers=headers).get_json()["payment_codes"]
+    full_quote = next(code for code in refreshed if code["payment_category"].get("tuition_payment_option") == "full_remaining")
+    assert full_quote["base_amount"] == expected_remaining
+    if first_option == "full_remaining":
+        assert all(code["base_amount"] == 0 for code in refreshed if code["fee_type"] == "Tuition")
+    assert send_transfer(first_code, "DUAL-FIRST").get_json()["status"] == "duplicate"
+    stale_response = send_transfer(other_code, "DUAL-STALE")
+    assert stale_response.status_code == 200
+    assert stale_response.get_json()["reason"] == "stale_tuition_quote"
+    held = Payment.query.filter_by(reference_id="DUAL-STALE").one()
+    assert held.status == "Pending"
+    assert held.payment_category["applied_school_fee_amount"] == 0.0
+    assert send_transfer(other_code, "DUAL-STALE").get_json()["payment_status"] == "Pending"
+    db.session.refresh(student)
+    assert student.total_tuition_owed == expected_remaining
 
 
 def test_student_payment_code_requires_school_settlement_before_tracked_transfer_account(client, app, test_school, test_proprietor, test_students):
@@ -3974,8 +4068,26 @@ def test_student_payment_code_refreshes_stale_tracked_transfer_amounts_when_tuit
         if endpoint == "/dedicated_account/available_providers" and method == "GET":
             return ([{"provider_slug": "titan-paystack", "bank_name": "Paystack-Titan"}], None)
         if endpoint == "/customer" and method == "POST":
+            from backend.payment_workflow import build_intent_customer_email, first_valid_customer_email
+            from backend.validators import sanitize_string
+
+            original_email = build_intent_customer_email(
+                first_valid_customer_email(student.parent_email, test_school.school_email),
+                student.school_id,
+                stale_intent.reference_code,
+                sanitize_string,
+            )
+            if data["email"] == original_email:
+                return ({"customer_code": "CUS_ROUTE_STALE_001"}, None)
             return ({"customer_code": "CUS_ROUTE_REFRESH_001"}, None)
         if endpoint == "/dedicated_account" and method == "POST":
+            if data["customer"] == "CUS_ROUTE_STALE_001":
+                return ({
+                    "id": 9010,
+                    "account_name": "EDUPULSE / STALE",
+                    "account_number": "0001112223",
+                    "bank": {"name": "Paystack-Titan", "slug": "titan-paystack"},
+                }, None)
             return ({
                 "id": 916,
                 "account_name": "EDUPULSE / AMA MENSAH",
@@ -4695,6 +4807,17 @@ def test_paystack_dedicated_virtual_account_webhook_records_transfer_when_receiv
     assert intent.provider_reference == "6a9f87df190c011168af7792"
 
 
+def test_live_stream_token_preserves_string_school_id(app):
+    from backend.routes import _build_stream_token, _verify_stream_token
+
+    with app.app_context():
+        token = _build_stream_token(user_id=7, school_id="TST1")
+        assert _verify_stream_token(token) == {"user_id": 7, "school_id": "TST1"}
+        expired = _build_stream_token(user_id=7, school_id="TST1", expires_minutes=-1)
+        assert _verify_stream_token(expired) is None
+        assert _verify_stream_token("invalid-token") is None
+
+
 def test_class_performance_returns_cohort_migration_comparison(client, app, test_school, test_proprietor):
     student = Student(
         school_id=test_school.id,
@@ -4884,3 +5007,30 @@ def test_analytics_presets_treat_duplicate_names_case_insensitively(client, app,
     )
     assert delete_response.status_code == 200
     assert delete_response.get_json()["presets"] == []
+
+
+def test_student_roster_reports_each_learners_own_tuition_balance(client, app, test_school, test_proprietor, test_students):
+    settings = SchoolSettings.query.filter_by(school_id=test_school.id).first()
+    settings.tuition_fee = 120.0
+    paid_student, partial_student = test_students[0], test_students[1]
+    for student in (paid_student, partial_student):
+        student.total_tuition_owed = 0.0
+        student.is_on_scholarship = False
+        student.scholarship_covers_tuition = False
+    db.session.add_all([
+        Payment(student_id=paid_student.id, school_id=test_school.id, amount=123.5, payment_type="Tuition",
+                method="Paystack Transfer", status="Confirmed", payment_category={"applied_school_fee_amount": 120.0}),
+        Payment(student_id=partial_student.id, school_id=test_school.id, amount=40.0, payment_type="Tuition",
+                method="Cash", status="Confirmed"),
+        Payment(student_id=partial_student.id, school_id=test_school.id, amount=80.0, payment_type="Tuition",
+                method="Cash", status="Pending"),
+    ])
+    db.session.commit()
+
+    response = client.get("/api/students", headers=_proprietor_headers(app, test_school.id, test_proprietor.id))
+    assert response.status_code == 200
+    roster = {item["id"]: item for item in response.get_json()}
+    assert roster[paid_student.id]["tuition_paid_amount"] == 120.0
+    assert roster[paid_student.id]["tuition_outstanding_amount"] == 0.0
+    assert roster[partial_student.id]["tuition_paid_amount"] == 40.0
+    assert roster[partial_student.id]["tuition_outstanding_amount"] == 80.0

@@ -210,7 +210,7 @@ describe('StudentPaymentTracker', () => {
       else axios.post.mockResolvedValue({ data: { virtual_route: { ...marginRoute, fee_model: undefined } } });
       render(<StudentPaymentTracker />);
       fireEvent.click(await screen.findByText('Ama Mensah'));
-      expect(await screen.findByText('Paystack setup needed')).toBeInTheDocument();
+      expect(await screen.findByText('Account preparation failed')).toBeInTheDocument();
       expect(screen.queryByText(/25\.49|3333333333|tracked transfer account ready/i)).not.toBeInTheDocument();
       expect(axios.post).toHaveBeenCalledTimes(1);
     }
@@ -248,6 +248,11 @@ describe('StudentPaymentTracker', () => {
         platform_fee_amount: 0.75, rounding_surplus_amount: 0 },
       payment_category: { fee_type: 'Tuition', installment_number: 2, installment_label: 'Installment 2' },
     });
+    codes.payment_codes.unshift({
+      ...codes.payment_codes[1], code: 'S001-TUIT-FULL',
+      virtual_route: { ...codes.payment_codes[1].virtual_route, account_number: '5555555555' },
+      payment_category: { fee_type: 'Tuition', tuition_payment_option: 'full_remaining', payment_label: 'Full Remaining Tuition' },
+    });
     mockStudentReads({ '/api/students/1/payment-codes': Promise.resolve({ data: codes }) });
     const writeText = vi.fn();
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
@@ -256,13 +261,16 @@ describe('StudentPaymentTracker', () => {
     render(<StudentPaymentTracker />);
     fireEvent.click(await screen.findByText('Ama Mensah'));
     fireEvent.click(await screen.findByRole('button', { name: /copy instructions/i }));
+    expect(screen.getByText('Full Remaining Tuition')).toBeInTheDocument();
     const copy = writeText.mock.calls[0][0];
+    expect(copy).toMatch(/Full Remaining Tuition:.*Account: 5555555555.*total GH₵ 77.26/);
     expect(copy).toMatch(/Installment 1:.*Account: 3333333333.*processing fee: GH₵ 0.50.*service fee \(1.00% of tuition\): GH₵ 0.25.*total GH₵ 25.76/);
     expect(copy).toMatch(/Installment 2:.*Account: 4444444444.*total GH₵ 77.26/);
     expect(copy).toMatch(/total convenience fee: GH₵ 0.76/i);
     expect(copy).not.toMatch(/convenience fee: 1.95%/i);
     fireEvent.click(screen.getByRole('button', { name: /print instructions/i }));
     const html = printWindow.document.write.mock.calls[0][0];
+    expect(html).toMatch(/Full Remaining Tuition[\s\S]*Tracked Transfer Account Number:<\/strong> 5555555555[\s\S]*Transfer GH₵ 77.26 exactly/);
     expect(html).toMatch(/Installment 1[\s\S]*Tracked Transfer Account Number:<\/strong> 3333333333[\s\S]*Transfer GH₵ 25.76 exactly/);
     expect(html).toMatch(/Installment 2[\s\S]*Tracked Transfer Account Number:<\/strong> 4444444444[\s\S]*Transfer GH₵ 77.26 exactly/);
     expect(html).toContain('Estimated processing fee: GH₵ 0.50');
@@ -395,7 +403,8 @@ describe('StudentPaymentTracker', () => {
     await act(async () => routePost.reject(new Error('Provider unavailable')));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.queryByText(/tracked transfer account ready/i)).not.toBeInTheDocument();
-    expect(screen.getByText('Paystack setup needed')).toBeInTheDocument();
+    expect(screen.getByText('Account preparation failed')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Tracked transfer account is not available right now.');
     expect(axios.post).toHaveBeenCalledTimes(1);
   });
 
@@ -1475,5 +1484,60 @@ describe('StudentPaymentTracker', () => {
     expect(screen.getByText(/upcoming • opens 2026-11-01 • due 2026-11-30/i)).toBeInTheDocument();
     expect(screen.getAllByText(/paid so far on this installment: gh₵ 0.00 • remaining: gh₵ 500.00/i)).toHaveLength(2);
     expect(screen.queryByText('Required:')).not.toBeInTheDocument();
+  });
+
+  it('filters the student list by each learner\'s own tuition balance', async () => {
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => (url === '/api/students'
+      ? Promise.resolve({ data: [
+        { id: 1, name: 'Ama Mensah', student_code: 'S001', current_class: 'JHS 1', tuition_paid_amount: 120, tuition_outstanding_amount: 0 },
+        { id: 2, name: 'Yaw Owusu', student_code: 'S002', current_class: 'JHS 1', tuition_paid_amount: 40, tuition_outstanding_amount: 80 },
+        { id: 3, name: 'Esi Boateng', student_code: 'S003', current_class: 'JHS 1', tuition_paid_amount: 0, tuition_outstanding_amount: 120 },
+      ] })
+      : defaultGet(url)));
+    render(<StudentPaymentTracker />);
+    await screen.findByText('Esi Boateng');
+    const statusSelect = screen.getByDisplayValue('All Status');
+
+    fireEvent.change(statusSelect, { target: { value: 'paid' } });
+    expect(screen.getByText('Ama Mensah')).toBeInTheDocument();
+    expect(screen.queryByText('Yaw Owusu')).not.toBeInTheDocument();
+    expect(screen.queryByText('Esi Boateng')).not.toBeInTheDocument();
+
+    fireEvent.change(statusSelect, { target: { value: 'pending' } });
+    expect(screen.getByText('Yaw Owusu')).toBeInTheDocument();
+    expect(screen.queryByText('Ama Mensah')).not.toBeInTheDocument();
+    expect(screen.queryByText('Esi Boateng')).not.toBeInTheDocument();
+  });
+
+  it('picks up automatically tracked payments without reselecting the learner', async () => {
+    let paymentsCalls = 0;
+    const route = { account_number: '1111111111', bank_name: 'Test bank', base_amount: 120, total_amount: 120, status: 'assigned' };
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => {
+      if (url === '/api/students/1/payments') {
+        paymentsCalls += 1;
+        return Promise.resolve({ data: paymentsCalls === 1 ? [] : [{
+          id: 77, payment_type: 'Tuition', amount: 120, status: 'Confirmed',
+          date_paid: '2026-10-04 09:00', reference_id: 'PSTK-AUTO-1', method: 'Paystack Transfer',
+        }] });
+      }
+      if (url === '/api/students/1/payment-codes') {
+        return Promise.resolve({ data: paymentsCalls <= 1
+          ? codesFor(1, route)
+          : { ...codesFor(1), payment_codes: [{ ...codesFor(1).payment_codes[0], base_amount: 0, payment_category: { fee_type: 'Tuition', tuition_status: 'paid' } }] } });
+      }
+      return defaultGet(url);
+    });
+
+    render(<StudentPaymentTracker />);
+    fireEvent.click(await screen.findByText('Ama Mensah'));
+    expect(await screen.findByText(/tracked transfer account ready/i)).toBeInTheDocument();
+    expect(screen.queryByText('PSTK-AUTO-1')).not.toBeInTheDocument();
+
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(await screen.findByText(/PSTK-AUTO-1/)).toBeInTheDocument();
+    expect(screen.getAllByText('✅ Paid').length).toBeGreaterThan(0);
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });

@@ -485,6 +485,12 @@ def parse_payment_reference(reference_string):
     # Tuition installment references: STUDENT-TUIT-I1
     if category_code == "TUIT" and len(parts) >= 3:
         installment_token = parts[2]
+        if installment_token == "FULL":
+            return {
+                "student_code": student_code,
+                "payment_type": "Tuition",
+                "category": {"fee_type": "Tuition", "tuition_payment_option": "full_remaining"},
+            }
         if installment_token.startswith("I"):
             try:
                 installment_number = int(installment_token[1:])

@@ -110,7 +110,12 @@ def make_instructions(settings, pricing=None):
 @pytest.mark.parametrize("legacy_percentage", [1.95, 0])
 def test_three_installments_use_shared_margin_not_legacy_school_percentage(legacy_percentage):
     payload = make_instructions(make_settings(legacy_percentage, installments=True))
-    codes = [code for code in payload["payment_codes"] if code["fee_type"] == "Tuition"]
+    full_code = next(code for code in payload["payment_codes"] if code["payment_category"].get("tuition_payment_option") == "full_remaining")
+    assert full_code["reference_code"] == "ST01-TUIT-FULL"
+    assert full_code["base_amount"] == 75
+    assert full_code["total_amount"] == 77.26
+    assert full_code["payment_category"]["payment_label"] == "Full Remaining Tuition"
+    codes = [code for code in payload["payment_codes"] if code["payment_category"].get("installment_number")]
     assert len(codes) == 3
     for index, code in enumerate(codes, start=1):
         assert code["reference_code"] == f"ST01-TUIT-I{index}"
@@ -188,7 +193,7 @@ def attach_intent(code, intent):
 
 
 def test_matching_assigned_current_model_account_is_reused():
-    code = make_instructions(make_settings(installments=True))["payment_codes"][0]
+    code = next(code for code in make_instructions(make_settings(installments=True))["payment_codes"] if code["payment_category"].get("installment_number") == 1)
     intent = make_intent(code)
     attach_intent(code, intent)
     assert code["has_virtual_route"] is True
@@ -266,3 +271,67 @@ def test_invalid_installment_sum_still_rejected():
             set_feeding_plan_fees=lambda *args: None, log_action=lambda *args: None,
             db_session=SimpleNamespace(commit=lambda: pytest.fail("Invalid schedule must not commit")),
         )
+
+
+class PaymentQueryStub:
+    def __init__(self, payments):
+        self.payments = payments
+
+    def filter_by(self, **kwargs):
+        return self
+
+    def order_by(self, *args):
+        return self
+
+    def all(self):
+        return self.payments
+
+
+def make_paid_instructions(paid_amounts, owed=0):
+    payments = [
+        SimpleNamespace(amount=amount, status="Confirmed", payment_category={}, date_paid=None, id=index)
+        for index, amount in enumerate(paid_amounts, start=1)
+    ]
+    payment_model = SimpleNamespace(
+        query=PaymentQueryStub(payments), date_paid=SimpleNamespace(asc=lambda: None), id=SimpleNamespace(asc=lambda: None),
+    )
+    student = SimpleNamespace(
+        id=1, school_id="TEST", student_code="ST01", name="Learner", current_class="Class 1",
+        parent_name="Parent", parent_phone=None, parent_email=None,
+        total_tuition_owed=owed, is_on_scholarship=False, scholarship_covers_tuition=False,
+    )
+    payload = build_student_payment_instruction_payload(
+        student=student, school_id="TEST",
+        school_model=SimpleNamespace(query=QueryStub(None)),
+        school_settings_model=SimpleNamespace(query=QueryStub(make_settings())), payment_model=payment_model,
+        generate_all_payment_codes=lambda student_code, fees: {"Tuition": "ST01-TUIT"},
+        get_school_admission_fee_config=lambda settings: {}, get_feeding_plan_fees=feeding_fees,
+        attach_virtual_routes_to_payment_codes_fn=lambda student, codes: attach_virtual_routes_to_payment_codes(
+            student, codes, lambda student: {}, lambda intent: None,
+        ),
+        get_payment_provider_settings=lambda settings: {"paystack_subaccount_code": "ACCT_TEST"},
+        paystack_dva_supported_countries={"GH"}, sanitize_string=lambda value: value.strip(),
+        get_payment_collection_pricing=lambda: {},
+    )
+    return payload["payment_codes"][0]
+
+
+def test_unbilled_balance_tuition_reference_subtracts_confirmed_payments():
+    code = make_paid_instructions([30])
+    assert code["base_amount"] == 45
+    assert code["payment_category"]["tuition_status"] == "open"
+    assert code["needs_virtual_route_preparation"] is True
+
+
+def test_fully_paid_tuition_reference_needs_no_new_transfer_account():
+    code = make_paid_instructions([50, 25])
+    assert code["base_amount"] == 0
+    assert code["total_amount"] == 0
+    assert code["payment_category"]["tuition_status"] == "paid"
+    assert code["needs_virtual_route_preparation"] is False
+    assert "fully settled" in code["instructions"]
+
+
+def test_explicit_outstanding_balance_still_wins():
+    code = make_paid_instructions([30], owed=120)
+    assert code["base_amount"] == 120

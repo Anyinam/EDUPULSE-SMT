@@ -7646,6 +7646,45 @@ def create_student_payment_virtual_account(student_id, reference_code):
     ), 200
 
 
+def _get_tuition_balances_for_students(students, school_id):
+    """Mirror the payment-instruction tuition balance so tracker filters match each learner's reference."""
+    if not students:
+        return {}
+    settings = SchoolSettings.query.filter_by(school_id=school_id).first()
+    tuition_fee = float(getattr(settings, "tuition_fee", 0) or 0)
+    paid_by_student = {}
+    rows = (
+        Payment.query.filter(
+            Payment.school_id == school_id,
+            Payment.payment_type == "Tuition",
+            Payment.status.in_(["Confirmed", "Verified"]),
+            Payment.student_id.in_([student.id for student in students]),
+        )
+        .with_entities(Payment.student_id, Payment.amount, Payment.payment_category)
+        .all()
+    )
+    for student_id, amount, category in rows:
+        category = category if isinstance(category, dict) else {}
+        try:
+            applied = float(category.get("applied_school_fee_amount", amount) or 0)
+        except (TypeError, ValueError):
+            applied = float(amount or 0)
+        paid_by_student[student_id] = paid_by_student.get(student_id, 0.0) + applied
+
+    balances = {}
+    for student in students:
+        paid = round(paid_by_student.get(student.id, 0.0), 2)
+        owed = round(float(student.total_tuition_owed or 0), 2)
+        if student.is_on_scholarship and student.scholarship_covers_tuition:
+            outstanding = 0.0
+        elif owed > 0:
+            outstanding = owed
+        else:
+            outstanding = round(max(0.0, tuition_fee - paid), 2)
+        balances[student.id] = {"tuition_paid_amount": paid, "tuition_outstanding_amount": outstanding}
+    return balances
+
+
 @api.route("/students", methods=["GET"])
 @multi_tenant_guard
 @role_required("proprietor", "finance", "headmaster", "teacher", "homeroom")
@@ -7659,6 +7698,7 @@ def get_students():
             query = query.filter(Student.status.in_(["Active", "active"]))
         students = query.order_by(Student.name).all()
         feeding_status_details = _get_feeding_status_details_for_students(students, g.school_id)
+        tuition_balances = _get_tuition_balances_for_students(students, g.school_id)
         response = jsonify(
             [
                 {
@@ -7681,6 +7721,7 @@ def get_students():
                     "scholarship_covers_feeding": bool(s.scholarship_covers_feeding),
                     "scholarship_notes": s.scholarship_notes,
                     "total_tuition_owed": s.total_tuition_owed,
+                    **tuition_balances.get(s.id, {}),
                     "status": s.status or "Active",
                     "class_status": s.current_class if (s.status or "Active") == "Active" else (s.status or "Active"),
                 }
@@ -9694,6 +9735,34 @@ def _record_paystack_finance_payment(payload, event="charge.success", school_id_
     reference_payment_type = payment_type or "Tuition"
     channel = (payload.get("channel") or "").lower()
     payment_type = reference_payment_type
+
+    if payment_type == "Tuition" and (
+        payment_category.get("tuition_payment_option") or payment_category.get("installment_number")
+    ):
+        student = Student.query.filter_by(id=student.id, school_id=student.school_id).populate_existing().with_for_update().first()
+        existing_payment = Payment.query.filter_by(reference_id=tx_ref).first()
+        if existing_payment:
+            return {"status": "duplicate", "reference": tx_ref, "payment_status": existing_payment.status}, 200
+        current_codes = _build_student_payment_instruction_payload(student, student.school_id)["payment_codes"]
+        reference_code = payment_category.get("reference_code") or metadata.get("reference_code")
+        current_quote = next((code for code in current_codes if code["reference_code"] == reference_code), None)
+        if not current_quote and not payment_category.get("tuition_payment_option"):
+            current_quote = next((code for code in current_codes if code["fee_type"] == "Tuition" and not code["payment_category"].get("installment_number")), None)
+            if not current_quote:
+                current_quote = {"base_amount": max(0.0, float(student.total_tuition_owed or 0.0))}
+        if not review_required and (
+            not current_quote or round(amount, 2) > round(float(current_quote["base_amount"]), 2)
+        ):
+            review_reason = "stale_tuition_quote"
+            review_required = True
+            amount = float(payment_category.get("gross_amount_paid") or amount)
+            if amount <= 0 or not math.isfinite(amount):
+                return {"status": "error", "message": "Received transfer amount must be positive and finite."}, 400
+            payment_category = {
+                **payment_category,
+                "payment_collection_requires_review": review_reason,
+                "applied_school_fee_amount": 0.0,
+            }
 
     school = School.query.get(student.school_id)
     collection_block = _get_payment_collection_block(school)
@@ -12723,7 +12792,7 @@ def _verify_stream_token(stream_token):
             return None
         if int(expires_at_str) < int(time.time()):
             return None
-        return {"user_id": int(user_id_str), "school_id": int(school_id_str)}
+        return {"user_id": int(user_id_str), "school_id": school_id_str}
     except Exception:
         return None
 
@@ -16253,6 +16322,7 @@ def get_finance_dashboard():
                 db=db,
                 serialize_pending_payment=_serialize_pending_payment,
                 group_pending_payments_by_class=_group_pending_payments_by_class,
+                tuition_balances_fn=_get_tuition_balances_for_students,
             )
         )
     except Exception as e:

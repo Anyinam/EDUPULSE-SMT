@@ -20,6 +20,7 @@ def get_finance_dashboard_payload(
     db,
     serialize_pending_payment,
     group_pending_payments_by_class,
+    tuition_balances_fn=None,
 ):
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     last_30_days = now - timedelta(days=30)
@@ -29,7 +30,13 @@ def get_finance_dashboard_payload(
     payments = payment_model.query.filter_by(school_id=school_id, status="Confirmed").all()
 
     total_collected = sum(payment.amount for payment in payments) if payments else 0
-    outstanding_balance = sum(student.total_tuition_owed for student in students) if students else 0
+    active_students = [student for student in students if (student.status or "Active").lower() == "active"]
+    tuition_balances = tuition_balances_fn(active_students, school_id) if tuition_balances_fn else {}
+    outstanding_by_student = {
+        student.id: tuition_balances.get(student.id, {}).get("tuition_outstanding_amount", float(student.total_tuition_owed or 0))
+        for student in students
+    }
+    outstanding_balance = round(sum(outstanding_by_student.values()), 2) if students else 0
 
     daily_revenue = (
         db.session.query(db.func.sum(payment_model.amount))
@@ -67,7 +74,7 @@ def get_finance_dashboard_payload(
         or 0
     )
 
-    paid_count = sum(1 for student in students if student.total_tuition_owed == 0)
+    paid_count = sum(1 for student in students if outstanding_by_student[student.id] <= 0.009)
     unpaid_count = len(students) - paid_count
 
     recent_payments = (

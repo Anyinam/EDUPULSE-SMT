@@ -30,6 +30,8 @@ function StudentPaymentTrackerContent() {
   const codesRequestId = useRef(0);
   const recoveryRequestId = useRef(0);
   const schoolFeesRequest = useRef(null);
+  const paymentCodesRef = useRef(null);
+  paymentCodesRef.current = paymentCodes;
 
   const isCurrentRequest = (studentId, requestId, requestRef) => (
     mounted.current && selectedStudentId.current === studentId && requestRef.current === requestId
@@ -79,7 +81,7 @@ function StudentPaymentTrackerContent() {
     const category = code?.payment_category || {};
     return {
       isInstallment: Boolean(category.installment_number),
-      label: category.installment_label || (category.installment_number ? `Installment ${category.installment_number}` : null),
+      label: category.payment_label || category.installment_label || (category.installment_number ? `Installment ${category.installment_number}` : null),
       number: category.installment_number || null,
       status: category.installment_status || null,
       startDate: category.installment_start_date || null,
@@ -228,6 +230,50 @@ function StudentPaymentTrackerContent() {
     return res.data;
   };
 
+  // Webhook-applied payments land server-side; poll quietly so balances update without a manual reload.
+  const refreshTrackerSilently = async () => {
+    const studentId = selectedStudentId.current;
+    fetchStudents();
+    if (studentId == null) return;
+    const historyRequest = historyRequestId.current;
+    const codesRequest = codesRequestId.current;
+    const [paymentsResult, codesResult] = await Promise.allSettled([
+      axios.get(`/api/students/${studentId}/payments`, getAuthHeaders()),
+      fetchPaymentCodesData(studentId),
+    ]);
+    if (paymentsResult.status === 'fulfilled' && isCurrentRequest(studentId, historyRequest, historyRequestId)) {
+      const data = paymentsResult.value.data;
+      setStudentPayments(Array.isArray(data) ? data : data?.payments || []);
+    }
+    if (codesResult.status === 'fulfilled' && isCurrentRequest(studentId, codesRequest, codesRequestId)) {
+      const routeSignature = (record) => (record?.payment_codes || [])
+        .filter((code) => (code?.payment_category?.fee_type || code?.fee_type) === 'Tuition')
+        .map((code) => `${code.reference_code || code.code}:${Number(code.base_amount || 0)}`)
+        .join('|');
+      const amountsChanged = routeSignature(codesResult.value) !== routeSignature(paymentCodesRef.current);
+      const routesNeedPreparation = (codesResult.value?.payment_codes || []).some((code) => code?.needs_virtual_route_preparation);
+      if (routesNeedPreparation && amountsChanged) {
+        fetchPaymentCodes(studentId);
+      } else if (!routesNeedPreparation) {
+        setPaymentCodes(codesResult.value);
+        setPaymentCodesError(null);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (loading || paymentCodesLoading || reconciliationLoading) return undefined;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshTrackerSilently();
+    };
+    const timer = setInterval(refreshWhenVisible, 30000);
+    window.addEventListener('focus', refreshWhenVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refreshWhenVisible);
+    };
+  }, [selectedStudent?.id, loading, paymentCodesLoading, reconciliationLoading]);
+
   const fetchPaymentCodes = async (studentId) => {
     if (!mounted.current || selectedStudentId.current !== studentId) return;
     const requestId = ++codesRequestId.current;
@@ -272,7 +318,8 @@ function StudentPaymentTrackerContent() {
         if ((code?.payment_category?.fee_type || code?.fee_type) !== 'Tuition') {
           return code;
         }
-        if (code.preferred_payment_model === 'historical_paid' || code.payment_category?.installment_status === 'paid') {
+        if (code.preferred_payment_model === 'historical_paid' || code.payment_category?.installment_status === 'paid'
+          || code.payment_category?.tuition_status === 'paid' || Number(code.base_amount || 0) <= 0) {
           return { ...code, virtual_route: null, has_virtual_route: false };
         }
         const route = code.virtual_route;
@@ -953,6 +1000,14 @@ function StudentPaymentTrackerContent() {
       requiredAmount = schoolFees.transport_fee;
     }
 
+    // The server-side tuition reference is authoritative (arrears, scholarships, prior payments).
+    const tuitionCode = paymentType === 'Tuition' && student?.id === selectedStudentId.current
+      ? getTrackerPaymentCodes(paymentCodes)[0]
+      : null;
+    if (tuitionCode && tuitionCode.base_amount != null) {
+      requiredAmount = totalPaid + Number(tuitionCode.base_amount || 0);
+    }
+
     const outstanding = Math.max(0, requiredAmount - totalPaid);
     const refundable = Math.max(0, totalPaid - requiredAmount);
     const isPaid = outstanding === 0;
@@ -1021,14 +1076,15 @@ function StudentPaymentTrackerContent() {
     }
     
     if (filterStatus === 'all') return true;
-    
-    const feeTypes = ['Tuition'];
-    const paymentStatus = feeTypes.map(type => getSummaryForFeeType(student, type));
+
+    const outstanding = Number(student.tuition_outstanding_amount ?? NaN);
+    const paid = Number(student.tuition_paid_amount || 0);
+    if (Number.isNaN(outstanding)) return false;
 
     if (filterStatus === 'paid') {
-      return paymentStatus.some(p => p.isPaid);
+      return outstanding <= 0.009;
     } else if (filterStatus === 'pending') {
-      return paymentStatus.some(p => p.isPending);
+      return paid > 0 && outstanding > 0.009;
     }
     
     return true;
@@ -1291,7 +1347,7 @@ function StudentPaymentTrackerContent() {
                         return (
                       <div
                         key={idx}
-                        className="flex flex-col gap-3 items-stretch md:flex-row md:items-center md:justify-between p-3 bg-white rounded border border-amber-200 text-sm"
+                        className="flex flex-col gap-3 items-stretch p-3 bg-white rounded border border-amber-200 text-sm"
                       >
                         <div className="flex-1">
                           <p className="font-semibold text-slate-800">{installmentMeta.label || code.fee_type}</p>
@@ -1332,12 +1388,15 @@ function StudentPaymentTrackerContent() {
                           >
                             📋 Copy
                           </button>
-                          {virtualRoute?.account_number ? null : (
+                          {virtualRoute?.account_number || installmentMeta.status === 'paid' || Number(code.base_amount || 0) <= 0 ? null : (
                             <span className="rounded bg-amber-100 px-2 py-2 text-xs font-semibold text-amber-900">
-                              Paystack setup needed
+                              {code.tracked_transfer_error ? 'Account preparation failed' : 'Paystack setup needed'}
                             </span>
                           )}
                         </div>
+                        {code.tracked_transfer_error ? (
+                          <p role="alert" className="text-xs text-red-700 break-words">{code.tracked_transfer_error}</p>
+                        ) : null}
                       </div>
                         );
                       })()

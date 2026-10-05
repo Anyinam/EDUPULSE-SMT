@@ -394,7 +394,7 @@ def create_or_reuse_student_virtual_account_intent(
     reference_email = build_intent_customer_email_fn(
         first_valid_customer_email(student.parent_email, school.school_email),
         student.school_id,
-        reference_code,
+        f"{reference_code}-replacement-{existing.id}" if existing else reference_code,
     )
     customer_phone = normalize_paystack_customer_phone(
         student.parent_phone,

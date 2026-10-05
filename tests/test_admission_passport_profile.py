@@ -55,6 +55,21 @@ def _headers(user, school_id):
     }
 
 
+def test_manual_admission_photo_is_saved_and_returned_in_student_roster(client, app, test_school, test_proprietor):
+    photo = "data:image/png;base64," + base64.b64encode(PHOTO_BYTES).decode("ascii")
+    headers = _headers(test_proprietor, test_school.id)
+    response = client.post("/api/admissions/admit", headers=headers, json={
+        "first_name": "Manual", "surname": "Learner", "class_assigned": "JHS 1",
+        "student_code": "MANUALPHOTO", "profile_picture": photo,
+    })
+    assert response.status_code == 200, response.get_json()
+    student = Student.query.filter_by(school_id=test_school.id, student_code="MANUALPHOTO").one()
+    assert student.profile_picture == photo
+    roster = client.get("/api/students", headers=headers)
+    assert roster.status_code == 200
+    assert next(item for item in roster.get_json() if item["id"] == student.id)["profile_picture"] == photo
+
+
 def _submit(client, school_id, with_photo=True):
     payload = {
         "first_name": "Ama",
