@@ -456,10 +456,10 @@ Resources:
         MinimumHealthyPercent: 0
       NetworkConfiguration:
         AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
+          AssignPublicIp: ENABLED
           SecurityGroups:
             - !Ref SchedulerServiceSecurityGroup
-          Subnets: !Ref PrivateSubnetIds
+          Subnets: !Ref PublicSubnetIds
 
   AppTargetResponseTimeAlarm:
     Type: AWS::CloudWatch::Alarm
