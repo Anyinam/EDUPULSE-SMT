@@ -6988,7 +6988,8 @@ def finalize_class():
         )
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error finalizing class", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error finalizing class", "error": "internal_error"}), 500
 
 
 @api.route("/reports/parse", methods=["POST"])
@@ -7060,10 +7061,11 @@ def parse_report_card():
         }
         return jsonify(response)
     except RuntimeError as e:
-        return jsonify({"message": str(e)}), 500
+        logger.exception("Report parse unavailable")
+        return jsonify({"message": "Report card parsing is temporarily unavailable. Please try again later."}), 500
     except Exception as e:
         logger.exception("Report parse failed")
-        return jsonify({"message": "Failed to parse report card", "error": str(e)}), 500
+        return jsonify({"message": "Failed to parse report card", "error": "internal_error"}), 500
 
 
 @api.route("/homeroom/generate-terminal-report", methods=["POST"])
@@ -7200,8 +7202,9 @@ def generate_terminal_report():
         )
     except Exception as e:
         db.session.rollback()
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error generating terminal report", "error": str(e)}),
+            jsonify({"message": "Error generating terminal report", "error": "internal_error"}),
             500,
         )
 
@@ -7731,7 +7734,8 @@ def get_students():
         db.session.commit()
         return response
     except Exception as e:
-        return jsonify({"message": "Error retrieving students", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error retrieving students", "error": "internal_error"}), 500
 
 
 @api.route("/students/<int:student_id>/documents", methods=["GET"])
@@ -7982,8 +7986,9 @@ def get_student_payments(student_id):
 
         return jsonify(payment_list)
     except Exception as e:
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error retrieving student payments", "error": str(e)}),
+            jsonify({"message": "Error retrieving student payments", "error": "internal_error"}),
             500,
         )
 
@@ -8326,6 +8331,95 @@ def get_students_for_report_builder():
     )
 
 
+def _apply_report_card_totals(report):
+    if not report.subject_grades:
+        return
+    total_marks = sum(float(s.get("total", 0) or 0) for s in report.subject_grades)
+    num_subjects = len(report.subject_grades)
+    report.total_marks_obtained = total_marks
+    report.total_possible_marks = num_subjects * 100
+    report.term_average = (
+        (total_marks / (num_subjects * 100) * 100) if num_subjects > 0 else 0
+    )
+
+
+def _sync_subject_grades_to_report_builder(school_id, class_name, subject, grades_by_student, user_id):
+    """Copy a subject teacher's finalized grades into each student's draft report card.
+
+    Uses the school's active term (or the national calendar fallback). Reports that are
+    already submitted or approved are left untouched so reviewed reports never change.
+    """
+    active_term = _get_active_term_for_school(school_id)
+    if active_term:
+        term_name, academic_year = active_term.name, active_term.academic_year
+    else:
+        term_reference = get_current_term_reference(school_id)
+        if not term_reference:
+            return None
+        term_name, academic_year = term_reference["name"], term_reference["academic_year"]
+
+    summary = {
+        "academic_term": term_name,
+        "academic_year": academic_year,
+        "reports_created": 0,
+        "reports_updated": 0,
+        "reports_skipped_locked": 0,
+    }
+    subject_key = (subject or "").strip().lower()
+    touched_classes = set()
+
+    for student, grade_entry in grades_by_student:
+        report = ReportCard.query.filter_by(
+            school_id=school_id,
+            student_id=student.id,
+            academic_term=term_name,
+            academic_year=academic_year,
+        ).first()
+
+        if report and report.status != "Draft":
+            summary["reports_skipped_locked"] += 1
+            continue
+
+        if not report:
+            report = ReportCard(
+                school_id=school_id,
+                student_id=student.id,
+                academic_term=term_name,
+                academic_year=academic_year,
+                class_name=student.current_class or class_name,
+                created_by=user_id,
+                status="Draft",
+            )
+            db.session.add(report)
+            summary["reports_created"] += 1
+        else:
+            summary["reports_updated"] += 1
+
+        merged = []
+        replaced = False
+        for existing in report.subject_grades or []:
+            if isinstance(existing, dict) and (existing.get("subject") or "").strip().lower() == subject_key:
+                # Keep homeroom-only fields (e.g. subject position) but drop the stale letter grade.
+                updated = {k: v for k, v in existing.items() if k not in {"grade", "remarks"}}
+                updated.update(grade_entry)
+                merged.append(updated)
+                replaced = True
+            else:
+                merged.append(existing)
+        if not replaced:
+            merged.append(dict(grade_entry))
+
+        report.subject_grades = normalize_subject_grades(merged)
+        _apply_report_card_totals(report)
+        touched_classes.add(report.class_name)
+
+    db.session.flush()
+    for report_class in touched_classes:
+        recalculate_class_positions(school_id, report_class, term_name, academic_year)
+
+    return summary
+
+
 @api.route("/homeroom/report-builder/report", methods=["POST"])
 @multi_tenant_guard
 @role_required("teacher", "headmaster", "proprietor")
@@ -8406,14 +8500,7 @@ def create_or_update_report_card():
         report.out_of_students = data["out_of_students"]
 
     # Calculate totals if subject_grades provided
-    if report.subject_grades:
-        total_marks = sum(float(s.get("total", 0) or 0) for s in report.subject_grades)
-        num_subjects = len(report.subject_grades)
-        report.total_marks_obtained = total_marks
-        report.total_possible_marks = num_subjects * 100
-        report.term_average = (
-            (total_marks / (num_subjects * 100) * 100) if num_subjects > 0 else 0
-        )
+    _apply_report_card_totals(report)
 
     # Generate AI performance analysis if subject grades are complete
     if data.get("subject_grades") and len(data["subject_grades"]) > 0:
@@ -10087,7 +10174,8 @@ def paystack_webhook():
     except Exception as exc:
         db.session.rollback()
         logger.error("Paystack finance webhook failed for ref=%s: %s", payload.get("reference"), exc)
-        return jsonify({"status": "error", "message": str(exc)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"status": "error", "message": "An unexpected error occurred. Please try again."}), 500
 
 
 def _call_paystack_api(endpoint, method="GET", data=None):
@@ -11191,7 +11279,8 @@ def promote_student_from_terminal_report(student_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error promoting student", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error promoting student", "error": "internal_error"}), 500
 
 
 @api.route("/students/<int:student_id>/reports", methods=["GET"])
@@ -11270,10 +11359,29 @@ def submit_grades_to_homeroom():
             400,
         )
 
+    if not isinstance(grade_data, dict):
+        return jsonify({"message": "grade_data must map student IDs to scores"}), 400
+
+    try:
+        requested_ids = {int(student_id) for student_id in grade_data}
+    except (TypeError, ValueError):
+        return jsonify({"message": "grade_data contains an invalid student ID"}), 400
+
+    students_by_id = {
+        student.id: student
+        for student in Student.query.filter(
+            Student.school_id == g.school_id, Student.id.in_(requested_ids)
+        ).all()
+    }
+    if len(students_by_id) != len(requested_ids):
+        return jsonify({"message": "One or more students were not found in this school"}), 400
+
     # Get school's grading scheme
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     class_score_max = settings.class_score_max if settings else 30
     exam_score_max = settings.exam_score_max if settings else 70
+
+    report_builder_entries = []
 
     # Create or update StudentGrade records with is_finalized=True
     for student_id, scores in grade_data.items():
@@ -11332,6 +11440,24 @@ def submit_grades_to_homeroom():
             )
             db.session.add(grade)
 
+        report_builder_entries.append(
+            (
+                students_by_id[int(student_id)],
+                {
+                    "subject": subject,
+                    "class_score": class_score,
+                    "exam_score": exam_score,
+                    "total": total_score,
+                    "remarks": remark_from_grade(grade_from_total(total_score)),
+                    "diagnostic_topics": diagnostic_topics,
+                },
+            )
+        )
+
+    report_builder_sync = _sync_subject_grades_to_report_builder(
+        g.school_id, class_name, subject, report_builder_entries, user_id
+    )
+
     db.session.commit()
 
     log_action(
@@ -11341,7 +11467,12 @@ def submit_grades_to_homeroom():
         f"{subject} grades submitted for {class_name}",
     )
 
-    return jsonify({"message": f"{subject} grades submitted successfully to homeroom"})
+    return jsonify(
+        {
+            "message": f"{subject} grades submitted successfully to homeroom",
+            "report_builder": report_builder_sync,
+        }
+    )
 
 
 @api.route("/homeroom/get-subject-grades/<string:class_name>", methods=["GET"])
@@ -12302,7 +12433,8 @@ def bank_transfer_webhook():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"status": "error", "message": "An unexpected error occurred. Please try again."}), 500
 
 
 @api.route("/proprietor/live-feed", methods=["GET"])
@@ -12571,7 +12703,8 @@ def get_live_feed():
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error fetching live feed", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error fetching live feed", "error": "internal_error"}), 500
 
 
 @api.route("/proprietor/student-rescue-agent", methods=["GET"])
@@ -12588,7 +12721,8 @@ def get_student_rescue_agent():
         payload["headline"] = "Prioritized students who need financial, attendance, or academic intervention now."
         return jsonify(payload)
     except Exception as e:
-        return jsonify({"message": "Error fetching student rescue agent", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error fetching student rescue agent", "error": "internal_error"}), 500
 
 
 @api.route("/proprietor/student-rescue-agent/contact-templates/<int:student_id>", methods=["GET"])
@@ -13512,7 +13646,8 @@ def get_ai_insights():
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error generating insights", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error generating insights", "error": "internal_error"}), 500
 
 
 @api.route("/staff/notifications", methods=["GET"])
@@ -14370,8 +14505,9 @@ def bulk_admit_students():
             return jsonify(response_data)
     except Exception as e:
         db.session.rollback()
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error processing bulk upload", "error": str(e)}),
+            jsonify({"message": "Error processing bulk upload", "error": "internal_error"}),
             500,
         )
 
@@ -14426,7 +14562,8 @@ def get_admission_students():
             ]
         }), 200
     except Exception as e:
-        return jsonify({"message": "Error fetching students", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error fetching students", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/students/bulk-update-status", methods=["POST"])
@@ -14529,7 +14666,8 @@ def bulk_update_student_status():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error bulk updating students", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error bulk updating students", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/students/<int:student_id>/status", methods=["PUT"])
@@ -14590,7 +14728,8 @@ def update_student_status(student_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error updating student status", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error updating student status", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/students/<int:student_id>", methods=["DELETE"])
@@ -14646,7 +14785,8 @@ def delete_student(student_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error deleting student", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error deleting student", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/statistics", methods=["GET"])
@@ -14729,7 +14869,8 @@ def get_admission_statistics():
             "subscription_plan": school.subscription_plan or 'Free Tier',
         }), 200
     except Exception as e:
-        return jsonify({"message": "Error fetching statistics", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error fetching statistics", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/promotion-threshold", methods=["GET"])
@@ -14762,7 +14903,8 @@ def get_promotion_thresholds():
         }), 200
         
     except Exception as e:
-        return jsonify({"message": "Error fetching thresholds", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error fetching thresholds", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/promotion-threshold", methods=["POST"])
@@ -14844,7 +14986,8 @@ def set_promotion_threshold():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error setting threshold", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error setting threshold", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/auto-promote", methods=["POST"])
@@ -15010,7 +15153,8 @@ def auto_promote_students():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error during auto-promotion", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error during auto-promotion", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/promotion/<int:promotion_id>/reverse", methods=["POST"])
@@ -15088,7 +15232,8 @@ def reverse_promotion(promotion_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error reversing promotion", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error reversing promotion", "error": "internal_error"}), 500
 
 
 def send_notification_to_teacher(school_id, student_id, notification_type, subject, message, metadata):
@@ -15174,7 +15319,8 @@ def get_notifications():
         }), 200
         
     except Exception as e:
-        return jsonify({"message": "Error fetching notifications", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error fetching notifications", "error": "internal_error"}), 500
 
 
 @api.route("/notifications/<int:notification_id>/read", methods=["POST"])
@@ -15203,7 +15349,8 @@ def mark_notification_read(notification_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error marking notification", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error marking notification", "error": "internal_error"}), 500
 
 
 @api.route("/admissions/promote-student", methods=["POST"])
@@ -15282,8 +15429,9 @@ def promote_student():
         
     except Exception as e:
         db.session.rollback()
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error promoting student", "error": str(e)}),
+            jsonify({"message": "Error promoting student", "error": "internal_error"}),
             500,
         )
 
@@ -15366,7 +15514,8 @@ def search_students():
             ]
         }), 200
     except Exception as e:
-        return jsonify({"message": "Search error", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Search error", "error": "internal_error"}), 500
 
 # --- 5. OPERATIONS & CANTEEN ---
 
@@ -15427,9 +15576,10 @@ def kitchen_dashboard():
                     total_students_present += present_count
                     total_feeding_paid += paid_count
             except Exception as e:
+                logger.exception("Unhandled error in %s", request.path)
                 return (
                     jsonify(
-                        {"message": f"Error processing class {grade}", "error": str(e)}
+                        {"message": f"Error processing class {grade}", "error": "internal_error"}
                     ),
                     500,
                 )
@@ -15438,7 +15588,8 @@ def kitchen_dashboard():
         try:
             staff_count = meal_breakdown["total_staff_meals"]
         except Exception as e:
-            return jsonify({"message": "Error counting teachers", "error": str(e)}), 500
+            logger.exception("Unhandled error in %s", request.path)
+            return jsonify({"message": "Error counting teachers", "error": "internal_error"}), 500
 
         # Calculate total meals fresh from current attendance + feeding coverage + active staff count.
         total_meals_needed = total_feeding_paid + staff_count
@@ -15481,8 +15632,9 @@ def kitchen_dashboard():
             }
         )
     except Exception as e:
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error fetching kitchen dashboard", "error": str(e)}),
+            jsonify({"message": "Error fetching kitchen dashboard", "error": "internal_error"}),
             500,
         )
 
@@ -15962,8 +16114,9 @@ def export_term_summary():
         output.headers["Content-type"] = "text/csv"
         return output
     except Exception as e:
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error exporting term summary", "error": str(e)}),
+            jsonify({"message": "Error exporting term summary", "error": "internal_error"}),
             500,
         )
 
@@ -16293,7 +16446,8 @@ def bulk_upload_staff():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Staff bulk upload error: {str(e)}")
-        return jsonify({"message": f"Bulk upload failed: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Bulk upload failed."}), 500
 
 
 # --- 6. FULL OPERATIONS SUITE (Ledger, Staff, Inventory) ---
@@ -16326,8 +16480,9 @@ def get_finance_dashboard():
             )
         )
     except Exception as e:
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error loading finance dashboard", "error": str(e)}),
+            jsonify({"message": "Error loading finance dashboard", "error": "internal_error"}),
             500,
         )
 
@@ -16370,8 +16525,9 @@ def get_transactions():
 
         return jsonify(payload)
     except Exception as e:
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error retrieving transactions", "error": str(e)}),
+            jsonify({"message": "Error retrieving transactions", "error": "internal_error"}),
             500,
         )
 
@@ -16459,7 +16615,8 @@ def get_audit_ledger():
             "offset": offset
         })
     except Exception as e:
-        return jsonify({"message": "Error retrieving audit ledger", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error retrieving audit ledger", "error": "internal_error"}), 500
 
 
 @api.route("/finance/audit/verify", methods=["POST"])
@@ -16479,7 +16636,8 @@ def verify_audit_ledger():
             "broken_entries": broken_entries[:10] if broken_entries else []  # Limit to first 10
         })
     except Exception as e:
-        return jsonify({"message": "Error verifying ledger", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error verifying ledger", "error": "internal_error"}), 500
 
 
 @api.route("/finance/audit/summary", methods=["GET"])
@@ -16512,7 +16670,8 @@ def get_audit_summary():
             "currency": settings.currency if settings else "GH₵"
         })
     except Exception as e:
-        return jsonify({"message": "Error generating audit summary", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error generating audit summary", "error": "internal_error"}), 500
 
 
 @api.route("/finance/audit/events", methods=["GET"])
@@ -16571,7 +16730,8 @@ def get_audit_events():
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error retrieving audit events", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error retrieving audit events", "error": "internal_error"}), 500
 
 
 @api.route("/finance/audit/events/export", methods=["GET"])
@@ -16618,7 +16778,8 @@ def export_audit_events_csv():
         output.headers["Content-type"] = "text/csv"
         return output
     except Exception as e:
-        return jsonify({"message": "Error exporting audit events", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error exporting audit events", "error": "internal_error"}), 500
 def _get_or_create_school_settings():
     settings = SchoolSettings.query.filter_by(school_id=g.school_id).first()
     if not settings:
@@ -16834,7 +16995,8 @@ def get_analytics_presets():
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error loading analytics presets", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error loading analytics presets", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/presets", methods=["POST"])
@@ -16888,7 +17050,8 @@ def save_analytics_preset():
     except ValueError as e:
         return jsonify({"message": str(e)}), 400
     except Exception as e:
-        return jsonify({"message": "Error saving analytics preset", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error saving analytics preset", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/presets/<string:preset_name>/default", methods=["PUT"])
@@ -16935,7 +17098,8 @@ def set_default_analytics_preset(preset_name):
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error updating default analytics preset", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error updating default analytics preset", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/presets/<string:preset_name>", methods=["DELETE"])
@@ -16983,7 +17147,8 @@ def delete_analytics_preset(preset_name):
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error deleting analytics preset", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error deleting analytics preset", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/presets/history", methods=["GET"])
@@ -17020,7 +17185,8 @@ def get_analytics_preset_history():
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error loading analytics preset history", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error loading analytics preset history", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/presets/history/<string:snapshot_id>/restore", methods=["POST"])
@@ -17060,7 +17226,8 @@ def restore_analytics_preset_history(snapshot_id):
         )
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error restoring analytics preset history", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error restoring analytics preset history", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/presets/history/<string:snapshot_id>/download", methods=["GET"])
@@ -17094,7 +17261,8 @@ def download_analytics_preset_history(snapshot_id):
         response.headers["Content-Disposition"] = f"attachment; filename={filename}.json"
         return response
     except Exception as e:
-        return jsonify({"message": "Error downloading analytics preset history", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error downloading analytics preset history", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/exam-imports", methods=["GET"])
@@ -17108,7 +17276,8 @@ def list_exam_import_batches():
         payload = _build_exam_intelligence_payload(settings)
         return jsonify({"batches": payload.get("batches", [])})
     except Exception as e:
-        return jsonify({"message": "Error loading exam import batches", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error loading exam import batches", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/exam-imports", methods=["POST"])
@@ -17259,7 +17428,8 @@ def get_exam_intelligence_dashboard():
                 )
         return jsonify(_build_exam_intelligence_payload(settings))
     except Exception as e:
-        return jsonify({"message": "Error loading exam intelligence dashboard", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error loading exam intelligence dashboard", "error": "internal_error"}), 500
 
 
 @api.route("/analytics/academic-guidance", methods=["GET"])
@@ -17806,7 +17976,8 @@ def get_class_performance():
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error loading class performance", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error loading class performance", "error": "internal_error"}), 500
 
 
 @api.route("/school/branding", methods=["GET"])
@@ -17872,8 +18043,9 @@ def get_school_branding():
             }
         )
     except Exception as e:
+        logger.exception("Unhandled error in %s", request.path)
         return (
-            jsonify({"message": "Error retrieving school info", "error": str(e)}),
+            jsonify({"message": "Error retrieving school info", "error": "internal_error"}),
             500,
         )
 
@@ -18053,7 +18225,8 @@ def get_calendar_holidays():
             }
         )
     except Exception as e:
-        return jsonify({"message": "Error retrieving holidays", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error retrieving holidays", "error": "internal_error"}), 500
 
 
 @api.route("/calendar/holidays", methods=["POST"])
@@ -18202,7 +18375,8 @@ def remove_staff(user_id):
         db.session.commit()
         return jsonify({"message": "Staff member removed."})
     except Exception as e:
-        return jsonify({"message": "Error removing staff member", "error": str(e)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error removing staff member", "error": "internal_error"}), 500
 
 
 @api.route("/staff/<int:user_id>", methods=["PUT"])
@@ -19053,7 +19227,8 @@ def upgrade_subscription():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Subscription upgrade error: {str(e)}")
-        return jsonify({"message": f"Upgrade failed: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Upgrade failed."}), 500
 
 
 # --- ACADEMIC TERM MANAGEMENT ---
@@ -19302,7 +19477,8 @@ def recover_subscription_reconciliation_gaps():
         return jsonify(summary), 200
     except Exception as exc:
         db.session.rollback()
-        return jsonify({"message": "Paystack reconciliation failed", "error": str(exc)}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Paystack reconciliation failed", "error": "internal_error"}), 500
 
 
 @api.route("/finance/paystack/recover-reference", methods=["POST"])
@@ -19326,7 +19502,8 @@ def recover_finance_paystack_reference():
     try:
         transaction = verify_payment(reference)
     except PaystackError as exc:
-        return jsonify({"message": "Unable to verify the Paystack transaction.", "error": str(exc)}), 502
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Unable to verify the Paystack transaction.", "error": "internal_error"}), 502
 
     if sanitize_string(transaction.get("status") or "").lower() != "success":
         return jsonify({
@@ -19339,7 +19516,8 @@ def recover_finance_paystack_reference():
         outcome = _recover_paystack_transaction(transaction, school_id_scope=g.school_id)
     except Exception as exc:
         db.session.rollback()
-        return jsonify({"message": "Paystack recovery failed", "error": str(exc), "reference": reference}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Paystack recovery failed", "error": "internal_error", "reference": reference}), 500
 
     if isinstance(outcome, dict):
         return jsonify({
@@ -19769,7 +19947,8 @@ def get_academic_terms():
         
     except Exception as e:
         logger.error(f"Get terms error: {str(e)}")
-        return jsonify({"message": f"Failed to retrieve terms: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Failed to retrieve terms."}), 500
 
 
 @api.route("/school/terms/active", methods=["GET"])
@@ -19790,7 +19969,8 @@ def get_active_term():
         
     except Exception as e:
         logger.error(f"Get active term error: {str(e)}")
-        return jsonify({"message": f"Failed to retrieve active term: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Failed to retrieve active term."}), 500
 
 
 @api.route("/school/terms/import-national-calendar", methods=["POST"])
@@ -19869,7 +20049,8 @@ def import_national_calendar_terms():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Import national calendar terms error: {str(e)}")
-        return jsonify({"message": f"Failed to import national calendar terms: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Failed to import national calendar terms."}), 500
 
 
 @api.route("/school/terms", methods=["POST"])
@@ -19943,7 +20124,8 @@ def create_academic_term():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Create term error: {str(e)}")
-        return jsonify({"message": f"Failed to create term: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Failed to create term."}), 500
 
 
 @api.route("/school/terms/<int:term_id>", methods=["PUT"])
@@ -20012,7 +20194,8 @@ def update_academic_term(term_id):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Update term error: {str(e)}")
-        return jsonify({"message": f"Failed to update term: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Failed to update term."}), 500
 
 
 @api.route("/school/terms/<int:term_id>", methods=["DELETE"])
@@ -20057,7 +20240,8 @@ def delete_academic_term(term_id):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Delete term error: {str(e)}")
-        return jsonify({"message": f"Failed to delete term: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Failed to delete term."}), 500
 
 
 @api.route("/school/terms/<int:term_id>/activate", methods=["POST"])
@@ -20097,7 +20281,8 @@ def activate_academic_term(term_id):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Activate term error: {str(e)}")
-        return jsonify({"message": f"Failed to activate term: {str(e)}"}), 500, 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Failed to activate term."}), 500
 
 
 @api.route("/support/ticket", methods=["POST"])
@@ -21031,7 +21216,8 @@ def export_timetable():
         return output
     except Exception as e:
         logger.error(f"Error exporting timetable: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "An unexpected error occurred. Please try again."}), 500
 
 
 # =============================================================================
@@ -21065,7 +21251,8 @@ def admin_process_trial_expirations():
         
     except Exception as e:
         logger.error(f"Error in manual trial expiration process: {str(e)}")
-        return jsonify({"message": f"Error processing trials: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error processing trials."}), 500
 
 
 @api.route("/admin/trials/send-reminders", methods=["POST"])
@@ -21098,7 +21285,8 @@ def admin_send_trial_reminders():
         
     except Exception as e:
         logger.error(f"Error in manual trial reminder process: {str(e)}")
-        return jsonify({"message": f"Error sending reminders: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "Error sending reminders."}), 500
 
 
 # =============================================================================
@@ -21322,11 +21510,13 @@ def paystack_initialize_payment():
             
         except PaystackError as e:
             logger.error(f"Paystack error for school {school.id}: {str(e)}")
-            return jsonify({"message": f"Payment initialization failed: {str(e)}"}), 500
+            logger.exception("Unhandled error in %s", request.path)
+            return jsonify({"message": "Payment initialization failed."}), 500
             
     except Exception as e:
         logger.error(f"Error initializing Paystack payment: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "An unexpected error occurred. Please try again."}), 500
 
 
 @api.route("/paystack/verify/<reference>", methods=["GET"])
@@ -21512,11 +21702,13 @@ def paystack_verify_payment(reference):
             
         except PaystackError as e:
             logger.error(f"Paystack verification error: {str(e)}")
-            return jsonify({"message": f"Verification failed: {str(e)}"}), 500
+            logger.exception("Unhandled error in %s", request.path)
+            return jsonify({"message": "Verification failed."}), 500
             
     except Exception as e:
         logger.error(f"Error verifying Paystack payment: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "An unexpected error occurred. Please try again."}), 500
 
 
 @api.route("/paystack/webhook", methods=["POST"])
@@ -21758,4 +21950,5 @@ def initialize_termly_payment():
         
     except Exception as e:
         logger.error(f"Error initializing termly payment: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 500
+        logger.exception("Unhandled error in %s", request.path)
+        return jsonify({"message": "An unexpected error occurred. Please try again."}), 500

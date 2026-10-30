@@ -94,3 +94,10 @@ Thumbs.db
 *.tar
 *.tar.gz
 *.zip
+
+# Coverage reports
+coverage.xml
+
+# Local AI agent skill packs (installed per-developer, not part of the app)
+.agents/
+skills-lock.json

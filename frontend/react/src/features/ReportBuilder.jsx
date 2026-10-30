@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import reportTemplates from '../report_templates';
+import FeatureLock from '../components/FeatureLock';
 import { buildTemplateHtml, formatGradingSchemeSummary, GRADE_SCALE_ROWS, getGradeFromTotal } from '../utils/reportTemplate';
 
 /**
@@ -11,6 +12,10 @@ import { buildTemplateHtml, formatGradingSchemeSummary, GRADE_SCALE_ROWS, getGra
  * - Teacher remarks
  */
 export default function ReportBuilder() {
+  return <FeatureLock feature="report_generation" requiredPlan="Basic"><ReportBuilderContent /></FeatureLock>;
+}
+
+function ReportBuilderContent() {
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [reportData, setReportData] = useState(null);
@@ -123,6 +128,21 @@ export default function ReportBuilder() {
       }
     };
     fetchTemplate();
+  }, []);
+
+  // Default to the school's active term so grades sent by subject teachers show up immediately
+  useEffect(() => {
+    const fetchActiveTerm = async () => {
+      try {
+        const res = await axios.get('/api/school/terms/active', getAuthHeaders());
+        const term = res.data?.term;
+        if (term?.name) setAcademicTerm(term.name);
+        if (term?.academic_year) setAcademicYear(term.academic_year);
+      } catch (err) {
+        console.error('Failed to load active term', err);
+      }
+    };
+    fetchActiveTerm();
   }, []);
 
   // Check if headmaster exists

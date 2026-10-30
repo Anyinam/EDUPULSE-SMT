@@ -61,7 +61,7 @@ with app.app_context():
 Or use the standalone script:
 
 ```bash
-python create_platform_user.py yourusername your@email.com your_password
+python scripts/maintenance/create_platform_user.py yourusername your@email.com your_password
 ```
 
 ### 3. Access the Console

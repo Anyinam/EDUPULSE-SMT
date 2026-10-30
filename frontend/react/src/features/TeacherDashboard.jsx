@@ -446,12 +446,20 @@ export default function TeacherDashboard() {
     });
 
     try {
-      await axios.post('/api/teacher/submit-grades-to-homeroom', {
+      const res = await axios.post('/api/teacher/submit-grades-to-homeroom', {
         class_name: selectedClass,
         subject: selectedSubject,
         grade_data: gradeData
       }, getAuthHeaders());
-      alert("Grades submitted to homeroom teacher successfully!");
+      const sync = res.data?.report_builder;
+      let message = "Grades submitted to homeroom teacher successfully!";
+      if (sync) {
+        message += `\n\nAdded to the Report Builder for ${sync.academic_term} ${sync.academic_year}.`;
+        if (sync.reports_skipped_locked) {
+          message += `\n${sync.reports_skipped_locked} report(s) were already submitted for approval and were not changed.`;
+        }
+      }
+      alert(message);
     } catch (err) {
       alert("Error saving records: " + (err.response?.data?.message || err.message));
     }

@@ -50,7 +50,8 @@
         {"name": "PLATFORM_OWNER_KEY", "valueFrom": "${PLATFORM_OWNER_KEY_SECRET_ARN}"},
         {"name": "MAIL_PASSWORD", "valueFrom": "${MAIL_PASSWORD_SECRET_ARN}"},
         {"name": "PAYSTACK_SECRET_KEY", "valueFrom": "${PAYSTACK_SECRET_KEY_SECRET_ARN}"},
-        {"name": "PAYSTACK_PUBLIC_KEY", "valueFrom": "${PAYSTACK_PUBLIC_KEY_SECRET_ARN}"}
+        {"name": "PAYSTACK_PUBLIC_KEY", "valueFrom": "${PAYSTACK_PUBLIC_KEY_SECRET_ARN}"},
+        {"name": "RATELIMIT_STORAGE_URI", "valueFrom": "${RATELIMIT_STORAGE_URI_SECRET_ARN}"}
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

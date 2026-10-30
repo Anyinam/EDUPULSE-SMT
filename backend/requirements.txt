@@ -8,6 +8,7 @@ psycopg2-binary
 psycopg[binary]>=3.0.0
 flask-cors
 flask-limiter
+redis
 marshmallow
 requests
 gunicorn

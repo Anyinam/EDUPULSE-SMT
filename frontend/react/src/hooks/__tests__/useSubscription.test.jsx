@@ -33,7 +33,7 @@ describe('subscription entitlements', () => {
       expect(result.current.hasFeature(feature)).toBe(plan !== 'Free Tier');
     }
     expect(result.current.hasFeature('advanced_analytics')).toBe(plan === 'Premium');
-    expect(result.current.hasFeature('report_generation')).toBe(true);
+    expect(result.current.hasFeature('report_generation')).toBe(plan !== 'Free Tier');
     expect(result.current.hasFeature('attendance')).toBe(true);
     expect(result.current.canAccess('attendance')).toBe(plan !== 'Free Tier');
     expect(axios.get).toHaveBeenCalledWith('/api/school/subscription/effective-plan', expect.any(Object));

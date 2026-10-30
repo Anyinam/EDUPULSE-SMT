@@ -69,7 +69,7 @@ report.ai_performance_analysis = ai_analysis
 
 ### Migration Applied
 ```bash
-python init_report_cards.py
+PYTHONPATH=. python scripts/maintenance/init_report_cards.py
 ```
 
 ## API Endpoints
@@ -379,7 +379,7 @@ All actions logged in `audit_logs` table:
 2. [backend/routes.py](backend/routes.py) - Added 3 proprietor endpoints, integrated AI analysis
 3. [frontend/react/src/features/ReportBuilder.jsx](frontend/react/src/features/ReportBuilder.jsx) - UI updates for AI display + approval stages
 4. [alembic/versions/004_add_report_cards.py](alembic/versions/004_add_report_cards.py) - Updated migration
-5. [init_report_cards.py](init_report_cards.py) - Database initialization script
+5. [init_report_cards.py](../../scripts/maintenance/init_report_cards.py) - Database initialization script
 
 ## Conclusion
 

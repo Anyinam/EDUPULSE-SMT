@@ -40,6 +40,7 @@ export function FeatureLock({ feature, requiredPlan = 'Premium', minLevel, child
   const featureNames = {
     lesson_notes: 'Lesson Notes',
     grade_entry: 'Grade Entry',
+    report_generation: 'Report Builder',
     ai_analysis: 'AI Analysis',
     ai_narratives: 'AI-Generated Narratives',
     html_templates: 'Custom HTML Templates',

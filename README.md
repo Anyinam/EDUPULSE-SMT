@@ -332,7 +332,7 @@ docker compose up --build
 - `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET.md`
 - `docs/operations/customer/SCHOOL_CLIENT_LAUNCH_PACKET_SAMPLE.md`
 - `docs/operations/README.md`
-- `BPM_QUICK_REFERENCE.txt`
+- `docs/archive/BPM_QUICK_REFERENCE.txt`
 - `docs/ai/STUDENT_RESCUE_AGENT.md`
 - `docs/finance/PAYMENT_INTEGRATION.md`
 - `docs/finance/SUBSCRIPTION_FEATURES.md`

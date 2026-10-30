@@ -20,7 +20,7 @@ export const PLAN_FEATURES = {
       advanced_analytics: false,
       lesson_notes: false,
       grade_entry: false,
-      report_generation: true,
+      report_generation: false,
       ai_analysis: false,
       ai_registrar: false,
       student_rescue_agent: false,

@@ -38,7 +38,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
       
       - name: Install security tools
         run: |
@@ -77,7 +77,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
       
       - name: Install linting tools
         run: |
@@ -127,7 +127,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
       
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -254,7 +254,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
       
       - name: Check requirements licenses
         run: |
@@ -356,6 +356,7 @@ jobs:
           append_env "DOCUMENT_STORAGE_S3_PREFIX" "${{ vars.DOCUMENT_STORAGE_S3_PREFIX || 'edupulse-documents' }}"
           append_env "PLATFORM_OWNER_KEY_SECRET_ARN" "${{ vars.PLATFORM_OWNER_KEY_SECRET_ARN || '' }}"
           append_env "GUNICORN_WORKERS" "${{ vars.GUNICORN_WORKERS || '2' }}"
+          append_env "RATELIMIT_STORAGE_URI_SECRET_ARN" "${{ vars.RATELIMIT_STORAGE_URI_SECRET_ARN || '' }}"
           append_env "DATABASE_URL_SECRET_ARN" "${{ vars.DATABASE_URL_SECRET_ARN }}"
           append_env "SECRET_KEY_SECRET_ARN" "${{ vars.SECRET_KEY_SECRET_ARN }}"
           append_env "JWT_SECRET_KEY_SECRET_ARN" "${{ vars.JWT_SECRET_KEY_SECRET_ARN }}"

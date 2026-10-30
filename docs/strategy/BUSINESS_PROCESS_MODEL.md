@@ -1,6 +1,6 @@
 # 🏢 EduPulse SMT Business Process Model
 
-> Historical strategy document: some commercial examples in this file reflect earlier planning assumptions. For current operational pricing, trial behavior, and payment-model details, use `backend/subscription_features.py`, `PRICING_TABLE.txt`, and the finance docs as the source of truth.
+> Historical strategy document: some commercial examples in this file reflect earlier planning assumptions. For current operational pricing, trial behavior, and payment-model details, use `backend/subscription_features.py`, `docs/strategy/PRICING_TABLE.txt`, and the finance docs as the source of truth.
 
 ## Executive Overview
 

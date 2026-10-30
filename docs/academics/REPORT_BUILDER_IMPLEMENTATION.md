@@ -20,7 +20,7 @@ Implemented a complete **Manual Report Card Entry System** that allows homeroom 
 **Database Migration**: [alembic/versions/004_add_report_cards.py](alembic/versions/004_add_report_cards.py)
 - Creates `report_cards` table
 - Adds indexes on `(student_id, academic_term, academic_year)` for fast lookups
-- Run with: `python init_report_cards.py`
+- Run with: `PYTHONPATH=. python scripts/maintenance/init_report_cards.py`
 
 ### API Layer
 **Report Builder Endpoints** ([backend/routes.py](backend/routes.py))
@@ -224,7 +224,7 @@ Implemented a complete **Manual Report Card Entry System** that allows homeroom 
 ## Testing
 
 ### Manual Testing Checklist
-1. ✅ Database table creation (`init_report_cards.py`)
+1. ✅ Database table creation (`scripts/maintenance/init_report_cards.py`)
 2. ⏳ Login as homeroom teacher
 3. ⏳ Navigate to `/report-builder`
 4. ⏳ Select student and term
@@ -289,7 +289,7 @@ curl -X POST http://localhost:5000/api/homeroom/report-builder/report \
 - ✅ [backend/api/models.py](backend/api/models.py) - Added `ReportCard` model
 - ✅ [backend/routes.py](backend/routes.py) - Added 7 new endpoints
 - ✅ [alembic/versions/004_add_report_cards.py](alembic/versions/004_add_report_cards.py) - Migration script
-- ✅ [init_report_cards.py](init_report_cards.py) - Database initialization helper
+- ✅ [init_report_cards.py](../../scripts/maintenance/init_report_cards.py) - Database initialization helper
 
 ### Frontend
 - ✅ [frontend/react/src/features/ReportBuilder.jsx](frontend/react/src/features/ReportBuilder.jsx) - Main UI component

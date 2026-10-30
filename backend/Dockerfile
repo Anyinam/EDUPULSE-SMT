@@ -15,6 +15,10 @@ COPY alembic.ini /app/alembic.ini
 COPY alembic /app/alembic
 COPY backend /app/backend
 
+# Files attached to onboarding emails (see IMPORT_TEMPLATE_ATTACHMENTS in backend/routes.py)
+COPY DATA_IMPORT_TEMPLATE.csv /app/DATA_IMPORT_TEMPLATE.csv
+COPY compliance/CONSENT_AND_NOTICE_TEMPLATES.md /app/compliance/CONSENT_AND_NOTICE_TEMPLATES.md
+
 # Copy and make entrypoint executable
 COPY backend/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

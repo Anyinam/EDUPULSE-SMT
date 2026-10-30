@@ -89,6 +89,7 @@ The ECS task definitions then pull the actual runtime secret values directly fro
 - `MAIL_PASSWORD_SECRET_ARN`
 - `PAYSTACK_SECRET_KEY_SECRET_ARN`
 - `PAYSTACK_PUBLIC_KEY_SECRET_ARN`
+- `RATELIMIT_STORAGE_URI_SECRET_ARN` (optional): secret holding a Redis URL such as `rediss://:<auth-token>@<elasticache-endpoint>:6379/0`. When set, login and API rate limits are shared across all app tasks and gunicorn workers. When unset, each worker keeps its own in-memory counters. If Redis becomes unreachable, the app falls back to in-memory limits instead of failing requests.
 
 ## Recommended Population Order
 

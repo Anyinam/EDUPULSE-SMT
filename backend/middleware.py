@@ -269,10 +269,27 @@ def _rate_limit_key():
 
 # The SPA polls dashboards and loads several endpoints per page, so the old
 # 50/hour default throttled normal use and surfaced as locked/Free Tier screens.
+# Use shared storage (e.g. redis://...) so limits hold across ECS tasks and gunicorn
+# workers. Unset falls back to per-process memory. If the shared store is unreachable,
+# limiting degrades to in-memory instead of failing requests.
+RATE_LIMIT_STORAGE_URI = (os.getenv("RATELIMIT_STORAGE_URI") or "").strip() or "memory://"
+if not RATE_LIMIT_STORAGE_URI.startswith(("memory://", "redis://", "rediss://")):
+    # A malformed value (e.g. a JSON secret) must not stop the app from booting.
+    logging.getLogger(__name__).warning(
+        "RATELIMIT_STORAGE_URI must start with redis:// or rediss://; using in-memory rate limits."
+    )
+    RATE_LIMIT_STORAGE_URI = "memory://"
+_shared_rate_limit_storage = not RATE_LIMIT_STORAGE_URI.startswith("memory://")
+
 limiter = Limiter(
     key_func=_rate_limit_key,
     default_limits=["20000 per day", "2000 per hour", "300 per minute"] if RATE_LIMIT_ENABLED else [],
-    enabled=RATE_LIMIT_ENABLED
+    enabled=RATE_LIMIT_ENABLED,
+    storage_uri=RATE_LIMIT_STORAGE_URI,
+    storage_options={"socket_connect_timeout": 2, "socket_timeout": 2} if _shared_rate_limit_storage else {},
+    in_memory_fallback_enabled=_shared_rate_limit_storage,
+    swallow_errors=_shared_rate_limit_storage,
+    key_prefix="edupulse",
 )
 
 
@@ -353,6 +370,17 @@ def get_operational_entitlement(path, method, payload=None):
 
     if method == "POST" and re.fullmatch(r"/api/homeroom/attendance(?:/[^/]+)?", path):
         return "attendance", "full_access"
+
+    # Report Builder depends on entered grades, so it follows grade entry off the Free plan.
+    # Reading a saved report (GET .../report/<id>) stays open for approval and view screens.
+    if path in {
+        "/api/homeroom/report-builder/students",
+        "/api/homeroom/report-builder/submit",
+        "/api/homeroom/class-subject-rankings",
+    } or (method == "POST" and path == "/api/homeroom/report-builder/report") or path.startswith(
+        "/api/homeroom/report-builder/auto-fill/"
+    ):
+        return "report_generation", True
 
     if method == "POST" and path == "/api/school/fees" and isinstance(payload, dict):
         if any(key in payload for key in {
