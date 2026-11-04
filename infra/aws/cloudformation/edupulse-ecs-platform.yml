@@ -430,10 +430,10 @@ Resources:
         MinimumHealthyPercent: 50
       NetworkConfiguration:
         AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
+          AssignPublicIp: ENABLED
           SecurityGroups:
             - !Ref AppServiceSecurityGroup
-          Subnets: !Ref PrivateSubnetIds
+          Subnets: !Ref PublicSubnetIds
       LoadBalancers:
         - ContainerName: edupulse-frontend
           ContainerPort: 80
