@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "EduPulse SMT",
+  "short_name": "EduPulse",
+  "description": "Smart School Management Technology",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/favicon-192.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

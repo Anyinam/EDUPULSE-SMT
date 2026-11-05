@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { getAuthToken, validateTokenExpiry } from './utils/authUtils';
+import ConnectionStatus from './components/ConnectionStatus';
 const Layout = lazy(() => import('./components/Layout'));
 const PublicHome = lazy(() => import('./features/PublicHome'));
 const Login = lazy(() => import('./features/login'));
@@ -97,6 +98,7 @@ function PaymentReceiptsRoute() {
 export default function App() {
   return (
     <Router>
+      <ConnectionStatus />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<RootRoute />} />

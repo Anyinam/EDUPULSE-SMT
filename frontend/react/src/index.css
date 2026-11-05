@@ -21,6 +21,32 @@
   @apply bg-white p-6 rounded-xl shadow-lg border border-gray-100;
 }
 
+.connection-status {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 0.5rem;
+  padding: 0.625rem 1rem;
+  color: #1f2937;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.connection-status--offline {
+  background: #fef3c7;
+}
+
+.connection-status--restored {
+  background: #d1fae5;
+}
+
+.connection-status__label {
+  font-weight: 700;
+}
+
 /* Remove spinner arrows from specific number inputs */
 .no-spinner {
   appearance: textfield;

@@ -10,6 +10,16 @@ Run `npm run dev`, `npm test -- --run`, and `npm run build` from this directory.
 
 Password-reset emails use the backend's `FRONTEND_URL`, then `FRONTEND_ORIGIN`, with a localhost fallback for development. Configure a public frontend URL in production.
 
+## Lightweight online-first PWA
+
+The frontend is installable from the same HTTPS origin as the website. `public/manifest.webmanifest` provides the app metadata, and `public/service-worker.js` caches the app shell plus frontend assets under `/assets/` and `/images/`.
+
+The service worker deliberately does not intercept `/api` requests or cache authenticated responses and school records. Dashboards that depend on current server data—including kitchen meal counts based on homeroom attendance—remain online features. When the browser reports a connection loss, the app displays a warning that data may be stale; on reconnection, staff are prompted to refresh dashboards.
+
+The service worker is served from `/service-worker.js` at the site root and requires HTTPS in production (localhost is supported for development). Configure the hosting layer to serve that file with revalidation/no-cache headers so deployed service-worker updates can be detected; do not rewrite it to the SPA HTML fallback. This PWA improves startup and repeat-visit bandwidth, but does not provide offline dashboard data entry or background synchronization.
+
+Validate changes with `npm test -- --run` and `npm run build` from this directory. The generated `dist/` output must be deployed to the same origin as `edupulsesmt.com`.
+
 ## Toolchain
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

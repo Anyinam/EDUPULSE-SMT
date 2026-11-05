@@ -4,6 +4,13 @@ EduPulse SMT is a multi-tenant SaaS platform for Ghanaian schools that combines 
 
 ## 🚀 Current Implementation Snapshot
 
+### Lightweight, Online-First PWA
+- The React frontend is installable as a Progressive Web App from `edupulsesmt.com`; no separate app-store installation is required.
+- A service worker caches the app shell and versioned frontend assets so the application can reopen with less repeated downloading and display its shell during a temporary connection loss.
+- Authenticated API responses and school operational data are not cached by the service worker. Live dashboards, including kitchen meal counts derived from homeroom attendance, require a server connection to be current.
+- When the browser reports a connection loss, the interface warns that displayed information may be stale. After reconnection, staff are prompted to refresh dashboards for current information.
+- This is an online-first, low-bandwidth PWA—not a full offline school-management system. See [frontend/react/README.md](frontend/react/README.md) for development, deployment, and testing notes.
+
 ### Core Platform
 - Multi-tenant authentication and school-level data isolation (`JWT + X-School-ID + tenant guard`)
 - Role-based access control across `proprietor`, `headmaster`, `teacher`, `finance`, and `admin`

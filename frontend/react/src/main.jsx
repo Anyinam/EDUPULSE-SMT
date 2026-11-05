@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import axios from 'axios'
 import './index.css'
 import App from './App.jsx'
+import './utils/registerServiceWorker'
 import { clearAuth, getAuthToken, validateTokenExpiry } from './utils/authUtils'
 import { isAuthExemptRequest } from './utils/publicRequests'
 
